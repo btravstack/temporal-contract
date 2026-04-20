@@ -16,7 +16,7 @@ catalog:
   "@types/node": 24.12.2
   "@vitest/coverage-v8": 4.1.4
   arktype: 2.2.0
-  knip: 6.4.1
+  knip: 6.5.0
   lefthook: 2.1.5
   oxfmt: 0.45.0
   oxlint: 1.60.0
