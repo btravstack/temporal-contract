@@ -18,7 +18,7 @@ catalog:
   arktype: 2.2.0
   knip: 6.6.0
   lefthook: 2.1.6
-  oxfmt: 0.46.0
+  oxfmt: 0.47.0
   oxlint: 1.61.0
   pino: 10.3.1
   pino-pretty: 13.1.3
