@@ -5,88 +5,16 @@
  * `exports` map, so consumers can't import from `@temporal-contract/worker/internal`.
  * In-package tests import it directly via relative path.
  */
-import { proxyActivities } from "@temporalio/workflow";
+import { ContinueAsNewOptions, makeContinueAsNewFunc, proxyActivities } from "@temporalio/workflow";
 import type { ActivityOptions } from "@temporalio/workflow";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { ActivityDefinition } from "@temporal-contract/contract";
+import type { ActivityDefinition, ContractDefinition } from "@temporal-contract/contract";
+import { WorkflowInputValidationError } from "./errors.js";
 
-/**
- * Pattern for string keys safe to render with dot notation. A "safe" key is a
- * JavaScript identifier (letters/digits/underscore/$, not starting with a
- * digit). Anything else — keys containing dots, spaces, leading digits, the
- * empty string, the literal string `"0"` etc. — gets bracket-quoted so the
- * path is unambiguous. Reserved words are accepted: we are formatting a
- * diagnostic, not generating runnable code.
- */
-const SAFE_IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
-
-/**
- * Render a Standard Schema {@link StandardSchemaV1.Issue} into a human-readable
- * string that includes the failing field's path.
- *
- * Example output:
- * - `at items[0].quantity: Expected number, received undefined`
- * - `at customerId: Expected string, received undefined`
- * - `at user["first name"]: Expected string, received undefined`
- * - `Validation error` *(no path)*
- *
- * Path segments come either as bare `PropertyKey` values or as
- * `{ key: PropertyKey }` objects (per the spec); both are normalized.
- * - Numeric keys → `[N]`
- * - String keys that are valid JS identifiers → bare (first) or `.key`
- * - String keys that aren't valid identifiers → `["..."]` with JSON-style
- *   escaping (handles dots, spaces, leading digits, the empty string, the
- *   literal string `"0"`, embedded quotes, etc.)
- * - Symbol / other `PropertyKey` → `[Symbol(name)]`
- */
-export function formatIssue(issue: StandardSchemaV1.Issue): string {
-  if (issue.path === undefined || issue.path.length === 0) {
-    return issue.message;
-  }
-  let path = "";
-  for (let i = 0; i < issue.path.length; i++) {
-    const segment = issue.path[i];
-    const key =
-      segment !== null && typeof segment === "object" && "key" in segment ? segment.key : segment;
-    if (typeof key === "number") {
-      path += `[${key}]`;
-    } else if (typeof key === "string" && SAFE_IDENTIFIER.test(key)) {
-      path += i === 0 ? key : `.${key}`;
-    } else if (typeof key === "string") {
-      // Non-identifier string: bracket-quote with JSON-style escaping so
-      // dots, spaces, embedded quotes, and the literal string `"0"` are
-      // unambiguous from numeric indices and identifier segments.
-      path += `[${JSON.stringify(key)}]`;
-    } else {
-      // Symbol or other PropertyKey — bracket-stringify so it parses
-      // unambiguously alongside string segments.
-      path += `[${String(key)}]`;
-    }
-  }
-  return `at ${path}: ${issue.message}`;
-}
-
-/**
- * Join a list of validation issues into a single message, with each issue
- * rendered via {@link formatIssue} so field paths surface in the error text.
- */
-export function summarizeIssues(issues: ReadonlyArray<StandardSchemaV1.Issue>): string {
-  return issues.map(formatIssue).join("; ");
-}
-
-/**
- * Build the message attached to a `ChildWorkflowError` for input/output
- * validation failures. Centralized here so the worker and any future
- * call sites format identically and so the path-aware behavior has a
- * single regression-coverage target.
- */
-export function formatChildWorkflowValidationMessage(
-  workflowName: string,
-  direction: "input" | "output",
-  issues: ReadonlyArray<StandardSchemaV1.Issue>,
-): string {
-  return `Child workflow "${workflowName}" ${direction} validation failed: ${summarizeIssues(issues)}`;
-}
+// Re-export the formatters so workflow.ts and existing tests can keep
+// importing from `./internal.js`. Their canonical home is `./format.js`,
+// which both `errors.ts` and `internal.ts` import from to avoid a
+// circular dependency once `internal.ts` started importing error classes.
+export { formatIssue, summarizeIssues, formatChildWorkflowValidationMessage } from "./format.js";
 
 /**
  * Extract the single payload from a Temporal handler's `...args` array.
@@ -178,4 +106,97 @@ export function buildRawActivitiesProxy(
       return target[prop] ?? defaultProxy[prop];
     },
   });
+}
+
+/**
+ * Continue-as-new options the typed wrapper does not own. `workflowType` and
+ * `taskQueue` are derived from the contract; everything else is forwarded to
+ * Temporal's `makeContinueAsNewFunc`.
+ */
+export type TypedContinueAsNewOptions = Omit<ContinueAsNewOptions, "workflowType" | "taskQueue">;
+
+/**
+ * Build the typed `continueAsNew` function bound to the running workflow's
+ * contract. Two overloads — same-workflow and cross-contract — share one
+ * implementation; the public type signature lives on `WorkflowContext` so
+ * call sites are type-safe.
+ *
+ * Validation runs *before* Temporal's `makeContinueAsNewFunc(...)` is invoked.
+ * On failure, throws a `WorkflowInputValidationError` (matching the behaviour
+ * of `declareWorkflow`'s incoming-input validation), which surfaces back to
+ * Temporal as a workflow failure rather than silently proceeding with an
+ * invalid run.
+ *
+ * Temporal's `continueAsNew` never returns — it throws a `ContinueAsNew`
+ * exception that the runtime intercepts. The returned function preserves
+ * `Promise<never>` to encode that.
+ *
+ * @internal
+ */
+export function createContinueAsNew(
+  currentContract: ContractDefinition,
+  currentWorkflowName: string | number | symbol,
+) {
+  return async function continueAsNew(
+    arg1: unknown,
+    arg2?: unknown,
+    arg3?: unknown,
+    arg4?: TypedContinueAsNewOptions,
+  ): Promise<never> {
+    // Heuristic: a contract object has both `taskQueue: string` and
+    // `workflows: Record<string, ...>`. Plain workflow input objects don't.
+    const isCrossContract =
+      typeof arg1 === "object" &&
+      arg1 !== null &&
+      "taskQueue" in arg1 &&
+      typeof (arg1 as ContractDefinition).taskQueue === "string" &&
+      "workflows" in arg1 &&
+      typeof (arg1 as ContractDefinition).workflows === "object";
+
+    let targetContract: ContractDefinition;
+    let targetName: string;
+    let rawArgs: unknown;
+    let options: TypedContinueAsNewOptions | undefined;
+
+    if (isCrossContract) {
+      targetContract = arg1 as ContractDefinition;
+      targetName = String(arg2);
+      rawArgs = arg3;
+      options = arg4;
+    } else {
+      targetContract = currentContract;
+      targetName = String(currentWorkflowName);
+      rawArgs = arg1;
+      options = arg2 as TypedContinueAsNewOptions | undefined;
+    }
+
+    const targetDef = targetContract.workflows[targetName];
+    if (!targetDef) {
+      throw new WorkflowInputValidationError(targetName, [
+        {
+          message: `continueAsNew target workflow "${targetName}" is not declared on the supplied contract.`,
+        },
+      ]);
+    }
+
+    const inputResult = await targetDef.input["~standard"].validate(rawArgs);
+    if (inputResult.issues) {
+      throw new WorkflowInputValidationError(targetName, inputResult.issues);
+    }
+
+    // workflowType/taskQueue come from the destination contract; user
+    // options are spread last so power users can override (e.g. retry,
+    // memo). The public TypedContinueAsNewOptions type Omits workflowType
+    // and taskQueue so this isn't a footgun on the typed call path.
+    const fn = makeContinueAsNewFunc({
+      workflowType: targetName,
+      taskQueue: targetContract.taskQueue,
+      ...options,
+    });
+
+    await fn(inputResult.value);
+    // Unreachable — Temporal's continueAsNew throws to terminate the run.
+    /* c8 ignore next */
+    return undefined as never;
+  };
 }
