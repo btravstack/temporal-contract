@@ -1,5 +1,7 @@
 /**
- * Coverage for the path-aware issue formatting in worker validation errors.
+ * Coverage for the path-aware issue formatting in worker validation errors
+ * and in `formatChildWorkflowValidationMessage` (the workflow.ts call site
+ * for child-workflow input/output validation).
  *
  * The error classes are simple constructors; what we care about is that the
  * resulting `error.message` includes the failing field's path so debugging
@@ -14,6 +16,7 @@ import {
   ActivityOutputValidationError,
   WorkflowInputValidationError,
 } from "./errors.js";
+import { formatChildWorkflowValidationMessage } from "./internal.js";
 
 const issue = (
   message: string,
@@ -113,5 +116,82 @@ describe("validation error message formatting", () => {
     const error = new ActivityInputValidationError("act", issues);
     expect(error.issues).toEqual(issues);
     expect(error.activityName).toBe("act");
+  });
+
+  describe("non-identifier string keys", () => {
+    // Standard Schema paths can carry arbitrary string property keys. Naively
+    // dot-joining produces wrong field names for keys like "foo.bar",
+    // "first name", "" or "0" — bracket-quote them so the path is unambiguous.
+
+    it("bracket-quotes keys containing dots", () => {
+      const error = new ActivityInputValidationError("act", [issue("invalid", ["foo.bar"])]);
+      expect(error.message).toBe(`Activity "act" input validation failed: at ["foo.bar"]: invalid`);
+    });
+
+    it("bracket-quotes keys containing whitespace", () => {
+      const error = new ActivityInputValidationError("act", [
+        issue("expected string", ["user", "first name"]),
+      ]);
+      expect(error.message).toBe(
+        `Activity "act" input validation failed: at user["first name"]: expected string`,
+      );
+    });
+
+    it("bracket-quotes keys starting with a digit", () => {
+      const error = new ActivityInputValidationError("act", [issue("invalid", ["123foo"])]);
+      expect(error.message).toBe(`Activity "act" input validation failed: at ["123foo"]: invalid`);
+    });
+
+    it("bracket-quotes the empty-string key", () => {
+      const error = new ActivityInputValidationError("act", [issue("invalid", [""])]);
+      expect(error.message).toBe(`Activity "act" input validation failed: at [""]: invalid`);
+    });
+
+    it('disambiguates the literal string key "0" from the numeric index 0', () => {
+      const stringKey = new ActivityInputValidationError("act", [issue("invalid", ["0"])]);
+      const numericKey = new ActivityInputValidationError("act", [issue("invalid", [0])]);
+      expect(stringKey.message).toBe(`Activity "act" input validation failed: at ["0"]: invalid`);
+      expect(numericKey.message).toBe(`Activity "act" input validation failed: at [0]: invalid`);
+    });
+
+    it("escapes embedded quotes via JSON.stringify", () => {
+      const error = new ActivityInputValidationError("act", [issue("invalid", [`with"quote`])]);
+      expect(error.message).toBe(
+        `Activity "act" input validation failed: at ["with\\"quote"]: invalid`,
+      );
+    });
+  });
+
+  describe("formatChildWorkflowValidationMessage", () => {
+    // The workflow.ts call sites for child-workflow input/output validation
+    // delegate to this helper. Path-aware behavior would otherwise be
+    // unexercised at the unit level — only covered indirectly via the
+    // worker error classes, which use the same `summarizeIssues` underneath.
+
+    it("formats input validation failures with field paths", () => {
+      const message = formatChildWorkflowValidationMessage("processChild", "input", [
+        issue("expected number", ["amount"]),
+      ]);
+      expect(message).toBe(
+        `Child workflow "processChild" input validation failed: at amount: expected number`,
+      );
+    });
+
+    it("formats output validation failures and joins multiple issues", () => {
+      const message = formatChildWorkflowValidationMessage("processChild", "output", [
+        issue("expected boolean", ["success"]),
+        issue("expected string", ["transactionId"]),
+      ]);
+      expect(message).toBe(
+        `Child workflow "processChild" output validation failed: at success: expected boolean; at transactionId: expected string`,
+      );
+    });
+
+    it("falls back to just the message when no path is present", () => {
+      const message = formatChildWorkflowValidationMessage("processChild", "input", [
+        issue("invalid input"),
+      ]);
+      expect(message).toBe(`Child workflow "processChild" input validation failed: invalid input`);
+    });
   });
 });

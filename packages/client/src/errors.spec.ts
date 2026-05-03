@@ -71,4 +71,51 @@ describe("validation error message formatting", () => {
     expect(error.workflowName).toBe("processOrder");
     expect(error.direction).toBe("input");
   });
+
+  describe("non-identifier and symbol path segments", () => {
+    // The client keeps its own copy of the formatter (intentional, per
+    // package boundaries), so these edge cases need their own coverage —
+    // the worker-side tests can't catch regressions here.
+
+    it("bracket-quotes string keys that aren't valid JS identifiers", () => {
+      const error = new WorkflowValidationError("processOrder", "input", [
+        issue("invalid", ["foo.bar"]),
+      ]);
+      expect(error.message).toBe(
+        `Validation failed for workflow "processOrder" input: at ["foo.bar"]: invalid`,
+      );
+    });
+
+    it("bracket-quotes the empty-string key", () => {
+      const error = new WorkflowValidationError("processOrder", "input", [issue("invalid", [""])]);
+      expect(error.message).toBe(
+        `Validation failed for workflow "processOrder" input: at [""]: invalid`,
+      );
+    });
+
+    it('disambiguates the literal string "0" from the numeric index 0', () => {
+      const stringKey = new WorkflowValidationError("processOrder", "input", [
+        issue("invalid", ["0"]),
+      ]);
+      const numericKey = new WorkflowValidationError("processOrder", "input", [
+        issue("invalid", [0]),
+      ]);
+      expect(stringKey.message).toBe(
+        `Validation failed for workflow "processOrder" input: at ["0"]: invalid`,
+      );
+      expect(numericKey.message).toBe(
+        `Validation failed for workflow "processOrder" input: at [0]: invalid`,
+      );
+    });
+
+    it("falls back to bracket-stringification for symbol path segments", () => {
+      const symbolKey = Symbol("hidden");
+      const error = new WorkflowValidationError("processOrder", "input", [
+        issue("invalid", [symbolKey]),
+      ]);
+      expect(error.message).toBe(
+        `Validation failed for workflow "processOrder" input: at [Symbol(hidden)]: invalid`,
+      );
+    });
+  });
 });
