@@ -19,6 +19,15 @@ export const simpleWorkflow = declareWorkflow({
 export const workflowWithActivities = declareWorkflow({
   workflowName: "workflowWithActivities",
   contract: testContract,
+  // Demonstrates `activityOptionsByName`: most activities use the workflow
+  // default, but `processPayment` is given a longer timeout because the
+  // (real) gateway is slower than typical activities.
+  activityOptionsByName: {
+    processPayment: {
+      startToCloseTimeout: "5 minutes",
+      retry: { maximumAttempts: 5 },
+    },
+  },
   implementation: async ({ activities }, args) => {
     // Validate order
     const validationResult = await activities.validateOrder({ orderId: args.orderId });
