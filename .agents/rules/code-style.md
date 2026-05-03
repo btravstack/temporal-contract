@@ -28,7 +28,9 @@
 
 ## Anti-patterns
 
-- No barrel files — import from specific modules
+- No deep barrel files — a single `src/index.ts` per package entry point is fine,
+  but don't add intermediate `index.ts` files inside subfolders. Within a package,
+  always import from specific modules (`./builder.js`, not `.`).
 - No default exports in library code
 - No `console.log` — use structured logging (pino)
 - No mutation of shared state
