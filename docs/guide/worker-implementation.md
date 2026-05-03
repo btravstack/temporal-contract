@@ -107,6 +107,43 @@ export const processOrder = declareWorkflow({
 });
 ```
 
+### Per-activity options
+
+`activityOptions` applies to every activity reachable from the workflow. To
+override timeouts or retry policy for a specific activity, add
+`activityOptionsByName`. Each entry shallow-merges over the workflow default;
+the override wins on every property it specifies, including the entire nested
+`retry` block (matching Temporal's "one `ActivityOptions` per
+`proxyActivities` call" semantics).
+
+```typescript
+export const processOrder = declareWorkflow({
+  workflowName: "processOrder",
+  contract: myContract,
+  activityOptions: {
+    startToCloseTimeout: "1 minute",
+  },
+  activityOptionsByName: {
+    // Payment gateway is slow and worth retrying aggressively
+    processPayment: {
+      startToCloseTimeout: "5 minutes",
+      retry: { maximumAttempts: 5 },
+    },
+    // Cheap CPU-bound check — fail fast if it stalls
+    validateOrder: {
+      startToCloseTimeout: "5 seconds",
+    },
+  },
+  implementation: async (context, args) => {
+    // ...
+  },
+});
+```
+
+Activity names in `activityOptionsByName` are constrained to the contract's
+declared activities (workflow-local + global), so typos surface at compile
+time rather than running silently with the default options.
+
 ## Worker Setup
 
 Set up the Temporal worker:

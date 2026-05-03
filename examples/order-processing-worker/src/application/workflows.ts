@@ -156,4 +156,18 @@ export const processOrder = declareWorkflow({
   activityOptions: {
     startToCloseTimeout: "1 minute",
   },
+  // Per-activity overrides: payment-related activities talk to a slower
+  // gateway and are worth retrying more aggressively, so they get a longer
+  // timeout and a custom retry policy. Everything else uses the workflow
+  // default above.
+  activityOptionsByName: {
+    processPayment: {
+      startToCloseTimeout: "5 minutes",
+      retry: { maximumAttempts: 5 },
+    },
+    refundPayment: {
+      startToCloseTimeout: "5 minutes",
+      retry: { maximumAttempts: 5 },
+    },
+  },
 });
