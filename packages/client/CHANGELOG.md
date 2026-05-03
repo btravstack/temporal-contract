@@ -1,5 +1,347 @@
 # @temporal-contract/client
 
+## 1.0.0
+
+### Minor Changes
+
+- 58fb9cd: Close part of the API gap with `@swan-io/boxed`, document the rest.
+
+  Closes #186.
+
+  ## New `Result` methods
+  - `result.tap(fn)` — run a side effect with the Ok value, return the Result unchanged. No-op on Err.
+  - `result.tapError(fn)` — run a side effect with the Err value, return the Result unchanged. No-op on Ok.
+  - `result.flatMapError(fn)` — Err-path equivalent of `flatMap`. Useful for recovery and error-type transformations.
+  - `Result.allFromDict({...})` — combine a record of Results into a Result of a record. First Err wins.
+
+  All four match the corresponding `@swan-io/boxed` semantics.
+
+  ## New docs page
+
+  `docs/guide/boxed-vs-swan.md` enumerates the full `Result` and `Future` surface for both libraries side-by-side, calls out each gap with its reason (determinism, soundness regression, not-yet-ported), establishes `match` / `isOk` / `isError` as the canonical discriminants (with `tag` documented as the power-user escape hatch), and includes a migration cheat sheet. The package README links it; the existing `result-pattern.md` "Both packages provide the same API" claim has been corrected.
+
+  ## Still intentionally absent
+  - `Result#getWithDefault` — duplicate of `getOr`; removed in 0.x.
+  - `Result#toOption`, `okToOption`, `errorToOption`, `Option` type — `Option` was removed when nothing in the codebase consumed it. Use `result.match({ Ok: (v) => v, Error: () => undefined })`.
+  - `Result.fromExecution<T, E>(fn)` typed-error overload — was unsound (`error as E` cast without runtime guard). The un-narrowed `Result<T, unknown>` form is preserved; narrow at the call site via `.mapError`.
+  - `Future.concurrent` and `Future.mapOkToResult` — useful but not blocking; ports welcome.
+
+- d70f25e: `declareWorkflow` accepts a new optional `activityOptionsByName` field for
+  per-activity `ActivityOptions` overrides.
+
+  Closes #122.
+
+  Today, `activityOptions` applies to every activity reachable from the
+  workflow. `activityOptionsByName` lets you override timeouts, retry policy,
+  or any other Temporal `ActivityOptions` field for individual activities:
+
+  ```ts
+  declareWorkflow({
+    workflowName: "processOrder",
+    contract,
+    activityOptions: {
+      startToCloseTimeout: "1 minute", // default for all activities
+    },
+    activityOptionsByName: {
+      // Payment gateway is slow — give it room and retry aggressively.
+      chargePayment: {
+        startToCloseTimeout: "5 minutes",
+        retry: { maximumAttempts: 5 },
+      },
+      // Cheap CPU-bound check — fail fast if it stalls.
+      validateOrder: { startToCloseTimeout: "5 seconds" },
+    },
+    implementation: ...,
+  });
+  ```
+
+  Each entry shallow-merges over the workflow default. The override wins on
+  every property it specifies, including the entire nested `retry` block —
+  this matches Temporal's "one `ActivityOptions` per `proxyActivities` call"
+  semantics, where each scheduled activity carries one full options bag.
+
+  Activity names are typed against the contract (workflow-local + global), so
+  typos surface at compile time rather than running silently with the default
+  options.
+
+  Non-breaking: existing workflows that only use `activityOptions` are
+  unchanged.
+
+- ad1e1da: Round-2 review-driven cleanup. Several small breaking removals, a typed-error overload on `Future.fromPromise`, and a deduplication of the client's typed-handle proxies.
+
+  **Breaking changes (`@temporal-contract/boxed`)**
+  - Removed `getWithDefault` from `Result`. It was a literal duplicate of `getOr`. Migrate by using `getOr(...)` everywhere.
+  - Removed the half-implemented `Option` type and the `Result#toOption()` method. They had no constructors, no methods, and no consumer in the codebase. If you need optionality, use `T | undefined`.
+  - `Result.fromExecution` and `Result.fromAsyncExecution` now return `Result<T, unknown>` (the second `E` generic is gone). The previous signature accepted an `E` generic but cast `error as E` without any runtime guard, which was unsound. Narrow at the call site: `Result.fromExecution(...).mapError((e) => mapToYourError(e))`.
+
+  **Breaking changes (`@temporal-contract/worker`)**
+  - Removed the `getWorkflowActivities`, `getWorkflowActivityNames`, `isWorkflowActivity`, and `getWorkflowNames` helpers from `@temporal-contract/worker/activity`. They had no internal usage, no example usage, and `isWorkflowActivity` was misnamed (returned true for global activities). If you depended on them, derive equivalents directly from the contract — but **remember the merge with global activities**:
+
+    ```ts
+    // Before:
+    const activities = getWorkflowActivities(contract, "processOrder");
+    const names = getWorkflowActivityNames(contract, "processOrder");
+    const isAvailable = isWorkflowActivity(contract, "processOrder", "send");
+    const workflows = getWorkflowNames(contract);
+
+    // After:
+    const activities = {
+      ...(contract.activities ?? {}),
+      ...(contract.workflows.processOrder.activities ?? {}),
+    };
+    const names = Object.keys(activities);
+    const isAvailable = "send" in activities;
+    const workflows = Object.keys(contract.workflows);
+    ```
+
+    `contract.workflows[name].activities` alone only contains workflow-local activities; you must merge `contract.activities` to match the old helper's behavior.
+
+  **Breaking changes (`@temporal-contract/client`)**
+  - The internal proxy generation was deduplicated. The shape and types of `TypedWorkflowHandle.queries`/`signals`/`updates` are unchanged.
+  - `RuntimeClientError` is now exported. Match against it with `instanceof RuntimeClientError` or ts-pattern's `P.instanceOf(RuntimeClientError)`.
+
+  **Additions**
+  - `Future.fromPromise` (`@temporal-contract/boxed`) accepts an optional `mapError` argument that lifts the error type at the boundary instead of stripping to `unknown`. Existing call sites without the second argument are unchanged.
+  - `defineQuery`'s JSDoc now calls out the synchronous-validator constraint (Temporal queries must complete synchronously, so async refinements aren't supported).
+  - New tests: typed-error `Future.fromPromise` overload coverage, swan-boxed round-trip preservation, deterministic-replay assertions for `Future` chains, negative type-level assertion for the worker/client `InferInput`/`InferOutput` duality.
+
+  **Internal**
+  - Hoisted the `args.length === 1 ? args[0] : args` heuristic into a single `extractHandlerInput` helper used across activity, workflow, signal, query, and update handlers.
+  - Dropped runtime defensive checks in `defineSignal`/`defineQuery`/`defineUpdate` that the type system already prevents.
+  - Activity and workflow entry points now carry a top-of-file comment explaining the swan-vs-local Result/Future split.
+  - `Future.then` / `catch` / `finally` JSDoc clarifies they return raw `Promise`s and break Future chainability.
+
+- 5948e4e: Add `TypedClient#signalWithStart` for the actor-style "send a signal, start the workflow if it doesn't exist" pattern.
+
+  Closes #178.
+
+  Both halves of the call are typed against the contract: workflow input validates against `contract.workflows[name].input`, signal input validates against `contract.workflows[name].signals[signalName].input`. Returns a `TypedWorkflowHandleWithSignaledRunId` — the standard typed handle plus a `signaledRunId` field for correlating the signal with the (possibly pre-existing) workflow execution chain.
+
+  ```ts
+  const result = await client.signalWithStart("processOrder", {
+    workflowId: "order-123",
+    args: { orderId: "ORD-123", customerId: "CUST-1" },     // typed against workflow input
+    signalName: "cancel",                                     // restricted to declared signals
+    signalArgs: { reason: "duplicate" },                      // typed against signal input
+  });
+
+  result.match({
+    Ok: (handle) => console.log("signaled run", handle.signaledRunId),
+    Error: (error) => /* WorkflowNotFoundError | WorkflowValidationError | SignalValidationError | RuntimeClientError */,
+  });
+  ```
+
+- 80c822b: Add typed `context.continueAsNew(...)` to the workflow context.
+
+  Closes #179.
+
+  Two overloads:
+
+  ```ts
+  // Same workflow — args validated against this workflow's input schema
+  return context.continueAsNew({ ...args, retryCount: args.retryCount + 1 });
+
+  // Cross-contract — workflowType and taskQueue come from the destination
+  // contract automatically; args validated against the destination's input
+  return context.continueAsNew(otherContract, "otherWorkflow", { ...newArgs });
+  ```
+
+  Both validate args via the same Standard Schema check `declareWorkflow` runs on incoming inputs. On validation failure, throws `WorkflowInputValidationError`, which surfaces back to Temporal as a controlled workflow failure rather than silently proceeding with an invalid run.
+
+  Both forms also accept a third optional argument matching Temporal's `ContinueAsNewOptions` minus `workflowType` / `taskQueue` (those come from the contract). The user options are spread last so power users can override fields like `workflowRunTimeout`, `memo`, or `retry`.
+
+  Returns `Promise<never>` — Temporal's `continueAsNew` throws an internal exception that the runtime intercepts to terminate the current execution and start a new one.
+
+- 26ab350: Add typed Schedules to `TypedClient` (Temporal 1.16+).
+
+  Closes #181.
+
+  ```ts
+  const result = await client.schedule.create("processOrder", {
+    scheduleId: "daily-sweep",
+    spec: { cronExpressions: ["0 2 * * *"] },
+    args: { orderId: "sweep" },        // typed against the workflow's input
+    policies: { overlap: "SKIP" },
+    workflowExecutionTimeout: "1 hour",
+  });
+
+  result.match({
+    Ok: async (handle) => {
+      await handle.pause("maintenance");
+      await handle.unpause();
+      await handle.trigger();
+      await handle.delete();
+    },
+    Error: (error) => /* WorkflowNotFoundError | WorkflowValidationError | RuntimeClientError */,
+  });
+
+  // Existing schedule:
+  const handle = client.schedule.getHandle("daily-sweep");
+  const desc = await handle.describe();
+  ```
+
+  ## What ships
+  - `client.schedule.create(workflowName, options)` — validates `args` against the workflow's input schema, then calls Temporal's `client.schedule.create` with `workflowType` and `taskQueue` derived from the contract. Returns `Future<Result<TypedScheduleHandle, ...>>`.
+  - `client.schedule.getHandle(scheduleId)` — lifts an existing schedule handle into the typed wrapper.
+  - `TypedScheduleHandle` exposes `pause`, `unpause`, `trigger`, `delete`, `describe`, all wrapped in the Future/Result pattern (`Future<Result<void | ScheduleDescription, RuntimeClientError>>`).
+
+  ## Scope (v1)
+  - Action type is **`startWorkflow` only**, matching the issue's stated v1 scope. Other Temporal action kinds aren't part of this PR.
+  - Schedule-level Temporal options forwarded: `policies`, `state`, `memo`, plus workflow-action–level overrides (`workflowId`, retry, timeouts, memo, etc.). `workflowType` and `taskQueue` are owned by the contract.
+  - The client's `schedule` field exposes a `TypedScheduleClient` instance that wraps Temporal's `Client.schedule` (mirroring how Temporal's API is organized).
+
+  ## Out of scope
+  - Schedule lifecycle methods that don't have an obvious typed boundary (`update`, `backfill`, `readme`) — Temporal's raw types still apply; consumers can drop down to the underlying handle if needed.
+  - Search-attribute integration on the schedule itself — that follows after #180 ships and the worker-side typed reader lands.
+
+- 5614348: Add typed search attributes to the contract surface.
+
+  Closes #180.
+
+  ## What ships
+
+  **Contract** — declare attribute kinds alongside signals/queries/updates:
+
+  ```ts
+  import {
+    defineContract,
+    defineSearchAttribute,
+    defineWorkflow,
+  } from "@temporal-contract/contract";
+
+  defineContract({
+    taskQueue: "orders",
+    workflows: {
+      processOrder: defineWorkflow({
+        input: z.object({ orderId: z.string() }),
+        output: z.object({ status: z.string() }),
+        searchAttributes: {
+          customerId: defineSearchAttribute({ kind: "KEYWORD" }),
+          priority: defineSearchAttribute({ kind: "INT" }),
+          placedAt: defineSearchAttribute({ kind: "DATETIME" }),
+          tags: defineSearchAttribute({ kind: "KEYWORD_LIST" }),
+          urgent: defineSearchAttribute({ kind: "BOOL" }),
+        },
+      }),
+    },
+  });
+  ```
+
+  The seven Temporal kinds (`TEXT`, `KEYWORD`, `INT`, `DOUBLE`, `BOOL`, `DATETIME`, `KEYWORD_LIST`) map to TypeScript types via the new `SearchAttributeKindToType<K>` utility.
+
+  **Client** — `searchAttributes` becomes a typed parameter on `startWorkflow` and `executeWorkflow`. Keys are constrained to declared attributes, value types follow each attribute's `kind`:
+
+  ```ts
+  await client.startWorkflow("processOrder", {
+    workflowId: "order-1",
+    args: { orderId: "ORD-1" },
+    searchAttributes: {
+      customerId: "CUST-1", // string (KEYWORD)
+      priority: 3, // number (INT)
+      placedAt: new Date(), // Date (DATETIME)
+      tags: ["vip", "urgent"], // string[] (KEYWORD_LIST)
+      urgent: true, // boolean (BOOL)
+    },
+  });
+  ```
+
+  The client translates the typed map into a Temporal `TypedSearchAttributes` instance before dispatching the start request.
+
+  **Validation** — `defineContract` validates that each search-attribute name is a JS identifier and that each `kind` is one of the seven supported values.
+
+  ## New peer dep
+
+  `@temporal-contract/client` adds `@temporalio/common` as a peer dependency (alongside the existing `@temporalio/client` peer) for the `TypedSearchAttributes` import.
+
+  ## Deferred
+
+  The worker-side typed reader (`context.searchAttributes.get("customerId")`) is not in this PR. Workers can still read via Temporal's `workflowInfo().typedSearchAttributes`, and the contract-declared attribute kinds make it straightforward to wrap that in a typed accessor in a follow-up.
+
+- dfedc5d: Discriminate Temporal client errors as typed `Result.Error` variants.
+
+  Closes #184.
+
+  ## What ships
+
+  Three new error classes are surfaced from `@temporal-contract/client`, each catching a specific Temporal SDK error class and exposing it through the existing `Future<Result<...>>` shape so callers can branch on it without inspecting `error.cause` against `@temporalio/client` internals.
+
+  | Error class                      | Caught Temporal class                  | Surfaced from                                                                                                                         |
+  | -------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+  | `WorkflowAlreadyStartedError`    | `WorkflowExecutionAlreadyStartedError` | `startWorkflow`, `signalWithStart`, `executeWorkflow`                                                                                 |
+  | `WorkflowExecutionNotFoundError` | `WorkflowNotFoundError` (Temporal)     | handle methods (`signal`, `query`, `executeUpdate`, `terminate`, `cancel`, `describe`, `fetchHistory`), `executeWorkflow`, `result()` |
+  | `WorkflowFailedError`            | `WorkflowFailedError` (Temporal)       | `executeWorkflow`, `result()`                                                                                                         |
+
+  ```ts
+  const result = await client.startWorkflow("processOrder", {
+    workflowId: "order-1",
+    args: { orderId: "ORD-1" },
+  });
+
+  result.match({
+    Ok: (handle) => /* ... */,
+    Error: (e) => {
+      if (e instanceof WorkflowAlreadyStartedError) {
+        // idempotent: re-fetch the existing handle and continue
+      }
+      // ...
+    },
+  });
+  ```
+
+  ## Naming
+
+  `WorkflowExecutionNotFoundError` is named differently from the existing `WorkflowNotFoundError` (which signals a workflow not declared in the contract — a static contract check) so the two cases stay distinguishable. The Temporal-runtime variant takes the `Execution` qualifier to mirror Temporal's `WorkflowExecution*` server-side concepts.
+
+  ## Backwards compatibility
+
+  The new error classes extend the existing union; previously these would surface as `RuntimeClientError`, which still catches every other thrown error. Existing `instanceof RuntimeClientError` checks continue to work for unrelated failures, but won't match the new discriminated variants — this is the point.
+
+### Patch Changes
+
+- db7ea8b: Review-driven cleanup across packages.
+  - **`@temporal-contract/worker`**: remove `main`/`module`/`types` fields from `package.json` that pointed to non-existent `dist/index.*` files; the package is consumed via the `./activity`, `./worker`, `./workflow` subpath exports only.
+  - **`@temporal-contract/contract`**: `defineContract` now also rejects two workflows declaring activities with the same name. Activities live in a single flat namespace at runtime, so duplicates were silently clobbering each other before.
+  - **`@temporal-contract/client`**: validation error messages (`WorkflowValidationError`, `QueryValidationError`, `SignalValidationError`, `UpdateValidationError`) now join issue messages with `; ` instead of `JSON.stringify`-ing the entire issue array. The `issues` array remains accessible as a typed property.
+  - **`@temporal-contract/testing`**: import `NativeConnection` from the public `@temporalio/worker` entry point instead of the deep `@temporalio/worker/lib/connection.js` path.
+  - **`@temporal-contract/worker`**: hoisted the child-workflow helpers out of `declareWorkflow`'s closure to module scope. No behavior change.
+
+- fd60d73: Validation error messages now include the failing field's path.
+
+  Closes #141.
+
+  Standard Schema's `Issue` type carries a `path` (e.g. `["items", 0, "quantity"]`) but our error formatting was joining only `issue.message`, dropping the path. With nested input shapes you'd get unhelpful messages like:
+
+  ```
+  Activity "matchItemsChunk" input validation failed:
+    Invalid input: expected array, received undefined;
+    Invalid input: expected number, received undefined
+  ```
+
+  You now get:
+
+  ```
+  Activity "matchItemsChunk" input validation failed:
+    at items: Invalid input: expected array, received undefined;
+    at items[0].quantity: Invalid input: expected number, received undefined
+  ```
+
+  The format is dot+bracket notation (familiar to JS devs): top-level string keys appear bare, nested string keys with leading `.`, numeric keys as `[N]`. `PathSegment`-form path entries (the spec's alternative shape) and symbol keys are handled too.
+
+  Affects every validation error class in `@temporal-contract/worker` (activity input/output, workflow input/output, signal input, query input/output, update input/output) and `@temporal-contract/client` (workflow / query / signal / update validation errors). Child-workflow input/output validation messages in workflow.ts are also path-aware now.
+
+  The `issues` property on each error class is unchanged — programmatic consumers who walk `error.issues` and format their own output are unaffected.
+
+- Updated dependencies [58fb9cd]
+- Updated dependencies [d70f25e]
+- Updated dependencies [ad1e1da]
+- Updated dependencies [db7ea8b]
+- Updated dependencies [5948e4e]
+- Updated dependencies [80c822b]
+- Updated dependencies [26ab350]
+- Updated dependencies [5614348]
+- Updated dependencies [fd60d73]
+  - @temporal-contract/contract@1.0.0
+
 ## 0.2.0
 
 ### Minor Changes
