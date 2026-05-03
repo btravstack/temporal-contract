@@ -72,6 +72,6 @@
     "zod": "catalog:"
   },
   "peerDependencies": {
-    "@temporalio/client": "^1"
+    "@temporalio/client": "^1.16.0"
   }
 }

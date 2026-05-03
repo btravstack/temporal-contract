@@ -55,6 +55,23 @@ describe("TypedClient.schedule", () => {
     client = TypedClient.create(contract, rawClient);
   });
 
+  describe("@temporalio/client < 1.16 guard", () => {
+    it("throws a clear error when the underlying Client is missing `schedule`", () => {
+      // Simulates a consumer who installed @temporalio/client < 1.16
+      // (where the Schedule API didn't exist). The peer dep is pinned to
+      // ^1.16, but installs that ignore peer-dep warnings shouldn't crash
+      // with a confusing `Cannot read properties of undefined`.
+      const oldClient = {
+        workflow: { start: vi.fn(), execute: vi.fn(), getHandle: vi.fn() },
+        // schedule intentionally absent
+      } as unknown as Client;
+
+      expect(() => TypedClient.create(contract, oldClient)).toThrow(
+        /requires @temporalio\/client >= 1\.16/,
+      );
+    });
+  });
+
   describe("create", () => {
     it("validates args, calls Temporal with the contract's taskQueue/workflowType, and returns a typed handle", async () => {
       mockSchedule.create.mockResolvedValue(createMockHandle());
@@ -133,7 +150,7 @@ describe("TypedClient.schedule", () => {
       }
     });
 
-    it("forwards optional Temporal options (policies, state, retry, etc.)", async () => {
+    it("forwards schedule-level options (policies, state, schedule memo)", async () => {
       mockSchedule.create.mockResolvedValue(createMockHandle());
 
       await client.schedule.create("processOrder", {
@@ -142,20 +159,59 @@ describe("TypedClient.schedule", () => {
         args: { orderId: "sweep" },
         policies: { catchupWindow: "1 minute" },
         state: { paused: true, note: "initial pause" },
-        memo: { tag: "demo" },
-        workflowExecutionTimeout: "1 hour",
-        retry: { maximumAttempts: 3 },
+        memo: { schedule: "metadata" },
       });
 
       const passed = mockSchedule.create.mock.calls[0]?.[0];
       expect(passed).toMatchObject({
         policies: { catchupWindow: "1 minute" },
         state: { paused: true, note: "initial pause" },
-        memo: { tag: "demo" },
+        memo: { schedule: "metadata" },
+      });
+    });
+
+    it("forwards workflow-action overrides nested under `action`", async () => {
+      mockSchedule.create.mockResolvedValue(createMockHandle());
+
+      await client.schedule.create("processOrder", {
+        scheduleId: "daily-sweep",
+        spec: { cronExpressions: ["0 2 * * *"] },
+        args: { orderId: "sweep" },
+        action: {
+          workflowExecutionTimeout: "1 hour",
+          retry: { maximumAttempts: 3 },
+          memo: { workflow: "metadata" },
+        },
+      });
+
+      const passed = mockSchedule.create.mock.calls[0]?.[0];
+      expect(passed).toMatchObject({
         action: expect.objectContaining({
           workflowExecutionTimeout: "1 hour",
           retry: { maximumAttempts: 3 },
+          memo: { workflow: "metadata" },
         }),
+      });
+    });
+
+    it("schedule-level memo and workflow-action memo can be set independently", async () => {
+      // Regression: previously the two `memo`s collided in the flat options
+      // shape, making it impossible to set them to different values. With
+      // workflow overrides nested under `action`, both flow through cleanly.
+      mockSchedule.create.mockResolvedValue(createMockHandle());
+
+      await client.schedule.create("processOrder", {
+        scheduleId: "daily-sweep",
+        spec: { cronExpressions: ["0 2 * * *"] },
+        args: { orderId: "sweep" },
+        memo: { tag: "schedule-level" },
+        action: { memo: { tag: "workflow-level" } },
+      });
+
+      const passed = mockSchedule.create.mock.calls[0]?.[0];
+      expect(passed).toMatchObject({
+        memo: { tag: "schedule-level" },
+        action: expect.objectContaining({ memo: { tag: "workflow-level" } }),
       });
     });
   });
