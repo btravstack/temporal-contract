@@ -354,10 +354,14 @@ Error: Validation failed: [
 **Symptoms:**
 
 ```
-Error: Activity task failed: ActivityError
+ApplicationFailure: <your message>
+  type: <your ActivityError code, e.g. PAYMENT_FAILED>
+  nonRetryable: false
 ```
 
-**Cause:** Activity threw an error or returned an error result.
+The worker translates each `ActivityError` into a Temporal `ApplicationFailure` so the SDK can honor retry-policy directives (`type`, `nonRetryable`, `details`, `nextRetryDelay`). The `code` you passed into `ActivityError` becomes the failure's `type`.
+
+**Cause:** Activity returned a `Result.Error(...)` or threw an unhandled exception.
 
 **Solutions:**
 

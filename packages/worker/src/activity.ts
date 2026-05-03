@@ -111,6 +111,11 @@ export class ActivityError extends Error {
  * Convert an `ActivityError` to a Temporal `ApplicationFailure` so the worker
  * propagates retry-policy metadata (`type`, `nonRetryable`, `details`,
  * `nextRetryDelay`, `cause`) faithfully across the activity boundary.
+ *
+ * The original `ActivityError`'s stack trace is copied onto the resulting
+ * `ApplicationFailure` so debug output points back at the activity
+ * implementation site (where the user constructed the error) rather than the
+ * wrapper boundary in this file.
  */
 function activityErrorToApplicationFailure(error: ActivityError): ApplicationFailure {
   const options: ApplicationFailureOptions = {
@@ -121,7 +126,11 @@ function activityErrorToApplicationFailure(error: ActivityError): ApplicationFai
   if (error.details.length > 0) options.details = [...error.details];
   if (error.nextRetryDelay !== undefined) options.nextRetryDelay = error.nextRetryDelay;
   if (error.cause instanceof Error) options.cause = error.cause;
-  return ApplicationFailure.create(options);
+  const failure = ApplicationFailure.create(options);
+  if (error.stack !== undefined) {
+    failure.stack = error.stack;
+  }
+  return failure;
 }
 
 /**

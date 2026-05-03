@@ -436,7 +436,7 @@ describe("Worker-Boxed Package", () => {
         });
       });
 
-      it("attaches an Error cause but skips non-Error causes", async () => {
+      it("attaches an Error cause to the thrown ApplicationFailure", async () => {
         const cause = new Error("network down");
 
         const activities = declareActivitiesHandler({
@@ -453,6 +453,52 @@ describe("Worker-Boxed Package", () => {
           name: "ApplicationFailure",
           cause,
         });
+      });
+
+      it("does not forward a non-Error cause onto the thrown ApplicationFailure", async () => {
+        // Plain-object causes are stored on `ActivityError.cause` for reference,
+        // but ApplicationFailure's `cause` slot only accepts an `Error`, so the
+        // wrapper drops non-Error causes rather than forwarding them.
+        const activities = declareActivitiesHandler({
+          contract,
+          activities: {
+            run: () =>
+              Future.value(
+                Result.Error(
+                  new ActivityError("UPSTREAM", "Upstream failed", {
+                    cause: { kind: "plain-object", reason: "n/a" },
+                  }),
+                ),
+              ),
+          },
+        });
+
+        const failure = await activities.run({}).catch((err: unknown) => err);
+        expect(failure).toEqual(
+          expect.objectContaining({
+            name: "ApplicationFailure",
+            type: "UPSTREAM",
+          }),
+        );
+        expect((failure as { cause?: unknown }).cause).toBeUndefined();
+      });
+
+      it("preserves the original ActivityError stack on the thrown ApplicationFailure", async () => {
+        // The ActivityError stack points at the activity-implementation site;
+        // without preservation, the ApplicationFailure stack would point into
+        // the wrapper code in this package, hurting debuggability.
+        const activityError = new ActivityError("STACK_CHECK", "preserve me");
+        const expectedStack = activityError.stack;
+
+        const activities = declareActivitiesHandler({
+          contract,
+          activities: {
+            run: () => Future.value(Result.Error(activityError)),
+          },
+        });
+
+        const failure = (await activities.run({}).catch((err: unknown) => err)) as Error;
+        expect(failure.stack).toBe(expectedStack);
       });
     });
 

@@ -6,7 +6,7 @@
 "@temporal-contract/testing": minor
 ---
 
-`ActivityError` now carries Temporal retry-policy metadata, and `ApplicationFailure` is accepted as an `Result.Error` variant.
+`ActivityError` now carries Temporal retry-policy metadata, and `ApplicationFailure` is accepted as a `Result.Error` variant.
 
 Closes #121.
 
