@@ -87,6 +87,15 @@ export {
  *   activityOptions: {
  *     startToCloseTimeout: '1 minute',
  *   },
+ *   // Optional: override `activityOptions` for specific activities. Each
+ *   // entry shallow-merges over the workflow default — the override wins on
+ *   // every property it specifies, including the whole `retry` block.
+ *   activityOptionsByName: {
+ *     chargePayment: {
+ *       startToCloseTimeout: '5 minutes',
+ *       retry: { maximumAttempts: 5 },
+ *     },
+ *   },
  *   implementation: async (context, args) => {
  *     // context.activities: typed activities (workflow + global)
  *     // context.info: WorkflowInfo
@@ -136,6 +145,7 @@ export function declareWorkflow<
   contract,
   implementation,
   activityOptions,
+  activityOptionsByName,
 }: DeclareWorkflowOptions<TContract, TWorkflowName>): (
   ...args: unknown[]
 ) => Promise<WorkerInferOutput<TContract["workflows"][TWorkflowName]>> {
@@ -172,8 +182,12 @@ export function declareWorkflow<
     let contextActivities: unknown = {};
 
     if (definition.activities || contract.activities) {
-      const rawActivities =
-        proxyActivities<Record<string, (...args: unknown[]) => Promise<unknown>>>(activityOptions);
+      const rawActivities = buildRawActivitiesProxy(
+        definition.activities,
+        contract.activities,
+        activityOptions,
+        activityOptionsByName,
+      );
 
       contextActivities = createValidatedActivities(
         rawActivities,
@@ -384,6 +398,21 @@ type UpdateHandlerImplementation<TUpdate extends UpdateDefinition> = (
 ) => Promise<WorkerInferOutput<TUpdate>>;
 
 /**
+ * Union of all activity names available to a workflow — the workflow-local
+ * activities plus the contract's global activities.
+ */
+type ActivityNamesFor<
+  TContract extends ContractDefinition,
+  TWorkflowName extends keyof TContract["workflows"],
+> =
+  | (TContract["workflows"][TWorkflowName]["activities"] extends Record<string, ActivityDefinition>
+      ? keyof TContract["workflows"][TWorkflowName]["activities"] & string
+      : never)
+  | (TContract["activities"] extends Record<string, ActivityDefinition>
+      ? keyof TContract["activities"] & string
+      : never);
+
+/**
  * Options for declaring a workflow implementation
  */
 type DeclareWorkflowOptions<
@@ -394,23 +423,50 @@ type DeclareWorkflowOptions<
   contract: TContract;
   implementation: WorkflowImplementation<TContract, TWorkflowName>;
   /**
-   * Default activity options applied to all activities in this workflow.
-   * For more control, you can override specific Temporal ActivityOptions like:
-   * - startToCloseTimeout: Maximum time for activity execution
-   * - scheduleToCloseTimeout: End-to-end timeout including queuing
-   * - scheduleToStartTimeout: Maximum time activity can wait in queue
-   * - heartbeatTimeout: Time between heartbeats before considering activity dead
-   * - retry: Retry policy for failed activities
+   * Default activity options applied to every activity reachable from this
+   * workflow (workflow-local + global) unless overridden in
+   * {@link activityOptionsByName}. See Temporal's `ActivityOptions` for the
+   * full set of fields:
+   * - `startToCloseTimeout`: Maximum time for a single attempt to run
+   * - `scheduleToCloseTimeout`: End-to-end timeout including queuing and retries
+   * - `scheduleToStartTimeout`: Maximum time the activity can wait in the queue
+   * - `heartbeatTimeout`: Time between heartbeats before the activity is considered dead
+   * - `retry`: Retry policy for failed activities
    *
    * @example
    * ```ts
    * activityOptions: {
    *   startToCloseTimeout: '5m',
-   *   retry: { maximumAttempts: 3 }
+   *   retry: { maximumAttempts: 3 },
    * }
    * ```
    */
   activityOptions: ActivityOptions;
+  /**
+   * Per-activity `ActivityOptions` overrides. Each entry shallow-merges over
+   * {@link activityOptions} for that activity only — the override wins on
+   * every property it specifies, replacing the default value (including the
+   * entire nested `retry` block when present, matching Temporal's
+   * single-options-per-`proxyActivities`-call semantics).
+   *
+   * Activity names are typed against the contract; typos surface as TypeScript
+   * errors rather than running silently with the default options.
+   *
+   * @example
+   * ```ts
+   * activityOptions: { startToCloseTimeout: '1 minute' }, // default
+   * activityOptionsByName: {
+   *   chargePayment: {
+   *     startToCloseTimeout: '5 minutes',
+   *     retry: { maximumAttempts: 5 },
+   *   },
+   *   fastValidation: { startToCloseTimeout: '5 seconds' },
+   * },
+   * ```
+   */
+  activityOptionsByName?: Partial<
+    Record<ActivityNamesFor<TContract, TWorkflowName>, ActivityOptions>
+  >;
 };
 
 /**
@@ -669,6 +725,47 @@ type WorkflowInferWorkflowContextActivities<
   TWorkflowName extends keyof TContract["workflows"],
 > = WorkflowInferWorkflowActivities<TContract["workflows"][TWorkflowName]> &
   WorkflowInferActivities<TContract>;
+
+/**
+ * Build the raw `Record<name, fn>` proxy of activities for the workflow,
+ * applying per-activity `ActivityOptions` overrides where requested.
+ *
+ * Each activity goes through its own `proxyActivities(...)` call with that
+ * activity's effective options (the workflow's default `activityOptions`,
+ * shallow-merged with any override in `activityOptionsByName`). This matches
+ * Temporal's "one ActivityOptions per `proxyActivities` call" model — each
+ * scheduled activity carries one full options bag, and the override-keyed
+ * field replaces the default's field on conflict.
+ *
+ * @internal exported for unit testing of options propagation.
+ */
+export function buildRawActivitiesProxy(
+  workflowActivities: Record<string, ActivityDefinition> | undefined,
+  contractActivities: Record<string, ActivityDefinition> | undefined,
+  defaultOptions: ActivityOptions,
+  overrides: Partial<Record<string, ActivityOptions>> | undefined,
+): Record<string, (...args: unknown[]) => Promise<unknown>> {
+  const allNames = new Set<string>([
+    ...Object.keys(workflowActivities ?? {}),
+    ...Object.keys(contractActivities ?? {}),
+  ]);
+
+  const rawActivities: Record<string, (...args: unknown[]) => Promise<unknown>> = {};
+  for (const name of allNames) {
+    const override = overrides?.[name];
+    const effective = override ? { ...defaultOptions, ...override } : defaultOptions;
+    const proxy =
+      proxyActivities<Record<string, (...args: unknown[]) => Promise<unknown>>>(effective);
+    // `proxy` is a Proxy that synthesizes a function for any property access;
+    // we materialize one function per declared activity so the resulting map
+    // is enumerable for downstream wrapping.
+    const handler = proxy[name];
+    if (handler !== undefined) {
+      rawActivities[name] = handler;
+    }
+  }
+  return rawActivities;
+}
 
 /**
  * Create a validated activities proxy that parses inputs and outputs
