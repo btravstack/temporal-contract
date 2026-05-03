@@ -33,7 +33,11 @@ import {
   WorkerInferOutput,
 } from "./types.js";
 import { Future, Result } from "@temporal-contract/boxed";
-import { buildRawActivitiesProxy, extractHandlerInput, summarizeIssues } from "./internal.js";
+import {
+  buildRawActivitiesProxy,
+  extractHandlerInput,
+  formatChildWorkflowValidationMessage,
+} from "./internal.js";
 import {
   ActivityOptions,
   ChildWorkflowHandle,
@@ -795,7 +799,7 @@ async function validateChildWorkflowOutput<TChildWorkflow extends WorkflowDefini
   if (outputResult.issues) {
     return Result.Error(
       new ChildWorkflowError(
-        `Child workflow "${childWorkflowName}" output validation failed: ${summarizeIssues(outputResult.issues)}`,
+        formatChildWorkflowValidationMessage(childWorkflowName, "output", outputResult.issues),
       ),
     );
   }
@@ -834,7 +838,11 @@ async function getAndValidateChildWorkflow<
   if (inputResult.issues) {
     return Result.Error(
       new ChildWorkflowError(
-        `Child workflow "${String(childWorkflowName)}" input validation failed: ${summarizeIssues(inputResult.issues)}`,
+        formatChildWorkflowValidationMessage(
+          String(childWorkflowName),
+          "input",
+          inputResult.issues,
+        ),
       ),
     );
   }

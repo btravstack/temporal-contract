@@ -44,19 +44,35 @@ export class WorkflowNotFoundError extends TypedClientError {
 }
 
 /**
+ * Pattern for string keys safe to render with dot notation. A "safe" key is a
+ * JavaScript identifier (letters/digits/underscore/$, not starting with a
+ * digit). Anything else — keys containing dots, spaces, leading digits, the
+ * empty string, the literal string `"0"` etc. — gets bracket-quoted so the
+ * path is unambiguous.
+ *
+ * This helper is intentionally duplicated with the worker package so each
+ * entry point is self-contained; keep the two copies in sync.
+ */
+const SAFE_IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+/**
  * Render a Standard Schema {@link StandardSchemaV1.Issue} into a human-readable
  * string that includes the failing field's path.
  *
  * Example output:
  * - `at items[0].quantity: Expected number, received undefined`
  * - `at customerId: Expected string, received undefined`
+ * - `at user["first name"]: Expected string, received undefined`
  * - `Validation error` *(no path)*
  *
  * Path segments come either as bare `PropertyKey` values or as
  * `{ key: PropertyKey }` objects (per the spec); both are normalized.
- * Numeric segments render as bracketed indices; string segments use dot
- * notation (with a leading dot when not the first segment); symbols and
- * other property keys fall back to `String(key)`.
+ * - Numeric keys → `[N]`
+ * - String keys that are valid JS identifiers → bare (first) or `.key`
+ * - String keys that aren't valid identifiers → `["..."]` with JSON-style
+ *   escaping (handles dots, spaces, leading digits, the empty string, the
+ *   literal string `"0"`, embedded quotes, etc.)
+ * - Symbol / other `PropertyKey` → `[Symbol(name)]`
  */
 function formatIssue(issue: StandardSchemaV1.Issue): string {
   if (issue.path === undefined || issue.path.length === 0) {
@@ -69,8 +85,13 @@ function formatIssue(issue: StandardSchemaV1.Issue): string {
       segment !== null && typeof segment === "object" && "key" in segment ? segment.key : segment;
     if (typeof key === "number") {
       path += `[${key}]`;
-    } else if (typeof key === "string") {
+    } else if (typeof key === "string" && SAFE_IDENTIFIER.test(key)) {
       path += i === 0 ? key : `.${key}`;
+    } else if (typeof key === "string") {
+      // Non-identifier string: bracket-quote with JSON-style escaping so
+      // dots, spaces, embedded quotes, and the literal string `"0"` are
+      // unambiguous from numeric indices and identifier segments.
+      path += `[${JSON.stringify(key)}]`;
     } else {
       // Symbol or other PropertyKey — bracket-stringify so it parses
       // unambiguously alongside string segments.
