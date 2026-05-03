@@ -2,6 +2,7 @@ export {
   defineActivity,
   defineContract,
   defineQuery,
+  defineSearchAttribute,
   defineSignal,
   defineUpdate,
   defineWorkflow,
@@ -15,6 +16,10 @@ export type {
   UpdateDefinition,
   WorkflowDefinition,
   ContractDefinition,
+  // Search attributes
+  SearchAttributeKind,
+  SearchAttributeKindToType,
+  SearchAttributeDefinition,
   // Contract utility types
   InferWorkflowNames,
   InferActivityNames,

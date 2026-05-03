@@ -4,6 +4,8 @@ import type {
   ActivityDefinition,
   ContractDefinition,
   QueryDefinition,
+  SearchAttributeDefinition,
+  SearchAttributeKind,
   SignalDefinition,
   UpdateDefinition,
   WorkflowDefinition,
@@ -138,6 +140,48 @@ export function defineQuery<TQuery extends QueryDefinition>(definition: TQuery):
  * ```
  */
 export function defineUpdate<TUpdate extends UpdateDefinition>(definition: TUpdate): TUpdate {
+  return definition;
+}
+
+/**
+ * Define a typed search attribute on a workflow.
+ *
+ * Search attributes are indexed on Temporal's visibility store and let you
+ * query / filter workflow executions by domain attributes. Declaring them on
+ * the contract means the client's workflow-start options and (eventually)
+ * the worker's search-attribute reader are constrained to declared keys
+ * with the right value types.
+ *
+ * @example
+ * ```typescript
+ * import { defineSearchAttribute } from '@temporal-contract/contract';
+ *
+ * defineWorkflow({
+ *   input: z.object({ orderId: z.string() }),
+ *   output: z.object({ status: z.string() }),
+ *   searchAttributes: {
+ *     customerId: defineSearchAttribute({ kind: 'KEYWORD' }),
+ *     priority: defineSearchAttribute({ kind: 'INT' }),
+ *     placedAt: defineSearchAttribute({ kind: 'DATETIME' }),
+ *   },
+ * });
+ * ```
+ *
+ * The seven Temporal kinds map to TypeScript types like so:
+ *
+ * | kind            | TS type   |
+ * | --------------- | --------- |
+ * | `TEXT`          | `string`  |
+ * | `KEYWORD`       | `string`  |
+ * | `INT`           | `number`  |
+ * | `DOUBLE`        | `number`  |
+ * | `BOOL`          | `boolean` |
+ * | `DATETIME`      | `Date`    |
+ * | `KEYWORD_LIST`  | `string[]`|
+ */
+export function defineSearchAttribute<TKind extends SearchAttributeKind>(
+  definition: SearchAttributeDefinition<TKind>,
+): SearchAttributeDefinition<TKind> {
   return definition;
 }
 
@@ -358,6 +402,23 @@ const updateDefinitionSchema = z.object({
 });
 
 /**
+ * Schema for validating search attribute definitions
+ */
+const searchAttributeKindSchema = z.enum([
+  "TEXT",
+  "KEYWORD",
+  "INT",
+  "DOUBLE",
+  "BOOL",
+  "DATETIME",
+  "KEYWORD_LIST",
+]);
+
+const searchAttributeDefinitionSchema = z.object({
+  kind: searchAttributeKindSchema,
+});
+
+/**
  * Schema for validating workflow definitions
  */
 const workflowDefinitionSchema = z.object({
@@ -371,6 +432,7 @@ const workflowDefinitionSchema = z.object({
   signals: z.record(identifierSchema, signalDefinitionSchema).optional(),
   queries: z.record(identifierSchema, queryDefinitionSchema).optional(),
   updates: z.record(identifierSchema, updateDefinitionSchema).optional(),
+  searchAttributes: z.record(identifierSchema, searchAttributeDefinitionSchema).optional(),
 });
 
 /**

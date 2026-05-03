@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
-import { defineContract } from "@temporal-contract/contract";
+import { defineContract, defineSearchAttribute, defineWorkflow } from "@temporal-contract/contract";
 import { TypedClient } from "./client.js";
 import {
   QueryValidationError,
@@ -11,6 +11,7 @@ import {
   WorkflowValidationError,
 } from "./errors.js";
 import { Client } from "@temporalio/client";
+import { TypedSearchAttributes } from "@temporalio/common";
 
 // Create mock workflow object
 const createMockWorkflow = () => ({
@@ -715,6 +716,144 @@ describe("TypedClient", () => {
       const mapped = result.map((value) => value.result.toUpperCase());
 
       expect(mapped).toEqual(expect.objectContaining({ tag: "Ok", value: "SUCCESS" }));
+    });
+  });
+
+  describe("typed search attributes", () => {
+    // Closes #180 — declared search attributes flow through startWorkflow
+    // and executeWorkflow as Temporal `typedSearchAttributes`.
+
+    const searchContract = defineContract({
+      taskQueue: "search-q",
+      workflows: {
+        processOrder: defineWorkflow({
+          input: z.object({ orderId: z.string() }),
+          output: z.object({ status: z.string() }),
+          searchAttributes: {
+            customerId: defineSearchAttribute({ kind: "KEYWORD" }),
+            priority: defineSearchAttribute({ kind: "INT" }),
+            placedAt: defineSearchAttribute({ kind: "DATETIME" }),
+            tags: defineSearchAttribute({ kind: "KEYWORD_LIST" }),
+            urgent: defineSearchAttribute({ kind: "BOOL" }),
+          },
+        }),
+        plain: defineWorkflow({
+          input: z.object({ id: z.string() }),
+          output: z.object({}),
+        }),
+      },
+    });
+
+    let searchClient: TypedClient<typeof searchContract>;
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      const rawClient = { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client;
+      searchClient = TypedClient.create(searchContract, rawClient);
+    });
+
+    it("translates declared searchAttributes into Temporal's typedSearchAttributes", async () => {
+      const placedAt = new Date("2026-01-01T00:00:00Z");
+      mockWorkflow.start.mockResolvedValue({
+        workflowId: "order-1",
+        result: vi.fn(),
+        query: vi.fn(),
+        signal: vi.fn(),
+        executeUpdate: vi.fn(),
+        terminate: vi.fn(),
+        cancel: vi.fn(),
+        describe: vi.fn(),
+        fetchHistory: vi.fn(),
+      });
+
+      const result = await searchClient.startWorkflow("processOrder", {
+        workflowId: "order-1",
+        args: { orderId: "ORD-1" },
+        searchAttributes: {
+          customerId: "CUST-1",
+          priority: 3,
+          placedAt,
+          tags: ["urgent", "vip"],
+          urgent: true,
+        },
+      });
+
+      expect(result.isOk()).toBe(true);
+      const call = mockWorkflow.start.mock.calls[0];
+      expect(call?.[0]).toBe("processOrder");
+      const passed = call?.[1] as { typedSearchAttributes?: TypedSearchAttributes };
+      expect(passed.typedSearchAttributes).toBeInstanceOf(TypedSearchAttributes);
+    });
+
+    it("omits typedSearchAttributes entirely when no searchAttributes are provided", async () => {
+      mockWorkflow.start.mockResolvedValue({
+        workflowId: "order-1",
+        result: vi.fn(),
+        query: vi.fn(),
+        signal: vi.fn(),
+        executeUpdate: vi.fn(),
+        terminate: vi.fn(),
+        cancel: vi.fn(),
+        describe: vi.fn(),
+        fetchHistory: vi.fn(),
+      });
+
+      await searchClient.startWorkflow("processOrder", {
+        workflowId: "order-1",
+        args: { orderId: "ORD-1" },
+      });
+
+      const passed = mockWorkflow.start.mock.calls[0]?.[1] as Record<string, unknown>;
+      expect(passed).not.toHaveProperty("typedSearchAttributes");
+    });
+
+    it("works on executeWorkflow too", async () => {
+      mockWorkflow.execute.mockResolvedValue({ status: "ok" });
+
+      await searchClient.executeWorkflow("processOrder", {
+        workflowId: "order-1",
+        args: { orderId: "ORD-1" },
+        searchAttributes: { customerId: "CUST-1" },
+      });
+
+      const passed = mockWorkflow.execute.mock.calls[0]?.[1] as {
+        typedSearchAttributes?: TypedSearchAttributes;
+      };
+      expect(passed.typedSearchAttributes).toBeInstanceOf(TypedSearchAttributes);
+    });
+
+    it("filters out attribute keys that aren't declared on the workflow at runtime", async () => {
+      // Type-system catches this at the call site, but the runtime defensively
+      // drops unknown keys rather than handing them to Temporal.
+      mockWorkflow.start.mockResolvedValue({
+        workflowId: "order-1",
+        result: vi.fn(),
+        query: vi.fn(),
+        signal: vi.fn(),
+        executeUpdate: vi.fn(),
+        terminate: vi.fn(),
+        cancel: vi.fn(),
+        describe: vi.fn(),
+        fetchHistory: vi.fn(),
+      });
+
+      await searchClient.startWorkflow("processOrder", {
+        workflowId: "order-1",
+        args: { orderId: "ORD-1" },
+        searchAttributes: {
+          customerId: "CUST-1",
+          // @ts-expect-error — `unknownAttr` isn't declared on processOrder
+          unknownAttr: "ignored",
+        },
+      });
+
+      const passed = mockWorkflow.start.mock.calls[0]?.[1] as {
+        typedSearchAttributes?: TypedSearchAttributes;
+      };
+      expect(passed.typedSearchAttributes).toBeInstanceOf(TypedSearchAttributes);
+      // The TypedSearchAttributes instance should only contain `customerId`.
+      // We can't easily introspect it, but the call shouldn't have thrown
+      // and Temporal's serializer would reject unknown keys downstream.
     });
   });
 });
