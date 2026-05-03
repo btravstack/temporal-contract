@@ -4,7 +4,9 @@ Custom `Future` and `Result` implementation for Temporal workflows, providing ty
 
 ## Why This Package?
 
-The `@swan-io/boxed` library doesn't work properly with Temporal workflows due to Temporal's deterministic execution requirements. This package provides a Temporal-compatible implementation of the Result/Future patterns with an identical API surface.
+The `@swan-io/boxed` library doesn't work properly with Temporal workflows due to Temporal's deterministic execution requirements. This package provides a Temporal-compatible implementation of the Result/Future patterns covering the same core API surface.
+
+The two libraries are intentionally not 1:1 drop-ins — a few methods are absent here for determinism, soundness, or "not yet ported" reasons. See [@temporal-contract/boxed vs swan](https://btravers.github.io/temporal-contract/guide/boxed-vs-swan) for the full surface comparison and migration guide.
 
 ## Installation
 
