@@ -298,4 +298,129 @@ describe("Result", () => {
       }
     });
   });
+
+  describe("tap", () => {
+    it("invokes the callback with the Ok value and returns the same Result", () => {
+      const result = Result.Ok(42);
+      let observed: number | null = null;
+      const returned = result.tap((v) => {
+        observed = v;
+      });
+
+      expect(observed).toBe(42);
+      expect(returned).toBe(result);
+    });
+
+    it("is a no-op on Err and returns the same Result", () => {
+      const result: Result<number, string> = Result.Error("oops");
+      let observed = false;
+      const returned = result.tap(() => {
+        observed = true;
+      });
+
+      expect(observed).toBe(false);
+      expect(returned).toBe(result);
+    });
+  });
+
+  describe("tapError", () => {
+    it("invokes the callback with the Err value and returns the same Result", () => {
+      const result: Result<number, string> = Result.Error("boom");
+      let observed: string | null = null;
+      const returned = result.tapError((e) => {
+        observed = e;
+      });
+
+      expect(observed).toBe("boom");
+      expect(returned).toBe(result);
+    });
+
+    it("is a no-op on Ok and returns the same Result", () => {
+      const result = Result.Ok(42);
+      let observed = false;
+      const returned = result.tapError(() => {
+        observed = true;
+      });
+
+      expect(observed).toBe(false);
+      expect(returned).toBe(result);
+    });
+  });
+
+  describe("flatMapError", () => {
+    it("chains on Err — fn's Result replaces the original", () => {
+      const result: Result<number, string> = Result.Error("retryable");
+      const recovered = result.flatMapError((e) =>
+        e === "retryable" ? Result.Ok(0) : Result.Error(e),
+      );
+      expect(recovered).toEqual(Result.Ok(0));
+    });
+
+    it("can transform the Err type", () => {
+      class DomainError extends Error {}
+      const result: Result<number, string> = Result.Error("raw");
+      const transformed = result.flatMapError((e) => Result.Error(new DomainError(e)));
+
+      expect(transformed.isError()).toBe(true);
+      if (transformed.isError()) {
+        expect(transformed.error).toBeInstanceOf(DomainError);
+      }
+    });
+
+    it("passes Ok through unchanged", () => {
+      const result = Result.Ok(42);
+      const passed = result.flatMapError(() => Result.Ok(0));
+      expect(passed).toEqual(Result.Ok(42));
+    });
+  });
+
+  describe("Result.allFromDict", () => {
+    it("combines all-Ok records into one Ok of a record", () => {
+      const combined = Result.allFromDict({
+        a: Result.Ok(1),
+        b: Result.Ok("two"),
+        c: Result.Ok(true),
+      });
+
+      expect(combined.isOk()).toBe(true);
+      if (combined.isOk()) {
+        expect(combined.value).toEqual({ a: 1, b: "two", c: true });
+      }
+    });
+
+    it("returns the first Err encountered (insertion order)", () => {
+      const combined = Result.allFromDict({
+        a: Result.Ok(1),
+        b: Result.Error("first"),
+        c: Result.Error("second"),
+      });
+
+      expect(combined.isError()).toBe(true);
+      if (combined.isError()) {
+        expect(combined.error).toBe("first");
+      }
+    });
+
+    it("returns Ok of an empty record for an empty dict", () => {
+      const combined = Result.allFromDict({});
+      expect(combined.isOk()).toBe(true);
+      if (combined.isOk()) {
+        expect(combined.value).toEqual({});
+      }
+    });
+
+    it("preserves heterogeneous Ok value types via TypeScript inference", () => {
+      // Type-level smoke test: each key keeps its own Ok type.
+      const combined = Result.allFromDict({
+        n: Result.Ok(1),
+        s: Result.Ok("two"),
+      });
+      if (combined.isOk()) {
+        const n: number = combined.value.n;
+        const s: string = combined.value.s;
+        expect(n).toBe(1);
+        expect(s).toBe("two");
+      }
+    });
+  });
 });
