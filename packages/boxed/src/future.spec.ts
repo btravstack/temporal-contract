@@ -99,6 +99,33 @@ describe("Future", () => {
       // WHEN & THEN - the Future rejects rather than hanging
       await expect(future).rejects.toThrow("original error");
     });
+
+    it("should map a rejection to a typed error when fromPromise is given mapError", async () => {
+      class DomainError extends Error {
+        readonly tag = "DomainError" as const;
+      }
+
+      const future = Future.fromPromise(
+        Promise.reject(new Error("raw")),
+        (error) => new DomainError(error instanceof Error ? error.message : String(error)),
+      );
+
+      const result = await future;
+      expect(result.isError()).toBe(true);
+      if (result.isError()) {
+        expect(result.error).toBeInstanceOf(DomainError);
+        expect(result.error.message).toBe("raw");
+      }
+    });
+
+    it("should still resolve to Ok with mapError when the promise fulfills", async () => {
+      const future = Future.fromPromise(Promise.resolve(42), () => new Error("never called"));
+      const result = await future;
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value).toBe(42);
+      }
+    });
   });
 
   describe("transformations", () => {
@@ -404,6 +431,45 @@ describe("Future", () => {
       expect(promise).toBeInstanceOf(Promise);
       const value = await promise;
       expect(value).toBe(42);
+    });
+  });
+
+  describe("determinism", () => {
+    // The whole reason @temporal-contract/boxed exists alongside @swan-io/boxed
+    // is that workflow code must be deterministic under Temporal's replay.
+    // These tests pin that invariant: an identical chain of inputs produces
+    // an identical sequence of outputs across runs. Failures here suggest
+    // someone reached for Date.now / Math.random / scheduler-dependent
+    // behavior in the implementation.
+
+    it("produces identical results when a chain is run twice", async () => {
+      const buildChain = () =>
+        Future.value(1)
+          .map((x) => x + 1)
+          .flatMap((x) => Future.value(x * 3))
+          .map((x) => x.toString());
+
+      const first = await buildChain();
+      const second = await buildChain();
+
+      expect(first).toBe(second);
+      expect(first).toBe("6");
+    });
+
+    it("produces identical Result chains across runs", async () => {
+      const buildChain = () =>
+        Future.fromPromise(Promise.resolve(10))
+          .mapOk((n) => n * 2)
+          .flatMapOk((n) => Future.value(Result.Ok(n + 1)));
+
+      const first = await buildChain();
+      const second = await buildChain();
+
+      expect(first).toEqual(second);
+      expect(first.isOk()).toBe(true);
+      if (first.isOk()) {
+        expect(first.value).toBe(21);
+      }
     });
   });
 });

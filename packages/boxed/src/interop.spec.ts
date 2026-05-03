@@ -226,4 +226,48 @@ describe("Interoperability with @swan-io/boxed", () => {
       expect(value).toBe(84);
     });
   });
+
+  describe("round-trip preservation", () => {
+    it("preserves Ok value through swan -> temporal -> swan round-trip", () => {
+      const original = SwanIoResult.Ok({ id: 1, name: "alice" });
+      const roundTripped = toSwanResult(fromSwanResult(original));
+
+      expect(roundTripped.isOk()).toBe(true);
+      expect(roundTripped.match({ Ok: (v) => v, Error: () => null })).toEqual({
+        id: 1,
+        name: "alice",
+      });
+    });
+
+    it("preserves Error value through swan -> temporal -> swan round-trip", () => {
+      const original = SwanIoResult.Error(new Error("boom"));
+      const roundTripped = toSwanResult(fromSwanResult(original));
+
+      expect(roundTripped.isError()).toBe(true);
+      expect(
+        roundTripped.match({
+          Ok: () => null,
+          Error: (e) => (e instanceof Error ? e.message : String(e)),
+        }),
+      ).toBe("boom");
+    });
+
+    it("preserves Ok value through temporal -> swan -> temporal round-trip", () => {
+      const original = Result.Ok(42);
+      const roundTripped = fromSwanResult(toSwanResult(original));
+
+      expect(roundTripped.isOk()).toBe(true);
+      if (roundTripped.isOk()) {
+        expect(roundTripped.value).toBe(42);
+      }
+    });
+
+    it("preserves Future<Result> Ok through round-trip", async () => {
+      const original = SwanIoFuture.value(SwanIoResult.Ok(7));
+      const roundTripped = await toSwanFutureResult(fromSwanFutureResult(original));
+
+      expect(roundTripped.isOk()).toBe(true);
+      expect(roundTripped.match({ Ok: (v) => v, Error: () => -1 })).toBe(7);
+    });
+  });
 });

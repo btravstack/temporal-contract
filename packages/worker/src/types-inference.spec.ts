@@ -39,4 +39,20 @@ describe("worker/client inference duality", () => {
     expectTypeOf<WorkerInferOutput<typeof activity>>().toEqualTypeOf<{ when: Date }>();
     expectTypeOf<ClientInferOutput<typeof activity>>().toEqualTypeOf<{ when: string }>();
   });
+
+  it("worker and client inferred types are *not* interchangeable for transforming schemas", () => {
+    // Negative test: the whole point of the duality is that these types
+    // diverge for transforming schemas. If a future refactor accidentally
+    // collapses them, this assertion will fail at compile time.
+    const activity = defineActivity({
+      input: z.object({
+        n: z.string().transform((s) => Number.parseInt(s, 10)),
+      }),
+      output: z.object({}),
+    });
+
+    expectTypeOf<ClientInferInput<typeof activity>>().not.toEqualTypeOf<
+      WorkerInferInput<typeof activity>
+    >();
+  });
 });
