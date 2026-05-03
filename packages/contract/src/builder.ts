@@ -79,6 +79,14 @@ export function defineSignal<TSignal extends SignalDefinition>(definition: TSign
  * Queries allow you to read the current state of a running workflow without
  * modifying it. They are synchronous and should not perform any mutations.
  *
+ * **Synchronous validation required.** Temporal query handlers must complete
+ * synchronously, so the input and output schemas you pass here must validate
+ * synchronously. In practice this rules out async refinements (e.g. Zod's
+ * `.refine(async (x) => …)`). Standard Schema doesn't expose the sync/async
+ * distinction at the type level, so the worker checks at runtime and throws
+ * if it ever receives a `Promise` from `~standard.validate`. Use plain Zod /
+ * Valibot / ArkType object schemas without async refinements.
+ *
  * @template TQuery - The query definition type with input/output schemas
  * @param definition - The query definition containing input and output schemas
  * @returns The same definition with preserved types for type inference
