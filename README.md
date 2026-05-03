@@ -55,13 +55,16 @@ const activities = declareActivitiesHandler({
   activities: {
     processPayment: ({ orderId }) => {
       return Future.fromPromise(paymentService.process(orderId))
-        .mapError((error) => ApplicationFailure.create({
-  type: "PAYMENT_FAILED",
-  message: "Payment failed", error))
+        .mapError((error) =>
+          ApplicationFailure.create({
+            type: "PAYMENT_FAILED",
+            message: error instanceof Error ? error.message : "Payment failed",
+            ...(error instanceof Error ? { cause: error } : {}),
+          }),
+        )
         .mapOk((txId) => ({ transactionId: txId }));
     },
   },
-  cause: },
 });
 
 // Call from client - fully typed everywhere

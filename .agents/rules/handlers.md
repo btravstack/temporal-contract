@@ -20,15 +20,16 @@ export const activities = declareActivitiesHandler({
           resolve(
             Result.Error(
               ApplicationFailure.create({
-  type: "INVENTORY_CHECK_FAILED",
-  message: "Failed to check inventory", error),
+                type: "INVENTORY_CHECK_FAILED",
+                message: error instanceof Error ? error.message : "Failed to check inventory",
+                ...(error instanceof Error ? { cause: error } : {}),
+              }),
             ),
           );
         }
       });
     },
   },
-  cause: },
 });
 ```
 

@@ -322,15 +322,17 @@ Activities internally use Result, but the framework unwraps them for network ser
 // Framework unwraps to plain DTO over network
 processPayment: ({ amount }) =>
   Future.fromPromise(paymentService.charge(amount))
-    .mapError((err) => ApplicationFailure.create({
-  type: "PAYMENT_FAILED",
-  message: err.message, err))
+    .mapError((err) =>
+      ApplicationFailure.create({
+        type: "PAYMENT_FAILED",
+        message: err.message,
+        cause: err,
+      }),
+    )
     .mapOk((tx) => ({ transactionId: tx.id }));
 
-// In workflow,
-  cause: you receive the plain value:
-const payment = await activities.processPayment({ amount: 100 },
-});
+// In the workflow, you receive the plain value:
+const payment = await activities.processPayment({ amount: 100 });
 // payment is { transactionId: string }, not Result
 ```
 

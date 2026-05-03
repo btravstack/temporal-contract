@@ -198,7 +198,7 @@ describe("Worker-Boxed Package", () => {
       expect((rejected as ApplicationFailure).details).toEqual([{ info: "additional details" }]);
     });
 
-    it("forwards `nonRetryable: true` to Temporal so retry policies skip the failure", async () => {
+    it("preserves `nonRetryable: true` when unwrapping Result.Error and rethrowing the ApplicationFailure", async () => {
       const contract = {
         taskQueue: "test-queue",
         workflows: {},

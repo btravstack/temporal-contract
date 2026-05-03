@@ -22,25 +22,25 @@ type OrderActivitiesHandler = ActivitiesHandler<typeof orderContract>;
 // Implement activities with explicit types using Future/Result pattern
 const sendEmail: OrderActivitiesHandler["sendEmail"] = ({ to, body }) => {
   return Future.fromPromise(emailService.send({ to, body }))
-    .mapError(
-      (error) =>
-        ApplicationFailure.create({
-  type: "EMAIL_FAILED",
-  message: error instanceof Error ? error.message : "Failed to send email",
-              cause: error,
-            })
+    .mapError((error) =>
+      ApplicationFailure.create({
+        type: "EMAIL_FAILED",
+        message: error instanceof Error ? error.message : "Failed to send email",
+        ...(error instanceof Error ? { cause: error } : {}),
+      }),
+    )
     .mapOk(() => ({ sent: true }));
 };
 
 const processPayment: OrderActivitiesHandler["processPayment"] = ({ amount }) => {
   return Future.fromPromise(paymentGateway.charge(amount))
-    .mapError(
-      (error) =>
-        ApplicationFailure.create({
-  type: "PAYMENT_FAILED",
-  message: error instanceof Error ? error.message : "Payment failed",
-              cause: error,
-            })
+    .mapError((error) =>
+      ApplicationFailure.create({
+        type: "PAYMENT_FAILED",
+        message: error instanceof Error ? error.message : "Payment failed",
+        ...(error instanceof Error ? { cause: error } : {}),
+      }),
+    )
     .mapOk((txId) => ({ transactionId: txId }));
 };
 
@@ -101,13 +101,13 @@ type Handlers = ActivitiesHandler<typeof orderContract>;
 
 export const sendEmail: Handlers["sendEmail"] = ({ to, body }) => {
   return Future.fromPromise(emailService.send({ to, body }))
-    .mapError(
-      (error) =>
-        ApplicationFailure.create({
-  type: "EMAIL_FAILED",
-  message: error instanceof Error ? error.message : "Failed to send email",
-              cause: error,
-            })
+    .mapError((error) =>
+      ApplicationFailure.create({
+        type: "EMAIL_FAILED",
+        message: error instanceof Error ? error.message : "Failed to send email",
+        ...(error instanceof Error ? { cause: error } : {}),
+      }),
+    )
     .mapOk(() => ({ sent: true }));
 };
 ```
@@ -123,13 +123,13 @@ type Handlers = ActivitiesHandler<typeof orderContract>;
 
 export const processPayment: Handlers["processPayment"] = ({ amount }) => {
   return Future.fromPromise(paymentGateway.charge(amount))
-    .mapError(
-      (error) =>
-        ApplicationFailure.create({
-  type: "PAYMENT_FAILED",
-  message: error instanceof Error ? error.message : "Payment failed",
-              cause: error,
-            })
+    .mapError((error) =>
+      ApplicationFailure.create({
+        type: "PAYMENT_FAILED",
+        message: error instanceof Error ? error.message : "Payment failed",
+        ...(error instanceof Error ? { cause: error } : {}),
+      }),
+    )
     .mapOk((txId) => ({ transactionId: txId }));
 };
 ```
@@ -162,13 +162,13 @@ type Handlers = ActivitiesHandler<typeof orderContract>;
 export const createEmailActivity = (emailService: EmailService): Handlers["sendEmail"] => {
   return ({ to, body }) => {
     return Future.fromPromise(emailService.send({ to, body }))
-      .mapError(
-        (error) =>
-          ApplicationFailure.create({
-  type: "EMAIL_FAILED",
-  message: error instanceof Error ? error.message : "Failed",
-              cause: error,
-            })
+      .mapError((error) =>
+        ApplicationFailure.create({
+          type: "EMAIL_FAILED",
+          message: error instanceof Error ? error.message : "Failed",
+          ...(error instanceof Error ? { cause: error } : {}),
+        }),
+      )
       .mapOk(() => ({ sent: true }));
   };
 };
@@ -178,13 +178,13 @@ export const createPaymentActivity = (
 ): Handlers["processPayment"] => {
   return ({ amount }) => {
     return Future.fromPromise(paymentGateway.charge(amount))
-      .mapError(
-        (error) =>
-          ApplicationFailure.create({
-  type: "PAYMENT_FAILED",
-  message: error instanceof Error ? error.message : "Failed",
-              cause: error,
-            })
+      .mapError((error) =>
+        ApplicationFailure.create({
+          type: "PAYMENT_FAILED",
+          message: error instanceof Error ? error.message : "Failed",
+          ...(error instanceof Error ? { cause: error } : {}),
+        }),
+      )
       .mapOk((txId) => ({ transactionId: txId }));
   };
 };
@@ -366,13 +366,13 @@ Make activities testable and configurable:
 export const createActivities = (services: Services) => {
   const sendEmail: Handlers["sendEmail"] = ({ to, body }) => {
     return Future.fromPromise(services.email.send({ to, body }))
-      .mapError(
-        (error) =>
-          ApplicationFailure.create({
-  type: "EMAIL_FAILED",
-  message: error instanceof Error ? error.message : "Failed",
-              cause: error,
-            })
+      .mapError((error) =>
+        ApplicationFailure.create({
+          type: "EMAIL_FAILED",
+          message: error instanceof Error ? error.message : "Failed",
+          ...(error instanceof Error ? { cause: error } : {}),
+        }),
+      )
       .mapOk(() => ({ sent: true }));
   };
 

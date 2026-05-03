@@ -665,18 +665,28 @@ export const createActivities = (services: {
     activities: {
       sendEmail: ({ to, subject, body }) => {
         return Future.fromPromise(services.emailService.send({ to, subject, body }))
-          .mapError((err) => ApplicationFailure.create({
-  type: "EMAIL_FAILED",
-  message: err.message, err))
+          .mapError((err) =>
+            ApplicationFailure.create({
+              type: "EMAIL_FAILED",
+              message: err.message,
+              cause: err,
+            }),
+          )
           .mapOk(() => ({ sent: true }));
       },
       processPayment: ({ customerId, amount }) => {
         return Future.fromPromise(services.paymentGateway.charge(customerId, amount))
-          .mapError((err) => ApplicationFailure.create({ type: "PAYMENT_FAILED", message: err.message, cause: err }))
+          .mapError((err) =>
+            ApplicationFailure.create({
+              type: "PAYMENT_FAILED",
+              message: err.message,
+              cause: err,
+            }),
+          )
           .mapOk((txId) => ({ transactionId: txId, success: true }));
       },
     },
-});
+  });
 ```
 
 ### 3. Error Handling

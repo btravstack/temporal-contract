@@ -198,9 +198,15 @@ export const activities = declareActivitiesHandler({
           await emailService.send({ to, subject, body });
           resolve(Result.Ok({ sent: true }));
         } catch (error) {
-          resolve(Result.Error(ApplicationFailure.create({
-  type: "EMAIL_FAILED",
-  message: "Failed to send email", error)));
+          resolve(
+            Result.Error(
+              ApplicationFailure.create({
+                type: "EMAIL_FAILED",
+                message: error instanceof Error ? error.message : "Failed to send email",
+                ...(error instanceof Error ? { cause: error } : {}),
+              }),
+            ),
+          );
         }
       });
     },
@@ -214,7 +220,11 @@ export const activities = declareActivitiesHandler({
           } catch (error) {
             resolve(
               Result.Error(
-                ApplicationFailure.create({ type: "INVENTORY_CHECK_FAILED", message: "Failed to check inventory", cause: error }),
+                ApplicationFailure.create({
+                  type: "INVENTORY_CHECK_FAILED",
+                  message: "Failed to check inventory",
+                  cause: error,
+                }),
               ),
             );
           }
@@ -233,7 +243,13 @@ export const activities = declareActivitiesHandler({
             );
           } catch (error) {
             resolve(
-              Result.Error(ApplicationFailure.create({ type: "PAYMENT_FAILED", message: "Failed to process payment", cause: error })),
+              Result.Error(
+                ApplicationFailure.create({
+                  type: "PAYMENT_FAILED",
+                  message: "Failed to process payment",
+                  cause: error,
+                }),
+              ),
             );
           }
         });
