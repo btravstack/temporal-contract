@@ -23,9 +23,11 @@ import {
   SignalInputValidationError,
   UpdateInputValidationError,
   UpdateOutputValidationError,
+  WorkflowCancelledError,
   WorkflowInputValidationError,
   WorkflowOutputValidationError,
 } from "./errors.js";
+import { cancellableScope, nonCancellableScope } from "./cancellation.js";
 import {
   ClientInferInput,
   ClientInferOutput,
@@ -64,6 +66,7 @@ export {
   SignalInputValidationError,
   UpdateInputValidationError,
   UpdateOutputValidationError,
+  WorkflowCancelledError,
   WorkflowInputValidationError,
   WorkflowOutputValidationError,
 } from "./errors.js";
@@ -353,6 +356,8 @@ export function declareWorkflow<
       info: workflowInfo(),
       startChildWorkflow: createStartChildWorkflow,
       executeChildWorkflow: createExecuteChildWorkflow,
+      cancellableScope,
+      nonCancellableScope,
       defineSignal: createDefineSignal as WorkflowContext<TContract, TWorkflowName>["defineSignal"],
       defineQuery: createDefineQuery as WorkflowContext<TContract, TWorkflowName>["defineQuery"],
       defineUpdate: createDefineUpdate as WorkflowContext<TContract, TWorkflowName>["defineUpdate"],
@@ -667,6 +672,49 @@ type WorkflowContext<
   ) => Future<
     Result<ClientInferOutput<TChildContract["workflows"][TChildWorkflowName]>, ChildWorkflowError>
   >;
+
+  /**
+   * Run `fn` inside a cancellable Temporal scope. If the workflow (or an
+   * ancestor scope) is cancelled while `fn` is in flight, the resulting
+   * Future resolves to `Result.Error(WorkflowCancelledError)` instead of
+   * rejecting — letting callers handle cancellation explicitly, typically
+   * to perform a graceful exit from the current step.
+   *
+   * Non-cancellation errors thrown by `fn` propagate as Future rejections
+   * unchanged, preserving their identity for upstream `try/catch` blocks.
+   *
+   * @example
+   * ```ts
+   * implementation: async (context, args) => {
+   *   const result = await context.cancellableScope(async () => {
+   *     return context.activities.processStep(args);
+   *   });
+   *
+   *   if (result.isError()) {
+   *     // workflow was cancelled — perform cleanup that must not be cancelled:
+   *     await context.nonCancellableScope(async () => {
+   *       await context.activities.releaseResources(args);
+   *     });
+   *     return { status: "cancelled" };
+   *   }
+   *
+   *   return { status: "ok" };
+   * }
+   * ```
+   */
+  cancellableScope: <T>(fn: () => Promise<T>) => Future<Result<T, WorkflowCancelledError>>;
+
+  /**
+   * Run `fn` inside a non-cancellable Temporal scope. Cancellation requests
+   * from outside the scope are ignored for its duration — the idiomatic way
+   * to perform cleanup work that must not be interrupted.
+   *
+   * Returns the same `Future<Result<...>>` shape as
+   * {@link WorkflowContext.cancellableScope} for symmetry; the
+   * `Result.Error` branch only triggers when cancellation is raised from
+   * *inside* the scope, which is rare.
+   */
+  nonCancellableScope: <T>(fn: () => Promise<T>) => Future<Result<T, WorkflowCancelledError>>;
 
   /**
    * Continue this workflow execution as a new run, optionally with a different
