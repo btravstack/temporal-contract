@@ -61,10 +61,15 @@ vi.mock("@temporalio/client", () => {
       super(message);
     }
   }
+  // Mirrors Temporal's real `WorkflowFailedError` shape (message, cause,
+  // retryState). The `cause` field name matches the SDK so the
+  // cause-forwarding logic in `classifyResultError` exercises the same
+  // property access as it does at runtime.
   class WorkflowFailedError extends Error {
     constructor(
       message: string,
-      public readonly originalCause?: Error,
+      public override readonly cause: Error | undefined,
+      public readonly retryState: string,
     ) {
       super(message);
     }
@@ -988,13 +993,15 @@ describe("TypedClient", () => {
       }
     });
 
-    it("executeWorkflow surfaces WorkflowFailedError when the workflow run fails", async () => {
+    it("executeWorkflow surfaces WorkflowFailedError with the inner Temporal cause unwrapped", async () => {
+      // Temporal's `WorkflowFailedError` is a wrapper; the actionable
+      // failure (ApplicationFailure / CancelledFailure / ...) lives on its
+      // `cause`. The typed client lifts that inner cause directly so
+      // consumers can match `err.cause` in one step instead of unwrapping
+      // through Temporal's wrapper.
+      const innerFailure = new Error("application failure: payment_declined");
       mockWorkflow.execute.mockRejectedValue(
-        new TemporalWorkflowFailedError(
-          "workflow failed",
-          new Error("boom"),
-          "NON_RETRYABLE_FAILURE",
-        ),
+        new TemporalWorkflowFailedError("workflow failed", innerFailure, "NON_RETRYABLE_FAILURE"),
       );
 
       const result = await typedClient.executeWorkflow("testWorkflow", {
@@ -1005,7 +1012,11 @@ describe("TypedClient", () => {
       expect(result.isError()).toBe(true);
       if (result.isError()) {
         expect(result.error).toBeInstanceOf(WorkflowFailedError);
-        expect((result.error as WorkflowFailedError).workflowId).toBe("test-123");
+        const err = result.error as WorkflowFailedError;
+        expect(err.workflowId).toBe("test-123");
+        // Cause should be the *inner* failure, not Temporal's wrapper.
+        expect(err.cause).toBe(innerFailure);
+        expect(err.cause).not.toBeInstanceOf(TemporalWorkflowFailedError);
       }
     });
 
@@ -1028,14 +1039,14 @@ describe("TypedClient", () => {
       }
     });
 
-    it("handle.result() surfaces WorkflowFailedError", async () => {
-      const cause = new Error("boom");
+    it("handle.result() surfaces WorkflowFailedError with the inner Temporal cause unwrapped", async () => {
+      const innerFailure = new Error("activity failure");
       const handle = {
         workflowId: "test-123",
         result: vi
           .fn()
           .mockRejectedValue(
-            new TemporalWorkflowFailedError("failed", cause, "NON_RETRYABLE_FAILURE"),
+            new TemporalWorkflowFailedError("failed", innerFailure, "NON_RETRYABLE_FAILURE"),
           ),
         query: vi.fn(),
         signal: vi.fn(),
@@ -1054,7 +1065,47 @@ describe("TypedClient", () => {
       expect(result.isError()).toBe(true);
       if (result.isError()) {
         expect(result.error).toBeInstanceOf(WorkflowFailedError);
-        expect((result.error as WorkflowFailedError).workflowId).toBe("test-123");
+        const err = result.error as WorkflowFailedError;
+        expect(err.workflowId).toBe("test-123");
+        // The inner cause is forwarded, not Temporal's wrapper.
+        expect(err.cause).toBe(innerFailure);
+        expect(err.cause).not.toBeInstanceOf(TemporalWorkflowFailedError);
+      }
+    });
+
+    it("falls back to handle.workflowId when Temporal's WorkflowNotFoundError carries an empty workflowId", async () => {
+      // Temporal's runtime sometimes constructs WorkflowNotFoundError with
+      // workflowId = "" (when the upstream error doesn't include the id).
+      // The typed client's classify helpers fall back to the handle's
+      // workflowId so the surfaced error always identifies the targeted
+      // execution. Without this, callers would see
+      // `Workflow execution "" not found in namespace.`
+      const handle = {
+        workflowId: "test-123",
+        result: vi.fn(),
+        query: vi.fn(),
+        signal: vi.fn(),
+        executeUpdate: vi.fn(),
+        terminate: vi.fn(),
+        cancel: vi
+          .fn()
+          .mockRejectedValue(new TemporalWorkflowNotFoundError("not found", "", undefined)),
+        describe: vi.fn(),
+        fetchHistory: vi.fn(),
+      };
+      mockWorkflow.getHandle.mockReturnValue(handle);
+
+      const handleResult = await typedClient.getHandle("testWorkflow", "test-123");
+      if (!handleResult.isOk()) throw new Error("getHandle should succeed");
+      const result = await handleResult.value.cancel();
+
+      expect(result.isError()).toBe(true);
+      if (result.isError()) {
+        expect(result.error).toBeInstanceOf(WorkflowExecutionNotFoundError);
+        const err = result.error as WorkflowExecutionNotFoundError;
+        // Fallback applied: the handle's workflowId rather than the
+        // empty string from Temporal's error.
+        expect(err.workflowId).toBe("test-123");
       }
     });
 

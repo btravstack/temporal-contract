@@ -87,6 +87,13 @@ export function classifyHandleError(
  * (the latter when waiting on the result phase). Recognizes Temporal's
  * `WorkflowFailedError` and `WorkflowNotFoundError`; everything else falls
  * through to {@link RuntimeClientError}.
+ *
+ * Temporal's `WorkflowFailedError` is itself a wrapper — the actionable
+ * failure (ApplicationFailure, CancelledFailure, TerminatedFailure, etc.)
+ * lives on its `cause` field. We forward that inner cause directly so
+ * consumers can match `err.cause` against the underlying failure class
+ * without an extra unwrap step. (If Temporal's cause is `undefined`, our
+ * `cause` is too — same shape as before.)
  */
 export function classifyResultError(
   operation: string,
@@ -94,7 +101,7 @@ export function classifyResultError(
   workflowId: string,
 ): WorkflowFailedError | WorkflowExecutionNotFoundError | RuntimeClientError {
   if (error instanceof TemporalWorkflowFailedError) {
-    return new WorkflowFailedError(workflowId, error);
+    return new WorkflowFailedError(workflowId, error.cause);
   }
   if (error instanceof TemporalWorkflowNotFoundError) {
     return new WorkflowExecutionNotFoundError(error.workflowId || workflowId, error.runId, error);

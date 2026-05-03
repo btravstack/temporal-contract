@@ -65,12 +65,16 @@ export class WorkflowAlreadyStartedError extends TypedClientError {
 }
 
 /**
- * Discriminated variant of {@link RuntimeClientError} surfaced when handle
- * operations (`signal`, `query`, `executeUpdate`, `result`, `terminate`,
- * `cancel`, `describe`, `fetchHistory`) target a workflow execution that
- * doesn't exist in the namespace — Temporal's `WorkflowNotFoundError`
- * (distinct from this package's contract-level
- * {@link WorkflowNotFoundError}).
+ * Discriminated variant of {@link RuntimeClientError} surfaced when an
+ * operation targets a workflow execution that doesn't exist in the
+ * namespace — Temporal's `WorkflowNotFoundError` (distinct from this
+ * package's contract-level {@link WorkflowNotFoundError}).
+ *
+ * Returned from:
+ * - handle methods: `signal`, `query`, `executeUpdate`, `result`,
+ *   `terminate`, `cancel`, `describe`, `fetchHistory`
+ * - `executeWorkflow` (when the underlying execute call hits a missing
+ *   execution mid-flight)
  */
 export class WorkflowExecutionNotFoundError extends TypedClientError {
   constructor(
@@ -87,9 +91,15 @@ export class WorkflowExecutionNotFoundError extends TypedClientError {
 /**
  * Discriminated variant of {@link RuntimeClientError} surfaced when waiting
  * on a workflow's result and the workflow completes with a failure —
- * Temporal's `WorkflowFailedError`. The original `cause` (typically an
- * `ApplicationFailure`, `CancelledFailure`, etc.) is preserved so callers
- * can branch on the underlying failure category.
+ * Temporal's `WorkflowFailedError`.
+ *
+ * `cause` is the *unwrapped* underlying failure (typically an
+ * `ApplicationFailure`, `CancelledFailure`, `TerminatedFailure`, or
+ * `TimeoutFailure`) lifted from Temporal's wrapper, so callers can branch
+ * on the failure category in one step (`err.cause instanceof
+ * ApplicationFailure`) instead of unwrapping twice via the SDK wrapper.
+ *
+ * Returned from `executeWorkflow` and `handle.result()`.
  */
 export class WorkflowFailedError extends TypedClientError {
   constructor(

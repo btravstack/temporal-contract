@@ -604,7 +604,11 @@ export class TypedClient<TContract extends ContractDefinition> {
           );
         }
         if (error instanceof TemporalWorkflowFailedError) {
-          return Result.Error(new WorkflowFailedError(temporalOptions.workflowId, error));
+          // Forward Temporal's nested cause directly — see
+          // {@link classifyResultError} for the same rationale: Temporal's
+          // `WorkflowFailedError` is a wrapper, and the actionable failure
+          // (ApplicationFailure, CancelledFailure, etc.) lives on `.cause`.
+          return Result.Error(new WorkflowFailedError(temporalOptions.workflowId, error.cause));
         }
         if (error instanceof TemporalWorkflowNotFoundError) {
           return Result.Error(
