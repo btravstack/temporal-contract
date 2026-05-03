@@ -1,5 +1,5 @@
 import { Connection } from "@temporalio/client";
-import { NativeConnection } from "@temporalio/worker/lib/connection.js";
+import { NativeConnection } from "@temporalio/worker";
 import { inject, it as vitestIt } from "vitest";
 
 export const it = vitestIt.extend<{

@@ -43,6 +43,10 @@ export class WorkflowNotFoundError extends TypedClientError {
   }
 }
 
+function summarizeIssues(issues: ReadonlyArray<StandardSchemaV1.Issue>): string {
+  return issues.map((issue) => issue.message).join("; ");
+}
+
 /**
  * Thrown when workflow input or output validation fails
  */
@@ -53,7 +57,7 @@ export class WorkflowValidationError extends TypedClientError {
     public readonly issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) {
     super(
-      `Validation failed for workflow "${workflowName}" ${direction}: ${JSON.stringify(issues)}`,
+      `Validation failed for workflow "${workflowName}" ${direction}: ${summarizeIssues(issues)}`,
     );
   }
 }
@@ -67,7 +71,7 @@ export class QueryValidationError extends TypedClientError {
     public readonly direction: "input" | "output",
     public readonly issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) {
-    super(`Validation failed for query "${queryName}" ${direction}: ${JSON.stringify(issues)}`);
+    super(`Validation failed for query "${queryName}" ${direction}: ${summarizeIssues(issues)}`);
   }
 }
 
@@ -79,7 +83,7 @@ export class SignalValidationError extends TypedClientError {
     public readonly signalName: string,
     public readonly issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) {
-    super(`Validation failed for signal "${signalName}": ${JSON.stringify(issues)}`);
+    super(`Validation failed for signal "${signalName}": ${summarizeIssues(issues)}`);
   }
 }
 
@@ -92,6 +96,6 @@ export class UpdateValidationError extends TypedClientError {
     public readonly direction: "input" | "output",
     public readonly issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) {
-    super(`Validation failed for update "${updateName}" ${direction}: ${JSON.stringify(issues)}`);
+    super(`Validation failed for update "${updateName}" ${direction}: ${summarizeIssues(issues)}`);
   }
 }

@@ -28,8 +28,9 @@ export function getWorkflowActivities<
     (workflowDef as { activities?: Record<string, ActivityDefinition> })?.activities || {};
   const globalActivities = contract.activities || {};
 
-  // Merge global and workflow-specific activities
-  // Workflow-specific activities take precedence over global ones with the same name
+  // Merge global and workflow-specific activities. defineContract guarantees
+  // there are no name collisions across the global and workflow scopes, so the
+  // spread order is only a stable iteration choice (workflow-local last).
   return {
     ...globalActivities,
     ...workflowActivities,

@@ -379,22 +379,39 @@ const contractValidationSchema = z
     activities: z.record(identifierSchema, activityDefinitionSchema).optional(),
   })
   .superRefine((contract, ctx) => {
-    // Check for conflicts between global and workflow-specific activities
-    if (!contract.activities) {
-      return;
+    // Activities are registered in a single flat namespace at runtime, so any
+    // duplicate name silently clobbers another. Catch all collisions here:
+    // 1. workflow-specific vs. global, and
+    // 2. workflow-specific vs. other workflow-specific.
+    const owners = new Map<string, string>();
+
+    if (contract.activities) {
+      for (const activityName of Object.keys(contract.activities)) {
+        owners.set(activityName, "global");
+      }
     }
 
     for (const [workflowName, workflow] of Object.entries(contract.workflows)) {
-      if (workflow.activities) {
-        for (const activityName of Object.keys(workflow.activities)) {
-          if (activityName in contract.activities) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: `workflow "${workflowName}" has activity "${activityName}" that conflicts with a global activity. Consider renaming the workflow-specific activity or removing the global activity "${activityName}".`,
-            });
-            return;
-          }
+      if (!workflow.activities) {
+        continue;
+      }
+      for (const activityName of Object.keys(workflow.activities)) {
+        const previousOwner = owners.get(activityName);
+        if (previousOwner === "global") {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `workflow "${workflowName}" has activity "${activityName}" that conflicts with a global activity. Consider renaming the workflow-specific activity or removing the global activity "${activityName}".`,
+          });
+          continue;
         }
+        if (previousOwner !== undefined) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `workflow "${workflowName}" has activity "${activityName}" that conflicts with the same-named activity in workflow "${previousOwner}". Activities share a single flat namespace at runtime — rename one of them.`,
+          });
+          continue;
+        }
+        owners.set(activityName, workflowName);
       }
     }
   });
