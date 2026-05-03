@@ -407,6 +407,38 @@ describe("Contract Builder", () => {
       );
     });
 
+    it("should throw when two workflows declare activities with the same name", () => {
+      expect(() =>
+        defineContract({
+          taskQueue: "test",
+          workflows: {
+            processOrder: {
+              input: z.object({}),
+              output: z.object({}),
+              activities: {
+                charge: {
+                  input: z.object({}),
+                  output: z.object({}),
+                },
+              },
+            },
+            processRefund: {
+              input: z.object({}),
+              output: z.object({}),
+              activities: {
+                charge: {
+                  input: z.object({}),
+                  output: z.object({}),
+                },
+              },
+            },
+          },
+        }),
+      ).toThrow(
+        'workflow "processRefund" has activity "charge" that conflicts with the same-named activity in workflow "processOrder". Activities share a single flat namespace at runtime — rename one of them.',
+      );
+    });
+
     it("should throw when signal name is invalid", () => {
       expect(() =>
         defineContract({
