@@ -33,13 +33,35 @@ export class Future<T> implements Promise<T> {
   }
 
   /**
-   * Create a Future from a Promise
+   * Create a Future from a Promise.
+   *
+   * Without `mapError`, rejections are surfaced as `Result.Error<unknown>` and
+   * the caller is expected to narrow them. Pass `mapError` to lift the error
+   * type at the boundary — useful when the consumer has a specific domain
+   * error class:
+   *
+   * @example
+   * ```ts
+   * Future.fromPromise(handle.terminate(), (e) => new RuntimeClientError("terminate", e));
+   * ```
    */
-  static fromPromise<T>(promise: Promise<T>): Future<Result<T, unknown>> {
+  static fromPromise<T>(promise: Promise<T>): Future<Result<T, unknown>>;
+  static fromPromise<T, E>(
+    promise: Promise<T>,
+    mapError: (error: unknown) => E,
+  ): Future<Result<T, E>>;
+  static fromPromise<T, E>(
+    promise: Promise<T>,
+    mapError?: (error: unknown) => E,
+  ): Future<Result<T, E | unknown>> {
     return new Future(
       promise
-        .then((value) => new Ok<T, unknown>(value) as Result<T, unknown>)
-        .catch((error) => new Err<T, unknown>(error) as Result<T, unknown>),
+        .then((value) => new Ok<T, E | unknown>(value) as Result<T, E | unknown>)
+        .catch((error) =>
+          mapError
+            ? (new Err<T, E>(mapError(error)) as Result<T, E | unknown>)
+            : (new Err<T, unknown>(error) as Result<T, E | unknown>),
+        ),
     );
   }
 
@@ -176,8 +198,12 @@ export class Future<T> implements Promise<T> {
     return this.promise;
   }
 
-  // Promise interface implementation
-  // Note: This is intentional to make Future awaitable
+  // Promise interface implementation.
+  //
+  // Note: `then` / `catch` / `finally` return a raw `Promise`, **not** a
+  // `Future`. They exist so a Future is `await`able (and to satisfy the
+  // `Promise<T>` interface for interop). For chainable, type-preserving
+  // transforms use `.map`, `.flatMap`, `.mapOk`, `.flatMapOk`, etc.
   // eslint-disable-next-line unicorn/no-thenable
   then<TResult1 = T, TResult2 = never>(
     onFulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
