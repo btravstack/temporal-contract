@@ -16,7 +16,26 @@ Round-2 review-driven cleanup. Several small breaking removals, a typed-error ov
 
 **Breaking changes (`@temporal-contract/worker`)**
 
-- Removed the `getWorkflowActivities`, `getWorkflowActivityNames`, `isWorkflowActivity`, and `getWorkflowNames` helpers from `@temporal-contract/worker/activity`. They had no internal usage, no example usage, and `isWorkflowActivity` was misnamed (returned true for global activities). If you depended on them, derive equivalents directly from the contract object — `Object.keys(contract.workflows)`, `contract.workflows[name].activities`, etc.
+- Removed the `getWorkflowActivities`, `getWorkflowActivityNames`, `isWorkflowActivity`, and `getWorkflowNames` helpers from `@temporal-contract/worker/activity`. They had no internal usage, no example usage, and `isWorkflowActivity` was misnamed (returned true for global activities). If you depended on them, derive equivalents directly from the contract — but **remember the merge with global activities**:
+
+  ```ts
+  // Before:
+  const activities = getWorkflowActivities(contract, "processOrder");
+  const names = getWorkflowActivityNames(contract, "processOrder");
+  const isAvailable = isWorkflowActivity(contract, "processOrder", "send");
+  const workflows = getWorkflowNames(contract);
+
+  // After:
+  const activities = {
+    ...(contract.activities ?? {}),
+    ...(contract.workflows.processOrder.activities ?? {}),
+  };
+  const names = Object.keys(activities);
+  const isAvailable = "send" in activities;
+  const workflows = Object.keys(contract.workflows);
+  ```
+
+  `contract.workflows[name].activities` alone only contains workflow-local activities; you must merge `contract.activities` to match the old helper's behavior.
 
 **Breaking changes (`@temporal-contract/client`)**
 

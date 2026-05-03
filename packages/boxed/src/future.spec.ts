@@ -126,6 +126,21 @@ describe("Future", () => {
         expect(result.value).toBe(42);
       }
     });
+
+    it("should surface a faulty mapError's exception as Result.Error rather than rejecting", async () => {
+      // The whole point of fromPromise is "rejections become Results". A
+      // mapper that itself throws must not be allowed to undo that.
+      const future = Future.fromPromise(Promise.reject(new Error("original")), (_e) => {
+        throw new Error("mapper bug");
+      });
+
+      const result = await future;
+      expect(result.isError()).toBe(true);
+      if (result.isError()) {
+        expect(result.error).toBeInstanceOf(Error);
+        expect((result.error as Error).message).toBe("mapper bug");
+      }
+    });
   });
 
   describe("transformations", () => {

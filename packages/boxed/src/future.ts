@@ -57,11 +57,20 @@ export class Future<T> implements Promise<T> {
     return new Future(
       promise
         .then((value) => new Ok<T, E | unknown>(value) as Result<T, E | unknown>)
-        .catch((error) =>
-          mapError
-            ? (new Err<T, E>(mapError(error)) as Result<T, E | unknown>)
-            : (new Err<T, unknown>(error) as Result<T, E | unknown>),
-        ),
+        .catch((error) => {
+          if (!mapError) {
+            return new Err<T, unknown>(error) as Result<T, E | unknown>;
+          }
+          // If `mapError` itself throws, surface the mapper's exception as the
+          // Result's error rather than letting the Future reject. The whole
+          // point of `fromPromise` is to convert rejections into Results, so
+          // a faulty mapper must not break that invariant.
+          try {
+            return new Err<T, E>(mapError(error)) as Result<T, E | unknown>;
+          } catch (mapperError) {
+            return new Err<T, unknown>(mapperError) as Result<T, E | unknown>;
+          }
+        }),
     );
   }
 

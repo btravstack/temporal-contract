@@ -184,11 +184,14 @@ export function declareWorkflow<
 
     // Context methods for defining signals, queries, and updates.
     //
-    // The runtime defensive checks for "signal/query/update kind not declared
-    // in the contract" are intentionally absent: the type signature
-    // `K extends keyof TContract["workflows"][TWorkflowName]["signals"]` is
-    // `keyof never = never` when the workflow has no signals declared, so the
-    // call site cannot type-check unless the contract already lists the kind.
+    // Each helper guards against the contract not declaring this kind for the
+    // current workflow. The simple case ("workflow has no signals") is already
+    // prevented by the type signature, but `declareWorkflow` *can* be called
+    // with a union-typed `workflowName` (e.g. a factory function that builds
+    // a workflow handler from any of several names), in which case the union
+    // collapses signal/query/update keysets and the runtime check earns its
+    // keep — without it, a caller would see `Cannot read properties of
+    // undefined` instead of a controlled contract error.
     function createDefineSignal<
       TSignalName extends keyof TContract["workflows"][TWorkflowName]["signals"],
     >(
@@ -199,9 +202,19 @@ export function declareWorkflow<
           : never
       >,
     ): void {
+      if (!definition.signals) {
+        throw new Error(
+          `Signal "${String(signalName)}" cannot be defined: workflow "${String(workflowName)}" has no signals in its contract`,
+        );
+      }
       const signalDef = (definition.signals as Record<string, SignalDefinition>)[
         signalName as string
-      ] as SignalDefinition;
+      ];
+      if (!signalDef) {
+        throw new Error(
+          `Signal "${String(signalName)}" not found in workflow "${String(workflowName)}" contract`,
+        );
+      }
 
       const signal = defineSignal(signalName as string);
       setHandler(signal, async (...args: unknown[]) => {
@@ -224,9 +237,17 @@ export function declareWorkflow<
           : never
       >,
     ): void {
-      const queryDef = (definition.queries as Record<string, QueryDefinition>)[
-        queryName as string
-      ] as QueryDefinition;
+      if (!definition.queries) {
+        throw new Error(
+          `Query "${String(queryName)}" cannot be defined: workflow "${String(workflowName)}" has no queries in its contract`,
+        );
+      }
+      const queryDef = (definition.queries as Record<string, QueryDefinition>)[queryName as string];
+      if (!queryDef) {
+        throw new Error(
+          `Query "${String(queryName)}" not found in workflow "${String(workflowName)}" contract`,
+        );
+      }
 
       const query = defineQuery(queryName as string);
       setHandler(query, (...args: unknown[]) => {
@@ -272,9 +293,19 @@ export function declareWorkflow<
           : never
       >,
     ): void {
+      if (!definition.updates) {
+        throw new Error(
+          `Update "${String(updateName)}" cannot be defined: workflow "${String(workflowName)}" has no updates in its contract`,
+        );
+      }
       const updateDef = (definition.updates as Record<string, UpdateDefinition>)[
         updateName as string
-      ] as UpdateDefinition;
+      ];
+      if (!updateDef) {
+        throw new Error(
+          `Update "${String(updateName)}" not found in workflow "${String(workflowName)}" contract`,
+        );
+      }
 
       const update = defineUpdate(updateName as string);
       setHandler(update, async (...args: unknown[]) => {

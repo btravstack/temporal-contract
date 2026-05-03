@@ -2,7 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
 import { defineContract } from "@temporal-contract/contract";
 import { TypedClient } from "./client.js";
-import { WorkflowNotFoundError, WorkflowValidationError } from "./errors.js";
+import {
+  QueryValidationError,
+  RuntimeClientError,
+  SignalValidationError,
+  UpdateValidationError,
+  WorkflowNotFoundError,
+  WorkflowValidationError,
+} from "./errors.js";
 import { Client } from "@temporalio/client";
 
 // Create mock workflow object
@@ -381,6 +388,166 @@ describe("TypedClient", () => {
           }),
         );
       }
+    });
+
+    describe("error paths", () => {
+      // The buildValidatedProxy refactor centralized validation + runtime-error
+      // mapping for queries / signals / updates. These tests pin those paths.
+
+      it("returns QueryValidationError when query input fails validation", async () => {
+        const handleResult = await typedClient.startWorkflow("testWorkflow", {
+          workflowId: "test-123",
+          args: { name: "hello", value: 42 },
+        });
+        if (!handleResult.isOk()) throw new Error("expected Ok");
+
+        // getStatus expects z.tuple([]); pass a non-tuple to bypass at runtime
+        const result = await handleResult.value.queries.getStatus(
+          // @ts-expect-error testing runtime validation
+          [123],
+        );
+
+        expect(result.isError()).toBe(true);
+        if (result.isError()) {
+          expect(result.error).toBeInstanceOf(QueryValidationError);
+          expect((result.error as QueryValidationError).direction).toBe("input");
+        }
+        expect(mockHandle.query).not.toHaveBeenCalled();
+      });
+
+      it("returns QueryValidationError when query output fails validation", async () => {
+        // Mock returns a non-string; output schema is z.string()
+        mockHandle.query.mockResolvedValue(42);
+
+        const handleResult = await typedClient.startWorkflow("testWorkflow", {
+          workflowId: "test-123",
+          args: { name: "hello", value: 42 },
+        });
+        if (!handleResult.isOk()) throw new Error("expected Ok");
+
+        const result = await handleResult.value.queries.getStatus([]);
+
+        expect(result.isError()).toBe(true);
+        if (result.isError()) {
+          expect(result.error).toBeInstanceOf(QueryValidationError);
+          expect((result.error as QueryValidationError).direction).toBe("output");
+        }
+      });
+
+      it("returns RuntimeClientError when the underlying query call rejects", async () => {
+        mockHandle.query.mockRejectedValue(new Error("network down"));
+
+        const handleResult = await typedClient.startWorkflow("testWorkflow", {
+          workflowId: "test-123",
+          args: { name: "hello", value: 42 },
+        });
+        if (!handleResult.isOk()) throw new Error("expected Ok");
+
+        const result = await handleResult.value.queries.getStatus([]);
+
+        expect(result.isError()).toBe(true);
+        if (result.isError()) {
+          expect(result.error).toBeInstanceOf(RuntimeClientError);
+          expect((result.error as RuntimeClientError).operation).toBe("query");
+        }
+      });
+
+      it("returns SignalValidationError when signal input fails validation", async () => {
+        const handleResult = await typedClient.startWorkflow("testWorkflow", {
+          workflowId: "test-123",
+          args: { name: "hello", value: 42 },
+        });
+        if (!handleResult.isOk()) throw new Error("expected Ok");
+
+        // updateProgress expects z.tuple([z.number()]); pass a string
+        const result = await handleResult.value.signals.updateProgress(
+          // @ts-expect-error testing runtime validation
+          ["not a number"],
+        );
+
+        expect(result.isError()).toBe(true);
+        if (result.isError()) {
+          expect(result.error).toBeInstanceOf(SignalValidationError);
+        }
+        expect(mockHandle.signal).not.toHaveBeenCalled();
+      });
+
+      it("returns RuntimeClientError when the underlying signal call rejects", async () => {
+        mockHandle.signal.mockRejectedValue(new Error("connection reset"));
+
+        const handleResult = await typedClient.startWorkflow("testWorkflow", {
+          workflowId: "test-123",
+          args: { name: "hello", value: 42 },
+        });
+        if (!handleResult.isOk()) throw new Error("expected Ok");
+
+        const result = await handleResult.value.signals.updateProgress([50]);
+
+        expect(result.isError()).toBe(true);
+        if (result.isError()) {
+          expect(result.error).toBeInstanceOf(RuntimeClientError);
+          expect((result.error as RuntimeClientError).operation).toBe("signal");
+        }
+      });
+
+      it("returns UpdateValidationError when update input fails validation", async () => {
+        const handleResult = await typedClient.startWorkflow("testWorkflow", {
+          workflowId: "test-123",
+          args: { name: "hello", value: 42 },
+        });
+        if (!handleResult.isOk()) throw new Error("expected Ok");
+
+        // setConfig expects z.tuple([z.object({ value: z.string() })]);
+        // pass an object with the wrong shape
+        const result = await handleResult.value.updates.setConfig(
+          // @ts-expect-error testing runtime validation
+          [{ value: 99 }],
+        );
+
+        expect(result.isError()).toBe(true);
+        if (result.isError()) {
+          expect(result.error).toBeInstanceOf(UpdateValidationError);
+          expect((result.error as UpdateValidationError).direction).toBe("input");
+        }
+        expect(mockHandle.executeUpdate).not.toHaveBeenCalled();
+      });
+
+      it("returns UpdateValidationError when update output fails validation", async () => {
+        // setConfig output schema is z.boolean(); return a string
+        mockHandle.executeUpdate.mockResolvedValue("not a boolean");
+
+        const handleResult = await typedClient.startWorkflow("testWorkflow", {
+          workflowId: "test-123",
+          args: { name: "hello", value: 42 },
+        });
+        if (!handleResult.isOk()) throw new Error("expected Ok");
+
+        const result = await handleResult.value.updates.setConfig([{ value: "ok" }]);
+
+        expect(result.isError()).toBe(true);
+        if (result.isError()) {
+          expect(result.error).toBeInstanceOf(UpdateValidationError);
+          expect((result.error as UpdateValidationError).direction).toBe("output");
+        }
+      });
+
+      it("returns RuntimeClientError when the underlying update call rejects", async () => {
+        mockHandle.executeUpdate.mockRejectedValue(new Error("update timeout"));
+
+        const handleResult = await typedClient.startWorkflow("testWorkflow", {
+          workflowId: "test-123",
+          args: { name: "hello", value: 42 },
+        });
+        if (!handleResult.isOk()) throw new Error("expected Ok");
+
+        const result = await handleResult.value.updates.setConfig([{ value: "ok" }]);
+
+        expect(result.isError()).toBe(true);
+        if (result.isError()) {
+          expect(result.error).toBeInstanceOf(RuntimeClientError);
+          expect((result.error as RuntimeClientError).operation).toBe("update");
+        }
+      });
     });
   });
 
