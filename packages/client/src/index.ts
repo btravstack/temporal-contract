@@ -1,5 +1,6 @@
 export { TypedClient, type TypedWorkflowHandle, type TypedWorkflowStartOptions } from "./client.js";
 export {
+  RuntimeClientError,
   WorkflowNotFoundError,
   WorkflowValidationError,
   QueryValidationError,

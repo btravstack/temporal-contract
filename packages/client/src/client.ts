@@ -1,13 +1,7 @@
 import { Client, WorkflowHandle } from "@temporalio/client";
 import type { WorkflowStartOptions } from "@temporalio/client";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type {
-  ContractDefinition,
-  WorkflowDefinition,
-  QueryDefinition,
-  SignalDefinition,
-  UpdateDefinition,
-} from "@temporal-contract/contract";
+import type { ContractDefinition, WorkflowDefinition } from "@temporal-contract/contract";
 import type {
   ClientInferInput,
   ClientInferOutput,
@@ -175,43 +169,33 @@ export class TypedClient<TContract extends ContractDefinition> {
       WorkflowNotFoundError | WorkflowValidationError | RuntimeClientError
     >
   > {
-    return Future.make((resolve) => {
-      (async () => {
-        const definition = this.contract.workflows[workflowName as string];
+    type Ok = TypedWorkflowHandle<TContract["workflows"][TWorkflowName]>;
+    type Err = WorkflowNotFoundError | WorkflowValidationError | RuntimeClientError;
+    const work = async (): Promise<Result<Ok, Err>> => {
+      const definition = this.contract.workflows[workflowName as string];
+      if (!definition) {
+        return Result.Error(createWorkflowNotFoundError(workflowName, this.contract));
+      }
 
-        if (!definition) {
-          return Result.Error(createWorkflowNotFoundError(workflowName, this.contract));
-        }
+      const inputResult = await definition.input["~standard"].validate(args);
+      if (inputResult.issues) {
+        return Result.Error(
+          createWorkflowValidationError(workflowName, "input", inputResult.issues),
+        );
+      }
 
-        const inputResult = await definition.input["~standard"].validate(args);
-        if (inputResult.issues) {
-          return Result.Error(
-            createWorkflowValidationError(workflowName, "input", inputResult.issues),
-          );
-        }
-
-        const validatedInput = inputResult.value as ClientInferInput<
-          TContract["workflows"][TWorkflowName]
-        >;
-
-        // Start workflow (Temporal expects args as array, so wrap single parameter)
-        try {
-          const handle = await this.client.workflow.start(workflowName as string, {
-            ...temporalOptions,
-            taskQueue: this.contract.taskQueue,
-            args: [validatedInput],
-          });
-          const typedHandle = this.createTypedHandle(handle, definition) as TypedWorkflowHandle<
-            TContract["workflows"][TWorkflowName]
-          >;
-          return Result.Ok(typedHandle);
-        } catch (error) {
-          return Result.Error(createRuntimeClientError("startWorkflow", error));
-        }
-      })()
-        .then(resolve)
-        .catch((e: unknown) => resolve(Result.Error(createRuntimeClientError("unexpected", e))));
-    });
+      try {
+        const handle = await this.client.workflow.start(workflowName as string, {
+          ...temporalOptions,
+          taskQueue: this.contract.taskQueue,
+          args: [inputResult.value],
+        });
+        return Result.Ok(this.createTypedHandle(handle, definition) as Ok);
+      } catch (error) {
+        return Result.Error(createRuntimeClientError("startWorkflow", error));
+      }
+    };
+    return makeFuture(work);
   }
 
   /**
@@ -241,51 +225,41 @@ export class TypedClient<TContract extends ContractDefinition> {
       WorkflowNotFoundError | WorkflowValidationError | RuntimeClientError
     >
   > {
-    return Future.make((resolve) => {
-      (async () => {
-        const definition = this.contract.workflows[workflowName as string];
+    type Ok = ClientInferOutput<TContract["workflows"][TWorkflowName]>;
+    type Err = WorkflowNotFoundError | WorkflowValidationError | RuntimeClientError;
+    const work = async (): Promise<Result<Ok, Err>> => {
+      const definition = this.contract.workflows[workflowName as string];
+      if (!definition) {
+        return Result.Error(createWorkflowNotFoundError(workflowName, this.contract));
+      }
 
-        if (!definition) {
-          return Result.Error(createWorkflowNotFoundError(workflowName, this.contract));
-        }
+      const inputResult = await definition.input["~standard"].validate(args);
+      if (inputResult.issues) {
+        return Result.Error(
+          createWorkflowValidationError(workflowName, "input", inputResult.issues),
+        );
+      }
 
-        const inputResult = await definition.input["~standard"].validate(args);
-        if (inputResult.issues) {
+      try {
+        const result = await this.client.workflow.execute(workflowName as string, {
+          ...temporalOptions,
+          taskQueue: this.contract.taskQueue,
+          args: [inputResult.value],
+        });
+
+        const outputResult = await definition.output["~standard"].validate(result);
+        if (outputResult.issues) {
           return Result.Error(
-            createWorkflowValidationError(workflowName, "input", inputResult.issues),
+            createWorkflowValidationError(workflowName, "output", outputResult.issues),
           );
         }
 
-        const validatedInput = inputResult.value as ClientInferInput<
-          TContract["workflows"][TWorkflowName]
-        >;
-
-        // Execute workflow (Temporal expects args as array, so wrap single parameter)
-        try {
-          const result = await this.client.workflow.execute(workflowName as string, {
-            ...temporalOptions,
-            taskQueue: this.contract.taskQueue,
-            args: [validatedInput],
-          });
-
-          // Validate output with Standard Schema
-          const outputResult = await definition.output["~standard"].validate(result);
-          if (outputResult.issues) {
-            return Result.Error(
-              createWorkflowValidationError(workflowName, "output", outputResult.issues),
-            );
-          }
-
-          return Result.Ok(
-            outputResult.value as ClientInferOutput<TContract["workflows"][TWorkflowName]>,
-          );
-        } catch (error) {
-          return Result.Error(createRuntimeClientError("executeWorkflow", error));
-        }
-      })()
-        .then(resolve)
-        .catch((e: unknown) => resolve(Result.Error(createRuntimeClientError("unexpected", e))));
-    });
+        return Result.Ok(outputResult.value as Ok);
+      } catch (error) {
+        return Result.Error(createRuntimeClientError("executeWorkflow", error));
+      }
+    };
+    return makeFuture(work);
   }
 
   /**
@@ -312,142 +286,56 @@ export class TypedClient<TContract extends ContractDefinition> {
       WorkflowNotFoundError | RuntimeClientError
     >
   > {
-    return Future.make((resolve) => {
-      (async () => {
-        const definition = this.contract.workflows[workflowName as string];
+    type Ok = TypedWorkflowHandle<TContract["workflows"][TWorkflowName]>;
+    type Err = WorkflowNotFoundError | RuntimeClientError;
+    const work = async (): Promise<Result<Ok, Err>> => {
+      const definition = this.contract.workflows[workflowName as string];
+      if (!definition) {
+        return Result.Error(createWorkflowNotFoundError(workflowName, this.contract));
+      }
 
-        if (!definition) {
-          return Result.Error(createWorkflowNotFoundError(workflowName, this.contract));
-        }
-
-        try {
-          const handle = this.client.workflow.getHandle(workflowId);
-          const typedHandle = this.createTypedHandle(handle, definition) as TypedWorkflowHandle<
-            TContract["workflows"][TWorkflowName]
-          >;
-          return Result.Ok(typedHandle);
-        } catch (error) {
-          return Result.Error(createRuntimeClientError("getHandle", error));
-        }
-      })()
-        .then(resolve)
-        .catch((e: unknown) => resolve(Result.Error(createRuntimeClientError("unexpected", e))));
-    });
+      try {
+        const handle = this.client.workflow.getHandle(workflowId);
+        return Result.Ok(this.createTypedHandle(handle, definition) as Ok);
+      } catch (error) {
+        return Result.Error(createRuntimeClientError("getHandle", error));
+      }
+    };
+    return makeFuture(work);
   }
 
   private createTypedHandle<TWorkflow extends WorkflowDefinition>(
     workflowHandle: WorkflowHandle,
     definition: TWorkflow,
   ): TypedWorkflowHandle<TWorkflow> {
-    // Create typed queries proxy with Future/Result
-    const queries = {} as TypedWorkflowHandle<TWorkflow>["queries"];
-    for (const [queryName, queryDef] of Object.entries(definition.queries ?? {}) as Array<
-      [string, QueryDefinition]
-    >) {
-      (queries as Record<string, unknown>)[queryName] = (
-        args: ClientInferInput<typeof queryDef>,
-      ): Future<Result<unknown, QueryValidationError | RuntimeClientError>> => {
-        return Future.make((resolve) => {
-          (async () => {
-            const inputResult = await queryDef.input["~standard"].validate(args);
-            if (inputResult.issues) {
-              return Result.Error(new QueryValidationError(queryName, "input", inputResult.issues));
-            }
+    const queries = buildValidatedProxy({
+      defs: definition.queries,
+      operation: "query",
+      makeValidationError: (name, direction, issues) =>
+        new QueryValidationError(name, direction, issues),
+      invoke: (name, validated) => workflowHandle.query(name, validated),
+      validateOutput: (def) => def.output,
+    }) as TypedWorkflowHandle<TWorkflow>["queries"];
 
-            try {
-              const result = await workflowHandle.query(queryName as string, inputResult.value);
+    const signals = buildValidatedProxy({
+      defs: definition.signals,
+      operation: "signal",
+      makeValidationError: (name, _direction, issues) => new SignalValidationError(name, issues),
+      invoke: async (name, validated) => {
+        await workflowHandle.signal(name, validated);
+        return undefined;
+      },
+      validateOutput: () => null,
+    }) as TypedWorkflowHandle<TWorkflow>["signals"];
 
-              const outputResult = await queryDef.output["~standard"].validate(result);
-              if (outputResult.issues) {
-                return Result.Error(
-                  new QueryValidationError(queryName, "output", outputResult.issues),
-                );
-              }
-
-              return Result.Ok(outputResult.value);
-            } catch (error) {
-              return Result.Error(createRuntimeClientError("query", error));
-            }
-          })()
-            .then(resolve)
-            .catch((e: unknown) =>
-              resolve(Result.Error(createRuntimeClientError("unexpected", e))),
-            );
-        });
-      };
-    }
-
-    // Create typed signals proxy with Future/Result
-    const signals = {} as TypedWorkflowHandle<TWorkflow>["signals"];
-    for (const [signalName, signalDef] of Object.entries(definition.signals ?? {}) as Array<
-      [string, SignalDefinition]
-    >) {
-      (signals as Record<string, unknown>)[signalName] = (
-        args: ClientInferInput<typeof signalDef>,
-      ): Future<Result<void, SignalValidationError | RuntimeClientError>> => {
-        return Future.make((resolve) => {
-          (async () => {
-            const inputResult = await signalDef.input["~standard"].validate(args);
-            if (inputResult.issues) {
-              return Result.Error(new SignalValidationError(signalName, inputResult.issues));
-            }
-
-            try {
-              await workflowHandle.signal(signalName as string, inputResult.value);
-              return Result.Ok(undefined);
-            } catch (error) {
-              return Result.Error(createRuntimeClientError("signal", error));
-            }
-          })()
-            .then(resolve)
-            .catch((e: unknown) =>
-              resolve(Result.Error(createRuntimeClientError("unexpected", e))),
-            );
-        });
-      };
-    }
-
-    // Create typed updates proxy with Future/Result
-    const updates = {} as TypedWorkflowHandle<TWorkflow>["updates"];
-    for (const [updateName, updateDef] of Object.entries(definition.updates ?? {}) as Array<
-      [string, UpdateDefinition]
-    >) {
-      (updates as Record<string, unknown>)[updateName] = (
-        args: ClientInferInput<typeof updateDef>,
-      ): Future<Result<unknown, UpdateValidationError | RuntimeClientError>> => {
-        return Future.make((resolve) => {
-          (async () => {
-            const inputResult = await updateDef.input["~standard"].validate(args);
-            if (inputResult.issues) {
-              return Result.Error(
-                new UpdateValidationError(updateName, "input", inputResult.issues),
-              );
-            }
-
-            try {
-              const result = await workflowHandle.executeUpdate(updateName as string, {
-                args: [inputResult.value],
-              });
-
-              const outputResult = await updateDef.output["~standard"].validate(result);
-              if (outputResult.issues) {
-                return Result.Error(
-                  new UpdateValidationError(updateName, "output", outputResult.issues),
-                );
-              }
-
-              return Result.Ok(outputResult.value);
-            } catch (error) {
-              return Result.Error(createRuntimeClientError("update", error));
-            }
-          })()
-            .then(resolve)
-            .catch((e: unknown) =>
-              resolve(Result.Error(createRuntimeClientError("unexpected", e))),
-            );
-        });
-      };
-    }
+    const updates = buildValidatedProxy({
+      defs: definition.updates,
+      operation: "update",
+      makeValidationError: (name, direction, issues) =>
+        new UpdateValidationError(name, direction, issues),
+      invoke: (name, validated) => workflowHandle.executeUpdate(name, { args: [validated] }),
+      validateOutput: (def) => def.output,
+    }) as TypedWorkflowHandle<TWorkflow>["updates"];
 
     return {
       workflowId: workflowHandle.workflowId,
@@ -457,55 +345,48 @@ export class TypedClient<TContract extends ContractDefinition> {
       result: (): Future<
         Result<ClientInferOutput<TWorkflow>, WorkflowValidationError | RuntimeClientError>
       > => {
-        return Future.make((resolve) => {
-          (async () => {
-            try {
-              const result = await workflowHandle.result();
-              const outputResult = await definition.output["~standard"].validate(result);
-              if (outputResult.issues) {
-                return Result.Error(
-                  new WorkflowValidationError(
-                    workflowHandle.workflowId,
-                    "output",
-                    outputResult.issues,
-                  ),
-                );
-              }
-              return Result.Ok(outputResult.value as ClientInferOutput<TWorkflow>);
-            } catch (error) {
-              return Result.Error(createRuntimeClientError("result", error));
+        type Ok = ClientInferOutput<TWorkflow>;
+        type Err = WorkflowValidationError | RuntimeClientError;
+        const work = async (): Promise<Result<Ok, Err>> => {
+          try {
+            const result = await workflowHandle.result();
+            const outputResult = await definition.output["~standard"].validate(result);
+            if (outputResult.issues) {
+              return Result.Error(
+                new WorkflowValidationError(
+                  workflowHandle.workflowId,
+                  "output",
+                  outputResult.issues,
+                ),
+              );
             }
-          })()
-            .then(resolve)
-            .catch((e: unknown) =>
-              resolve(Result.Error(createRuntimeClientError("unexpected", e))),
-            );
-        });
+            return Result.Ok(outputResult.value as Ok);
+          } catch (error) {
+            return Result.Error(createRuntimeClientError("result", error));
+          }
+        };
+        return makeFuture(work);
       },
-      terminate: (reason?: string): Future<Result<void, RuntimeClientError>> => {
-        return Future.fromPromise(workflowHandle.terminate(reason))
+      terminate: (reason?: string): Future<Result<void, RuntimeClientError>> =>
+        Future.fromPromise(workflowHandle.terminate(reason))
           .mapError((error) => createRuntimeClientError("terminate", error))
-          .mapOk(() => undefined);
-      },
-      cancel: (): Future<Result<void, RuntimeClientError>> => {
-        return Future.fromPromise(workflowHandle.cancel())
+          .mapOk(() => undefined),
+      cancel: (): Future<Result<void, RuntimeClientError>> =>
+        Future.fromPromise(workflowHandle.cancel())
           .mapError((error) => createRuntimeClientError("cancel", error))
-          .mapOk(() => undefined);
-      },
+          .mapOk(() => undefined),
       describe: (): Future<
         Result<Awaited<ReturnType<WorkflowHandle["describe"]>>, RuntimeClientError>
-      > => {
-        return Future.fromPromise(workflowHandle.describe()).mapError((error) =>
+      > =>
+        Future.fromPromise(workflowHandle.describe()).mapError((error) =>
           createRuntimeClientError("describe", error),
-        );
-      },
+        ),
       fetchHistory: (): Future<
         Result<Awaited<ReturnType<WorkflowHandle["fetchHistory"]>>, RuntimeClientError>
-      > => {
-        return Future.fromPromise(workflowHandle.fetchHistory()).mapError((error) =>
+      > =>
+        Future.fromPromise(workflowHandle.fetchHistory()).mapError((error) =>
           createRuntimeClientError("fetchHistory", error),
-        );
-      },
+        ),
     };
   }
 }
@@ -527,4 +408,93 @@ function createWorkflowValidationError(
   issues: ReadonlyArray<StandardSchemaV1.Issue>,
 ): WorkflowValidationError {
   return new WorkflowValidationError(String(workflowName), direction, issues);
+}
+
+/**
+ * Wrap an async result-producing function in a Future, catching any unexpected
+ * rejection as a `RuntimeClientError`. The work function is expected to handle
+ * its own domain errors and return a `Result.Error(...)` for them; the catch
+ * here is a safety net for thrown exceptions the work didn't anticipate.
+ */
+function makeFuture<T, E>(
+  work: () => Promise<Result<T, E>>,
+): Future<Result<T, E | RuntimeClientError>> {
+  return Future.make((resolve) => {
+    work()
+      .then(resolve)
+      .catch((e: unknown) =>
+        resolve(Result.Error<T, E | RuntimeClientError>(createRuntimeClientError("unexpected", e))),
+      );
+  });
+}
+
+type DefWithInput = { readonly input: StandardSchemaV1 };
+
+type ProxyOptions<TDef extends DefWithInput, TValidationError extends Error> = {
+  readonly defs: Record<string, TDef> | undefined;
+  readonly operation: string;
+  readonly makeValidationError: (
+    name: string,
+    direction: "input" | "output",
+    issues: ReadonlyArray<StandardSchemaV1.Issue>,
+  ) => TValidationError;
+  readonly invoke: (name: string, validatedInput: unknown) => Promise<unknown>;
+  /**
+   * Returns the schema to validate the invoke result against, or `null` to skip
+   * output validation (used by signals, which don't return a value).
+   */
+  readonly validateOutput: (def: TDef) => StandardSchemaV1 | null;
+};
+
+/**
+ * Build a `{ name: (args) => Future<Result<...>> }` proxy for a contract's
+ * queries/signals/updates. The three call sites differ only in how they
+ * invoke Temporal and whether they validate output, so the shared
+ * input-validate → invoke → output-validate → wrap-Result pipeline lives
+ * here once.
+ */
+function buildValidatedProxy<TDef extends DefWithInput, TValidationError extends Error>({
+  defs,
+  operation,
+  makeValidationError,
+  invoke,
+  validateOutput,
+}: ProxyOptions<TDef, TValidationError>): Record<
+  string,
+  (args: unknown) => Future<Result<unknown, TValidationError | RuntimeClientError>>
+> {
+  const proxy: Record<
+    string,
+    (args: unknown) => Future<Result<unknown, TValidationError | RuntimeClientError>>
+  > = {};
+  if (!defs) return proxy;
+
+  for (const [name, def] of Object.entries(defs)) {
+    proxy[name] = (args) => {
+      const work = async (): Promise<Result<unknown, TValidationError | RuntimeClientError>> => {
+        const inputResult = await def.input["~standard"].validate(args);
+        if (inputResult.issues) {
+          return Result.Error(makeValidationError(name, "input", inputResult.issues));
+        }
+
+        try {
+          const result = await invoke(name, inputResult.value);
+          const outputSchema = validateOutput(def);
+          if (!outputSchema) {
+            return Result.Ok(result);
+          }
+          const outputResult = await outputSchema["~standard"].validate(result);
+          if (outputResult.issues) {
+            return Result.Error(makeValidationError(name, "output", outputResult.issues));
+          }
+          return Result.Ok(outputResult.value);
+        } catch (error) {
+          return Result.Error(createRuntimeClientError(operation, error));
+        }
+      };
+      return makeFuture(work);
+    };
+  }
+
+  return proxy;
 }

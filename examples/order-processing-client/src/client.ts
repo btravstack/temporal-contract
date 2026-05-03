@@ -1,11 +1,16 @@
 import { Client, Connection } from "@temporalio/client";
-import { TypedClient } from "@temporal-contract/client";
+import {
+  RuntimeClientError,
+  TypedClient,
+  WorkflowNotFoundError,
+  WorkflowValidationError,
+} from "@temporal-contract/client";
 import {
   orderProcessingContract,
   OrderSchema,
 } from "@temporal-contract/sample-order-processing-contract";
 import type { z } from "zod";
-import { match } from "ts-pattern";
+import { match, P } from "ts-pattern";
 import { logger } from "./logger.js";
 
 type Order = z.infer<typeof OrderSchema>;
@@ -85,21 +90,16 @@ async function run() {
     if (handleResult.isError()) {
       const error = handleResult.error;
       match(error)
-        .with({ name: "WorkflowNotFoundError" }, (err) => {
+        .with(P.instanceOf(WorkflowNotFoundError), (err) => {
           logger.error({ error: err, orderId: order.orderId }, "❌ Workflow not found");
         })
-        .with({ name: "WorkflowValidationError" }, (err) => {
+        .with(P.instanceOf(WorkflowValidationError), (err) => {
           logger.error({ error: err, orderId: order.orderId }, "❌ Workflow validation failed");
         })
-        .with({ name: "TypedClientError" }, (err) => {
+        .with(P.instanceOf(RuntimeClientError), (err) => {
           logger.error({ error: err, orderId: order.orderId }, "❌ Failed to start workflow");
         })
-        .otherwise((err) => {
-          logger.error(
-            { error: err, orderId: order.orderId },
-            "❌ Unknown error starting workflow",
-          );
-        });
+        .exhaustive();
       continue;
     }
 
@@ -114,21 +114,16 @@ async function run() {
     if (result.isError()) {
       const error = result.error;
       match(error)
-        .with({ name: "WorkflowValidationError" }, (err) => {
+        .with(P.instanceOf(WorkflowValidationError), (err) => {
           logger.error(
             { error: err, orderId: order.orderId },
             "❌ Workflow result validation failed",
           );
         })
-        .with({ name: "TypedClientError" }, (err) => {
+        .with(P.instanceOf(RuntimeClientError), (err) => {
           logger.error({ error: err, orderId: order.orderId }, "❌ Workflow execution failed");
         })
-        .otherwise((err) => {
-          logger.error(
-            { error: err, orderId: order.orderId },
-            "❌ Unknown error during workflow execution",
-          );
-        });
+        .exhaustive();
       continue;
     }
 
@@ -192,18 +187,16 @@ async function run() {
   } else {
     // Handle errors
     match(result.error)
-      .with({ name: "WorkflowNotFoundError" }, (err) => {
+      .with(P.instanceOf(WorkflowNotFoundError), (err) => {
         logger.error({ error: err }, "❌ Workflow not found");
       })
-      .with({ name: "WorkflowValidationError" }, (err) => {
+      .with(P.instanceOf(WorkflowValidationError), (err) => {
         logger.error({ error: err }, "❌ Validation failed");
       })
-      .with({ name: "TypedClientError" }, (err) => {
+      .with(P.instanceOf(RuntimeClientError), (err) => {
         logger.error({ error: err }, "❌ Workflow execution failed");
       })
-      .otherwise((err) => {
-        logger.error({ error: err }, "❌ Unknown error");
-      });
+      .exhaustive();
   }
 
   logger.info("\n✨ Done!");
