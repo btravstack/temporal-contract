@@ -1,7 +1,11 @@
 import { Client, WorkflowHandle } from "@temporalio/client";
-import type { WorkflowStartOptions } from "@temporalio/client";
+import type { WorkflowSignalWithStartOptions, WorkflowStartOptions } from "@temporalio/client";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { ContractDefinition, WorkflowDefinition } from "@temporal-contract/contract";
+import type {
+  ContractDefinition,
+  SignalDefinition,
+  WorkflowDefinition,
+} from "@temporal-contract/contract";
 import type {
   ClientInferInput,
   ClientInferOutput,
@@ -25,6 +29,37 @@ export type TypedWorkflowStartOptions<
 > = Omit<WorkflowStartOptions, "taskQueue" | "args"> & {
   args: ClientInferInput<TContract["workflows"][TWorkflowName]>;
 };
+
+/**
+ * Options for {@link TypedClient.signalWithStart} — typed against both the
+ * workflow's input schema and the named signal's input schema.
+ */
+export type TypedSignalWithStartOptions<
+  TContract extends ContractDefinition,
+  TWorkflowName extends keyof TContract["workflows"],
+  TSignalName extends keyof TContract["workflows"][TWorkflowName]["signals"] & string,
+> = Omit<WorkflowSignalWithStartOptions, "taskQueue" | "args" | "signal" | "signalArgs"> & {
+  args: ClientInferInput<TContract["workflows"][TWorkflowName]>;
+  signalName: TSignalName;
+  signalArgs: TContract["workflows"][TWorkflowName]["signals"][TSignalName] extends SignalDefinition
+    ? ClientInferInput<TContract["workflows"][TWorkflowName]["signals"][TSignalName]>
+    : never;
+};
+
+/**
+ * Typed workflow handle returned by `signalWithStart`. Adds `signaledRunId`
+ * to the standard handle so callers can correlate the signal with the
+ * (possibly pre-existing) workflow execution chain.
+ */
+export type TypedWorkflowHandleWithSignaledRunId<TWorkflow extends WorkflowDefinition> =
+  TypedWorkflowHandle<TWorkflow> & {
+    /**
+     * The Run Id of the bound Workflow at the time of `signalWithStart`. Since
+     * `signalWithStart` may have signaled an existing Workflow Chain, this is
+     * not necessarily the `firstExecutionRunId`.
+     */
+    readonly signaledRunId: string;
+  };
 
 /**
  * Typed workflow handle with validated results using Result/Future pattern
@@ -193,6 +228,109 @@ export class TypedClient<TContract extends ContractDefinition> {
         return Result.Ok(this.createTypedHandle(handle, definition) as Ok);
       } catch (error) {
         return Result.Error(createRuntimeClientError("startWorkflow", error));
+      }
+    };
+    return makeFuture(work);
+  }
+
+  /**
+   * Send a signal to a workflow, starting it first if it doesn't already exist.
+   *
+   * Validates both halves of the call against the contract:
+   * - `args` against the workflow's input schema
+   * - `signalArgs` against the named signal's input schema
+   *
+   * Returns a `TypedWorkflowHandleWithSignaledRunId` — the same shape as
+   * `startWorkflow`'s handle, plus a `signaledRunId` field for correlating
+   * the signal with the (possibly pre-existing) workflow execution chain.
+   *
+   * @example
+   * ```ts
+   * const result = await client.signalWithStart('processOrder', {
+   *   workflowId: 'order-123',
+   *   args: { orderId: 'ORD-123', customerId: 'CUST-1' },
+   *   signalName: 'cancel',
+   *   signalArgs: { reason: 'duplicate' },
+   * });
+   *
+   * result.match({
+   *   Ok: (handle) => console.log('signaled run', handle.signaledRunId),
+   *   Error: (error) => console.error('signalWithStart failed', error),
+   * });
+   * ```
+   */
+  signalWithStart<
+    TWorkflowName extends keyof TContract["workflows"],
+    TSignalName extends keyof TContract["workflows"][TWorkflowName]["signals"] & string,
+  >(
+    workflowName: TWorkflowName,
+    {
+      args,
+      signalName,
+      signalArgs,
+      ...temporalOptions
+    }: TypedSignalWithStartOptions<TContract, TWorkflowName, TSignalName>,
+  ): Future<
+    Result<
+      TypedWorkflowHandleWithSignaledRunId<TContract["workflows"][TWorkflowName]>,
+      WorkflowNotFoundError | WorkflowValidationError | SignalValidationError | RuntimeClientError
+    >
+  > {
+    type Ok = TypedWorkflowHandleWithSignaledRunId<TContract["workflows"][TWorkflowName]>;
+    type Err =
+      | WorkflowNotFoundError
+      | WorkflowValidationError
+      | SignalValidationError
+      | RuntimeClientError;
+
+    const work = async (): Promise<Result<Ok, Err>> => {
+      const definition = this.contract.workflows[workflowName as string];
+      if (!definition) {
+        return Result.Error(createWorkflowNotFoundError(workflowName, this.contract));
+      }
+
+      // Validate workflow input
+      const inputResult = await definition.input["~standard"].validate(args);
+      if (inputResult.issues) {
+        return Result.Error(
+          createWorkflowValidationError(workflowName, "input", inputResult.issues),
+        );
+      }
+
+      // Validate signal input
+      const signalDef = (definition.signals as Record<string, SignalDefinition> | undefined)?.[
+        signalName
+      ];
+      if (!signalDef) {
+        // Type-level constraint should already prevent this; defensive for
+        // raw-call / union-typed-name corner cases.
+        return Result.Error(
+          new SignalValidationError(signalName, [
+            {
+              message: `Signal "${signalName}" is not declared on workflow "${String(workflowName)}".`,
+            },
+          ]),
+        );
+      }
+      const signalInputResult = await signalDef.input["~standard"].validate(signalArgs);
+      if (signalInputResult.issues) {
+        return Result.Error(new SignalValidationError(signalName, signalInputResult.issues));
+      }
+
+      try {
+        const handle = await this.client.workflow.signalWithStart(workflowName as string, {
+          ...temporalOptions,
+          taskQueue: this.contract.taskQueue,
+          args: [inputResult.value],
+          signal: signalName,
+          signalArgs: [signalInputResult.value],
+        });
+        const typed = this.createTypedHandle(handle, definition) as TypedWorkflowHandle<
+          TContract["workflows"][TWorkflowName]
+        >;
+        return Result.Ok({ ...typed, signaledRunId: handle.signaledRunId } as Ok);
+      } catch (error) {
+        return Result.Error(createRuntimeClientError("signalWithStart", error));
       }
     };
     return makeFuture(work);

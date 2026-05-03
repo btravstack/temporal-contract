@@ -1,4 +1,10 @@
-export { TypedClient, type TypedWorkflowHandle, type TypedWorkflowStartOptions } from "./client.js";
+export {
+  TypedClient,
+  type TypedSignalWithStartOptions,
+  type TypedWorkflowHandle,
+  type TypedWorkflowHandleWithSignaledRunId,
+  type TypedWorkflowStartOptions,
+} from "./client.js";
 export {
   RuntimeClientError,
   WorkflowNotFoundError,

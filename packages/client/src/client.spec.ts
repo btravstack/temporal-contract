@@ -17,6 +17,7 @@ const createMockWorkflow = () => ({
   start: vi.fn(),
   execute: vi.fn(),
   getHandle: vi.fn(),
+  signalWithStart: vi.fn(),
 });
 
 // Mock Temporal Client
@@ -189,6 +190,126 @@ describe("TypedClient", () => {
       });
 
       expect(result).toEqual(expect.objectContaining({ tag: "Error" }));
+    });
+  });
+
+  describe("signalWithStart", () => {
+    const mockHandle = (): {
+      workflowId: string;
+      signaledRunId: string;
+      result: ReturnType<typeof vi.fn>;
+      query: ReturnType<typeof vi.fn>;
+      signal: ReturnType<typeof vi.fn>;
+      executeUpdate: ReturnType<typeof vi.fn>;
+      terminate: ReturnType<typeof vi.fn>;
+      cancel: ReturnType<typeof vi.fn>;
+      describe: ReturnType<typeof vi.fn>;
+      fetchHistory: ReturnType<typeof vi.fn>;
+    } => ({
+      workflowId: "test-123",
+      signaledRunId: "run-abc",
+      result: vi.fn(),
+      query: vi.fn(),
+      signal: vi.fn(),
+      executeUpdate: vi.fn(),
+      terminate: vi.fn(),
+      cancel: vi.fn(),
+      describe: vi.fn(),
+      fetchHistory: vi.fn(),
+    });
+
+    it("validates workflow + signal input, calls Temporal, and returns a handle with signaledRunId", async () => {
+      const handle = mockHandle();
+      mockWorkflow.signalWithStart.mockResolvedValue(handle);
+
+      const result = await typedClient.signalWithStart("testWorkflow", {
+        workflowId: "test-123",
+        args: { name: "hello", value: 42 },
+        signalName: "updateProgress",
+        signalArgs: [50],
+      });
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value.workflowId).toBe("test-123");
+        expect(result.value.signaledRunId).toBe("run-abc");
+      }
+
+      expect(mockWorkflow.signalWithStart).toHaveBeenCalledWith("testWorkflow", {
+        workflowId: "test-123",
+        taskQueue: "test-queue",
+        args: [{ name: "hello", value: 42 }],
+        signal: "updateProgress",
+        signalArgs: [[50]],
+      });
+    });
+
+    it("returns WorkflowNotFoundError when the workflow isn't declared", async () => {
+      const result = await typedClient.signalWithStart(
+        // @ts-expect-error testing runtime validation
+        "nonExistent",
+        {
+          workflowId: "test-123",
+          args: { name: "hello", value: 42 },
+          signalName: "updateProgress",
+          signalArgs: [50],
+        },
+      );
+
+      expect(result.isError()).toBe(true);
+      if (result.isError()) {
+        expect(result.error).toBeInstanceOf(WorkflowNotFoundError);
+      }
+      expect(mockWorkflow.signalWithStart).not.toHaveBeenCalled();
+    });
+
+    it("returns WorkflowValidationError when workflow input fails validation", async () => {
+      const result = await typedClient.signalWithStart("testWorkflow", {
+        workflowId: "test-123",
+        // @ts-expect-error testing runtime validation
+        args: { name: "hello" }, // missing 'value'
+        signalName: "updateProgress",
+        signalArgs: [50],
+      });
+
+      expect(result.isError()).toBe(true);
+      if (result.isError()) {
+        expect(result.error).toBeInstanceOf(WorkflowValidationError);
+      }
+      expect(mockWorkflow.signalWithStart).not.toHaveBeenCalled();
+    });
+
+    it("returns SignalValidationError when signal input fails validation", async () => {
+      const result = await typedClient.signalWithStart("testWorkflow", {
+        workflowId: "test-123",
+        args: { name: "hello", value: 42 },
+        signalName: "updateProgress",
+        // @ts-expect-error testing runtime validation
+        signalArgs: ["not a number"],
+      });
+
+      expect(result.isError()).toBe(true);
+      if (result.isError()) {
+        expect(result.error).toBeInstanceOf(SignalValidationError);
+      }
+      expect(mockWorkflow.signalWithStart).not.toHaveBeenCalled();
+    });
+
+    it("returns RuntimeClientError when the underlying Temporal call rejects", async () => {
+      mockWorkflow.signalWithStart.mockRejectedValue(new Error("temporal down"));
+
+      const result = await typedClient.signalWithStart("testWorkflow", {
+        workflowId: "test-123",
+        args: { name: "hello", value: 42 },
+        signalName: "updateProgress",
+        signalArgs: [50],
+      });
+
+      expect(result.isError()).toBe(true);
+      if (result.isError()) {
+        expect(result.error).toBeInstanceOf(RuntimeClientError);
+        expect((result.error as RuntimeClientError).operation).toBe("signalWithStart");
+      }
     });
   });
 
