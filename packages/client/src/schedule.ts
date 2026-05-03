@@ -11,8 +11,19 @@ import type { ContractDefinition } from "@temporal-contract/contract";
 import { Future, Result } from "@swan-io/boxed";
 import type { ClientInferInput } from "./types.js";
 import { RuntimeClientError, WorkflowNotFoundError, WorkflowValidationError } from "./errors.js";
+import { makeFuture } from "./internal.js";
 
-type StartWorkflowOptionsForwardable = Pick<
+/**
+ * Workflow-action–level overrides forwarded to Temporal's
+ * `ScheduleOptionsStartWorkflowAction`. These live under a nested `action`
+ * field so the workflow-level `memo` (per-action workflow metadata) can be
+ * set independently from the schedule-level `memo` (metadata on the
+ * schedule itself) — Temporal honours both, and they have separate
+ * lifecycles.
+ *
+ * `workflowType` and `taskQueue` are owned by the contract and not exposed.
+ */
+export type TypedScheduleActionOverrides = Pick<
   ScheduleOptionsStartWorkflowAction<never>,
   | "workflowId"
   | "workflowExecutionTimeout"
@@ -29,9 +40,9 @@ type StartWorkflowOptionsForwardable = Pick<
  *
  * `scheduleId` and `spec` come from Temporal's `ScheduleOptions`. `args` is
  * typed against the destination workflow's input schema. `policies`,
- * `state`, and `memo` mirror Temporal's own options. Workflow-action–level
- * overrides (`workflowId`, retry, timeouts, memo, etc.) live alongside —
- * `workflowType` and `taskQueue` are owned by the contract and not exposed.
+ * `state`, and `memo` mirror Temporal's own schedule-level options.
+ * Workflow-action–level overrides nest under {@link action} so memo and
+ * other fields with the same name don't collide between the two scopes.
  */
 export type TypedScheduleCreateOptions<
   TContract extends ContractDefinition,
@@ -49,7 +60,15 @@ export type TypedScheduleCreateOptions<
   state?: ScheduleOptions["state"];
   /** Schedule-level memo (non-indexed metadata on the schedule itself). */
   memo?: ScheduleOptions["memo"];
-} & StartWorkflowOptionsForwardable;
+  /**
+   * Workflow-action–level overrides. `workflowType` and `taskQueue` are
+   * derived from the contract, so they don't appear here. Note that
+   * `action.memo` is a *workflow-level* memo applied to each spawned run,
+   * distinct from the top-level `memo` (which is metadata on the schedule
+   * itself).
+   */
+  action?: TypedScheduleActionOverrides;
+};
 
 /**
  * Typed handle to a schedule. Mirrors Temporal's `ScheduleHandle` lifecycle
@@ -90,7 +109,7 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
    * Validates `args` against the workflow's input schema before dispatching
    * the create request to Temporal. The workflow's `taskQueue` and
    * `workflowType` are pulled from the contract automatically; the typed
-   * options shape Omits them so call sites don't have to repeat themselves.
+   * options shape omits them so call sites don't have to repeat themselves.
    */
   create<TWorkflowName extends keyof TContract["workflows"]>(
     workflowName: TWorkflowName,
@@ -119,25 +138,30 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
       }
 
       try {
+        const overrides = options.action ?? {};
         const action: ScheduleOptionsStartWorkflowAction<never> = {
           type: "startWorkflow",
           workflowType: workflowName as string,
           taskQueue: this.contract.taskQueue,
           args: [inputResult.value] as never,
-          ...(options.workflowId !== undefined ? { workflowId: options.workflowId } : {}),
-          ...(options.workflowExecutionTimeout !== undefined
-            ? { workflowExecutionTimeout: options.workflowExecutionTimeout }
+          ...(overrides.workflowId !== undefined ? { workflowId: overrides.workflowId } : {}),
+          ...(overrides.workflowExecutionTimeout !== undefined
+            ? { workflowExecutionTimeout: overrides.workflowExecutionTimeout }
             : {}),
-          ...(options.workflowRunTimeout !== undefined
-            ? { workflowRunTimeout: options.workflowRunTimeout }
+          ...(overrides.workflowRunTimeout !== undefined
+            ? { workflowRunTimeout: overrides.workflowRunTimeout }
             : {}),
-          ...(options.workflowTaskTimeout !== undefined
-            ? { workflowTaskTimeout: options.workflowTaskTimeout }
+          ...(overrides.workflowTaskTimeout !== undefined
+            ? { workflowTaskTimeout: overrides.workflowTaskTimeout }
             : {}),
-          ...(options.retry !== undefined ? { retry: options.retry } : {}),
-          ...(options.memo !== undefined ? { memo: options.memo } : {}),
-          ...(options.staticDetails !== undefined ? { staticDetails: options.staticDetails } : {}),
-          ...(options.staticSummary !== undefined ? { staticSummary: options.staticSummary } : {}),
+          ...(overrides.retry !== undefined ? { retry: overrides.retry } : {}),
+          ...(overrides.memo !== undefined ? { memo: overrides.memo } : {}),
+          ...(overrides.staticDetails !== undefined
+            ? { staticDetails: overrides.staticDetails }
+            : {}),
+          ...(overrides.staticSummary !== undefined
+            ? { staticSummary: overrides.staticSummary }
+            : {}),
         };
 
         const handle = await this.scheduleClient.create({
@@ -190,21 +214,4 @@ function wrapScheduleHandle(handle: ScheduleHandle): TypedScheduleHandle {
         (error) => new RuntimeClientError("schedule.describe", error),
       ),
   };
-}
-
-/**
- * Wrap an async `() => Promise<Result<...>>` in a `Future`, falling back to
- * `RuntimeClientError("unexpected", e)` for unhandled rejections so the
- * schedule paths match the rest of the typed client's error story.
- */
-function makeFuture<T, E>(
-  work: () => Promise<Result<T, E>>,
-): Future<Result<T, E | RuntimeClientError>> {
-  return Future.make((resolve) => {
-    work()
-      .then(resolve)
-      .catch((e: unknown) =>
-        resolve(Result.Error<T, E | RuntimeClientError>(new RuntimeClientError("unexpected", e))),
-      );
-  });
 }

@@ -23,6 +23,7 @@ import {
   RuntimeClientError,
 } from "./errors.js";
 import { TypedScheduleClient } from "./schedule.js";
+import { makeFuture } from "./internal.js";
 
 export type TypedWorkflowStartOptions<
   TContract extends ContractDefinition,
@@ -148,6 +149,11 @@ export class TypedClient<TContract extends ContractDefinition> {
    * related lifecycle methods. Fires the underlying `startWorkflow` action
    * with args validated against the contract's input schema.
    *
+   * **Requires `@temporalio/client` 1.16+.** The Schedule API was added in
+   * 1.16; on older versions this property is unset and any access throws.
+   * The package's peer dep is pinned to `^1.16.0` so the standard install
+   * paths surface a peer-dependency warning rather than a runtime crash.
+   *
    * @example
    * ```ts
    * const result = await client.schedule.create("processOrder", {
@@ -168,6 +174,17 @@ export class TypedClient<TContract extends ContractDefinition> {
     private readonly contract: TContract,
     private readonly client: Client,
   ) {
+    // `client.schedule` is the ScheduleClient wired into Temporal's
+    // top-level `Client` since 1.16. Fail early with a clear message if a
+    // consumer is on an older version (peer dep is pinned to ^1.16, but
+    // installs that ignore peer-dep warnings shouldn't crash with a
+    // confusing `Cannot read properties of undefined`).
+    if (!client.schedule) {
+      throw new Error(
+        "TypedClient requires @temporalio/client >= 1.16 (the Schedule API was added in 1.16). " +
+          "Found a Client instance without a `schedule` property — please upgrade.",
+      );
+    }
     this.schedule = new TypedScheduleClient(contract, client.schedule);
   }
 
@@ -570,24 +587,6 @@ function createWorkflowValidationError(
   issues: ReadonlyArray<StandardSchemaV1.Issue>,
 ): WorkflowValidationError {
   return new WorkflowValidationError(String(workflowName), direction, issues);
-}
-
-/**
- * Wrap an async result-producing function in a Future, catching any unexpected
- * rejection as a `RuntimeClientError`. The work function is expected to handle
- * its own domain errors and return a `Result.Error(...)` for them; the catch
- * here is a safety net for thrown exceptions the work didn't anticipate.
- */
-function makeFuture<T, E>(
-  work: () => Promise<Result<T, E>>,
-): Future<Result<T, E | RuntimeClientError>> {
-  return Future.make((resolve) => {
-    work()
-      .then(resolve)
-      .catch((e: unknown) =>
-        resolve(Result.Error<T, E | RuntimeClientError>(createRuntimeClientError("unexpected", e))),
-      );
-  });
 }
 
 type DefWithInput = { readonly input: StandardSchemaV1 };

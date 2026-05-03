@@ -7,6 +7,7 @@ export {
 } from "./client.js";
 export {
   TypedScheduleClient,
+  type TypedScheduleActionOverrides,
   type TypedScheduleCreateOptions,
   type TypedScheduleHandle,
 } from "./schedule.js";

@@ -20,6 +20,15 @@ const createMockWorkflow = () => ({
   signalWithStart: vi.fn(),
 });
 
+// Mock schedule client — TypedClient's constructor wires this up via
+// `client.schedule`, and bails with a clear error if it's absent (since the
+// Schedule API was added in @temporalio/client 1.16).
+const mockSchedule = {
+  create: vi.fn(),
+  getHandle: vi.fn(),
+  list: vi.fn(),
+};
+
 // Mock Temporal Client
 const mockWorkflow = createMockWorkflow();
 
@@ -63,7 +72,7 @@ describe("TypedClient", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    const rawClient = { workflow: mockWorkflow } as unknown as Client;
+    const rawClient = { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client;
     typedClient = TypedClient.create(testContract, rawClient);
   });
 
