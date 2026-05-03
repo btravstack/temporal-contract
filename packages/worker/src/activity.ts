@@ -170,9 +170,11 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  * ```
  *
  * @remarks
- * The wrapper validates inputs/outputs and folds errors into the
- * `Future<Result<...>>` shape, but it does **not** hide Temporal's
- * `@temporalio/activity` runtime. Inside the body you can still call
+ * The wrapper accepts implementations in the `Future<Result<T, ActivityError>>`
+ * shape and produces ordinary Promise-returning Temporal handlers
+ * (Result.Error → thrown `ActivityError`; Result.Ok → output validated
+ * against the contract and resolved). It does **not** hide Temporal's
+ * `@temporalio/activity` runtime: inside the body you can still call
  * `Context.current()` from `@temporalio/activity` to access heartbeats
  * (`heartbeat(details)`, `heartbeatDetails`), activity info (attempt
  * number, workflow IDs), and the async-completion task token. See the

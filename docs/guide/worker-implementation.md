@@ -74,125 +74,227 @@ export const activities = declareActivitiesHandler({
 
 ## Working with the Activity Context
 
-`declareActivitiesHandler` validates inputs/outputs and folds errors into the
-`Future<Result<...>>` shape, but it does **not** hide Temporal's
-`@temporalio/activity` runtime — your handler still runs as an ordinary
-Temporal activity. To reach Temporal's `Context.current()` (heartbeats, last
-heartbeat payload, attempt number, async completion), import it directly
-inside the activity body. The contract surface stays clean while you keep
-full access to Temporal's activity APIs.
+`declareActivitiesHandler` accepts implementations in the
+`Future<Result<T, ActivityError>>` shape and wraps each one into an
+ordinary Promise-returning Temporal activity (Temporal sees a normal
+`(args) => Promise<Output>` handler at the runtime boundary). The
+wrapper does **not** hide Temporal's `@temporalio/activity` runtime —
+your activity body still runs in the regular activity context, so you
+can call `Context.current()` directly to reach heartbeats, the last
+heartbeat payload, the activity info, and async completion. The
+contract surface stays focused on typed inputs and outputs while you
+keep full access to Temporal's activity APIs.
 
 ### Heartbeat (long-running activities)
 
-Long-running activities must heartbeat to avoid `startToCloseTimeout` /
-`heartbeatTimeout` failures. Call `Context.current().heartbeat(details)`
-from inside your `Future`-returning body — heartbeats are independent of
-the Result/Future wrapping:
+Use heartbeats so Temporal can detect a stalled worker via
+`heartbeatTimeout` (a watchdog: each heartbeat resets the timer; if no
+heartbeat arrives within the configured window, Temporal fails the
+attempt and retries). Heartbeats do **not** extend `startToCloseTimeout` —
+that bounds the absolute duration of a single attempt regardless of how
+often you heartbeat, so size both timeouts with the activity's worst-
+case runtime in mind.
+
+Call `Context.current().heartbeat(details)` from inside your
+`Future`-returning body — heartbeats are independent of the
+Result/Future wrapping. The example below uses the inline-implementation
+pattern: TypeScript infers each activity's input/output shape from the
+contract via `declareActivitiesHandler`'s `activities` parameter, so no
+extra annotation is needed.
 
 ```typescript
 import { Context } from "@temporalio/activity";
 import { Future } from "@swan-io/boxed";
-import { ActivityError } from "@temporal-contract/worker/activity";
-import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
+import { declareActivitiesHandler, ActivityError } from "@temporal-contract/worker/activity";
 import { reportContract } from "./contract";
 
-type Handlers = ActivitiesHandler<typeof reportContract>;
-
-export const exportLargeReport: Handlers["exportLargeReport"] = ({ reportId }) => {
-  return Future.fromPromise(
-    runExport(reportId, ({ chunkIndex }) => {
-      // Heartbeat the most recent progress checkpoint. Temporal records
-      // this as the activity's `heartbeatDetails` for the next attempt.
-      Context.current().heartbeat({ chunkIndex });
-    }),
-  )
-    .mapError((error) => new ActivityError("EXPORT_FAILED", String(error), error))
-    .mapOk(({ rowCount }) => ({ rowCount }));
-};
+export const activities = declareActivitiesHandler({
+  contract: reportContract,
+  activities: {
+    exportLargeReport: ({ reportId }) => {
+      return Future.fromPromise(
+        runExport(reportId, ({ chunkIndex }) => {
+          // Heartbeat the most recent progress checkpoint. Temporal records
+          // this as the activity's `heartbeatDetails` for the next attempt.
+          Context.current().heartbeat({ chunkIndex });
+        }),
+      )
+        .mapError(
+          (error) =>
+            new ActivityError(
+              "EXPORT_FAILED",
+              error instanceof Error ? error.message : "Export failed",
+              error,
+            ),
+        )
+        .mapOk(({ rowCount }) => ({ rowCount }));
+    },
+  },
+});
 ```
 
-Pair this with `heartbeatTimeout` on the workflow side (`activityOptions` or
-`activityOptionsByName`) so Temporal can detect a stalled worker.
+Configure `heartbeatTimeout` on the workflow side (`activityOptions` or
+`activityOptionsByName`) — without it, Temporal cannot detect a silent
+worker.
 
 ### Resuming after a retry (`heartbeatDetails`)
 
-When Temporal retries a heartbeating activity, the previous attempt's last
-`heartbeat(details)` payload is available on `Context.current().heartbeatDetails`.
-Use it to skip work the previous attempt already completed:
+When Temporal retries a heartbeating activity, the previous attempt's
+last `heartbeat(details)` payload is available on
+`Context.current().heartbeatDetails`. Use it to skip work the previous
+attempt already completed:
 
 ```typescript
 import { Context } from "@temporalio/activity";
+import { Future } from "@swan-io/boxed";
+import { declareActivitiesHandler, ActivityError } from "@temporal-contract/worker/activity";
+import { reportContract } from "./contract";
 
-export const exportLargeReport: Handlers["exportLargeReport"] = ({ reportId }) => {
-  // `heartbeatDetails` is typed as `unknown` — the contract surface does
-  // not yet validate this payload (see issue #198 for the typed-schema
-  // follow-up). Cast at the boundary if you need typed access.
-  const last = Context.current().heartbeatDetails as { chunkIndex: number } | undefined;
-  const startFrom = last?.chunkIndex ?? 0;
+export const activities = declareActivitiesHandler({
+  contract: reportContract,
+  activities: {
+    exportLargeReport: ({ reportId }) => {
+      // `heartbeatDetails` is typed as `unknown` — the contract surface
+      // does not yet validate this payload (see issue #198 for the
+      // typed-schema follow-up). Cast at the boundary if you need typed
+      // access.
+      const last = Context.current().heartbeatDetails as { chunkIndex: number } | undefined;
+      const startFrom = last?.chunkIndex ?? 0;
 
-  return Future.fromPromise(runExport(reportId, { startFrom }))
-    .mapError((error) => new ActivityError("EXPORT_FAILED", String(error), error))
-    .mapOk(({ rowCount }) => ({ rowCount }));
-};
+      return Future.fromPromise(runExport(reportId, { startFrom }))
+        .mapError(
+          (error) =>
+            new ActivityError(
+              "EXPORT_FAILED",
+              error instanceof Error ? error.message : "Export failed",
+              error,
+            ),
+        )
+        .mapOk(({ rowCount }) => ({ rowCount }));
+    },
+  },
+});
 ```
 
 ### Activity info (attempt number, workflow IDs)
 
-`Context.current().info` exposes the running activity's metadata: attempt
-number, workflow execution ID, task queue, schedule timestamps, and so on.
-Useful for structured logging and conditional retry behavior:
+`Context.current().info` exposes the running activity's metadata:
+attempt number, workflow execution ID, task queue, schedule timestamps,
+and so on. Useful for structured logging and conditional retry
+behavior:
 
 ```typescript
 import { Context } from "@temporalio/activity";
+import { Future, Result } from "@swan-io/boxed";
+import { declareActivitiesHandler, ActivityError } from "@temporal-contract/worker/activity";
+import { paymentContract } from "./contract";
 
-export const chargePayment: Handlers["chargePayment"] = ({ orderId, amount }) => {
-  const { attempt, workflowExecution } = Context.current().info;
-  logger.info("chargePayment attempt", {
-    attempt,
-    workflowId: workflowExecution.workflowId,
-    orderId,
-  });
-  // ...
-};
+export const activities = declareActivitiesHandler({
+  contract: paymentContract,
+  activities: {
+    chargePayment: ({ orderId, amount }) => {
+      const { attempt, workflowExecution } = Context.current().info;
+      logger.info("chargePayment attempt", {
+        attempt,
+        workflowId: workflowExecution.workflowId,
+        orderId,
+      });
+      return Future.fromPromise(paymentGateway.charge(orderId, amount))
+        .mapError(
+          (error) =>
+            new ActivityError(
+              "PAYMENT_FAILED",
+              error instanceof Error ? error.message : "Payment failed",
+              error,
+            ),
+        )
+        .mapOk((transactionId) => ({ transactionId }));
+    },
+  },
+});
 ```
 
 ### Async completion
 
 Activities that pause and complete out of band (HTTP callback, message
-queue, manual approval) use Temporal's standard async completion pattern.
-Inside the activity, capture the task token and tell Temporal not to
-auto-complete the activity:
+queue, manual approval) use Temporal's standard async-completion
+pattern: capture the task token, register the work somewhere external,
+then throw `CompleteAsyncError` so the worker knows not to auto-complete
+the activity. The activity completes later via `AsyncCompletionClient`
+(usually from a different process).
+
+Two outcomes need to coexist inside the activity body:
+
+- **Success path** — registration succeeded: throw `CompleteAsyncError`.
+  Temporal's worker recognizes this specific error class and parks the
+  attempt instead of failing it.
+- **Failure path** — registration threw: wrap the failure in
+  `ActivityError` so the regular retry/error semantics still apply.
+
+The cleanest shape is an inner `async` function that throws either
+class. `Future.fromPromise` converts the rejection into a
+`Result.Error`, the activity wrapper rethrows whatever it finds there,
+and Temporal's runtime recognizes the `CompleteAsyncError` class
+unchanged. The `<never, ActivityError>` type parameters acknowledge
+that the contract advertises `ActivityError` in the error slot — the
+`CompleteAsyncError` is a runtime-only signal that never reaches the
+caller, so the assertion is safe.
 
 ```typescript
 import { Context, CompleteAsyncError } from "@temporalio/activity";
+import { Future } from "@swan-io/boxed";
+import { declareActivitiesHandler, ActivityError } from "@temporal-contract/worker/activity";
+import { approvalContract } from "./contract";
 
-export const awaitApproval: Handlers["awaitApproval"] = ({ requestId }) => {
-  const taskToken = Context.current().info.taskToken;
+export const activities = declareActivitiesHandler({
+  contract: approvalContract,
+  activities: {
+    awaitApproval: ({ requestId }) => {
+      const taskToken = Context.current().info.taskToken;
 
-  return Future.fromPromise(
-    enqueueApprovalRequest({ requestId, taskToken }).then(() => {
-      // Tell Temporal the activity will be completed asynchronously.
-      throw new CompleteAsyncError();
-    }),
-  ).mapOk(() => ({ awaiting: true }));
-};
+      return Future.fromPromise<never, ActivityError>(
+        (async () => {
+          try {
+            await enqueueApprovalRequest({ requestId, taskToken });
+          } catch (error) {
+            // Registration failure — surface as a normal ActivityError.
+            throw new ActivityError(
+              "ENQUEUE_FAILED",
+              error instanceof Error ? error.message : "Failed to enqueue request",
+              error,
+            );
+          }
+          // Don't-auto-complete signal. Temporal recognizes the
+          // CompleteAsyncError class after the wrapper rethrows it.
+          throw new CompleteAsyncError();
+        })(),
+      );
+    },
+  },
+});
 ```
 
 The external system later finishes the activity by calling
 [`AsyncCompletionClient`](https://typescript.temporal.io/api/classes/client.AsyncCompletionClient/)
-with the task token. The library does not currently wrap
-`AsyncCompletionClient` — use it directly from `@temporalio/client` in
-whichever process completes the activity.
+with the task token (and a typed payload that satisfies the activity's
+output schema, since validation runs on completion). The library does
+not currently wrap `AsyncCompletionClient` — use it directly from
+`@temporalio/client` in whichever process completes the activity.
 
 ### Where to draw the line
 
 The contract surface aims to type **inputs and outputs** at the network
 boundary. Activity-runtime concerns (heartbeats, attempt number, async
 completion) are not part of the contract today and remain in
-`@temporalio/activity`. If a future contract upgrade introduces a typed
-heartbeat schema or an `AsyncCompletionClient` wrapper, it will live
-behind a new `defineActivity({ heartbeatDetails: ... })` field rather
-than replacing this escape hatch.
+`@temporalio/activity`. Two follow-ups are sketched:
+
+- **Typed heartbeat payloads** would land as a new
+  `defineActivity({ heartbeatDetails: ... })` field with a typed
+  `heartbeat(details)` / `heartbeatDetails()` accessor on an activity
+  context handle. Tracked in #198.
+- **A typed `AsyncCompletionClient` wrapper** is a separate path —
+  there's no specific API shape proposed yet. Open a new issue if a
+  concrete use case shows up.
 
 ## Workflow Implementation
 
