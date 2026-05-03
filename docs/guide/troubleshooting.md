@@ -368,7 +368,7 @@ Error: Activity task failed: ActivityError
    processPayment: ({ customerId, amount }) => {
      return Future.fromPromise(paymentService.charge(customerId, amount))
        .mapOk((tx) => ({ transactionId: tx.id }))
-       .mapError((e) => new ActivityError("PAYMENT_FAILED", e.message, e));
+       .mapError((e) => new ActivityError("PAYMENT_FAILED", e.message, { cause: e }));
    };
    ```
 

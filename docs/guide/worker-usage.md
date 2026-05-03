@@ -39,7 +39,7 @@ export const activities = declareActivitiesHandler({
               new ActivityError(
                 "PAYMENT_FAILED",
                 error instanceof Error ? error.message : "Payment processing failed",
-                error,
+                { cause: error },
               ),
           )
           .mapOk((result) => ({ transactionId: result.id }));
@@ -281,7 +281,7 @@ Activities should use `Future.fromPromise` with `mapError` and `mapOk`:
 // ✅ Good - explicit error handling with Future.fromPromise
 processPayment: ({ amount }) => {
   return Future.fromPromise(paymentService.charge(amount))
-    .mapError((err) => new ActivityError("PAYMENT_FAILED", err.message, err))
+    .mapError((err) => new ActivityError("PAYMENT_FAILED", err.message, { cause: err }))
     .mapOk((tx) => ({ transactionId: tx.id }));
 };
 
@@ -292,7 +292,7 @@ processPayment: ({ amount }) => {
       const tx = await paymentService.charge(amount);
       resolve(Result.Ok({ transactionId: tx.id }));
     } catch (err) {
-      resolve(Result.Error(new ActivityError("PAYMENT_FAILED", err.message, err)));
+      resolve(Result.Error(new ActivityError("PAYMENT_FAILED", err.message, { cause: err })));
     }
   });
 };
@@ -307,7 +307,7 @@ Activities internally use Result, but the framework unwraps them for network ser
 // Framework unwraps to plain DTO over network
 processPayment: ({ amount }) =>
   Future.fromPromise(paymentService.charge(amount))
-    .mapError((err) => new ActivityError("PAYMENT_FAILED", err.message, err))
+    .mapError((err) => new ActivityError("PAYMENT_FAILED", err.message, { cause: err }))
     .mapOk((tx) => ({ transactionId: tx.id }));
 
 // In workflow, you receive the plain value:

@@ -27,7 +27,7 @@ export const activities = declareActivitiesHandler({
             new ActivityError(
               "EMAIL_FAILED",
               error instanceof Error ? error.message : "Failed to send email",
-              error,
+              { cause: error },
             ),
         )
         .mapOk(() => ({ sent: true }));

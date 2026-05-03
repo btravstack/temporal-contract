@@ -53,7 +53,7 @@ export const activities = declareActivitiesHandler({
             new ActivityError(
               "PAYMENT_FAILED",
               error instanceof Error ? error.message : "Payment failed",
-              error,
+              { cause: error },
             ),
         )
         .mapOk((txId) => ({ transactionId: txId, success: true }));
@@ -66,7 +66,7 @@ export const activities = declareActivitiesHandler({
             new ActivityError(
               "EMAIL_FAILED",
               error instanceof Error ? error.message : "Email failed",
-              error,
+              { cause: error },
             ),
         )
         .mapOk(() => ({ sent: true }));
@@ -250,7 +250,7 @@ processPayment: ({ amount }) => {
       return new ActivityError(
         "PAYMENT_FAILED",
         error instanceof Error ? error.message : "Payment failed",
-        error,
+        { cause: error },
       );
     })
     .mapOk((txId) => ({ transactionId: txId }));
@@ -267,7 +267,7 @@ Activities use the Result pattern internally, while workflows use try/catch:
 // Activity implementation (uses Result pattern)
 const processPayment = ({ amount }) => {
   return Future.fromPromise(paymentGateway.charge(amount))
-    .mapError((error) => new ActivityError("PAYMENT_FAILED", "Payment failed", error))
+    .mapError((error) => new ActivityError("PAYMENT_FAILED", "Payment failed", { cause: error }))
     .mapOk((txId) => ({ transactionId: txId }));
 };
 
@@ -297,7 +297,7 @@ Activities explicitly return Results instead of throwing:
 // ✅ Clear - activity returns Future<Result>
 const processPayment = ({ amount }) => {
   return Future.fromPromise(paymentGateway.charge(amount))
-    .mapError((error) => new ActivityError("PAYMENT_FAILED", "Payment failed", error))
+    .mapError((error) => new ActivityError("PAYMENT_FAILED", "Payment failed", { cause: error }))
     .mapOk((txId) => ({ transactionId: txId }));
 };
 
@@ -333,7 +333,9 @@ const processOrder = ({ orderId }) => {
     .flatMap((validId) => fetchOrder(validId))
     .flatMap((order) => processPayment(order))
     .flatMap((payment) => updateDatabase(payment))
-    .mapError((error) => new ActivityError("ORDER_FAILED", "Order processing failed", error));
+    .mapError(
+      (error) => new ActivityError("ORDER_FAILED", "Order processing failed", { cause: error }),
+    );
   // Stops at first error
 };
 ```

@@ -56,7 +56,7 @@ export const activities = declareActivitiesHandler({
           new ActivityError(
             "NOTIFICATION_FAILED",
             error instanceof Error ? error.message : "Failed to send notification",
-            error,
+            { cause: error },
           ),
       );
     },
@@ -68,7 +68,7 @@ export const activities = declareActivitiesHandler({
             new ActivityError(
               "PAYMENT_FAILED",
               error instanceof Error ? error.message : "Payment processing failed",
-              error,
+              { cause: error },
             ),
         );
       },
@@ -79,7 +79,7 @@ export const activities = declareActivitiesHandler({
             new ActivityError(
               "INVENTORY_RESERVATION_FAILED",
               error instanceof Error ? error.message : "Inventory reservation failed",
-              error,
+              { cause: error },
             ),
         );
       },
@@ -90,7 +90,7 @@ export const activities = declareActivitiesHandler({
             new ActivityError(
               "INVENTORY_RELEASE_FAILED",
               error instanceof Error ? error.message : "Inventory release failed",
-              error,
+              { cause: error },
             ),
         );
       },
@@ -101,7 +101,7 @@ export const activities = declareActivitiesHandler({
             new ActivityError(
               "SHIPMENT_CREATION_FAILED",
               error instanceof Error ? error.message : "Shipment creation failed",
-              error,
+              { cause: error },
             ),
         );
       },
@@ -112,7 +112,7 @@ export const activities = declareActivitiesHandler({
             new ActivityError(
               "REFUND_FAILED",
               error instanceof Error ? error.message : "Refund failed",
-              error,
+              { cause: error },
             ),
         );
       },

@@ -19,7 +19,9 @@ export const activities = declareActivitiesHandler({
         } catch (error) {
           resolve(
             Result.Error(
-              new ActivityError("INVENTORY_CHECK_FAILED", "Failed to check inventory", error),
+              new ActivityError("INVENTORY_CHECK_FAILED", "Failed to check inventory", {
+                cause: error,
+              }),
             ),
           );
         }

@@ -133,7 +133,7 @@ export const activities = declareActivitiesHandler({
             new ActivityError(
               "EMAIL_FAILED",
               error instanceof Error ? error.message : "Failed to send email",
-              error,
+              { cause: error },
             ),
         )
         .mapOk(() => ({ sent: true }));
@@ -145,7 +145,7 @@ export const activities = declareActivitiesHandler({
             new ActivityError(
               "PAYMENT_FAILED",
               error instanceof Error ? error.message : "Payment failed",
-              error,
+              { cause: error },
             ),
         )
         .mapOk((txId) => ({ transactionId: txId }));

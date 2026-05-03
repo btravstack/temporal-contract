@@ -49,7 +49,7 @@ export const activities = declareActivitiesHandler({
             new ActivityError(
               "EMAIL_FAILED",
               error instanceof Error ? error.message : "Failed to send email",
-              error,
+              { cause: error },
             ),
         )
         .mapOk(() => ({ sent: true }));
@@ -63,7 +63,7 @@ export const activities = declareActivitiesHandler({
             new ActivityError(
               "PAYMENT_FAILED",
               error instanceof Error ? error.message : "Payment failed",
-              error,
+              { cause: error },
             ),
         )
         .mapOk((txId) => ({ transactionId: txId, success: true }));
@@ -338,12 +338,12 @@ import { ActivityError } from "@temporal-contract/worker/activity";
 export const paymentActivities = {
   processPayment: ({ customerId, amount }) => {
     return Future.fromPromise(paymentGateway.charge(customerId, amount))
-      .mapError((err) => new ActivityError("PAYMENT_FAILED", err.message, err))
+      .mapError((err) => new ActivityError("PAYMENT_FAILED", err.message, { cause: err }))
       .mapOk((tx) => ({ transactionId: tx.id }));
   },
   refundPayment: ({ transactionId }) => {
     return Future.fromPromise(paymentGateway.refund(transactionId))
-      .mapError((err) => new ActivityError("REFUND_FAILED", err.message, err))
+      .mapError((err) => new ActivityError("REFUND_FAILED", err.message, { cause: err }))
       .mapOk(() => ({ refunded: true }));
   },
 };
@@ -355,7 +355,7 @@ import { ActivityError } from "@temporal-contract/worker/activity";
 export const emailActivities = {
   sendEmail: ({ to, subject, body }) => {
     return Future.fromPromise(emailService.send({ to, subject, body }))
-      .mapError((err) => new ActivityError("EMAIL_FAILED", err.message, err))
+      .mapError((err) => new ActivityError("EMAIL_FAILED", err.message, { cause: err }))
       .mapOk(() => ({ sent: true }));
   },
 };
@@ -391,12 +391,12 @@ export const createActivities = (services: {
     activities: {
       sendEmail: ({ to, subject, body }) => {
         return Future.fromPromise(services.emailService.send({ to, subject, body }))
-          .mapError((err) => new ActivityError("EMAIL_FAILED", err.message, err))
+          .mapError((err) => new ActivityError("EMAIL_FAILED", err.message, { cause: err }))
           .mapOk(() => ({ sent: true }));
       },
       processPayment: ({ customerId, amount }) => {
         return Future.fromPromise(services.paymentGateway.charge(customerId, amount))
-          .mapError((err) => new ActivityError("PAYMENT_FAILED", err.message, err))
+          .mapError((err) => new ActivityError("PAYMENT_FAILED", err.message, { cause: err }))
           .mapOk((txId) => ({ transactionId: txId, success: true }));
       },
     },
@@ -422,7 +422,7 @@ export const activities = declareActivitiesHandler({
           return new ActivityError(
             "PAYMENT_FAILED",
             error instanceof Error ? error.message : "Payment failed",
-            error,
+            { cause: error },
           );
         })
         .mapOk((txId) => ({ transactionId: txId, success: true }));
