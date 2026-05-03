@@ -9,7 +9,7 @@ temporal-contract uses the Result/Future pattern for explicit error handling. Th
 - **Activities and Clients**: Use **[@swan-io/boxed](https://github.com/swan-io/boxed)** - a battle-tested library with excellent performance
 - **Workflows**: Use **@temporal-contract/boxed** - a Temporal-compatible implementation required for deterministic execution
 
-Both packages provide the same API, making it easy to work with both.
+The two libraries cover the same core API (`Ok`/`Err`, `map`/`flatMap`/`mapError`/`flatMapError`, `tap`/`tapError`, `match`, `getOr`, `Result.all`/`allFromDict`), so most workflow ↔ activity code looks identical. There are intentional differences though — see [@temporal-contract/boxed vs swan](./boxed-vs-swan.md) for the full surface comparison and the rationale (determinism, removed unsound APIs, partial ports).
 
 ```mermaid
 graph LR

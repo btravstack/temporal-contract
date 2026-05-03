@@ -104,6 +104,7 @@ export default withMermaid(
             text: "Advanced",
             items: [
               { text: "Result Pattern", link: "/guide/result-pattern" },
+              { text: "@temporal-contract/boxed vs swan", link: "/guide/boxed-vs-swan" },
               { text: "Worker Implementation", link: "/guide/worker-implementation" },
               { text: "Entry Points Architecture", link: "/guide/entry-points" },
               { text: "Activity Handler Types", link: "/guide/activity-handlers" },
