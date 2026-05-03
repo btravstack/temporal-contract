@@ -72,6 +72,128 @@ export const activities = declareActivitiesHandler({
 });
 ```
 
+## Working with the Activity Context
+
+`declareActivitiesHandler` validates inputs/outputs and folds errors into the
+`Future<Result<...>>` shape, but it does **not** hide Temporal's
+`@temporalio/activity` runtime — your handler still runs as an ordinary
+Temporal activity. To reach Temporal's `Context.current()` (heartbeats, last
+heartbeat payload, attempt number, async completion), import it directly
+inside the activity body. The contract surface stays clean while you keep
+full access to Temporal's activity APIs.
+
+### Heartbeat (long-running activities)
+
+Long-running activities must heartbeat to avoid `startToCloseTimeout` /
+`heartbeatTimeout` failures. Call `Context.current().heartbeat(details)`
+from inside your `Future`-returning body — heartbeats are independent of
+the Result/Future wrapping:
+
+```typescript
+import { Context } from "@temporalio/activity";
+import { Future } from "@swan-io/boxed";
+import { ActivityError } from "@temporal-contract/worker/activity";
+import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
+import { reportContract } from "./contract";
+
+type Handlers = ActivitiesHandler<typeof reportContract>;
+
+export const exportLargeReport: Handlers["exportLargeReport"] = ({ reportId }) => {
+  return Future.fromPromise(
+    runExport(reportId, ({ chunkIndex }) => {
+      // Heartbeat the most recent progress checkpoint. Temporal records
+      // this as the activity's `heartbeatDetails` for the next attempt.
+      Context.current().heartbeat({ chunkIndex });
+    }),
+  )
+    .mapError((error) => new ActivityError("EXPORT_FAILED", String(error), error))
+    .mapOk(({ rowCount }) => ({ rowCount }));
+};
+```
+
+Pair this with `heartbeatTimeout` on the workflow side (`activityOptions` or
+`activityOptionsByName`) so Temporal can detect a stalled worker.
+
+### Resuming after a retry (`heartbeatDetails`)
+
+When Temporal retries a heartbeating activity, the previous attempt's last
+`heartbeat(details)` payload is available on `Context.current().heartbeatDetails`.
+Use it to skip work the previous attempt already completed:
+
+```typescript
+import { Context } from "@temporalio/activity";
+
+export const exportLargeReport: Handlers["exportLargeReport"] = ({ reportId }) => {
+  // `heartbeatDetails` is typed as `unknown` — the contract surface does
+  // not yet validate this payload (see issue #198 for the typed-schema
+  // follow-up). Cast at the boundary if you need typed access.
+  const last = Context.current().heartbeatDetails as { chunkIndex: number } | undefined;
+  const startFrom = last?.chunkIndex ?? 0;
+
+  return Future.fromPromise(runExport(reportId, { startFrom }))
+    .mapError((error) => new ActivityError("EXPORT_FAILED", String(error), error))
+    .mapOk(({ rowCount }) => ({ rowCount }));
+};
+```
+
+### Activity info (attempt number, workflow IDs)
+
+`Context.current().info` exposes the running activity's metadata: attempt
+number, workflow execution ID, task queue, schedule timestamps, and so on.
+Useful for structured logging and conditional retry behavior:
+
+```typescript
+import { Context } from "@temporalio/activity";
+
+export const chargePayment: Handlers["chargePayment"] = ({ orderId, amount }) => {
+  const { attempt, workflowExecution } = Context.current().info;
+  logger.info("chargePayment attempt", {
+    attempt,
+    workflowId: workflowExecution.workflowId,
+    orderId,
+  });
+  // ...
+};
+```
+
+### Async completion
+
+Activities that pause and complete out of band (HTTP callback, message
+queue, manual approval) use Temporal's standard async completion pattern.
+Inside the activity, capture the task token and tell Temporal not to
+auto-complete the activity:
+
+```typescript
+import { Context, CompleteAsyncError } from "@temporalio/activity";
+
+export const awaitApproval: Handlers["awaitApproval"] = ({ requestId }) => {
+  const taskToken = Context.current().info.taskToken;
+
+  return Future.fromPromise(
+    enqueueApprovalRequest({ requestId, taskToken }).then(() => {
+      // Tell Temporal the activity will be completed asynchronously.
+      throw new CompleteAsyncError();
+    }),
+  ).mapOk(() => ({ awaiting: true }));
+};
+```
+
+The external system later finishes the activity by calling
+[`AsyncCompletionClient`](https://typescript.temporal.io/api/classes/client.AsyncCompletionClient/)
+with the task token. The library does not currently wrap
+`AsyncCompletionClient` — use it directly from `@temporalio/client` in
+whichever process completes the activity.
+
+### Where to draw the line
+
+The contract surface aims to type **inputs and outputs** at the network
+boundary. Activity-runtime concerns (heartbeats, attempt number, async
+completion) are not part of the contract today and remain in
+`@temporalio/activity`. If a future contract upgrade introduces a typed
+heartbeat schema or an `AsyncCompletionClient` wrapper, it will live
+behind a new `defineActivity({ heartbeatDetails: ... })` field rather
+than replacing this escape hatch.
+
 ## Workflow Implementation
 
 Implement workflows with typed context. Activities called from workflows return plain values (Result is unwrapped internally):

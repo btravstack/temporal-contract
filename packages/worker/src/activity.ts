@@ -168,6 +168,16 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  *   taskQueue: contract.taskQueue,
  * });
  * ```
+ *
+ * @remarks
+ * The wrapper validates inputs/outputs and folds errors into the
+ * `Future<Result<...>>` shape, but it does **not** hide Temporal's
+ * `@temporalio/activity` runtime. Inside the body you can still call
+ * `Context.current()` from `@temporalio/activity` to access heartbeats
+ * (`heartbeat(details)`, `heartbeatDetails`), activity info (attempt
+ * number, workflow IDs), and the async-completion task token. See the
+ * "Working with the Activity Context" section of the worker
+ * implementation guide for end-to-end examples.
  */
 export function declareActivitiesHandler<TContract extends ContractDefinition>(
   options: DeclareActivitiesHandlerOptions<TContract>,
