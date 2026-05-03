@@ -9,7 +9,12 @@
 import { describe, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import { defineContract, defineActivity } from "./builder.js";
-import type { InferActivityNames, InferContractWorkflows, InferWorkflowNames } from "./types.js";
+import type {
+  InferActivityNames,
+  InferContractWorkflows,
+  InferWorkflowNames,
+  SearchAttributeKindToType,
+} from "./types.js";
 
 const contract = defineContract({
   taskQueue: "orders",
@@ -73,5 +78,15 @@ describe("contract inference utilities", () => {
       output: z.object({ transactionId: z.string() }),
     });
     expectTypeOf<typeof charge.input>().toEqualTypeOf<z.ZodObject<{ amount: z.ZodNumber }>>();
+  });
+
+  it("SearchAttributeKindToType maps each kind to the expected TS type", () => {
+    expectTypeOf<SearchAttributeKindToType<"TEXT">>().toEqualTypeOf<string>();
+    expectTypeOf<SearchAttributeKindToType<"KEYWORD">>().toEqualTypeOf<string>();
+    expectTypeOf<SearchAttributeKindToType<"INT">>().toEqualTypeOf<number>();
+    expectTypeOf<SearchAttributeKindToType<"DOUBLE">>().toEqualTypeOf<number>();
+    expectTypeOf<SearchAttributeKindToType<"BOOL">>().toEqualTypeOf<boolean>();
+    expectTypeOf<SearchAttributeKindToType<"DATETIME">>().toEqualTypeOf<Date>();
+    expectTypeOf<SearchAttributeKindToType<"KEYWORD_LIST">>().toEqualTypeOf<string[]>();
   });
 });

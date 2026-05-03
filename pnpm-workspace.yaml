@@ -11,6 +11,7 @@ catalog:
   "@standard-schema/spec": 1.1.0
   "@swan-io/boxed": 3.2.1
   "@temporalio/client": 1.16.1
+  "@temporalio/common": 1.16.1
   "@temporalio/worker": 1.16.1
   "@temporalio/workflow": 1.16.1
   "@types/node": 24.12.2

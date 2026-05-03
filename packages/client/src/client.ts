@@ -1,8 +1,15 @@
 import { Client, WorkflowHandle } from "@temporalio/client";
 import type { WorkflowSignalWithStartOptions, WorkflowStartOptions } from "@temporalio/client";
+import {
+  defineSearchAttributeKey,
+  type SearchAttributePair,
+  TypedSearchAttributes,
+} from "@temporalio/common";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type {
   ContractDefinition,
+  SearchAttributeDefinition,
+  SearchAttributeKindToType,
   SignalDefinition,
   WorkflowDefinition,
 } from "@temporal-contract/contract";
@@ -25,11 +32,41 @@ import {
 import { TypedScheduleClient } from "./schedule.js";
 import { makeFuture } from "./internal.js";
 
+/**
+ * Typed `searchAttributes` map for a workflow, derived from the workflow's
+ * declared `searchAttributes`. Each key is constrained to a declared
+ * attribute name; each value's type is determined by the attribute's `kind`
+ * (e.g. `KEYWORD` → `string`, `INT` → `number`, `DATETIME` → `Date`,
+ * `KEYWORD_LIST` → `string[]`).
+ *
+ * If the workflow declares no search attributes, this resolves to `never`,
+ * meaning the `searchAttributes` field is effectively absent from the start
+ * options for that workflow.
+ */
+export type TypedSearchAttributeMap<TWorkflow extends WorkflowDefinition> =
+  TWorkflow["searchAttributes"] extends Record<string, SearchAttributeDefinition>
+    ? {
+        [K in keyof TWorkflow["searchAttributes"]]?: SearchAttributeKindToType<
+          TWorkflow["searchAttributes"][K]["kind"]
+        >;
+      }
+    : never;
+
 export type TypedWorkflowStartOptions<
   TContract extends ContractDefinition,
   TWorkflowName extends keyof TContract["workflows"],
-> = Omit<WorkflowStartOptions, "taskQueue" | "args"> & {
+> = Omit<
+  WorkflowStartOptions,
+  "taskQueue" | "args" | "searchAttributes" | "typedSearchAttributes"
+> & {
   args: ClientInferInput<TContract["workflows"][TWorkflowName]>;
+  /**
+   * Indexed search attributes for the started workflow. Keys and value types
+   * are constrained to those declared on the workflow's contract via
+   * `defineSearchAttribute`. Translated to Temporal's `typedSearchAttributes`
+   * before the start request is dispatched.
+   */
+  searchAttributes?: TypedSearchAttributeMap<TContract["workflows"][TWorkflowName]>;
 };
 
 /**
@@ -40,12 +77,22 @@ export type TypedSignalWithStartOptions<
   TContract extends ContractDefinition,
   TWorkflowName extends keyof TContract["workflows"],
   TSignalName extends keyof TContract["workflows"][TWorkflowName]["signals"] & string,
-> = Omit<WorkflowSignalWithStartOptions, "taskQueue" | "args" | "signal" | "signalArgs"> & {
+> = Omit<
+  WorkflowSignalWithStartOptions,
+  "taskQueue" | "args" | "signal" | "signalArgs" | "searchAttributes" | "typedSearchAttributes"
+> & {
   args: ClientInferInput<TContract["workflows"][TWorkflowName]>;
   signalName: TSignalName;
   signalArgs: TContract["workflows"][TWorkflowName]["signals"][TSignalName] extends SignalDefinition
     ? ClientInferInput<TContract["workflows"][TWorkflowName]["signals"][TSignalName]>
     : never;
+  /**
+   * Indexed search attributes for the started workflow. Keys and value types
+   * are constrained to those declared on the workflow's contract via
+   * `defineSearchAttribute`. Translated to Temporal's `typedSearchAttributes`
+   * before the signalWithStart request is dispatched.
+   */
+  searchAttributes?: TypedSearchAttributeMap<TContract["workflows"][TWorkflowName]>;
 };
 
 /**
@@ -62,6 +109,31 @@ export type TypedWorkflowHandleWithSignaledRunId<TWorkflow extends WorkflowDefin
      */
     readonly signaledRunId: string;
   };
+
+/**
+ * Translate the contract's typed `searchAttributes` map (declared
+ * name → value) into a Temporal `TypedSearchAttributes` instance, so the
+ * Temporal client honours indexing when starting the workflow.
+ *
+ * Workflows without a `searchAttributes` block (or callers passing no
+ * values) skip the conversion entirely and return `undefined`, matching
+ * the Temporal SDK's "absent ≠ empty" semantics.
+ */
+function toTypedSearchAttributes(
+  workflowDef: WorkflowDefinition,
+  values: Record<string, unknown> | undefined,
+): TypedSearchAttributes | undefined {
+  if (!values || !workflowDef.searchAttributes) return undefined;
+  const pairs: SearchAttributePair[] = [];
+  for (const [name, value] of Object.entries(values)) {
+    if (value === undefined) continue;
+    const def = (workflowDef.searchAttributes as Record<string, SearchAttributeDefinition>)[name];
+    if (!def) continue;
+    const key = defineSearchAttributeKey(name, def.kind);
+    pairs.push({ key, value } as SearchAttributePair);
+  }
+  return pairs.length > 0 ? new TypedSearchAttributes(pairs) : undefined;
+}
 
 /**
  * Typed workflow handle with validated results using Result/Future pattern
@@ -238,7 +310,11 @@ export class TypedClient<TContract extends ContractDefinition> {
    */
   startWorkflow<TWorkflowName extends keyof TContract["workflows"]>(
     workflowName: TWorkflowName,
-    { args, ...temporalOptions }: TypedWorkflowStartOptions<TContract, TWorkflowName>,
+    {
+      args,
+      searchAttributes,
+      ...temporalOptions
+    }: TypedWorkflowStartOptions<TContract, TWorkflowName>,
   ): Future<
     Result<
       TypedWorkflowHandle<TContract["workflows"][TWorkflowName]>,
@@ -260,11 +336,17 @@ export class TypedClient<TContract extends ContractDefinition> {
         );
       }
 
+      const typedSearchAttributes = toTypedSearchAttributes(
+        definition,
+        searchAttributes as Record<string, unknown> | undefined,
+      );
+
       try {
         const handle = await this.client.workflow.start(workflowName as string, {
           ...temporalOptions,
           taskQueue: this.contract.taskQueue,
           args: [inputResult.value],
+          ...(typedSearchAttributes ? { typedSearchAttributes } : {}),
         });
         return Result.Ok(this.createTypedHandle(handle, definition) as Ok);
       } catch (error) {
@@ -309,6 +391,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       args,
       signalName,
       signalArgs,
+      searchAttributes,
       ...temporalOptions
     }: TypedSignalWithStartOptions<TContract, TWorkflowName, TSignalName>,
   ): Future<
@@ -358,6 +441,11 @@ export class TypedClient<TContract extends ContractDefinition> {
         return Result.Error(new SignalValidationError(signalName, signalInputResult.issues));
       }
 
+      const typedSearchAttributes = toTypedSearchAttributes(
+        definition,
+        searchAttributes as Record<string, unknown> | undefined,
+      );
+
       try {
         const handle = await this.client.workflow.signalWithStart(workflowName as string, {
           ...temporalOptions,
@@ -365,6 +453,7 @@ export class TypedClient<TContract extends ContractDefinition> {
           args: [inputResult.value],
           signal: signalName,
           signalArgs: [signalInputResult.value],
+          ...(typedSearchAttributes ? { typedSearchAttributes } : {}),
         });
         const typed = this.createTypedHandle(handle, definition) as TypedWorkflowHandle<
           TContract["workflows"][TWorkflowName]
@@ -397,7 +486,11 @@ export class TypedClient<TContract extends ContractDefinition> {
    */
   executeWorkflow<TWorkflowName extends keyof TContract["workflows"]>(
     workflowName: TWorkflowName,
-    { args, ...temporalOptions }: TypedWorkflowStartOptions<TContract, TWorkflowName>,
+    {
+      args,
+      searchAttributes,
+      ...temporalOptions
+    }: TypedWorkflowStartOptions<TContract, TWorkflowName>,
   ): Future<
     Result<
       ClientInferOutput<TContract["workflows"][TWorkflowName]>,
@@ -419,11 +512,17 @@ export class TypedClient<TContract extends ContractDefinition> {
         );
       }
 
+      const typedSearchAttributes = toTypedSearchAttributes(
+        definition,
+        searchAttributes as Record<string, unknown> | undefined,
+      );
+
       try {
         const result = await this.client.workflow.execute(workflowName as string, {
           ...temporalOptions,
           taskQueue: this.contract.taskQueue,
           args: [inputResult.value],
+          ...(typedSearchAttributes ? { typedSearchAttributes } : {}),
         });
 
         const outputResult = await definition.output["~standard"].validate(result);

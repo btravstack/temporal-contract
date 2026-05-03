@@ -24,6 +24,9 @@ catalogs:
     '@temporalio/client':
       specifier: 1.16.1
       version: 1.16.1
+    '@temporalio/common':
+      specifier: 1.16.1
+      version: 1.16.1
     '@temporalio/worker':
       specifier: 1.16.1
       version: 1.16.1
@@ -336,6 +339,9 @@ importers:
         specifier: workspace:*
         version: link:../../tools/typedoc
       '@temporalio/client':
+        specifier: 'catalog:'
+        version: 1.16.1
+      '@temporalio/common':
         specifier: 'catalog:'
         version: 1.16.1
       '@temporalio/worker':

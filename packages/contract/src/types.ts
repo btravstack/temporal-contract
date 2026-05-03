@@ -48,6 +48,47 @@ export type UpdateDefinition<
 };
 
 /**
+ * The seven Temporal search attribute kinds.
+ *
+ * Mirrors `@temporalio/common`'s `SearchAttributeType` so values flow into
+ * Temporal's `typedSearchAttributes` API unchanged.
+ */
+export type SearchAttributeKind =
+  | "TEXT"
+  | "KEYWORD"
+  | "INT"
+  | "DOUBLE"
+  | "BOOL"
+  | "DATETIME"
+  | "KEYWORD_LIST";
+
+/**
+ * Map each {@link SearchAttributeKind} to its TypeScript representation.
+ *
+ * - `TEXT` / `KEYWORD` → `string`
+ * - `INT` / `DOUBLE` → `number`
+ * - `BOOL` → `boolean`
+ * - `DATETIME` → `Date`
+ * - `KEYWORD_LIST` → `string[]`
+ */
+export type SearchAttributeKindToType<T extends SearchAttributeKind> = {
+  TEXT: string;
+  KEYWORD: string;
+  INT: number;
+  DOUBLE: number;
+  BOOL: boolean;
+  DATETIME: Date;
+  KEYWORD_LIST: string[];
+}[T];
+
+/**
+ * Definition of a typed search attribute on a workflow.
+ */
+export type SearchAttributeDefinition<TKind extends SearchAttributeKind = SearchAttributeKind> = {
+  readonly kind: TKind;
+};
+
+/**
  * Definition of a workflow
  */
 export type WorkflowDefinition<
@@ -55,6 +96,10 @@ export type WorkflowDefinition<
   TSignals extends Record<string, SignalDefinition> = Record<string, SignalDefinition>,
   TQueries extends Record<string, QueryDefinition> = Record<string, QueryDefinition>,
   TUpdates extends Record<string, UpdateDefinition> = Record<string, UpdateDefinition>,
+  TSearchAttributes extends Record<string, SearchAttributeDefinition> = Record<
+    string,
+    SearchAttributeDefinition
+  >,
 > = {
   readonly input: AnySchema;
   readonly output: AnySchema;
@@ -62,6 +107,7 @@ export type WorkflowDefinition<
   readonly signals?: TSignals;
   readonly queries?: TQueries;
   readonly updates?: TUpdates;
+  readonly searchAttributes?: TSearchAttributes;
 };
 
 /**

@@ -60,6 +60,7 @@
     "@temporal-contract/tsconfig": "workspace:*",
     "@temporal-contract/typedoc": "workspace:*",
     "@temporalio/client": "catalog:",
+    "@temporalio/common": "catalog:",
     "@temporalio/worker": "catalog:",
     "@temporalio/workflow": "catalog:",
     "@types/node": "catalog:",
@@ -72,6 +73,7 @@
     "zod": "catalog:"
   },
   "peerDependencies": {
-    "@temporalio/client": "^1.16.0"
+    "@temporalio/client": "^1.16.0",
+    "@temporalio/common": "^1"
   }
 }
