@@ -702,7 +702,7 @@ type WorkflowContext<
    * }
    * ```
    */
-  cancellableScope: <T>(fn: () => Promise<T>) => Future<Result<T, WorkflowCancelledError>>;
+  cancellableScope: <T>(fn: () => T | Promise<T>) => Future<Result<T, WorkflowCancelledError>>;
 
   /**
    * Run `fn` inside a non-cancellable Temporal scope. Cancellation requests
@@ -714,7 +714,7 @@ type WorkflowContext<
    * `Result.Error` branch only triggers when cancellation is raised from
    * *inside* the scope, which is rare.
    */
-  nonCancellableScope: <T>(fn: () => Promise<T>) => Future<Result<T, WorkflowCancelledError>>;
+  nonCancellableScope: <T>(fn: () => T | Promise<T>) => Future<Result<T, WorkflowCancelledError>>;
 
   /**
    * Continue this workflow execution as a new run, optionally with a different

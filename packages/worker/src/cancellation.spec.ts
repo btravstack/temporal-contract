@@ -15,19 +15,25 @@
  * Closes #183.
  */
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
+import { defineContract, defineWorkflow } from "@temporal-contract/contract";
 
 const CANCEL_MARKER = "__CANCEL__";
 
+// `declareWorkflow` calls `workflowInfo()` while building the context, so the
+// wiring test below needs it stubbed alongside the cancellation primitives.
 vi.mock("@temporalio/workflow", () => ({
   CancellationScope: {
     cancellable: vi.fn(<T>(fn: () => Promise<T>): Promise<T> => fn()),
     nonCancellable: vi.fn(<T>(fn: () => Promise<T>): Promise<T> => fn()),
   },
   isCancellation: (err: unknown) => err instanceof Error && err.message === CANCEL_MARKER,
+  workflowInfo: () => ({ workflowId: "test-wf", runId: "test-run" }),
 }));
 
 const { CancellationScope } = await import("@temporalio/workflow");
 const { cancellableScope, nonCancellableScope } = await import("./cancellation.js");
+const { declareWorkflow } = await import("./workflow.js");
 const { WorkflowCancelledError } = await import("./errors.js");
 
 describe("cancellableScope", () => {
@@ -102,5 +108,66 @@ describe("nonCancellableScope", () => {
         throw original;
       }),
     ).rejects.toBe(original);
+  });
+});
+
+describe("scope helpers accept synchronous callbacks", () => {
+  // The implementation `await`s the callback result, so a non-Promise return
+  // is valid at runtime. The public type was widened to `() => T | Promise<T>`
+  // so workflows mutating purely-local state don't have to write `async () =>`.
+  it("cancellableScope wraps a sync return as Result.Ok", async () => {
+    const result = await cancellableScope(() => "sync-ok");
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toBe("sync-ok");
+    }
+  });
+
+  it("nonCancellableScope wraps a sync return as Result.Ok", async () => {
+    const result = await nonCancellableScope(() => 7);
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toBe(7);
+    }
+  });
+});
+
+describe("declareWorkflow context wiring", () => {
+  // Regression guard: a refactor that drops the cancellation helpers off the
+  // constructed `context` would still leave the helper unit tests above green
+  // while breaking the public workflow API. This asserts the wiring directly.
+  const wiringContract = defineContract({
+    taskQueue: "wiring-q",
+    workflows: {
+      probe: defineWorkflow({
+        input: z.object({ x: z.string() }),
+        output: z.object({ ok: z.boolean() }),
+      }),
+    },
+  });
+
+  it("mounts cancellableScope and nonCancellableScope on the context passed to the implementation", async () => {
+    let captured: unknown;
+    const handler = declareWorkflow({
+      workflowName: "probe",
+      contract: wiringContract,
+      activityOptions: {},
+      implementation: async (context) => {
+        captured = context;
+        return { ok: true };
+      },
+    });
+
+    await handler({ x: "value" });
+
+    expect(captured).toBeDefined();
+    const ctx = captured as {
+      cancellableScope?: typeof cancellableScope;
+      nonCancellableScope?: typeof nonCancellableScope;
+    };
+    // Identity check — the helpers in the context are exactly the exports
+    // from `cancellation.ts`, not lookalike wrappers built per-execution.
+    expect(ctx.cancellableScope).toBe(cancellableScope);
+    expect(ctx.nonCancellableScope).toBe(nonCancellableScope);
   });
 });

@@ -15,7 +15,7 @@ context.cancellableScope<T>(fn): Future<Result<T, WorkflowCancelledError>>
 context.nonCancellableScope<T>(fn): Future<Result<T, WorkflowCancelledError>>
 ```
 
-Both wrap Temporal's `CancellationScope.cancellable` / `.nonCancellable` so workflows can opt into fine-grained cancellation control without reaching for `@temporalio/workflow` directly. Cancellation surfaces as `Result.Error(WorkflowCancelledError)` instead of a thrown `CancelledFailure`, matching the Future/Result shape used by activities, child workflows, and continueAsNew.
+Both wrap Temporal's `CancellationScope.cancellable` / `.nonCancellable` so workflows can opt into fine-grained cancellation control without reaching for `@temporalio/workflow` directly. Cancellation surfaces as `Result.Error(WorkflowCancelledError)` instead of a thrown `CancelledFailure`, so call sites can branch on cancellation explicitly. The shape mirrors `context.startChildWorkflow` / `context.executeChildWorkflow`; the rest of the context API (activity proxies, `continueAsNew`) keeps its existing `Promise`-based shape.
 
 ```ts
 declareWorkflow({

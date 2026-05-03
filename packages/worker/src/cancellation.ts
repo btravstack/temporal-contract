@@ -36,11 +36,14 @@ import { WorkflowCancelledError } from "./errors.js";
  * ```
  */
 export function cancellableScope<T>(
-  fn: () => Promise<T>,
+  fn: () => T | Promise<T>,
 ): Future<Result<T, WorkflowCancelledError>> {
   return Future.fromAsync(async () => {
     try {
-      const value = await CancellationScope.cancellable(fn);
+      // Wrap so synchronous returns satisfy CancellationScope.cancellable's
+      // `() => Promise<T>` signature without forcing every caller to write
+      // `async () => ...` for purely synchronous bodies.
+      const value = await CancellationScope.cancellable(async () => fn());
       return Result.Ok(value);
     } catch (error) {
       if (isCancellation(error)) {
@@ -69,11 +72,11 @@ export function cancellableScope<T>(
  * ```
  */
 export function nonCancellableScope<T>(
-  fn: () => Promise<T>,
+  fn: () => T | Promise<T>,
 ): Future<Result<T, WorkflowCancelledError>> {
   return Future.fromAsync(async () => {
     try {
-      const value = await CancellationScope.nonCancellable(fn);
+      const value = await CancellationScope.nonCancellable(async () => fn());
       return Result.Ok(value);
     } catch (error) {
       if (isCancellation(error)) {
