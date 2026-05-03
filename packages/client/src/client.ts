@@ -22,6 +22,7 @@ import {
   UpdateValidationError,
   RuntimeClientError,
 } from "./errors.js";
+import { TypedScheduleClient } from "./schedule.js";
 
 export type TypedWorkflowStartOptions<
   TContract extends ContractDefinition,
@@ -142,10 +143,33 @@ export type TypedWorkflowHandle<TWorkflow extends WorkflowDefinition> = {
  * defined in the contract, with explicit error handling using Result pattern.
  */
 export class TypedClient<TContract extends ContractDefinition> {
+  /**
+   * Typed wrapper around Temporal's `client.schedule.create(...)` and
+   * related lifecycle methods. Fires the underlying `startWorkflow` action
+   * with args validated against the contract's input schema.
+   *
+   * @example
+   * ```ts
+   * const result = await client.schedule.create("processOrder", {
+   *   scheduleId: "daily-sweep",
+   *   spec: { cronExpressions: ["0 2 * * *"] },
+   *   args: { orderId: "sweep" },
+   * });
+   *
+   * result.match({
+   *   Ok: async (handle) => { await handle.pause("maintenance"); },
+   *   Error: (error) => console.error("schedule create failed", error),
+   * });
+   * ```
+   */
+  readonly schedule: TypedScheduleClient<TContract>;
+
   private constructor(
     private readonly contract: TContract,
     private readonly client: Client,
-  ) {}
+  ) {
+    this.schedule = new TypedScheduleClient(contract, client.schedule);
+  }
 
   /**
    * Create a typed Temporal client with boxed pattern from a contract

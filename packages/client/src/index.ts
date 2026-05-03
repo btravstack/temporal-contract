@@ -6,6 +6,11 @@ export {
   type TypedWorkflowStartOptions,
 } from "./client.js";
 export {
+  TypedScheduleClient,
+  type TypedScheduleCreateOptions,
+  type TypedScheduleHandle,
+} from "./schedule.js";
+export {
   RuntimeClientError,
   WorkflowNotFoundError,
   WorkflowValidationError,
