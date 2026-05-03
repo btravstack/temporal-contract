@@ -18,16 +18,19 @@ import {
   ActivityOutputValidationError,
   ChildWorkflowError,
   ChildWorkflowNotFoundError,
-  QueryInputValidationError,
-  QueryOutputValidationError,
-  SignalInputValidationError,
-  UpdateInputValidationError,
-  UpdateOutputValidationError,
   WorkflowCancelledError,
   WorkflowInputValidationError,
   WorkflowOutputValidationError,
 } from "./errors.js";
 import { cancellableScope, nonCancellableScope } from "./cancellation.js";
+import {
+  bindQueryHandler,
+  bindSignalHandler,
+  bindUpdateHandler,
+  type QueryHandlerImplementation,
+  type SignalHandlerImplementation,
+  type UpdateHandlerImplementation,
+} from "./handlers.js";
 import {
   ClientInferInput,
   ClientInferOutput,
@@ -46,11 +49,7 @@ import {
   ActivityOptions,
   ChildWorkflowHandle,
   ChildWorkflowOptions,
-  defineQuery,
-  defineSignal,
-  defineUpdate,
   executeChild,
-  setHandler,
   startChild,
   WorkflowInfo,
   workflowInfo,
@@ -203,151 +202,19 @@ export function declareWorkflow<
       );
     }
 
-    // Context methods for defining signals, queries, and updates.
+    // Create workflow context.
     //
-    // Each helper guards against the contract not declaring this kind for the
-    // current workflow. The simple case ("workflow has no signals") is already
-    // prevented by the type signature, but `declareWorkflow` *can* be called
-    // with a union-typed `workflowName` (e.g. a factory function that builds
-    // a workflow handler from any of several names), in which case the union
-    // collapses signal/query/update keysets and the runtime check earns its
-    // keep — without it, a caller would see `Cannot read properties of
-    // undefined` instead of a controlled contract error.
-    function createDefineSignal<
-      TSignalName extends keyof TContract["workflows"][TWorkflowName]["signals"],
-    >(
-      signalName: TSignalName,
-      handler: SignalHandlerImplementation<
-        TContract["workflows"][TWorkflowName]["signals"][TSignalName] extends SignalDefinition
-          ? TContract["workflows"][TWorkflowName]["signals"][TSignalName]
-          : never
-      >,
-    ): void {
-      if (!definition.signals) {
-        throw new Error(
-          `Signal "${String(signalName)}" cannot be defined: workflow "${String(workflowName)}" has no signals in its contract`,
-        );
-      }
-      const signalDef = (definition.signals as Record<string, SignalDefinition>)[
-        signalName as string
-      ];
-      if (!signalDef) {
-        throw new Error(
-          `Signal "${String(signalName)}" not found in workflow "${String(workflowName)}" contract`,
-        );
-      }
-
-      const signal = defineSignal(signalName as string);
-      setHandler(signal, async (...args: unknown[]) => {
-        const input = extractHandlerInput(args);
-        const inputResult = await signalDef.input["~standard"].validate(input);
-        if (inputResult.issues) {
-          throw new SignalInputValidationError(signalName as string, inputResult.issues);
-        }
-        await (handler as SignalHandlerImplementation<SignalDefinition>)(inputResult.value);
-      });
-    }
-
-    function createDefineQuery<
-      TQueryName extends keyof TContract["workflows"][TWorkflowName]["queries"],
-    >(
-      queryName: TQueryName,
-      handler: QueryHandlerImplementation<
-        TContract["workflows"][TWorkflowName]["queries"][TQueryName] extends QueryDefinition
-          ? TContract["workflows"][TWorkflowName]["queries"][TQueryName]
-          : never
-      >,
-    ): void {
-      if (!definition.queries) {
-        throw new Error(
-          `Query "${String(queryName)}" cannot be defined: workflow "${String(workflowName)}" has no queries in its contract`,
-        );
-      }
-      const queryDef = (definition.queries as Record<string, QueryDefinition>)[queryName as string];
-      if (!queryDef) {
-        throw new Error(
-          `Query "${String(queryName)}" not found in workflow "${String(workflowName)}" contract`,
-        );
-      }
-
-      const query = defineQuery(queryName as string);
-      setHandler(query, (...args: unknown[]) => {
-        const input = extractHandlerInput(args);
-        // Note: Query handlers must be synchronous, so we need to handle validation synchronously
-        const inputResult = queryDef.input["~standard"].validate(input);
-
-        // Handle both sync and async validation results
-        if (inputResult instanceof Promise) {
-          throw new Error(
-            `Query "${String(queryName)}" validation must be synchronous. Use a schema library that supports synchronous validation for queries.`,
-          );
-        }
-
-        if (inputResult.issues) {
-          throw new QueryInputValidationError(queryName as string, inputResult.issues);
-        }
-
-        const result = handler(inputResult.value);
-
-        const outputResult = queryDef.output["~standard"].validate(result);
-        if (outputResult instanceof Promise) {
-          throw new Error(
-            `Query "${String(queryName)}" output validation must be synchronous. Use a schema library that supports synchronous validation for queries.`,
-          );
-        }
-
-        if (outputResult.issues) {
-          throw new QueryOutputValidationError(queryName as string, outputResult.issues);
-        }
-
-        return outputResult.value;
-      });
-    }
-
-    function createDefineUpdate<
-      TUpdateName extends keyof TContract["workflows"][TWorkflowName]["updates"],
-    >(
-      updateName: TUpdateName,
-      handler: UpdateHandlerImplementation<
-        TContract["workflows"][TWorkflowName]["updates"][TUpdateName] extends UpdateDefinition
-          ? TContract["workflows"][TWorkflowName]["updates"][TUpdateName]
-          : never
-      >,
-    ): void {
-      if (!definition.updates) {
-        throw new Error(
-          `Update "${String(updateName)}" cannot be defined: workflow "${String(workflowName)}" has no updates in its contract`,
-        );
-      }
-      const updateDef = (definition.updates as Record<string, UpdateDefinition>)[
-        updateName as string
-      ];
-      if (!updateDef) {
-        throw new Error(
-          `Update "${String(updateName)}" not found in workflow "${String(workflowName)}" contract`,
-        );
-      }
-
-      const update = defineUpdate(updateName as string);
-      setHandler(update, async (...args: unknown[]) => {
-        const input = extractHandlerInput(args);
-        const inputResult = await updateDef.input["~standard"].validate(input);
-        if (inputResult.issues) {
-          throw new UpdateInputValidationError(updateName as string, inputResult.issues);
-        }
-
-        const result = await handler(inputResult.value);
-
-        const outputResult = await updateDef.output["~standard"].validate(result);
-        if (outputResult.issues) {
-          throw new UpdateOutputValidationError(updateName as string, outputResult.issues);
-        }
-
-        return outputResult.value;
-      });
-    }
-
-    // Create workflow context
+    // The defineSignal / defineQuery / defineUpdate arrows forward to the
+    // hoisted helpers in `./handlers.ts`. The arrows themselves are thin
+    // closures that close over `definition` and `workflowName`; the heavy
+    // logic — runtime guards, validation, Temporal `defineSignal/Query/
+    // Update` + `setHandler` wiring — lives at module scope so it isn't
+    // reallocated on each workflow invocation.
+    //
+    // The cast at each assignment preserves the typed call-site surface
+    // (the `K extends keyof ...` constraints declared on
+    // `WorkflowContext.defineSignal/Query/Update`), while the helpers
+    // themselves take loosely-typed arguments at the runtime boundary.
     const context: WorkflowContext<TContract, TWorkflowName> = {
       activities: contextActivities as WorkflowInferWorkflowContextActivities<
         TContract,
@@ -358,9 +225,27 @@ export function declareWorkflow<
       executeChildWorkflow: createExecuteChildWorkflow,
       cancellableScope,
       nonCancellableScope,
-      defineSignal: createDefineSignal as WorkflowContext<TContract, TWorkflowName>["defineSignal"],
-      defineQuery: createDefineQuery as WorkflowContext<TContract, TWorkflowName>["defineQuery"],
-      defineUpdate: createDefineUpdate as WorkflowContext<TContract, TWorkflowName>["defineUpdate"],
+      defineSignal: ((signalName, handler) =>
+        bindSignalHandler(
+          definition,
+          String(workflowName),
+          signalName as string,
+          handler as unknown as SignalHandlerImplementation<SignalDefinition>,
+        )) as WorkflowContext<TContract, TWorkflowName>["defineSignal"],
+      defineQuery: ((queryName, handler) =>
+        bindQueryHandler(
+          definition,
+          String(workflowName),
+          queryName as string,
+          handler as unknown as QueryHandlerImplementation<QueryDefinition>,
+        )) as WorkflowContext<TContract, TWorkflowName>["defineQuery"],
+      defineUpdate: ((updateName, handler) =>
+        bindUpdateHandler(
+          definition,
+          String(workflowName),
+          updateName as string,
+          handler as unknown as UpdateHandlerImplementation<UpdateDefinition>,
+        )) as WorkflowContext<TContract, TWorkflowName>["defineUpdate"],
       continueAsNew: createContinueAsNew(contract, workflowName) as WorkflowContext<
         TContract,
         TWorkflowName
@@ -379,36 +264,6 @@ export function declareWorkflow<
     return outputResult.value as WorkerInferOutput<TContract["workflows"][TWorkflowName]>;
   };
 }
-
-/**
- * Signal handler implementation
- *
- * Processes signal input and can optionally perform asynchronous operations.
- * Should not return a value (signals are fire-and-forget).
- */
-type SignalHandlerImplementation<TSignal extends SignalDefinition> = (
-  args: WorkerInferInput<TSignal>,
-) => void | Promise<void>;
-
-/**
- * Query handler implementation
- *
- * Processes query input and returns a synchronous response.
- * Must be synchronous to satisfy Temporal's query constraints.
- */
-type QueryHandlerImplementation<TQuery extends QueryDefinition> = (
-  args: WorkerInferInput<TQuery>,
-) => WorkerInferOutput<TQuery>;
-
-/**
- * Update handler implementation
- *
- * Processes update input and returns a validated response after modifying workflow state.
- * Can perform asynchronous operations.
- */
-type UpdateHandlerImplementation<TUpdate extends UpdateDefinition> = (
-  args: WorkerInferInput<TUpdate>,
-) => Promise<WorkerInferOutput<TUpdate>>;
 
 /**
  * Union of all activity names available to a workflow — the workflow-local
