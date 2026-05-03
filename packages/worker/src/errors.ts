@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { summarizeIssues } from "./internal.js";
+import { summarizeIssues } from "./format.js";
 
 /**
  * Base error class for worker errors

@@ -35,8 +35,10 @@ import {
 import { Future, Result } from "@temporal-contract/boxed";
 import {
   buildRawActivitiesProxy,
+  createContinueAsNew,
   extractHandlerInput,
   formatChildWorkflowValidationMessage,
+  type TypedContinueAsNewOptions,
 } from "./internal.js";
 import {
   ActivityOptions,
@@ -354,6 +356,10 @@ export function declareWorkflow<
       defineSignal: createDefineSignal as WorkflowContext<TContract, TWorkflowName>["defineSignal"],
       defineQuery: createDefineQuery as WorkflowContext<TContract, TWorkflowName>["defineQuery"],
       defineUpdate: createDefineUpdate as WorkflowContext<TContract, TWorkflowName>["defineUpdate"],
+      continueAsNew: createContinueAsNew(contract, workflowName) as WorkflowContext<
+        TContract,
+        TWorkflowName
+      >["continueAsNew"],
     };
 
     // Execute workflow (pass validated input as tuple)
@@ -661,6 +667,51 @@ type WorkflowContext<
   ) => Future<
     Result<ClientInferOutput<TChildContract["workflows"][TChildWorkflowName]>, ChildWorkflowError>
   >;
+
+  /**
+   * Continue this workflow execution as a new run, optionally with a different
+   * workflow type from another contract.
+   *
+   * Args are validated against the destination workflow's input schema before
+   * Temporal's `continueAsNew` is invoked. On validation failure, throws a
+   * {@link WorkflowInputValidationError}; on success, Temporal terminates the
+   * current execution and starts a fresh one — which is why the function
+   * never returns normally (`Promise<never>`).
+   *
+   * Idiomatic usage:
+   *
+   * @example
+   * ```ts
+   * // Same workflow, validated args
+   * implementation: async (context, args) => {
+   *   if (shouldRoll(args)) {
+   *     return context.continueAsNew({ ...args, retryCount: args.retryCount + 1 });
+   *   }
+   *   return ...;
+   * }
+   *
+   * // Cross-contract continueAsNew (less common — taskQueue and workflow type
+   * // come from the other contract)
+   * return context.continueAsNew(otherContract, "otherWorkflow", { ...newArgs });
+   * ```
+   */
+  continueAsNew: {
+    /** Same-workflow continuation — args typed against this workflow's input. */
+    (
+      args: ClientInferInput<TContract["workflows"][TWorkflowName]>,
+      options?: TypedContinueAsNewOptions,
+    ): Promise<never>;
+    /** Cross-contract continuation — args typed against the destination workflow. */
+    <
+      TOtherContract extends ContractDefinition,
+      TOtherWorkflowName extends keyof TOtherContract["workflows"],
+    >(
+      contract: TOtherContract,
+      workflowName: TOtherWorkflowName,
+      args: ClientInferInput<TOtherContract["workflows"][TOtherWorkflowName]>,
+      options?: TypedContinueAsNewOptions,
+    ): Promise<never>;
+  };
 };
 
 /**
