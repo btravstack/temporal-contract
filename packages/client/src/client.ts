@@ -7,11 +7,12 @@ import {
 } from "@temporalio/common";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type {
+  AnyWorkflowDefinition,
   ContractDefinition,
   SearchAttributeDefinition,
   SearchAttributeKindToType,
   SignalDefinition,
-  WorkflowDefinition,
+  SignalNamesOf,
 } from "@temporal-contract/contract";
 import type {
   ClientInferInput,
@@ -54,7 +55,7 @@ import { WorkflowNotFoundError as TemporalWorkflowNotFoundError } from "@tempora
  * meaning the `searchAttributes` field is effectively absent from the start
  * options for that workflow.
  */
-export type TypedSearchAttributeMap<TWorkflow extends WorkflowDefinition> =
+export type TypedSearchAttributeMap<TWorkflow extends AnyWorkflowDefinition> =
   TWorkflow["searchAttributes"] extends Record<string, SearchAttributeDefinition>
     ? {
         [K in keyof TWorkflow["searchAttributes"]]?: SearchAttributeKindToType<
@@ -65,7 +66,7 @@ export type TypedSearchAttributeMap<TWorkflow extends WorkflowDefinition> =
 
 export type TypedWorkflowStartOptions<
   TContract extends ContractDefinition,
-  TWorkflowName extends keyof TContract["workflows"],
+  TWorkflowName extends keyof TContract["workflows"] & string,
 > = Omit<
   WorkflowStartOptions,
   "taskQueue" | "args" | "searchAttributes" | "typedSearchAttributes"
@@ -86,8 +87,8 @@ export type TypedWorkflowStartOptions<
  */
 export type TypedSignalWithStartOptions<
   TContract extends ContractDefinition,
-  TWorkflowName extends keyof TContract["workflows"],
-  TSignalName extends keyof TContract["workflows"][TWorkflowName]["signals"] & string,
+  TWorkflowName extends keyof TContract["workflows"] & string,
+  TSignalName extends SignalNamesOf<TContract["workflows"][TWorkflowName]>,
 > = Omit<
   WorkflowSignalWithStartOptions,
   "taskQueue" | "args" | "signal" | "signalArgs" | "searchAttributes" | "typedSearchAttributes"
@@ -111,7 +112,7 @@ export type TypedSignalWithStartOptions<
  * to the standard handle so callers can correlate the signal with the
  * (possibly pre-existing) workflow execution chain.
  */
-export type TypedWorkflowHandleWithSignaledRunId<TWorkflow extends WorkflowDefinition> =
+export type TypedWorkflowHandleWithSignaledRunId<TWorkflow extends AnyWorkflowDefinition> =
   TypedWorkflowHandle<TWorkflow> & {
     /**
      * The Run Id of the bound Workflow at the time of `signalWithStart`. Since
@@ -131,7 +132,7 @@ export type TypedWorkflowHandleWithSignaledRunId<TWorkflow extends WorkflowDefin
  * the Temporal SDK's "absent ≠ empty" semantics.
  */
 function toTypedSearchAttributes(
-  workflowDef: WorkflowDefinition,
+  workflowDef: AnyWorkflowDefinition,
   values: Record<string, unknown> | undefined,
 ): TypedSearchAttributes | undefined {
   if (!values || !workflowDef.searchAttributes) return undefined;
@@ -149,7 +150,7 @@ function toTypedSearchAttributes(
 /**
  * Typed workflow handle with validated results using neverthrow Result/ResultAsync
  */
-export type TypedWorkflowHandle<TWorkflow extends WorkflowDefinition> = {
+export type TypedWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
   workflowId: string;
 
   /**
@@ -342,7 +343,7 @@ export class TypedClient<TContract extends ContractDefinition> {
    * );
    * ```
    */
-  startWorkflow<TWorkflowName extends keyof TContract["workflows"]>(
+  startWorkflow<TWorkflowName extends keyof TContract["workflows"] & string>(
     workflowName: TWorkflowName,
     {
       args,
@@ -363,7 +364,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       | WorkflowAlreadyStartedError
       | RuntimeClientError;
     const work = async (): Promise<Result<Ok, Err>> => {
-      const definition = this.contract.workflows[workflowName as string];
+      const definition = this.contract.workflows[workflowName];
       if (!definition) {
         return err(createWorkflowNotFoundError(workflowName, this.contract));
       }
@@ -379,7 +380,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       );
 
       try {
-        const handle = await this.client.workflow.start(workflowName as string, {
+        const handle = await this.client.workflow.start(workflowName, {
           ...temporalOptions,
           taskQueue: this.contract.taskQueue,
           args: [inputResult.value],
@@ -420,8 +421,8 @@ export class TypedClient<TContract extends ContractDefinition> {
    * ```
    */
   signalWithStart<
-    TWorkflowName extends keyof TContract["workflows"],
-    TSignalName extends keyof TContract["workflows"][TWorkflowName]["signals"] & string,
+    TWorkflowName extends keyof TContract["workflows"] & string,
+    TSignalName extends SignalNamesOf<TContract["workflows"][TWorkflowName]>,
   >(
     workflowName: TWorkflowName,
     {
@@ -448,7 +449,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       | RuntimeClientError;
 
     const work = async (): Promise<Result<Ok, Err>> => {
-      const definition = this.contract.workflows[workflowName as string];
+      const definition = this.contract.workflows[workflowName];
       if (!definition) {
         return err(createWorkflowNotFoundError(workflowName, this.contract));
       }
@@ -469,7 +470,7 @@ export class TypedClient<TContract extends ContractDefinition> {
         return err(
           new SignalValidationError(signalName, [
             {
-              message: `Signal "${signalName}" is not declared on workflow "${String(workflowName)}".`,
+              message: `Signal "${signalName}" is not declared on workflow "${workflowName}".`,
             },
           ]),
         );
@@ -485,7 +486,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       );
 
       try {
-        const handle = await this.client.workflow.signalWithStart(workflowName as string, {
+        const handle = await this.client.workflow.signalWithStart(workflowName, {
           ...temporalOptions,
           taskQueue: this.contract.taskQueue,
           args: [inputResult.value],
@@ -522,7 +523,7 @@ export class TypedClient<TContract extends ContractDefinition> {
    * );
    * ```
    */
-  executeWorkflow<TWorkflowName extends keyof TContract["workflows"]>(
+  executeWorkflow<TWorkflowName extends keyof TContract["workflows"] & string>(
     workflowName: TWorkflowName,
     {
       args,
@@ -547,7 +548,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       | WorkflowExecutionNotFoundError
       | RuntimeClientError;
     const work = async (): Promise<Result<Ok, Err>> => {
-      const definition = this.contract.workflows[workflowName as string];
+      const definition = this.contract.workflows[workflowName];
       if (!definition) {
         return err(createWorkflowNotFoundError(workflowName, this.contract));
       }
@@ -563,7 +564,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       );
 
       try {
-        const result = await this.client.workflow.execute(workflowName as string, {
+        const result = await this.client.workflow.execute(workflowName, {
           ...temporalOptions,
           taskQueue: this.contract.taskQueue,
           args: [inputResult.value],
@@ -621,7 +622,7 @@ export class TypedClient<TContract extends ContractDefinition> {
    * );
    * ```
    */
-  getHandle<TWorkflowName extends keyof TContract["workflows"]>(
+  getHandle<TWorkflowName extends keyof TContract["workflows"] & string>(
     workflowName: TWorkflowName,
     workflowId: string,
   ): ResultAsync<
@@ -631,7 +632,7 @@ export class TypedClient<TContract extends ContractDefinition> {
     type Ok = TypedWorkflowHandle<TContract["workflows"][TWorkflowName]>;
     type Err = WorkflowNotFoundError | RuntimeClientError;
     const work = async (): Promise<Result<Ok, Err>> => {
-      const definition = this.contract.workflows[workflowName as string];
+      const definition = this.contract.workflows[workflowName];
       if (!definition) {
         return err(createWorkflowNotFoundError(workflowName, this.contract));
       }
@@ -646,7 +647,7 @@ export class TypedClient<TContract extends ContractDefinition> {
     return makeResultAsync(work);
   }
 
-  private createTypedHandle<TWorkflow extends WorkflowDefinition>(
+  private createTypedHandle<TWorkflow extends AnyWorkflowDefinition>(
     workflowHandle: WorkflowHandle,
     definition: TWorkflow,
   ): TypedWorkflowHandle<TWorkflow> {

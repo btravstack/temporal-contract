@@ -15,6 +15,7 @@ export type {
   QueryDefinition,
   UpdateDefinition,
   WorkflowDefinition,
+  AnyWorkflowDefinition,
   ContractDefinition,
   // Search attributes
   SearchAttributeKind,
@@ -24,4 +25,7 @@ export type {
   InferWorkflowNames,
   InferActivityNames,
   InferContractWorkflows,
+  SignalNamesOf,
+  QueryNamesOf,
+  UpdateNamesOf,
 } from "./types.js";

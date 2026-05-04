@@ -2,13 +2,13 @@ import { z } from "zod";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type {
   ActivityDefinition,
+  AnyWorkflowDefinition,
   ContractDefinition,
   QueryDefinition,
   SearchAttributeDefinition,
   SearchAttributeKind,
   SignalDefinition,
   UpdateDefinition,
-  WorkflowDefinition,
 } from "./types.js";
 
 // Exported builders first (classic functions for hoisting)
@@ -218,7 +218,7 @@ export function defineSearchAttribute<TKind extends SearchAttributeKind>(
  * });
  * ```
  */
-export function defineWorkflow<TWorkflow extends WorkflowDefinition>(
+export function defineWorkflow<TWorkflow extends AnyWorkflowDefinition>(
   definition: TWorkflow,
 ): TWorkflow {
   return definition;

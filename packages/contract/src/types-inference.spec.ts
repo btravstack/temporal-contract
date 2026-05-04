@@ -8,12 +8,15 @@
  */
 import { describe, expectTypeOf, it } from "vitest";
 import { z } from "zod";
-import { defineContract, defineActivity } from "./builder.js";
+import { defineContract, defineActivity, defineSignal, defineWorkflow } from "./builder.js";
 import type {
   InferActivityNames,
   InferContractWorkflows,
   InferWorkflowNames,
+  QueryNamesOf,
   SearchAttributeKindToType,
+  SignalNamesOf,
+  UpdateNamesOf,
 } from "./types.js";
 
 const contract = defineContract({
@@ -88,5 +91,79 @@ describe("contract inference utilities", () => {
     expectTypeOf<SearchAttributeKindToType<"BOOL">>().toEqualTypeOf<boolean>();
     expectTypeOf<SearchAttributeKindToType<"DATETIME">>().toEqualTypeOf<Date>();
     expectTypeOf<SearchAttributeKindToType<"KEYWORD_LIST">>().toEqualTypeOf<string[]>();
+  });
+});
+
+describe("WorkflowDefinition generic preservation (audit fix #2)", () => {
+  it("defineWorkflow preserves the input/output schema literal types", () => {
+    const wf = defineWorkflow({
+      input: z.object({ a: z.string() }),
+      output: z.string(),
+    });
+
+    // Before the fix, these were widened to `AnySchema`/`StandardSchemaV1`
+    // and downstream `ClientInferInput<…>` resolved to `unknown`.
+    expectTypeOf<typeof wf.input>().toEqualTypeOf<z.ZodObject<{ a: z.ZodString }>>();
+    expectTypeOf<typeof wf.output>().toEqualTypeOf<z.ZodString>();
+  });
+
+  it("a workflow's `args` infers to its input schema (not unknown) inside a contract", () => {
+    const contract = defineContract({
+      taskQueue: "q",
+      workflows: {
+        p: defineWorkflow({
+          input: z.object({ a: z.string() }),
+          output: z.string(),
+        }),
+      },
+    });
+
+    type WorkflowInput = z.input<(typeof contract)["workflows"]["p"]["input"]>;
+    expectTypeOf<WorkflowInput>().toEqualTypeOf<{ a: string }>();
+  });
+});
+
+describe("Signal/query/update name helpers (audit fix #3)", () => {
+  const contractWithSignal = defineContract({
+    taskQueue: "q",
+    workflows: {
+      hasSignal: defineWorkflow({
+        input: z.object({}),
+        output: z.object({}),
+        signals: {
+          cancel: defineSignal({ input: z.object({ reason: z.string() }) }),
+        },
+      }),
+    },
+  });
+
+  const contractNoInteractions = defineContract({
+    taskQueue: "q",
+    workflows: {
+      bare: defineWorkflow({
+        input: z.object({}),
+        output: z.object({}),
+      }),
+    },
+  });
+
+  it("SignalNamesOf yields the declared signal-name union", () => {
+    type Names = SignalNamesOf<(typeof contractWithSignal)["workflows"]["hasSignal"]>;
+    expectTypeOf<Names>().toEqualTypeOf<"cancel">();
+  });
+
+  it("SignalNamesOf is `never` when the workflow declares no signals", () => {
+    type Names = SignalNamesOf<(typeof contractNoInteractions)["workflows"]["bare"]>;
+    expectTypeOf<Names>().toEqualTypeOf<never>();
+  });
+
+  it("QueryNamesOf is `never` when the workflow declares no queries", () => {
+    type Names = QueryNamesOf<(typeof contractNoInteractions)["workflows"]["bare"]>;
+    expectTypeOf<Names>().toEqualTypeOf<never>();
+  });
+
+  it("UpdateNamesOf is `never` when the workflow declares no updates", () => {
+    type Names = UpdateNamesOf<(typeof contractNoInteractions)["workflows"]["bare"]>;
+    expectTypeOf<Names>().toEqualTypeOf<never>();
   });
 });

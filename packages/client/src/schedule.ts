@@ -46,7 +46,7 @@ export type TypedScheduleActionOverrides = Pick<
  */
 export type TypedScheduleCreateOptions<
   TContract extends ContractDefinition,
-  TWorkflowName extends keyof TContract["workflows"],
+  TWorkflowName extends keyof TContract["workflows"] & string,
 > = {
   /** Schedule ID. Recommended to use a meaningful business identifier. */
   scheduleId: string;
@@ -111,7 +111,7 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
    * `workflowType` are pulled from the contract automatically; the typed
    * options shape omits them so call sites don't have to repeat themselves.
    */
-  create<TWorkflowName extends keyof TContract["workflows"]>(
+  create<TWorkflowName extends keyof TContract["workflows"] & string>(
     workflowName: TWorkflowName,
     options: TypedScheduleCreateOptions<TContract, TWorkflowName>,
   ): ResultAsync<
@@ -121,23 +121,21 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
     type Ok = TypedScheduleHandle;
     type Err = WorkflowNotFoundError | WorkflowValidationError | RuntimeClientError;
     const work = async (): Promise<Result<Ok, Err>> => {
-      const definition = this.contract.workflows[workflowName as string];
+      const definition = this.contract.workflows[workflowName];
       if (!definition) {
-        return err(
-          new WorkflowNotFoundError(String(workflowName), Object.keys(this.contract.workflows)),
-        );
+        return err(new WorkflowNotFoundError(workflowName, Object.keys(this.contract.workflows)));
       }
 
       const inputResult = await definition.input["~standard"].validate(options.args);
       if (inputResult.issues) {
-        return err(new WorkflowValidationError(String(workflowName), "input", inputResult.issues));
+        return err(new WorkflowValidationError(workflowName, "input", inputResult.issues));
       }
 
       try {
         const overrides = options.action ?? {};
         const action: ScheduleOptionsStartWorkflowAction<never> = {
           type: "startWorkflow",
-          workflowType: workflowName as string,
+          workflowType: workflowName,
           taskQueue: this.contract.taskQueue,
           args: [inputResult.value] as never,
           ...(overrides.workflowId !== undefined ? { workflowId: overrides.workflowId } : {}),

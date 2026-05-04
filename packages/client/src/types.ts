@@ -3,10 +3,10 @@ import type { ResultAsync } from "neverthrow";
 import type {
   AnySchema,
   ActivityDefinition,
+  AnyWorkflowDefinition,
   SignalDefinition,
   QueryDefinition,
   UpdateDefinition,
-  WorkflowDefinition,
   ContractDefinition,
 } from "@temporal-contract/contract";
 
@@ -35,7 +35,7 @@ export type ClientInferOutput<T extends { output: AnySchema }> = StandardSchemaV
  * Infer workflow function signature from client perspective
  * Client sends z.output and receives z.input
  */
-export type ClientInferWorkflow<TWorkflow extends WorkflowDefinition> = (
+export type ClientInferWorkflow<TWorkflow extends AnyWorkflowDefinition> = (
   args: ClientInferInput<TWorkflow>,
 ) => Promise<ClientInferOutput<TWorkflow>>;
 
@@ -95,7 +95,7 @@ export type ClientInferActivities<TContract extends ContractDefinition> =
 /**
  * Infer activities from a workflow definition (client perspective)
  */
-export type ClientInferWorkflowActivities<T extends WorkflowDefinition> =
+export type ClientInferWorkflowActivities<T extends AnyWorkflowDefinition> =
   T["activities"] extends Record<string, ActivityDefinition>
     ? {
         [K in keyof T["activities"]]: ClientInferActivity<T["activities"][K]>;
@@ -105,7 +105,7 @@ export type ClientInferWorkflowActivities<T extends WorkflowDefinition> =
 /**
  * Infer signals from a workflow definition (client perspective)
  */
-export type ClientInferWorkflowSignals<T extends WorkflowDefinition> =
+export type ClientInferWorkflowSignals<T extends AnyWorkflowDefinition> =
   T["signals"] extends Record<string, SignalDefinition>
     ? {
         [K in keyof T["signals"]]: ClientInferSignal<T["signals"][K]>;
@@ -115,7 +115,7 @@ export type ClientInferWorkflowSignals<T extends WorkflowDefinition> =
 /**
  * Infer queries from a workflow definition (client perspective)
  */
-export type ClientInferWorkflowQueries<T extends WorkflowDefinition> =
+export type ClientInferWorkflowQueries<T extends AnyWorkflowDefinition> =
   T["queries"] extends Record<string, QueryDefinition>
     ? {
         [K in keyof T["queries"]]: ClientInferQuery<T["queries"][K]>;
@@ -125,7 +125,7 @@ export type ClientInferWorkflowQueries<T extends WorkflowDefinition> =
 /**
  * Infer updates from a workflow definition (client perspective)
  */
-export type ClientInferWorkflowUpdates<T extends WorkflowDefinition> =
+export type ClientInferWorkflowUpdates<T extends AnyWorkflowDefinition> =
   T["updates"] extends Record<string, UpdateDefinition>
     ? {
         [K in keyof T["updates"]]: ClientInferUpdate<T["updates"][K]>;
@@ -138,6 +138,6 @@ export type ClientInferWorkflowUpdates<T extends WorkflowDefinition> =
  */
 export type ClientInferWorkflowContextActivities<
   TContract extends ContractDefinition,
-  TWorkflowName extends keyof TContract["workflows"],
+  TWorkflowName extends keyof TContract["workflows"] & string,
 > = ClientInferWorkflowActivities<TContract["workflows"][TWorkflowName]> &
   ClientInferActivities<TContract>;

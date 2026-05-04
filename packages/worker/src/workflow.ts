@@ -7,11 +7,14 @@
 // activity.ts) uses the same neverthrow API.
 import {
   ActivityDefinition,
+  type AnyWorkflowDefinition,
   ContractDefinition,
   QueryDefinition,
+  type QueryNamesOf,
   SignalDefinition,
+  type SignalNamesOf,
   UpdateDefinition,
-  WorkflowDefinition,
+  type UpdateNamesOf,
 } from "@temporal-contract/contract";
 import {
   ActivityInputValidationError,
@@ -145,7 +148,7 @@ export {
  */
 export function declareWorkflow<
   TContract extends ContractDefinition,
-  TWorkflowName extends keyof TContract["workflows"],
+  TWorkflowName extends keyof TContract["workflows"] & string,
 >({
   workflowName,
   contract,
@@ -156,9 +159,7 @@ export function declareWorkflow<
   ...args: unknown[]
 ) => Promise<WorkerInferOutput<TContract["workflows"][TWorkflowName]>> {
   // Get the workflow definition from the contract
-  const definition = contract.workflows[
-    workflowName as string
-  ] as TContract["workflows"][TWorkflowName];
+  const definition = contract.workflows[workflowName] as TContract["workflows"][TWorkflowName];
 
   // Build the activities proxy *once* at declaration time, not per workflow
   // invocation. Temporal's `proxyActivities` is documented as a module-scope
@@ -221,7 +222,7 @@ export function declareWorkflow<
     // Validate workflow input
     const inputResult = await definition.input["~standard"].validate(input);
     if (inputResult.issues) {
-      throw new WorkflowInputValidationError(String(workflowName), inputResult.issues);
+      throw new WorkflowInputValidationError(workflowName, inputResult.issues);
     }
     const validatedInput = inputResult.value as WorkerInferInput<
       TContract["workflows"][TWorkflowName]
@@ -253,22 +254,22 @@ export function declareWorkflow<
       defineSignal: ((signalName, handler) =>
         bindSignalHandler(
           definition,
-          String(workflowName),
-          signalName as string,
+          workflowName,
+          signalName,
           handler as unknown as SignalHandlerImplementation<SignalDefinition>,
         )) as WorkflowContext<TContract, TWorkflowName>["defineSignal"],
       defineQuery: ((queryName, handler) =>
         bindQueryHandler(
           definition,
-          String(workflowName),
-          queryName as string,
+          workflowName,
+          queryName,
           handler as unknown as QueryHandlerImplementation<QueryDefinition>,
         )) as WorkflowContext<TContract, TWorkflowName>["defineQuery"],
       defineUpdate: ((updateName, handler) =>
         bindUpdateHandler(
           definition,
-          String(workflowName),
-          updateName as string,
+          workflowName,
+          updateName,
           handler as unknown as UpdateHandlerImplementation<UpdateDefinition>,
         )) as WorkflowContext<TContract, TWorkflowName>["defineUpdate"],
       continueAsNew: createContinueAsNew(contract, workflowName) as WorkflowContext<
@@ -283,7 +284,7 @@ export function declareWorkflow<
     // Validate workflow output
     const outputResult = await definition.output["~standard"].validate(result);
     if (outputResult.issues) {
-      throw new WorkflowOutputValidationError(String(workflowName), outputResult.issues);
+      throw new WorkflowOutputValidationError(workflowName, outputResult.issues);
     }
 
     return outputResult.value as WorkerInferOutput<TContract["workflows"][TWorkflowName]>;
@@ -296,7 +297,7 @@ export function declareWorkflow<
  */
 type ActivityNamesFor<
   TContract extends ContractDefinition,
-  TWorkflowName extends keyof TContract["workflows"],
+  TWorkflowName extends keyof TContract["workflows"] & string,
 > =
   | (TContract["workflows"][TWorkflowName]["activities"] extends Record<string, ActivityDefinition>
       ? keyof TContract["workflows"][TWorkflowName]["activities"] & string
@@ -310,7 +311,7 @@ type ActivityNamesFor<
  */
 type DeclareWorkflowOptions<
   TContract extends ContractDefinition,
-  TWorkflowName extends keyof TContract["workflows"],
+  TWorkflowName extends keyof TContract["workflows"] & string,
 > = {
   workflowName: TWorkflowName;
   contract: TContract;
@@ -370,7 +371,7 @@ type DeclareWorkflowOptions<
  */
 type WorkflowImplementation<
   TContract extends ContractDefinition,
-  TWorkflowName extends keyof TContract["workflows"],
+  TWorkflowName extends keyof TContract["workflows"] & string,
 > = (
   context: WorkflowContext<TContract, TWorkflowName>,
   args: WorkerInferInput<TContract["workflows"][TWorkflowName]>,
@@ -387,7 +388,7 @@ type WorkflowImplementation<
  */
 type WorkflowContext<
   TContract extends ContractDefinition,
-  TWorkflowName extends keyof TContract["workflows"],
+  TWorkflowName extends keyof TContract["workflows"] & string,
 > = {
   activities: Readonly<WorkflowInferWorkflowContextActivities<TContract, TWorkflowName>>;
   info: WorkflowInfo;
@@ -409,11 +410,13 @@ type WorkflowContext<
    * }
    * ```
    */
-  defineSignal: <K extends keyof TContract["workflows"][TWorkflowName]["signals"]>(
+  defineSignal: <K extends SignalNamesOf<TContract["workflows"][TWorkflowName]>>(
     signalName: K,
     handler: SignalHandlerImplementation<
-      TContract["workflows"][TWorkflowName]["signals"][K] extends SignalDefinition
-        ? TContract["workflows"][TWorkflowName]["signals"][K]
+      TContract["workflows"][TWorkflowName]["signals"] extends Record<string, SignalDefinition>
+        ? TContract["workflows"][TWorkflowName]["signals"][K] extends SignalDefinition
+          ? TContract["workflows"][TWorkflowName]["signals"][K]
+          : never
         : never
     >,
   ) => void;
@@ -435,11 +438,13 @@ type WorkflowContext<
    * }
    * ```
    */
-  defineQuery: <K extends keyof TContract["workflows"][TWorkflowName]["queries"]>(
+  defineQuery: <K extends QueryNamesOf<TContract["workflows"][TWorkflowName]>>(
     queryName: K,
     handler: QueryHandlerImplementation<
-      TContract["workflows"][TWorkflowName]["queries"][K] extends QueryDefinition
-        ? TContract["workflows"][TWorkflowName]["queries"][K]
+      TContract["workflows"][TWorkflowName]["queries"] extends Record<string, QueryDefinition>
+        ? TContract["workflows"][TWorkflowName]["queries"][K] extends QueryDefinition
+          ? TContract["workflows"][TWorkflowName]["queries"][K]
+          : never
         : never
     >,
   ) => void;
@@ -462,11 +467,13 @@ type WorkflowContext<
    * }
    * ```
    */
-  defineUpdate: <K extends keyof TContract["workflows"][TWorkflowName]["updates"]>(
+  defineUpdate: <K extends UpdateNamesOf<TContract["workflows"][TWorkflowName]>>(
     updateName: K,
     handler: UpdateHandlerImplementation<
-      TContract["workflows"][TWorkflowName]["updates"][K] extends UpdateDefinition
-        ? TContract["workflows"][TWorkflowName]["updates"][K]
+      TContract["workflows"][TWorkflowName]["updates"] extends Record<string, UpdateDefinition>
+        ? TContract["workflows"][TWorkflowName]["updates"][K] extends UpdateDefinition
+          ? TContract["workflows"][TWorkflowName]["updates"][K]
+          : never
         : never
     >,
   ) => void;
@@ -503,7 +510,7 @@ type WorkflowContext<
    */
   startChildWorkflow: <
     TChildContract extends ContractDefinition,
-    TChildWorkflowName extends keyof TChildContract["workflows"],
+    TChildWorkflowName extends keyof TChildContract["workflows"] & string,
   >(
     contract: TChildContract,
     workflowName: TChildWorkflowName,
@@ -542,7 +549,7 @@ type WorkflowContext<
    */
   executeChildWorkflow: <
     TChildContract extends ContractDefinition,
-    TChildWorkflowName extends keyof TChildContract["workflows"],
+    TChildWorkflowName extends keyof TChildContract["workflows"] & string,
   >(
     contract: TChildContract,
     workflowName: TChildWorkflowName,
@@ -632,7 +639,7 @@ type WorkflowContext<
     /** Cross-contract continuation — args typed against the destination workflow. */
     <
       TOtherContract extends ContractDefinition,
-      TOtherWorkflowName extends keyof TOtherContract["workflows"],
+      TOtherWorkflowName extends keyof TOtherContract["workflows"] & string,
     >(
       contract: TOtherContract,
       workflowName: TOtherWorkflowName,
@@ -647,7 +654,7 @@ type WorkflowContext<
  */
 type TypedChildWorkflowOptions<
   TChildContract extends ContractDefinition,
-  TChildWorkflowName extends keyof TChildContract["workflows"],
+  TChildWorkflowName extends keyof TChildContract["workflows"] & string,
 > = Omit<ChildWorkflowOptions, "taskQueue" | "args"> & {
   args: ClientInferInput<TChildContract["workflows"][TChildWorkflowName]>;
 };
@@ -655,7 +662,7 @@ type TypedChildWorkflowOptions<
 /**
  * Typed handle for a child workflow with neverthrow ResultAsync pattern
  */
-type TypedChildWorkflowHandle<TWorkflow extends WorkflowDefinition> = {
+type TypedChildWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
   /**
    * Get child workflow result with Result pattern
    */
@@ -689,7 +696,7 @@ type WorkflowInferActivities<TContract extends ContractDefinition> =
 /**
  * Workflow-specific activities (workflow execution perspective)
  */
-type WorkflowInferWorkflowActivities<T extends WorkflowDefinition> =
+type WorkflowInferWorkflowActivities<T extends AnyWorkflowDefinition> =
   T["activities"] extends Record<string, ActivityDefinition>
     ? {
         [K in keyof T["activities"]]: WorkflowInferActivity<T["activities"][K]>;
@@ -703,7 +710,7 @@ type WorkflowInferWorkflowActivities<T extends WorkflowDefinition> =
  */
 type WorkflowInferWorkflowContextActivities<
   TContract extends ContractDefinition,
-  TWorkflowName extends keyof TContract["workflows"],
+  TWorkflowName extends keyof TContract["workflows"] & string,
 > = WorkflowInferWorkflowActivities<TContract["workflows"][TWorkflowName]> &
   WorkflowInferActivities<TContract>;
 
@@ -715,7 +722,7 @@ type WorkflowInferWorkflowContextActivities<
  */
 function createValidatedActivities<
   TContract extends ContractDefinition,
-  TWorkflowName extends keyof TContract["workflows"],
+  TWorkflowName extends keyof TContract["workflows"] & string,
 >(
   rawActivities: Record<string, (...args: unknown[]) => Promise<unknown>>,
   workflowActivitiesDefinition: Record<string, ActivityDefinition> | undefined,
@@ -769,7 +776,7 @@ function createValidatedActivities<
   return validatedActivities;
 }
 
-async function validateChildWorkflowOutput<TChildWorkflow extends WorkflowDefinition>(
+async function validateChildWorkflowOutput<TChildWorkflow extends AnyWorkflowDefinition>(
   childDefinition: TChildWorkflow,
   result: unknown,
   childWorkflowName: string,
@@ -787,7 +794,7 @@ async function validateChildWorkflowOutput<TChildWorkflow extends WorkflowDefini
 
 async function getAndValidateChildWorkflow<
   TChildContract extends ContractDefinition,
-  TChildWorkflowName extends keyof TChildContract["workflows"],
+  TChildWorkflowName extends keyof TChildContract["workflows"] & string,
 >(
   childContract: TChildContract,
   childWorkflowName: TChildWorkflowName,
@@ -802,12 +809,12 @@ async function getAndValidateChildWorkflow<
     ChildWorkflowError
   >
 > {
-  const childDefinition = childContract.workflows[childWorkflowName as string];
+  const childDefinition = childContract.workflows[childWorkflowName];
 
   if (!childDefinition) {
     return err(
       new ChildWorkflowNotFoundError(
-        String(childWorkflowName),
+        childWorkflowName,
         Object.keys(childContract.workflows) as string[],
       ),
     );
@@ -817,11 +824,7 @@ async function getAndValidateChildWorkflow<
   if (inputResult.issues) {
     return err(
       new ChildWorkflowError(
-        formatChildWorkflowValidationMessage(
-          String(childWorkflowName),
-          "input",
-          inputResult.issues,
-        ),
+        formatChildWorkflowValidationMessage(childWorkflowName, "input", inputResult.issues),
       ),
     );
   }
@@ -837,7 +840,7 @@ async function getAndValidateChildWorkflow<
   });
 }
 
-function createTypedChildHandle<TChildWorkflow extends WorkflowDefinition>(
+function createTypedChildHandle<TChildWorkflow extends AnyWorkflowDefinition>(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   handle: ChildWorkflowHandle<any>,
   childDefinition: TChildWorkflow,
@@ -868,7 +871,7 @@ function createTypedChildHandle<TChildWorkflow extends WorkflowDefinition>(
 
 function createStartChildWorkflow<
   TChildContract extends ContractDefinition,
-  TChildWorkflowName extends keyof TChildContract["workflows"],
+  TChildWorkflowName extends keyof TChildContract["workflows"] & string,
 >(
   childContract: TChildContract,
   childWorkflowName: TChildWorkflowName,
@@ -893,17 +896,13 @@ function createStartChildWorkflow<
 
     try {
       const { args: _args, ...temporalOptions } = options;
-      const handle = await startChild(childWorkflowName as string, {
+      const handle = await startChild(childWorkflowName, {
         ...temporalOptions,
         taskQueue,
         args: [validatedInput],
       });
 
-      const typedHandle = createTypedChildHandle(
-        handle,
-        childDefinition,
-        String(childWorkflowName),
-      ) as Ok;
+      const typedHandle = createTypedChildHandle(handle, childDefinition, childWorkflowName) as Ok;
 
       return ok(typedHandle);
     } catch (error) {
@@ -920,7 +919,7 @@ function createStartChildWorkflow<
 
 function createExecuteChildWorkflow<
   TChildContract extends ContractDefinition,
-  TChildWorkflowName extends keyof TChildContract["workflows"],
+  TChildWorkflowName extends keyof TChildContract["workflows"] & string,
 >(
   childContract: TChildContract,
   childWorkflowName: TChildWorkflowName,
@@ -945,7 +944,7 @@ function createExecuteChildWorkflow<
 
     try {
       const { args: _args, ...temporalOptions } = options;
-      const result = await executeChild(childWorkflowName as string, {
+      const result = await executeChild(childWorkflowName, {
         ...temporalOptions,
         taskQueue,
         args: [validatedInput],
@@ -954,7 +953,7 @@ function createExecuteChildWorkflow<
       const outputValidationResult = await validateChildWorkflowOutput(
         childDefinition,
         result,
-        String(childWorkflowName),
+        childWorkflowName,
       );
 
       if (outputValidationResult.isErr()) {

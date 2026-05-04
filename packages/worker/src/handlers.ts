@@ -10,10 +10,10 @@
 // `WorkflowContext` shape, so the typed-vs-runtime split is the same as
 // it was before the hoist.
 import type {
+  AnyWorkflowDefinition,
   QueryDefinition,
   SignalDefinition,
   UpdateDefinition,
-  WorkflowDefinition,
 } from "@temporal-contract/contract";
 import { defineQuery, defineSignal, defineUpdate, setHandler } from "@temporalio/workflow";
 import {
@@ -68,7 +68,7 @@ export type UpdateHandlerImplementation<TUpdate extends UpdateDefinition> = (
  * instead of a controlled error.
  */
 export function bindSignalHandler(
-  workflowDefinition: WorkflowDefinition,
+  workflowDefinition: AnyWorkflowDefinition,
   workflowName: string,
   signalName: string,
   handler: SignalHandlerImplementation<SignalDefinition>,
@@ -104,7 +104,7 @@ export function bindSignalHandler(
  * of letting the async path silently corrupt query semantics.
  */
 export function bindQueryHandler(
-  workflowDefinition: WorkflowDefinition,
+  workflowDefinition: AnyWorkflowDefinition,
   workflowName: string,
   queryName: string,
   handler: QueryHandlerImplementation<QueryDefinition>,
@@ -176,7 +176,7 @@ export function bindQueryHandler(
  * preserved.
  */
 export function bindUpdateHandler(
-  workflowDefinition: WorkflowDefinition,
+  workflowDefinition: AnyWorkflowDefinition,
   workflowName: string,
   updateName: string,
   handler: UpdateHandlerImplementation<UpdateDefinition>,

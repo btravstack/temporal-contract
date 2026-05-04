@@ -89,20 +89,27 @@ export type SearchAttributeDefinition<TKind extends SearchAttributeKind = Search
 };
 
 /**
- * Definition of a workflow
+ * Definition of a workflow.
+ *
+ * Generic parameters preserve the schema literal types of `input`/`output`
+ * and the declared shape of activities/signals/queries/updates/search
+ * attributes through `defineWorkflow` so client and worker call sites can
+ * infer typed payloads. Empty-collection generics default to
+ * `Record<string, never>` so that, when no signals/queries/updates/etc. are
+ * declared, `keyof` resolves to `never` rather than `string` — turning typos
+ * in `signalName`/`queryName`/`updateName` into compile-time errors.
  */
 export type WorkflowDefinition<
-  TActivities extends Record<string, ActivityDefinition> = Record<string, ActivityDefinition>,
-  TSignals extends Record<string, SignalDefinition> = Record<string, SignalDefinition>,
-  TQueries extends Record<string, QueryDefinition> = Record<string, QueryDefinition>,
-  TUpdates extends Record<string, UpdateDefinition> = Record<string, UpdateDefinition>,
-  TSearchAttributes extends Record<string, SearchAttributeDefinition> = Record<
-    string,
-    SearchAttributeDefinition
-  >,
+  TInput extends AnySchema = AnySchema,
+  TOutput extends AnySchema = AnySchema,
+  TActivities extends Record<string, ActivityDefinition> = Record<string, never>,
+  TSignals extends Record<string, SignalDefinition> = Record<string, never>,
+  TQueries extends Record<string, QueryDefinition> = Record<string, never>,
+  TUpdates extends Record<string, UpdateDefinition> = Record<string, never>,
+  TSearchAttributes extends Record<string, SearchAttributeDefinition> = Record<string, never>,
 > = {
-  readonly input: AnySchema;
-  readonly output: AnySchema;
+  readonly input: TInput;
+  readonly output: TOutput;
   readonly activities?: TActivities;
   readonly signals?: TSignals;
   readonly queries?: TQueries;
@@ -111,10 +118,54 @@ export type WorkflowDefinition<
 };
 
 /**
+ * Widened constraint variant of {@link WorkflowDefinition}.
+ *
+ * `WorkflowDefinition` (no args) resolves the empty-record generics to
+ * `Record<string, never>`, which is the right default for fresh callers but
+ * too narrow as a *constraint* — a Record-of-WorkflowDefinition constraint
+ * built from it would reject any literal whose `activities`, `signals`,
+ * `queries`, or `updates` block is non-empty. `AnyWorkflowDefinition`
+ * widens those generics back to their permissive bounds so it can act as
+ * the value of `Record<string, …>` in `ContractDefinition` without
+ * preventing real workflow definitions from satisfying the constraint.
+ */
+export type AnyWorkflowDefinition = WorkflowDefinition<
+  AnySchema,
+  AnySchema,
+  Record<string, ActivityDefinition>,
+  Record<string, SignalDefinition>,
+  Record<string, QueryDefinition>,
+  Record<string, UpdateDefinition>,
+  Record<string, SearchAttributeDefinition>
+>;
+
+/**
+ * Extract signal names declared on a workflow as a string union, or `never`
+ * if the workflow declares no signals. Used to constrain `signalName` call
+ * sites so typos surface at compile time instead of runtime.
+ */
+export type SignalNamesOf<W extends AnyWorkflowDefinition> =
+  W["signals"] extends Record<string, SignalDefinition> ? keyof W["signals"] & string : never;
+
+/**
+ * Extract query names declared on a workflow as a string union, or `never`
+ * if the workflow declares no queries.
+ */
+export type QueryNamesOf<W extends AnyWorkflowDefinition> =
+  W["queries"] extends Record<string, QueryDefinition> ? keyof W["queries"] & string : never;
+
+/**
+ * Extract update names declared on a workflow as a string union, or `never`
+ * if the workflow declares no updates.
+ */
+export type UpdateNamesOf<W extends AnyWorkflowDefinition> =
+  W["updates"] extends Record<string, UpdateDefinition> ? keyof W["updates"] & string : never;
+
+/**
  * Contract definition containing workflows and optional global activities
  */
 export type ContractDefinition<
-  TWorkflows extends Record<string, WorkflowDefinition> = Record<string, WorkflowDefinition>,
+  TWorkflows extends Record<string, AnyWorkflowDefinition> = Record<string, AnyWorkflowDefinition>,
   TActivities extends Record<string, ActivityDefinition> = Record<string, ActivityDefinition>,
 > = {
   readonly taskQueue: string;
