@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { ActivityOptions } from "@temporalio/workflow";
 import type { ActivityDefinition } from "@temporal-contract/contract";
+import { defineActivity, defineContract, defineWorkflow } from "@temporal-contract/contract";
 
 const proxyCalls: ActivityOptions[] = [];
 
@@ -31,11 +32,13 @@ vi.mock("@temporalio/workflow", async () => {
             Promise.resolve({ stub: String(prop) }),
       });
     },
+    workflowInfo: () => ({ workflowId: "test-wf", runId: "test-run" }),
   };
 });
 
 // Import *after* the mock so the helper module sees our stub.
 const { buildRawActivitiesProxy } = await import("./internal.js");
+const { declareWorkflow } = await import("./workflow.js");
 
 const activityDef = (input: z.ZodTypeAny, output: z.ZodTypeAny): ActivityDefinition =>
   ({ input, output }) as unknown as ActivityDefinition;
@@ -178,5 +181,79 @@ describe("buildRawActivitiesProxy", () => {
 
     expect(typeof result["local"]).toBe("function");
     expect(typeof result["global"]).toBe("function");
+  });
+});
+
+describe("declareWorkflow hoists proxyActivities to declaration time", () => {
+  // Temporal SDK docs are explicit that `proxyActivities` is intended for
+  // module-scope use — it registers stub functions and may carry bookkeeping
+  // (validator pre-registration, payload-converter caching) that breaks if
+  // re-invoked on every workflow run. Previously `buildRawActivitiesProxy`
+  // (and therefore `proxyActivities`) was called inside the closure returned
+  // from `declareWorkflow`, which Temporal invokes for every workflow start.
+  // This test pins the new behaviour: the proxy is built exactly once at
+  // `declareWorkflow` declaration time and re-used across every invocation.
+  const hoistContract = defineContract({
+    taskQueue: "hoist-q",
+    workflows: {
+      probe: defineWorkflow({
+        input: z.object({ x: z.number() }),
+        output: z.object({ ok: z.boolean() }),
+        activities: {
+          touch: defineActivity({ input: z.object({}), output: z.object({}) }),
+        },
+      }),
+    },
+  });
+
+  afterEach(() => {
+    proxyCalls.length = 0;
+  });
+
+  it("calls proxyActivities once at declareWorkflow time, not per invocation", async () => {
+    proxyCalls.length = 0;
+
+    const handler = declareWorkflow({
+      workflowName: "probe",
+      contract: hoistContract,
+      activityOptions: { startToCloseTimeout: "1 minute" },
+      implementation: async () => ({ ok: true }),
+    });
+
+    // After declaration, proxyActivities should already have run exactly once.
+    expect(proxyCalls).toHaveLength(1);
+
+    // Multiple invocations must not trigger additional proxyActivities calls —
+    // the proxy is shared, matching the SDK's documented module-scope contract.
+    await handler({ x: 1 });
+    await handler({ x: 2 });
+    await handler({ x: 3 });
+
+    expect(proxyCalls).toHaveLength(1);
+  });
+
+  it("does not call proxyActivities at all when the workflow has no activities", async () => {
+    proxyCalls.length = 0;
+    const noActivityContract = defineContract({
+      taskQueue: "no-act-q",
+      workflows: {
+        probe: defineWorkflow({
+          input: z.object({ x: z.number() }),
+          output: z.object({ ok: z.boolean() }),
+        }),
+      },
+    });
+
+    const handler = declareWorkflow({
+      workflowName: "probe",
+      contract: noActivityContract,
+      activityOptions: { startToCloseTimeout: "1 minute" },
+      implementation: async () => ({ ok: true }),
+    });
+
+    await handler({ x: 1 });
+    await handler({ x: 2 });
+
+    expect(proxyCalls).toHaveLength(0);
   });
 });

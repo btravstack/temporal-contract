@@ -19,15 +19,29 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { defineWorkflow } from "@temporal-contract/contract";
 
-const captured: Array<{ kind: string; name: string; impl: (...args: unknown[]) => unknown }> = [];
+const captured: Array<{
+  kind: string;
+  name: string;
+  impl: (...args: unknown[]) => unknown;
+  validator?: (...args: unknown[]) => void;
+}> = [];
 
 vi.mock("@temporalio/workflow", () => ({
   defineSignal: vi.fn((name: string) => ({ kind: "signal", name }) as const),
   defineQuery: vi.fn((name: string) => ({ kind: "query", name }) as const),
   defineUpdate: vi.fn((name: string) => ({ kind: "update", name }) as const),
   setHandler: vi.fn(
-    (handle: { kind: string; name: string }, impl: (...args: unknown[]) => unknown) => {
-      captured.push({ kind: handle.kind, name: handle.name, impl });
+    (
+      handle: { kind: string; name: string },
+      impl: (...args: unknown[]) => unknown,
+      options?: { validator?: (...args: unknown[]) => void },
+    ) => {
+      captured.push({
+        kind: handle.kind,
+        name: handle.name,
+        impl,
+        ...(options?.validator ? { validator: options.validator } : {}),
+      });
     },
   ),
 }));
@@ -193,17 +207,77 @@ describe("bindUpdateHandler", () => {
     expect(result).toEqual({ attempt: 3 });
   });
 
-  it("throws UpdateInputValidationError on bad input", async () => {
+  it("registers a synchronous validator alongside the handler (admission-time rejection)", () => {
+    // Temporal's `setHandler` for updates accepts an optional `validator`
+    // option. Validators run synchronously *before* the update is admitted —
+    // throwing rejects the update at admission with no workflow history
+    // event written, and the client sees `WorkflowUpdateValidationRejectedError`
+    // instead of `WorkflowUpdateFailedError`. Without the validator slot the
+    // input-validation failure path produces a history scar for every
+    // malformed update, which is a free correctness win to fix.
     captured.length = 0;
     bindUpdateHandler(workflow, "probe", "bumpAttempt", (async () => ({ attempt: 0 })) as never);
     const entry = captured.find((c) => c.kind === "update" && c.name === "bumpAttempt")!;
-    await expect(entry.impl(["not a number"])).rejects.toBeInstanceOf(UpdateInputValidationError);
+    expect(entry.validator).toBeTypeOf("function");
+  });
+
+  it("validator throws UpdateInputValidationError on bad input (rejected at admission)", () => {
+    captured.length = 0;
+    bindUpdateHandler(workflow, "probe", "bumpAttempt", (async () => ({ attempt: 0 })) as never);
+    const entry = captured.find((c) => c.kind === "update" && c.name === "bumpAttempt")!;
+    // Drive the validator directly — this is what Temporal does at update
+    // admission. The thrown error must be the typed validation error class
+    // (which, on the client side, becomes `WorkflowUpdateValidationRejectedError`).
+    expect(() => entry.validator!(["not a number"])).toThrow(UpdateInputValidationError);
+  });
+
+  it("validator accepts well-formed input without throwing", () => {
+    captured.length = 0;
+    bindUpdateHandler(workflow, "probe", "bumpAttempt", (async () => ({ attempt: 3 })) as never);
+    const entry = captured.find((c) => c.kind === "update" && c.name === "bumpAttempt")!;
+    expect(() => entry.validator!([7])).not.toThrow();
+  });
+
+  it("validator throws a clear error when the input schema is async (Temporal validators must be sync)", () => {
+    // Temporal's update validator slot is documented as synchronous —
+    // returning a Promise from the validator silently breaks admission
+    // semantics. Standard Schema permits async validate(), so the typical
+    // offender is Zod with `.refine(async)` on an update input. We surface
+    // that as a clear error at validator-call time, mirroring how
+    // bindQueryHandler handles the same situation.
+    captured.length = 0;
+    const wfWithAsyncUpdate = defineWorkflow({
+      input: z.object({}),
+      output: z.object({}),
+      updates: {
+        bumpAttempt: { input: asyncStringSchema, output: z.object({ attempt: z.number() }) },
+      },
+    });
+    bindUpdateHandler(wfWithAsyncUpdate, "probe", "bumpAttempt", (async () => ({
+      attempt: 1,
+    })) as never);
+    const entry = captured.find((c) => c.kind === "update" && c.name === "bumpAttempt")!;
+    expect(() => entry.validator!(["x"])).toThrow(/input validation must be synchronous/);
+  });
+
+  it("handler runs and returns parsed output when input is valid", async () => {
+    captured.length = 0;
+    const handler = vi.fn(async () => ({ attempt: 9 }));
+    bindUpdateHandler(workflow, "probe", "bumpAttempt", handler as never);
+    const entry = captured.find((c) => c.kind === "update" && c.name === "bumpAttempt")!;
+    // Validator passes, then handler is invoked with the parsed input.
+    expect(() => entry.validator!([9])).not.toThrow();
+    const result = await entry.impl([9]);
+    expect(handler).toHaveBeenCalledWith([9]);
+    expect(result).toEqual({ attempt: 9 });
   });
 
   it("throws UpdateOutputValidationError when the handler returns the wrong shape", async () => {
     captured.length = 0;
     bindUpdateHandler(workflow, "probe", "bumpAttempt", (async () => ({ wrongKey: 1 })) as never);
     const entry = captured.find((c) => c.kind === "update" && c.name === "bumpAttempt")!;
+    // Output validation runs inside the handler body (post-admission), so
+    // its error class is unchanged.
     await expect(entry.impl([1])).rejects.toBeInstanceOf(UpdateOutputValidationError);
   });
 

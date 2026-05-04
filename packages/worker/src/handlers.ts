@@ -150,8 +150,30 @@ export function bindQueryHandler(
 }
 
 /**
- * Bind a typed update handler to the running workflow. Validates both
- * input and output (asynchronously, like signals).
+ * Bind a typed update handler to the running workflow.
+ *
+ * Input validation runs in Temporal's `validator` slot — a synchronous
+ * pre-admission hook. If it throws, Temporal rejects the update *before*
+ * appending a workflow history event: clients see
+ * `WorkflowUpdateValidationRejectedError` and the workflow's history is
+ * unaffected. This is the documented contract for `setHandler`'s
+ * `validator` option, and it is strictly better than running validation
+ * inside the handler body — which forces Temporal to admit the update,
+ * write a history event, and surface a `WorkflowUpdateFailedError` to
+ * the client only after the fact.
+ *
+ * Because the validator slot is synchronous, the input schema must also
+ * validate synchronously. Standard Schema is allowed to be async (Zod's
+ * `.refine(async)` is the typical case), but we trip a clear error when
+ * that happens rather than silently breaking admission semantics — same
+ * approach as `bindQueryHandler`. Users who need async input checks
+ * should run them inside the handler body and accept the post-admission
+ * failure mode, or restructure their schema.
+ *
+ * Output validation continues to run inside the handler body. Update
+ * outputs are *not* admission-gated — the handler must execute to
+ * produce a value to validate against — so the async-allowed shape is
+ * preserved.
  */
 export function bindUpdateHandler(
   workflowDefinition: WorkflowDefinition,
@@ -170,20 +192,53 @@ export function bindUpdateHandler(
   }
 
   const update = defineUpdate(updateName);
-  setHandler(update, async (...args: unknown[]) => {
-    const input = extractHandlerInput(args);
-    const inputResult = await updateDef.input["~standard"].validate(input);
-    if (inputResult.issues) {
-      throw new UpdateInputValidationError(updateName, inputResult.issues);
-    }
+  setHandler(
+    update,
+    async (...args: unknown[]) => {
+      // The validator already accepted the payload — re-parse here so the
+      // handler receives the schema's transformed value (Standard Schema
+      // may rewrite shapes during validation, e.g. Zod `.transform`). This
+      // is sync because the validator already proved the schema is sync;
+      // any async result here would mean the schema changed under us,
+      // which is a programmer error worth surfacing.
+      const input = extractHandlerInput(args);
+      const inputResult = updateDef.input["~standard"].validate(input);
+      if (inputResult instanceof Promise) {
+        throw new Error(
+          `Update "${updateName}" input validation must be synchronous. Use a schema library that supports synchronous validation for update inputs (Temporal's update validator slot is synchronous).`,
+        );
+      }
+      if (inputResult.issues) {
+        // The validator should have caught this; if we reach here, the
+        // schema produced different issues on a second call (non-pure
+        // validator). Surface it as the same typed error class for
+        // consistency.
+        throw new UpdateInputValidationError(updateName, inputResult.issues);
+      }
 
-    const result = await handler(inputResult.value);
+      const result = await handler(inputResult.value);
 
-    const outputResult = await updateDef.output["~standard"].validate(result);
-    if (outputResult.issues) {
-      throw new UpdateOutputValidationError(updateName, outputResult.issues);
-    }
+      const outputResult = await updateDef.output["~standard"].validate(result);
+      if (outputResult.issues) {
+        throw new UpdateOutputValidationError(updateName, outputResult.issues);
+      }
 
-    return outputResult.value;
-  });
+      return outputResult.value;
+    },
+    {
+      validator: (...args: unknown[]) => {
+        const input = extractHandlerInput(args);
+        const inputResult = updateDef.input["~standard"].validate(input);
+
+        if (inputResult instanceof Promise) {
+          throw new Error(
+            `Update "${updateName}" input validation must be synchronous. Use a schema library that supports synchronous validation for update inputs (Temporal's update validator slot is synchronous).`,
+          );
+        }
+        if (inputResult.issues) {
+          throw new UpdateInputValidationError(updateName, inputResult.issues);
+        }
+      },
+    },
+  );
 }

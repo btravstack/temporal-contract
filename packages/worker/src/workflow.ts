@@ -160,6 +160,51 @@ export function declareWorkflow<
     workflowName as string
   ] as TContract["workflows"][TWorkflowName];
 
+  // Build the activities proxy *once* at declaration time, not per workflow
+  // invocation. Temporal's `proxyActivities` is documented as a module-scope
+  // helper — it registers stub functions and may carry bookkeeping
+  // (validator pre-registration, payload-converter caching) that breaks if
+  // re-invoked on every workflow run. The call depends only on contract-time
+  // immutables (`definition.activities`, `contract.activities`,
+  // `activityOptions`, `activityOptionsByName`), all of which are available
+  // here, so hoisting is safe and deterministic.
+  //
+  // The validation wrapper (`createValidatedActivities`) is stateless across
+  // invocations — it merely closes over the activity definitions and the raw
+  // proxy, both immutable — so it is hoisted alongside the proxy. The
+  // resulting `contextActivities` object is shared by every workflow run,
+  // which is fine because the wrapped activity functions take their input
+  // as an argument and validate it per-call (no closed-over per-invocation
+  // state).
+  //
+  // Design note — intentional double-validation:
+  // Input and output are validated here (workflow side) AND again inside
+  // `declareActivitiesHandler` (activity worker side). This is deliberate:
+  //
+  // 1. Workflow-side validation catches bad data *before* it crosses the
+  //    task-queue network boundary, giving an early, descriptive error
+  //    instead of a confusing deserialization failure inside the activity.
+  // 2. Activity-side validation is the authoritative guard, since the
+  //    activity may be called by other callers that do not use this library.
+  //
+  // The overhead is minimal relative to the network round-trip.
+  let contextActivities: unknown = {};
+
+  if (definition.activities || contract.activities) {
+    const rawActivities = buildRawActivitiesProxy(
+      definition.activities,
+      contract.activities,
+      activityOptions,
+      activityOptionsByName,
+    );
+
+    contextActivities = createValidatedActivities(
+      rawActivities,
+      definition.activities,
+      contract.activities,
+    );
+  }
+
   return async (...args: unknown[]) => {
     const input = extractHandlerInput(args);
 
@@ -171,36 +216,6 @@ export function declareWorkflow<
     const validatedInput = inputResult.value as WorkerInferInput<
       TContract["workflows"][TWorkflowName]
     >;
-
-    // Create activities proxy with validation if activities are defined.
-    //
-    // Design note — intentional double-validation:
-    // Input and output are validated here (workflow side) AND again inside
-    // `declareActivitiesHandler` (activity worker side). This is deliberate:
-    //
-    // 1. Workflow-side validation catches bad data *before* it crosses the
-    //    task-queue network boundary, giving an early, descriptive error
-    //    instead of a confusing deserialization failure inside the activity.
-    // 2. Activity-side validation is the authoritative guard, since the
-    //    activity may be called by other callers that do not use this library.
-    //
-    // The overhead is minimal relative to the network round-trip.
-    let contextActivities: unknown = {};
-
-    if (definition.activities || contract.activities) {
-      const rawActivities = buildRawActivitiesProxy(
-        definition.activities,
-        contract.activities,
-        activityOptions,
-        activityOptionsByName,
-      );
-
-      contextActivities = createValidatedActivities(
-        rawActivities,
-        definition.activities,
-        contract.activities,
-      );
-    }
 
     // Create workflow context.
     //
