@@ -14,7 +14,7 @@
 
 ## Vitest Configuration
 
-Each package with tests has a `vitest.config.ts` using projects:
+Each package with tests has a `vitest.config.ts` using projects. Canonical example: `packages/worker/vitest.config.ts:11-27`.
 
 ```typescript
 projects: [
@@ -32,16 +32,20 @@ projects: [
 ];
 ```
 
+Packages without integration tests omit the `integration` project — see `packages/contract/vitest.config.ts` for the unit-only template.
+
 ## Integration Tests
 
-- Require Docker (Temporal server via testcontainers)
+- Require Docker (Temporal server + Postgres via testcontainers — see `packages/testing/src/global-setup.ts`)
 - Use `@temporal-contract/testing` for global setup
 - Run with `pnpm test:integration`
+- `turbo.json` marks `test` and `test:integration` with `"cache": false` — they always re-run
 
 ## Running Tests
 
 ```bash
-pnpm test                    # All unit tests
-pnpm test:integration        # All integration tests (needs Docker)
-pnpm --filter ./packages/worker test  # Single package
+pnpm test                                  # All unit tests
+pnpm test:integration                      # All integration tests (needs Docker)
+pnpm --filter @temporal-contract/worker test  # Single package
+pnpm --filter @temporal-contract/worker test -- --coverage  # Pass flags to vitest
 ```

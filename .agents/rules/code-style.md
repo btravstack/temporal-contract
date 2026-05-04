@@ -2,11 +2,33 @@
 
 ## TypeScript Rules
 
-- **No `any`** — always use `unknown` (enforced by oxlint)
-- **No `interface`** — use `type` instead (enforced by oxlint `consistent-type-definitions`). The one allowed exception is module augmentation / declaration merging, where the language requires `interface` (e.g. `packages/testing/src/global-setup.ts` augments vitest's `ProvidedContext`). Disable the rule inline with a comment in those cases.
-- **Use `.js` extensions** in all imports (even for `.ts` files)
-- **Prefer `type` imports** (`import type { ... }`) where possible — not currently lint-enforced, so use judgement
-- All packages extend `@temporal-contract/tsconfig/base.json` (strict mode)
+- **No `any`** — always use `unknown` (enforced by oxlint).
+- **No `interface`** — use `type` (enforced by oxlint `consistent-type-definitions`). One allowed exception: module augmentation / declaration merging requires `interface` (see `packages/testing/src/global-setup.ts:6` augmenting vitest's `ProvidedContext`). Disable the rule inline with a comment.
+- **Use `.js` extensions** in all imports (even for `.ts` files) — required by ESM module resolution.
+- **Prefer `type` imports** (`import type { ... }`) where possible — not currently lint-enforced, so use judgement.
+- All packages extend `@temporal-contract/tsconfig/base.json` (strict mode).
+
+### Strict-mode quirks worth knowing
+
+The shared tsconfig at `tools/tsconfig/base.json` enables three non-default flags that surprise people:
+
+| Flag                                 | What it does                                                                                                         |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `noUncheckedIndexedAccess`           | `obj[key]` returns `T \| undefined` even when typed as `Record<string, T>`. Narrow with `if (value)` or `??`.        |
+| `exactOptionalPropertyTypes`         | `{ cause?: Error }` does NOT accept `{ cause: undefined }`. To omit the field, omit the key entirely (use a spread). |
+| `noPropertyAccessFromIndexSignature` | Index-signature lookups must use `obj["key"]`, not `obj.key`. Forces explicit-shape vs dynamic-key intent.           |
+
+Idiomatic spread for optional `cause` (visible in `handlers.md` and across the codebase):
+
+```typescript
+ApplicationFailure.create({
+  type: "X",
+  message: "...",
+  ...(error instanceof Error ? { cause: error } : {}), // omit, don't pass undefined
+});
+```
+
+`oxlint` enforces only two rules (`@typescript-eslint/no-explicit-any`, `typescript/consistent-type-definitions`) — see `.oxlintrc.json`. The rest of oxlint's defaults are off.
 
 ## Error Handling
 

@@ -25,6 +25,26 @@ pnpm test                    # Run unit tests (Vitest)
 pnpm test:integration        # Run integration tests (requires Docker)
 ```
 
+## Commit Messages
+
+`commitlint.config.js` extends `@commitlint/config-conventional`, enforced by the `commit-msg` lefthook. The 11 allowed types:
+
+| Type       | When to use                                                   |
+| ---------- | ------------------------------------------------------------- |
+| `feat`     | New user-facing feature                                       |
+| `fix`      | Bug fix                                                       |
+| `docs`     | Documentation only                                            |
+| `style`    | Formatting, whitespace, semicolons — no code-behavior change  |
+| `refactor` | Code restructuring with no behavior change                    |
+| `perf`     | Performance improvement                                       |
+| `test`     | Adding or fixing tests                                        |
+| `build`    | Build system, bundler, or external dep changes                |
+| `ci`       | CI configuration (`.github/workflows/`, `lefthook.yml`, etc.) |
+| `chore`    | Maintenance / housekeeping (release commits, lockfile bumps)  |
+| `revert`   | Reverts a prior commit                                        |
+
+Add `!` after the type for a breaking change (e.g. `feat!: replace boxed with neverthrow`). Header is capped at 100 chars; the type must be lowercase.
+
 ## Versioning & Release
 
 ```bash
