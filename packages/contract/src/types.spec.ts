@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type {
   ActivityDefinition,
+  AnyWorkflowDefinition,
   ContractDefinition,
   QueryDefinition,
   SignalDefinition,
   UpdateDefinition,
-  WorkflowDefinition,
   InferWorkflowNames,
   InferActivityNames,
   InferContractWorkflows,
@@ -77,7 +77,7 @@ describe("Core Types", () => {
 
   describe("WorkflowDefinition", () => {
     it("should correctly define a workflow with activities", () => {
-      const workflowDef: WorkflowDefinition = {
+      const workflowDef: AnyWorkflowDefinition = {
         input: z.object({ orderId: z.string() }),
         output: z.object({ success: z.boolean() }),
         activities: {
@@ -103,7 +103,7 @@ describe("Core Types", () => {
     });
 
     it("should correctly define a workflow with signals", () => {
-      const workflowDef: WorkflowDefinition = {
+      const workflowDef: AnyWorkflowDefinition = {
         input: z.object({ orderId: z.string() }),
         output: z.object({ success: z.boolean() }),
         signals: {
@@ -123,7 +123,7 @@ describe("Core Types", () => {
     });
 
     it("should correctly define a workflow with queries", () => {
-      const workflowDef: WorkflowDefinition = {
+      const workflowDef: AnyWorkflowDefinition = {
         input: z.object({ orderId: z.string() }),
         output: z.object({ success: z.boolean() }),
         queries: {
@@ -147,7 +147,7 @@ describe("Core Types", () => {
     });
 
     it("should correctly define a workflow with updates", () => {
-      const workflowDef: WorkflowDefinition = {
+      const workflowDef: AnyWorkflowDefinition = {
         input: z.object({ orderId: z.string() }),
         output: z.object({ success: z.boolean() }),
         updates: {
