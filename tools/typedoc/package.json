@@ -1,6 +1,6 @@
 {
   "name": "@temporal-contract/typedoc",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Shared TypeDoc configuration for temporal-contract packages",
   "homepage": "https://github.com/btravers/temporal-contract#readme",
   "bugs": {
