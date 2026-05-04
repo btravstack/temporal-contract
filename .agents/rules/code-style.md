@@ -54,5 +54,5 @@ ApplicationFailure.create({
   but don't add intermediate `index.ts` files inside subfolders. Within a package,
   always import from specific modules (`./builder.js`, not `.`).
 - No default exports in library code
-- **Published packages don't log.** No `console.log`, no `pino`, no nothing — let the consumer wire their own observability. The `examples/` workers/clients use `pino` for their own demo logging, but `packages/*/src/` is silent.
+- **Library packages don't log.** `contract`, `client`, and `worker` are silent — let the consumer wire their own observability. The `examples/` workers/clients use `pino` for their own demo logging. `testing` is the documented exception: `packages/testing/src/global-setup.ts` uses `console.log`/`console.error` to surface testcontainers progress, which belongs to the test runner, not the application.
 - No mutation of shared state

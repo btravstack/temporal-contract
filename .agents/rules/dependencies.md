@@ -2,15 +2,16 @@
 
 ## Key Dependencies
 
-| Dependency                    | Where it's used                                          |
-| ----------------------------- | -------------------------------------------------------- |
-| `@temporalio/client`          | Temporal client SDK — peer dep of `client`               |
-| `@temporalio/worker`          | Temporal worker SDK — peer dep of `worker`               |
-| `@temporalio/workflow`        | Temporal workflow API — peer dep of `worker`             |
-| `@temporalio/common`          | Shared Temporal types — peer dep of `client`/`worker`    |
-| `@standard-schema/spec`       | Standard Schema specification — direct dep               |
-| `neverthrow`                  | `Result` / `ResultAsync` — peer dep of `client`/`worker` |
-| `zod` / `valibot` / `arktype` | User-side schema libraries (Standard Schema)             |
+| Dependency              | Where it's used                                                                                                                  |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `@temporalio/client`    | Temporal client SDK — peer dep of `client`                                                                                       |
+| `@temporalio/worker`    | Temporal worker SDK — peer dep of `worker`                                                                                       |
+| `@temporalio/workflow`  | Temporal workflow API — peer dep of `worker`                                                                                     |
+| `@temporalio/common`    | Shared Temporal types — peer dep of `client`/`worker`                                                                            |
+| `@standard-schema/spec` | Standard Schema specification — direct dep                                                                                       |
+| `neverthrow`            | `Result` / `ResultAsync` — peer dep of `client`/`worker`                                                                         |
+| `zod`                   | Direct dep of `contract` (used internally for the `defineContract` runtime validation pass); user-side schema lib for the others |
+| `valibot` / `arktype`   | User-side schema libraries (Standard Schema)                                                                                     |
 
 `pino` and `ts-pattern` appear in the catalog and are used by `examples/` only — they're not imported from any published package's `src/`.
 
@@ -41,7 +42,7 @@ Anything that appears in a published package's **public type signatures** must b
 | client   | `@temporalio/client ^1.16.0`, `@temporalio/common ^1`, `neverthrow ^8`                       |
 | worker   | `@temporalio/common ^1`, `@temporalio/worker ^1`, `@temporalio/workflow ^1`, `neverthrow ^8` |
 | contract | none (pure type definitions)                                                                 |
-| testing  | none (depends on `testcontainers` directly)                                                  |
+| testing  | `vitest ^4` (the `globalSetup` hook integrates with vitest's test runner)                    |
 
 When you add a peer dep, also add it to `devDependencies` (with the same `"catalog:"` reference) so the local workspace build still resolves it. The workspace has `autoInstallPeers: false`, so peers must be present somewhere on the install side.
 

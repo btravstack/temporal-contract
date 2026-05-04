@@ -81,4 +81,4 @@ Any Standard Schema compatible library works:
   - `updates` — synchronous request/response with optional validation, can mutate state
   - `searchAttributes` — typed indexed attributes for workflow visibility (kinds: `KEYWORD`, `KEYWORD_LIST`, `TEXT`, `INT`, `DOUBLE`, `BOOL`, `DATETIME`)
 
-`defineContract` enforces at the type level that workflow-local and global activity names don't collide.
+`defineContract` rejects collisions between workflow-local and global activity names at runtime — `defineContract` runs a Zod validation pass and throws a descriptive error. Activities share a single flat namespace at the worker level, so two activities can't share a name even across workflows. See `packages/contract/src/builder.ts:441` for the validation schema.

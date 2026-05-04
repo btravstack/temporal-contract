@@ -59,5 +59,5 @@ pnpm run release      # Build and publish to npm (OIDC Trusted Publishing)
 
 1. PR merges to `main` → `Version Packages` PR opens (changesets/action) with bumped `package.json` files and consolidated CHANGELOGs.
 2. Merging the `Version Packages` PR triggers the `release` workflow, which runs `pnpm run release`.
-3. `pnpm run release` runs `pnpm publish -r --access public --no-git-checks`. Auth is via npm Trusted Publishing (OIDC) — there's no `NPM_TOKEN` secret. Each published package needs a Trusted Publisher configured on npmjs.com pointing at this repo + `.github/workflows/release.yml`.
+3. `pnpm run release` runs the root `release` script, which is `pnpm build && pnpm publish -r --access public --no-git-checks` — every package is rebuilt before publish so `dist/` is fresh. Auth is via npm Trusted Publishing (OIDC) — there's no `NPM_TOKEN` secret. Each published package needs a Trusted Publisher configured on npmjs.com pointing at this repo + `.github/workflows/release.yml`.
 4. The release uses a `RELEASE_PAT` secret rather than the default `GITHUB_TOKEN` so the `Version Packages` PR triggers CI (GitHub's anti-recursion safeguard skips workflows on bot-authored events).
