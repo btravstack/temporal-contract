@@ -8,7 +8,8 @@
 import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
 import { WorkflowFailedError as TemporalWorkflowFailedError } from "@temporalio/client";
 import { WorkflowNotFoundError as TemporalWorkflowNotFoundError } from "@temporalio/common";
-import { ResultAsync, type Result, err } from "neverthrow";
+import { _internal_makeResultAsync } from "@temporal-contract/contract";
+import type { ResultAsync, Result } from "neverthrow";
 import {
   RuntimeClientError,
   type TemporalFailure,
@@ -27,13 +28,16 @@ import {
  *
  * Used by `client.ts` (workflow operations) and `schedule.ts` (schedule
  * operations) so the unexpected-rejection shape is identical across the
- * typed client surface.
+ * typed client surface. Delegates to `_internal_makeResultAsync` from
+ * `@temporal-contract/contract` so the same wrapper is shared between the
+ * client and worker packages.
  */
 export function makeResultAsync<T, E>(
   work: () => Promise<Result<T, E>>,
 ): ResultAsync<T, E | RuntimeClientError> {
-  return new ResultAsync<T, E | RuntimeClientError>(
-    work().catch((e: unknown) => err(new RuntimeClientError("unexpected", e))),
+  return _internal_makeResultAsync<T, E | RuntimeClientError>(
+    work,
+    (e) => new RuntimeClientError("unexpected", e),
   );
 }
 

@@ -22,6 +22,14 @@ import {
 // circular dependency once `internal.ts` started importing error classes.
 export { formatIssue, summarizeIssues, formatChildWorkflowValidationMessage } from "./format.js";
 
+// Re-export the shared `_internal_makeResultAsync` helper from the contract
+// package so worker call sites can wrap their `() => Promise<Result<T, E>>`
+// work functions identically to the client side. This closes the
+// `new ResultAsync(work())` gap — the bare constructor doesn't catch
+// rejections, so a synchronous throw or a rejected promise from `work()`
+// would otherwise escape neverthrow's railway as an unhandled rejection.
+export { _internal_makeResultAsync as makeResultAsync } from "@temporal-contract/contract";
+
 /**
  * Extract the single payload from a Temporal handler's `...args` array.
  *

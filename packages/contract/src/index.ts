@@ -8,6 +8,8 @@ export {
   defineWorkflow,
 } from "./builder.js";
 
+export { _internal_makeResultAsync } from "./result-async.js";
+
 export type {
   AnySchema,
   ActivityDefinition,

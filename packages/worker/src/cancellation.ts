@@ -6,13 +6,16 @@
  * context — callers branch on `err(WorkflowCancelledError)` instead of
  * catching `CancelledFailure`.
  *
- * Non-cancellation errors thrown inside the scope are *not* swallowed:
- * the ResultAsync rejects with the original error so user-domain failures
- * keep their identity.
+ * Non-cancellation errors thrown inside the scope are wrapped in a
+ * {@link WorkflowScopeError} (with the original error preserved on
+ * `cause`) and surfaced on the same `err(...)` channel. Together with
+ * `WorkflowCancelledError` this makes the failure modes exhaustive on
+ * `result.match(...)` — nothing escapes as an unhandled rejection.
  */
 import { CancellationScope, isCancellation } from "@temporalio/workflow";
-import { ResultAsync, type Result, ok, err } from "neverthrow";
-import { WorkflowCancelledError } from "./errors.js";
+import { type ResultAsync, type Result, ok, err } from "neverthrow";
+import { WorkflowCancelledError, WorkflowScopeError } from "./errors.js";
+import { makeResultAsync } from "./internal.js";
 
 /**
  * Run `fn` inside a cancellable Temporal scope. If the workflow (or an
@@ -20,6 +23,11 @@ import { WorkflowCancelledError } from "./errors.js";
  * resulting ResultAsync resolves to `err(WorkflowCancelledError)`,
  * letting callers handle cancellation explicitly — typically to perform
  * a graceful exit from the current step.
+ *
+ * Non-cancellation errors thrown by `fn` resolve to
+ * `err(WorkflowScopeError)` (with the original error on `cause`) so
+ * domain failures surface on the same typed error channel rather than
+ * leaking as unhandled rejections.
  *
  * @example
  * ```ts
@@ -29,16 +37,20 @@ import { WorkflowCancelledError } from "./errors.js";
  *
  * result.match(
  *   (output) => { ... },
- *   (cancelled) => {
- *     // cancelled instanceof WorkflowCancelledError — graceful exit
+ *   (error) => {
+ *     if (error instanceof WorkflowCancelledError) {
+ *       // graceful exit
+ *     } else {
+ *       // error instanceof WorkflowScopeError — domain failure on `cause`
+ *     }
  *   },
  * );
  * ```
  */
 export function cancellableScope<T>(
   fn: () => T | Promise<T>,
-): ResultAsync<T, WorkflowCancelledError> {
-  const work = async (): Promise<Result<T, WorkflowCancelledError>> => {
+): ResultAsync<T, WorkflowCancelledError | WorkflowScopeError> {
+  const work = async (): Promise<Result<T, WorkflowCancelledError | WorkflowScopeError>> => {
     try {
       // Wrap so synchronous returns satisfy CancellationScope.cancellable's
       // `() => Promise<T>` signature without forcing every caller to write
@@ -49,10 +61,15 @@ export function cancellableScope<T>(
       if (isCancellation(error)) {
         return err(new WorkflowCancelledError(error));
       }
-      throw error;
+      return err(new WorkflowScopeError(error));
     }
   };
-  return new ResultAsync(work());
+  // makeResultAsync is the shared safety net from `@temporal-contract/contract`
+  // — `new ResultAsync(work())` does not catch, so a synchronous throw inside
+  // `work` (e.g. a buggy refactor) would escape neverthrow's railway. The
+  // catch-all here funnels that back into `err(WorkflowScopeError)` for
+  // parity with the in-band path above.
+  return makeResultAsync(work, (e) => new WorkflowScopeError(e));
 }
 
 /**
@@ -61,9 +78,10 @@ export function cancellableScope<T>(
  * to perform cleanup that must not be interrupted (e.g. releasing a
  * resource after a graceful shutdown).
  *
- * Mirrors `cancellableScope`'s `ResultAsync<...>` shape for symmetry;
- * the `err(...)` branch only triggers when cancellation is raised from
- * inside the scope (rare).
+ * Mirrors `cancellableScope`'s `ResultAsync<...>` shape for symmetry; the
+ * `err(WorkflowCancelledError)` branch only triggers when cancellation is
+ * raised from inside the scope (rare). Non-cancellation errors surface as
+ * `err(WorkflowScopeError)`.
  *
  * @example
  * ```ts
@@ -74,8 +92,8 @@ export function cancellableScope<T>(
  */
 export function nonCancellableScope<T>(
   fn: () => T | Promise<T>,
-): ResultAsync<T, WorkflowCancelledError> {
-  const work = async (): Promise<Result<T, WorkflowCancelledError>> => {
+): ResultAsync<T, WorkflowCancelledError | WorkflowScopeError> {
+  const work = async (): Promise<Result<T, WorkflowCancelledError | WorkflowScopeError>> => {
     try {
       const value = await CancellationScope.nonCancellable(async () => fn());
       return ok(value);
@@ -83,8 +101,8 @@ export function nonCancellableScope<T>(
       if (isCancellation(error)) {
         return err(new WorkflowCancelledError(error));
       }
-      throw error;
+      return err(new WorkflowScopeError(error));
     }
   };
-  return new ResultAsync(work());
+  return makeResultAsync(work, (e) => new WorkflowScopeError(e));
 }

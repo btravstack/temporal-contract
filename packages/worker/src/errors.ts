@@ -217,12 +217,55 @@ export class ChildWorkflowCancelledError extends ChildWorkflowError {
  * Returned by both `context.cancellableScope` (when the workflow or an
  * ancestor scope cancels) and `context.nonCancellableScope` (when
  * cancellation is raised from inside the scope). Distinct from arbitrary
- * thrown errors so call sites can branch on cancellation explicitly while
- * still surfacing non-cancellation errors as ResultAsync rejections.
+ * thrown errors so call sites can branch on cancellation explicitly.
+ *
+ * Non-cancellation errors thrown inside a scope surface as a sibling
+ * {@link WorkflowScopeError} on the same `err(...)` channel, so callers can
+ * use `instanceof` to discriminate without falling back to `try/catch`.
  */
 export class WorkflowCancelledError extends WorkerError {
   constructor(cause?: unknown) {
     super("Workflow cancellation scope was cancelled", cause);
     this.name = "WorkflowCancelledError";
+  }
+}
+
+/**
+ * Error surfaced in the `err(...)` branch of a `ResultAsync` when the
+ * function passed to `cancellableScope` / `nonCancellableScope` throws a
+ * non-cancellation error.
+ *
+ * The original error is preserved on `cause` so call sites can introspect
+ * it without losing identity:
+ *
+ * @example
+ * ```ts
+ * const result = await context.cancellableScope(async () => {
+ *   return await context.activities.processStep(args);
+ * });
+ *
+ * if (result.isErr()) {
+ *   if (result.error instanceof WorkflowCancelledError) {
+ *     // graceful cancellation
+ *   } else if (result.error instanceof WorkflowScopeError) {
+ *     // domain error — `result.error.cause` is the original throwable
+ *   }
+ * }
+ * ```
+ *
+ * Introduced so the scope helpers route every failure through neverthrow's
+ * railway. Previously, non-cancellation errors were re-thrown out of the
+ * helper, which became a `ResultAsync` rejection (`new ResultAsync(promise)`
+ * does not catch) — they leaked as unhandled rejections rather than
+ * surfacing on the typed error channel callers actually inspect.
+ */
+export class WorkflowScopeError extends WorkerError {
+  constructor(cause: unknown) {
+    const message =
+      cause instanceof Error
+        ? `Workflow cancellation scope caught a non-cancellation error: ${cause.message}`
+        : "Workflow cancellation scope caught a non-cancellation error";
+    super(message, cause);
+    this.name = "WorkflowScopeError";
   }
 }
