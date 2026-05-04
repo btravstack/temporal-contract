@@ -52,8 +52,7 @@
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:",
-    "@temporal-contract/contract": "workspace:*",
-    "neverthrow": "catalog:"
+    "@temporal-contract/contract": "workspace:*"
   },
   "devDependencies": {
     "@temporal-contract/testing": "workspace:*",
@@ -65,6 +64,7 @@
     "@temporalio/workflow": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
+    "neverthrow": "catalog:",
     "tsdown": "catalog:",
     "typedoc": "catalog:",
     "typedoc-plugin-markdown": "catalog:",
@@ -74,6 +74,7 @@
   },
   "peerDependencies": {
     "@temporalio/client": "^1.16.0",
-    "@temporalio/common": "^1"
+    "@temporalio/common": "^1",
+    "neverthrow": "^8"
   }
 }
