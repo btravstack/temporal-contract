@@ -19,10 +19,10 @@ import { logger } from "./logger.js";
 type Order = z.infer<typeof OrderSchema>;
 
 /**
- * Order Processing Client with Result/Future Pattern
+ * Order Processing Client with neverthrow ResultAsync Pattern
  *
  * This client demonstrates how to interact with the unified order processing contract
- * using the Result/Future pattern from @swan-io/boxed for explicit error handling.
+ * using neverthrow's `ResultAsync` for explicit error handling.
  *
  * Usage:
  *   1. Start Temporal server: temporal server start-dev
@@ -30,7 +30,7 @@ type Order = z.infer<typeof OrderSchema>;
  *   3. Run this client: cd examples/order-processing-client && pnpm dev
  */
 async function run() {
-  logger.info("🚀 Starting Order Processing Client (Result/Future Pattern)...");
+  logger.info("🚀 Starting Order Processing Client (neverthrow ResultAsync)...");
 
   // Connect to Temporal server
   const connection = await Connection.connect({
@@ -42,7 +42,7 @@ async function run() {
     namespace: "default",
   });
 
-  // Create type-safe client with Result/Future pattern
+  // Create type-safe client with neverthrow ResultAsync pattern
   const contractClient = TypedClient.create(orderProcessingContract, rawClient);
 
   // Example orders to process
@@ -78,7 +78,7 @@ async function run() {
     },
   ];
 
-  logger.info("📦 Processing orders with Result/Future pattern...");
+  logger.info("📦 Processing orders with neverthrow ResultAsync...");
 
   for (const order of orders) {
     logger.info({ order }, `📦 Creating order: ${order.orderId}`);
@@ -90,7 +90,7 @@ async function run() {
     });
 
     // Handle workflow start errors
-    if (handleResult.isError()) {
+    if (handleResult.isErr()) {
       const error = handleResult.error;
       match(error)
         .with(P.instanceOf(WorkflowNotFoundError), (err) => {
@@ -123,7 +123,7 @@ async function run() {
     const result = await handle.result();
 
     // Handle workflow execution result
-    if (result.isError()) {
+    if (result.isErr()) {
       const error = result.error;
       match(error)
         .with(P.instanceOf(WorkflowValidationError), (err) => {
@@ -174,8 +174,8 @@ async function run() {
     }
   }
 
-  // Example using executeWorkflow with Result pattern
-  logger.info("\n📦 Example: Using executeWorkflow with Result pattern...");
+  // Example using executeWorkflow with ResultAsync pattern
+  logger.info("\n📦 Example: Using executeWorkflow with ResultAsync...");
 
   const exampleOrder: Order = {
     orderId: `ORD-${Date.now()}-EXAMPLE`,
@@ -234,10 +234,10 @@ async function run() {
 
   logger.info("\n✨ Done!");
   logger.info("");
-  logger.info("💡 Benefits of Result/Future pattern:");
+  logger.info("💡 Benefits of neverthrow ResultAsync:");
   logger.info("   - Explicit error handling - no hidden exceptions");
   logger.info("   - Type-safe error values");
-  logger.info("   - Functional composition with flatMapOk, tapOk, tapError");
+  logger.info("   - Functional composition with andThen, map, mapErr, orElse");
   logger.info("   - Railway-oriented programming");
   logger.info("   - Exhaustive error matching with ts-pattern");
 

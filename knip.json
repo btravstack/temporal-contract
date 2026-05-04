@@ -13,7 +13,6 @@
     "packages/*": {
       "project": ["src/**/*.ts"]
     },
-    "packages/boxed": {},
     "packages/client": {
       "entry": ["src/__tests__/test.workflows.ts"]
     },

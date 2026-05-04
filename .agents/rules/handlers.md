@@ -2,33 +2,23 @@
 
 ## Activity Handler
 
-Use `declareActivitiesHandler` with Result/Future pattern:
+Use `declareActivitiesHandler` with neverthrow's `ResultAsync`:
 
 ```typescript
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 
 export const activities = declareActivitiesHandler({
   contract: myContract,
   activities: {
-    validateInventory: (args) => {
-      return Future.make(async (resolve) => {
-        try {
-          const result = await inventoryService.check(args.orderId);
-          resolve(Result.Ok({ available: result.inStock }));
-        } catch (error) {
-          resolve(
-            Result.Error(
-              ApplicationFailure.create({
-                type: "INVENTORY_CHECK_FAILED",
-                message: error instanceof Error ? error.message : "Failed to check inventory",
-                ...(error instanceof Error ? { cause: error } : {}),
-              }),
-            ),
-          );
-        }
-      });
-    },
+    validateInventory: (args) =>
+      ResultAsync.fromPromise(inventoryService.check(args.orderId), (error) =>
+        ApplicationFailure.create({
+          type: "INVENTORY_CHECK_FAILED",
+          message: error instanceof Error ? error.message : "Failed to check inventory",
+          ...(error instanceof Error ? { cause: error } : {}),
+        }),
+      ).map((result) => ({ available: result.inStock })),
   },
 });
 ```
@@ -73,6 +63,6 @@ await worker.run();
 
 ## Anti-patterns
 
-- **Never throw** from activities — use `Result.Error(ApplicationFailure.create({ type, message, nonRetryable }))` instead
+- **Never throw** from activities — use `errAsync(ApplicationFailure.create({ type, message, nonRetryable }))` (or `.mapErr(...)` on a `ResultAsync.fromPromise(...)` chain) instead
 - **Never use `any`** — use `unknown` and validate with schemas
 - **Always use `.js` extensions** in imports (even for TypeScript files)

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync, okAsync, errAsync } from "neverthrow";
 import { z } from "zod";
 import { ActivityDefinitionNotFoundError } from "./errors.js";
 import type { ContractDefinition } from "@temporal-contract/contract";
 import { ApplicationFailure, declareActivitiesHandler } from "./activity.js";
 
-describe("Worker-Boxed Package", () => {
+describe("Worker neverthrow Package", () => {
   describe("declareActivitiesHandler", () => {
     it("should create an activities handler with Result pattern", () => {
       // GIVEN
@@ -30,9 +30,7 @@ describe("Worker-Boxed Package", () => {
         contract,
         activities: {
           testWorkflow: {},
-          sendEmail: () => {
-            return Future.value(Result.Ok({ sent: true }));
-          },
+          sendEmail: () => okAsync({ sent: true }),
         },
       });
 
@@ -60,9 +58,7 @@ describe("Worker-Boxed Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          processPayment: (args) => {
-            return Future.value(Result.Ok({ transactionId: `tx-${args.amount}` }));
-          },
+          processPayment: (args) => okAsync({ transactionId: `tx-${args.amount}` }),
         },
       });
 
@@ -96,9 +92,7 @@ describe("Worker-Boxed Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          fetchData: (args) => {
-            return Future.value(Result.Ok({ data: `data-${args.id}`, timestamp: 123 }));
-          },
+          fetchData: (args) => okAsync({ data: `data-${args.id}`, timestamp: 123 }),
         },
       });
 
@@ -114,10 +108,9 @@ describe("Worker-Boxed Package", () => {
         activities: {
           fetchData: (
             _args,
-          ): Future<Result<{ data: string; timestamp: number }, ApplicationFailure>> => {
+          ): ResultAsync<{ data: string; timestamp: number }, ApplicationFailure> =>
             // @ts-expect-error - intentionally returning invalid output
-            return Future.value(Result.Ok({ data: "test" })); // Missing timestamp
-          },
+            okAsync({ data: "test" }), // Missing timestamp
         },
       });
 
@@ -125,7 +118,7 @@ describe("Worker-Boxed Package", () => {
       await expect(badActivities["fetchData"]({ id: "abc" })).rejects.toThrow();
     });
 
-    it("should handle Result.Ok by returning value", async () => {
+    it("should handle ok() by returning value", async () => {
       // GIVEN
       const contract = {
         taskQueue: "test-queue",
@@ -141,9 +134,7 @@ describe("Worker-Boxed Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          successActivity: (args) => {
-            return Future.value(Result.Ok({ result: `success-${args.value}` }));
-          },
+          successActivity: (args) => okAsync({ result: `success-${args.value}` }),
         },
       });
 
@@ -154,7 +145,7 @@ describe("Worker-Boxed Package", () => {
       expect(result).toEqual(expect.objectContaining({ result: "success-test" }));
     });
 
-    it("should handle Result.Error by throwing exception", async () => {
+    it("should handle err() by throwing exception", async () => {
       // GIVEN
       const contract = {
         taskQueue: "test-queue",
@@ -170,17 +161,14 @@ describe("Worker-Boxed Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          failingActivity: (_args) => {
-            return Future.value(
-              Result.Error(
-                ApplicationFailure.create({
-                  type: "ACTIVITY_FAILED",
-                  message: "Something went wrong",
-                  details: [{ info: "additional details" }],
-                }),
-              ),
-            );
-          },
+          failingActivity: (_args) =>
+            errAsync(
+              ApplicationFailure.create({
+                type: "ACTIVITY_FAILED",
+                message: "Something went wrong",
+                details: [{ info: "additional details" }],
+              }),
+            ),
         },
       });
 
@@ -198,7 +186,7 @@ describe("Worker-Boxed Package", () => {
       expect((rejected as ApplicationFailure).details).toEqual([{ info: "additional details" }]);
     });
 
-    it("preserves `nonRetryable: true` when unwrapping Result.Error and rethrowing the ApplicationFailure", async () => {
+    it("preserves `nonRetryable: true` when unwrapping err() and rethrowing the ApplicationFailure", async () => {
       const contract = {
         taskQueue: "test-queue",
         workflows: {},
@@ -213,17 +201,14 @@ describe("Worker-Boxed Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          permanentlyFailingActivity: (_args) => {
-            return Future.value(
-              Result.Error(
-                ApplicationFailure.create({
-                  type: "PERMANENT",
-                  message: "do not retry",
-                  nonRetryable: true,
-                }),
-              ),
-            );
-          },
+          permanentlyFailingActivity: (_args) =>
+            errAsync(
+              ApplicationFailure.create({
+                type: "PERMANENT",
+                message: "do not retry",
+                nonRetryable: true,
+              }),
+            ),
         },
       });
 
@@ -237,7 +222,7 @@ describe("Worker-Boxed Package", () => {
       expect((rejected as ApplicationFailure).nonRetryable).toBe(true);
     });
 
-    it("should handle Future properly", async () => {
+    it("should handle async work properly", async () => {
       // GIVEN
       const contract = {
         taskQueue: "test-queue",
@@ -253,13 +238,12 @@ describe("Worker-Boxed Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          asyncActivity: (args) => {
-            return Future.make<Result<{ completed: boolean }, ApplicationFailure>>((resolve) => {
-              setTimeout(() => {
-                resolve(Result.Ok({ completed: true }));
-              }, args.delay);
-            });
-          },
+          asyncActivity: (args) =>
+            ResultAsync.fromSafePromise<{ completed: boolean }, ApplicationFailure>(
+              new Promise((resolve) => {
+                setTimeout(() => resolve({ completed: true }), args.delay);
+              }),
+            ),
         },
       });
 
@@ -292,9 +276,7 @@ describe("Worker-Boxed Package", () => {
         contract,
         activities: {
           orderWorkflow: {
-            validateOrder: (args) => {
-              return Future.value(Result.Ok({ valid: args.orderId.length > 0 }));
-            },
+            validateOrder: (args) => okAsync({ valid: args.orderId.length > 0 }),
           },
         },
       });
@@ -324,9 +306,9 @@ describe("Worker-Boxed Package", () => {
         declareActivitiesHandler({
           contract,
           activities: {
-            validActivity: (_args: unknown) => Future.value(Result.Ok({ result: "test" })),
+            validActivity: (_args: unknown) => okAsync({ result: "test" }),
             // @ts-expect-error - intentionally missing activity definition
-            unknownActivity: (_args: unknown) => Future.value(Result.Ok({ result: "test" })),
+            unknownActivity: (_args: unknown) => okAsync({ result: "test" }),
           },
         });
       }).toThrowError(new ActivityDefinitionNotFoundError("unknownActivity", ["validActivity"]));
@@ -350,9 +332,7 @@ describe("Worker-Boxed Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          strictActivity: (_args) => {
-            return Future.value(Result.Ok({ success: true }));
-          },
+          strictActivity: (_args) => okAsync({ success: true }),
         },
       });
 
@@ -383,9 +363,7 @@ describe("Worker-Boxed Package", () => {
         contract,
         activities: {
           // @ts-expect-error - intentionally returning invalid output
-          strictOutputActivity: (_args) => {
-            return Future.value(Result.Ok({ value: "not-a-number", status: "active" }));
-          },
+          strictOutputActivity: (_args) => okAsync({ value: "not-a-number", status: "active" }),
         },
       });
 

@@ -1,21 +1,31 @@
 # Result Pattern
 
-Learn how to use explicit error handling with the Result/Future pattern.
+Learn how to use explicit error handling with the `Result` / `ResultAsync`
+pattern from [neverthrow].
+
+[neverthrow]: https://github.com/supermacro/neverthrow
 
 ## Overview
 
-temporal-contract uses the Result/Future pattern for explicit error handling. The implementation differs between activities and workflows:
+temporal-contract uses neverthrow's `Result<T, E>` and `ResultAsync<T, E>`
+types throughout its public surface:
 
-- **Activities and Clients**: Use **[@swan-io/boxed](https://github.com/swan-io/boxed)** - a battle-tested library with excellent performance
-- **Workflows**: Use **@temporal-contract/boxed** - a Temporal-compatible implementation required for deterministic execution
+- **Activities** return `ResultAsync<T, ApplicationFailure>`.
+- **Workflows** await activities and child workflows; the framework unwraps
+  the `Result` for activities (so a workflow sees a plain value or a thrown
+  error) and surfaces `Result` directly for child workflows.
+- **Clients** await `ResultAsync<T, E>`; the resolved value is a
+  `Result<T, E>` that you destructure with `.match(okFn, errFn)` or
+  `.isOk()` / `.isErr()`.
 
-The two libraries cover the same core API (`Ok`/`Err`, `map`/`flatMap`/`mapError`/`flatMapError`, `tap`/`tapError`, `match`, `getOr`, `Result.all`/`Result.allFromDict`), so most workflow ↔ activity code looks identical. There are intentional differences though — see [@temporal-contract/boxed vs swan](./boxed-vs-swan.md) for the full surface comparison and the rationale (determinism, removed unsound APIs, partial ports).
+A single library covers every context — the same import works inside
+activities, workflows, and clients.
 
 ```mermaid
 graph LR
-    A[Activities] -->|@swan-io/boxed| B[Result/Future]
-    C[Workflows] -->|@temporal-contract/boxed| B
-    D[Clients] -->|@swan-io/boxed| B
+    A[Activities] -->|neverthrow| B[Result / ResultAsync]
+    C[Workflows] -->|neverthrow| B
+    D[Clients] -->|neverthrow| B
 
     style A fill:#10b981,stroke:#059669,color:#fff
     style C fill:#3b82f6,stroke:#1e40af,color:#fff
@@ -25,61 +35,59 @@ graph LR
 ## Installation
 
 ```bash
-# For activities and clients
-pnpm add @swan-io/boxed
-
-# For workflows (Temporal-compatible)
-pnpm add @temporal-contract/boxed
+pnpm add neverthrow
 ```
+
+`ResultAsync<T, E>` is awaitable: `await resultAsync` resolves to
+`Result<T, E>`. The underlying Promise is constructed when the chain runs,
+so the type behaves like a lazy task — call sites that already `await` the
+value before checking `.isOk()` / `.isErr()` need no changes.
 
 ## Basic Usage
 
-### Activities (using @swan-io/boxed)
+### Activities
 
-Activities use `@swan-io/boxed` for excellent performance and ecosystem compatibility:
+Activities return `ResultAsync<T, ApplicationFailure>`. The cleanest shape
+is `ResultAsync.fromPromise(promise, mapError)`:
 
 ```typescript
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 import { orderContract } from "./contract";
 
 export const activities = declareActivitiesHandler({
   contract: orderContract,
   activities: {
-    processPayment: ({ amount }) => {
-      return Future.fromPromise(paymentGateway.charge(amount))
-        .mapError((error) =>
-          ApplicationFailure.create({
-            type: "PAYMENT_FAILED",
-            message: error instanceof Error ? error.message : "Payment failed",
-            cause: error,
-          }),
-        )
-        .mapOk((txId) => ({ transactionId: txId, success: true }));
-    },
+    processPayment: ({ amount }) =>
+      ResultAsync.fromPromise(paymentGateway.charge(amount), (error) =>
+        ApplicationFailure.create({
+          type: "PAYMENT_FAILED",
+          message: error instanceof Error ? error.message : "Payment failed",
+          cause: error instanceof Error ? error : undefined,
+        }),
+      ).map((txId) => ({ transactionId: txId, success: true })),
 
-    sendEmail: ({ to, body }) => {
-      return Future.fromPromise(emailService.send({ to, body }))
-        .mapError((error) =>
-          ApplicationFailure.create({
-            type: "EMAIL_FAILED",
-            message: error instanceof Error ? error.message : "Email failed",
-            cause: error,
-          }),
-        )
-        .mapOk(() => ({ sent: true }));
-    },
+    sendEmail: ({ to, body }) =>
+      ResultAsync.fromPromise(emailService.send({ to, body }), (error) =>
+        ApplicationFailure.create({
+          type: "EMAIL_FAILED",
+          message: error instanceof Error ? error.message : "Email failed",
+          cause: error instanceof Error ? error : undefined,
+        }),
+      ).map(() => ({ sent: true })),
   },
 });
 ```
 
-### Workflows (using @temporal-contract/boxed)
+### Workflows
 
-Workflows require `@temporal-contract/boxed` for Temporal's deterministic execution:
+Workflows await activities and child workflows directly. Activities return
+plain values inside the workflow body (the framework unwraps the
+`Result`); child workflows surface `Result` so the workflow can branch on
+success vs. failure without throwing:
 
 ```typescript
 import { declareWorkflow } from "@temporal-contract/worker/workflow";
-import { Result } from "@temporal-contract/boxed";
 import { orderContract } from "./contract";
 
 export const processOrder = declareWorkflow({
@@ -104,13 +112,13 @@ export const processOrder = declareWorkflow({
 });
 ```
 
-### Clients (using @swan-io/boxed)
+### Clients
 
-Clients use `@swan-io/boxed` to handle workflow results:
+Clients receive a `ResultAsync<T, E>` from `executeWorkflow` /
+`startWorkflow`. Awaiting it yields a `Result<T, E>`:
 
 ```typescript
 import { TypedClient } from "@temporal-contract/client";
-import { Result } from "@swan-io/boxed";
 import { Client } from "@temporalio/client";
 import { orderContract } from "./contract";
 
@@ -122,53 +130,42 @@ const result = await client.executeWorkflow("processOrder", {
   args: { orderId: "ORD-123", amount: 100 },
 });
 
-// Handle result with pattern matching
-result.match({
-  Ok: (value) => {
+// Handle result with pattern matching (positional callbacks)
+result.match(
+  (value) => {
     console.log("Order processed:", value.transactionId);
   },
-  Error: (error) => {
+  (error) => {
     console.error("Order failed:", error);
   },
-});
+);
 ```
 
-## Why Two Packages?
+## Awaiting and inspecting
 
-### @swan-io/boxed (Activities & Clients)
-
-- ✅ Battle-tested with extensive usage
-- ✅ Excellent performance optimizations
-- ✅ Large ecosystem support
-- ✅ Works perfectly outside of Temporal workflows
-
-### @temporal-contract/boxed (Workflows)
-
-- ✅ Temporal deterministic execution compatible
-- ✅ Same API as @swan-io/boxed
-- ✅ Designed specifically for workflow constraints
-- ✅ Seamless interoperability with @swan-io/boxed
-
-## Interoperability
-
-Both packages share the same API surface, so code is portable:
+`ResultAsync<T, E>` is a thin wrapper around a `Promise<Result<T, E>>`. You
+can `await` it once and then inspect synchronously, or chain with
+`.map`, `.mapErr`, `.andThen`, `.orElse` before awaiting:
 
 ```typescript
-// Same API for both packages!
-const result = Result.Ok(42);
-const future = Future.value(42);
-
-result.match({
-  Ok: (value) => console.log(value),
-  Error: (error) => console.error(error),
+const result = await client.executeWorkflow("processOrder", {
+  workflowId: "order-123",
+  args: { orderId: "ORD-123", amount: 100 },
 });
-```
 
-For explicit conversion between the two (rarely needed), see the [@temporal-contract/boxed interop documentation](/api/boxed#interoperability).
+if (result.isErr()) {
+  console.error(result.error);
+  return;
+}
+
+console.log(result.value);
+```
 
 ## Pattern Matching
 
-Activities return plain values when called from workflows. If an activity fails, it will throw an error:
+Activities return plain values when called from workflows. If an activity
+fails, the framework rethrows the `ApplicationFailure` so workflow code can
+catch it like any other Temporal failure:
 
 ```typescript
 export const processOrder = declareWorkflow({
@@ -192,7 +189,7 @@ export const processOrder = declareWorkflow({
 ```
 
 > [!NOTE]
-> For child workflows, you do get Result objects. See the Child Workflows section below.
+> For child workflows, you do get `Result` objects. See the Child Workflows section below.
 
 ## Chaining Activities
 
@@ -233,6 +230,9 @@ export const processOrder = declareWorkflow({
 Define typed errors in your activities:
 
 ```typescript
+import { ResultAsync } from "neverthrow";
+import { ApplicationFailure } from "@temporal-contract/worker/activity";
+
 type PaymentError =
   | { type: "InsufficientFunds" }
   | { type: "CardDeclined" }
@@ -240,42 +240,39 @@ type PaymentError =
 
 type EmailError = { type: "InvalidEmail" } | { type: "ServiceUnavailable" };
 
-// Activities return Future with typed errors
-processPayment: ({ amount }) => {
-  return Future.fromPromise(paymentGateway.charge(amount))
-    .mapError<ApplicationFailure>((error) => {
-      // Wrap domain errors in ApplicationFailure so Temporal applies the
-      // configured retry policy; set `nonRetryable: true` for permanent
-      // failures.
-      return ApplicationFailure.create({
-        type: "PAYMENT_FAILED",
-        message: error instanceof Error ? error.message : "Payment failed",
-        ...(error instanceof Error ? { cause: error } : {}),
-      });
-    })
-    .mapOk((txId) => ({ transactionId: txId }));
-};
+// Activities return ResultAsync with typed errors
+processPayment: ({ amount }) =>
+  ResultAsync.fromPromise(paymentGateway.charge(amount), (error) => {
+    // Wrap domain errors in ApplicationFailure so Temporal applies the
+    // configured retry policy; set `nonRetryable: true` for permanent
+    // failures.
+    return ApplicationFailure.create({
+      type: "PAYMENT_FAILED",
+      message: error instanceof Error ? error.message : "Payment failed",
+      ...(error instanceof Error ? { cause: error } : {}),
+    });
+  }).map((txId) => ({ transactionId: txId }));
 ```
 
 ## Benefits
 
 ### 1. Explicit Error Handling
 
-Activities use the Result pattern internally, while workflows use try/catch:
+Activities use the `ResultAsync` pattern internally, while workflows use
+try/catch:
 
 ```typescript
-// Activity implementation (uses Result pattern)
-const processPayment = ({ amount }) => {
-  return Future.fromPromise(paymentGateway.charge(amount))
-    .mapError((error) =>
-      ApplicationFailure.create({
-        type: "PAYMENT_FAILED",
-        message: "Payment failed",
-        cause: error,
-      }),
-    )
-    .mapOk((txId) => ({ transactionId: txId }));
-};
+import { ResultAsync } from "neverthrow";
+
+// Activity implementation (uses ResultAsync)
+const processPayment = ({ amount }) =>
+  ResultAsync.fromPromise(paymentGateway.charge(amount), (error) =>
+    ApplicationFailure.create({
+      type: "PAYMENT_FAILED",
+      message: "Payment failed",
+      cause: error instanceof Error ? error : undefined,
+    }),
+  ).map((txId) => ({ transactionId: txId }));
 
 // Workflow (uses standard try/catch for activities)
 export const processOrder = declareWorkflow({
@@ -297,21 +294,18 @@ export const processOrder = declareWorkflow({
 
 ### 2. No Hidden Exceptions in Activities
 
-Activities explicitly return Results instead of throwing:
+Activities explicitly return `ResultAsync` instead of throwing:
 
 ```typescript
-// ✅ Clear - activity returns Future<Result>
-const processPayment = ({ amount }) => {
-  return Future.fromPromise(paymentGateway.charge(amount))
-    .mapError((error) =>
-      ApplicationFailure.create({
-        type: "PAYMENT_FAILED",
-        message: "Payment failed",
-        cause: error,
-      }),
-    )
-    .mapOk((txId) => ({ transactionId: txId }));
-};
+// ✅ Clear - activity returns ResultAsync<T, ApplicationFailure>
+const processPayment = ({ amount }) =>
+  ResultAsync.fromPromise(paymentGateway.charge(amount), (error) =>
+    ApplicationFailure.create({
+      type: "PAYMENT_FAILED",
+      message: "Payment failed",
+      cause: error instanceof Error ? error : undefined,
+    }),
+  ).map((txId) => ({ transactionId: txId }));
 
 // ❌ Unclear - might throw anything
 async function processPayment({ amount }) {
@@ -322,7 +316,8 @@ async function processPayment({ amount }) {
 
 ### 3. Railway-Oriented Programming (Activities)
 
-Activity implementations can chain operations that short-circuit on error:
+Activity implementations can chain operations that short-circuit on error
+using `.andThen` (the neverthrow equivalent of boxed's `.flatMap`):
 
 ```mermaid
 graph LR
@@ -340,20 +335,19 @@ graph LR
 
 ```typescript
 // Activity implementation with chaining
-const processOrder = ({ orderId }) => {
-  return validateOrderId(orderId)
-    .flatMap((validId) => fetchOrder(validId))
-    .flatMap((order) => processPayment(order))
-    .flatMap((payment) => updateDatabase(payment))
-    .mapError((error) =>
+const processOrder = ({ orderId }) =>
+  validateOrderId(orderId)
+    .andThen((validId) => fetchOrder(validId))
+    .andThen((order) => processPayment(order))
+    .andThen((payment) => updateDatabase(payment))
+    .mapErr((error) =>
       ApplicationFailure.create({
         type: "ORDER_FAILED",
         message: "Order processing failed",
-        cause: error,
+        cause: error instanceof Error ? error : undefined,
       }),
     );
-  // Stops at first error
-};
+// Stops at first error
 ```
 
 ### 4. Partial Success Handling
@@ -396,9 +390,27 @@ export const processOrder = declareWorkflow({
 });
 ```
 
+## Combining results
+
+neverthrow exposes `Result.combine([...])` to fan in a list of `Result`s
+into a single `Result<T[], E>` that fails on the first error. There is no
+direct equivalent of boxed's `Result.allFromDict({...})` — destructure the
+combined array, or call `.match` per entry:
+
+```typescript
+import { Result } from "neverthrow";
+
+const combined = Result.combine([validateA(a), validateB(b), validateC(c)]);
+
+return combined.match(
+  ([resA, resB, resC]) => proceed({ resA, resB, resC }),
+  (error) => fail(error),
+);
+```
+
 ## Child Workflows
 
-Child workflows use the same Future/Result pattern for consistent error handling:
+Child workflows return `ResultAsync` for consistent error handling:
 
 ### Execute and Wait
 
@@ -417,16 +429,16 @@ export const parentWorkflow = declareWorkflow({
     });
 
     // Workflows return plain objects, not Result
-    return result.match({
-      Ok: (output) => ({
+    return result.match(
+      (output) => ({
         success: true,
         transactionId: output.transactionId,
       }),
-      Error: (error) => ({
+      (error) => ({
         success: false,
         error: error.message,
       }),
-    });
+    );
   },
 });
 ```
@@ -445,16 +457,16 @@ export const parentWorkflow = declareWorkflow({
       args: { message: "Order received" },
     });
 
-    handleResult.match({
-      Ok: async (handle) => {
+    handleResult.match(
+      async (handle) => {
         // Child started successfully
         // Can wait for result later if needed
         const result = await handle.result();
       },
-      Error: (error) => {
+      (error) => {
         console.error("Failed to start child:", error);
       },
-    });
+    );
 
     // Workflows return plain objects, not Result
     return { success: true };
@@ -485,23 +497,23 @@ export const orderWorkflow = declareWorkflow({
     );
 
     // Workflows return plain objects, not Result
-    return notifyResult.match({
-      Ok: () => ({ status: "completed" }),
-      Error: (error) => ({
+    return notifyResult.match(
+      () => ({ status: "completed" }),
+      (error) => ({
         status: "failed",
         error: error.message,
       }),
-    });
+    );
   },
 });
 ```
 
 ## When to Use
 
-### Use Result/Future Pattern When:
+### Use `Result` / `ResultAsync` When:
 
-- **In Activity Implementations**: Always use Future/Result pattern for explicit error handling
-- **For Child Workflows**: Child workflows return Results for explicit error handling
+- **In Activity Implementations**: Always use `ResultAsync` for explicit error handling
+- **For Child Workflows**: Child workflows return `Result` for explicit error handling
 - **For Type-Safe Errors**: When you need `ApplicationFailure` with `type` / `nonRetryable` for proper retry policies
 
 ### Use Standard async/await When:
@@ -512,6 +524,6 @@ export const orderWorkflow = declareWorkflow({
 
 ## See Also
 
-- [@temporal-contract/boxed API Reference](/api/boxed)
+- [Migrating to neverthrow](/guide/migrating-to-neverthrow)
 - [Order Processing Example](/examples/basic-order-processing)
 - [Worker Implementation](/guide/worker-implementation)

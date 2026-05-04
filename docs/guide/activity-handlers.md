@@ -13,36 +13,30 @@ Instead of defining activity implementations inline, you can extract types for r
 ```typescript
 import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 import { orderContract } from "./contract";
 
 // Extract all activity handler types from contract
 type OrderActivitiesHandler = ActivitiesHandler<typeof orderContract>;
 
-// Implement activities with explicit types using Future/Result pattern
-const sendEmail: OrderActivitiesHandler["sendEmail"] = ({ to, body }) => {
-  return Future.fromPromise(emailService.send({ to, body }))
-    .mapError((error) =>
-      ApplicationFailure.create({
-        type: "EMAIL_FAILED",
-        message: error instanceof Error ? error.message : "Failed to send email",
-        ...(error instanceof Error ? { cause: error } : {}),
-      }),
-    )
-    .mapOk(() => ({ sent: true }));
-};
+// Implement activities with explicit types using ResultAsync
+const sendEmail: OrderActivitiesHandler["sendEmail"] = ({ to, body }) =>
+  ResultAsync.fromPromise(emailService.send({ to, body }), (error) =>
+    ApplicationFailure.create({
+      type: "EMAIL_FAILED",
+      message: error instanceof Error ? error.message : "Failed to send email",
+      ...(error instanceof Error ? { cause: error } : {}),
+    }),
+  ).map(() => ({ sent: true }));
 
-const processPayment: OrderActivitiesHandler["processPayment"] = ({ amount }) => {
-  return Future.fromPromise(paymentGateway.charge(amount))
-    .mapError((error) =>
-      ApplicationFailure.create({
-        type: "PAYMENT_FAILED",
-        message: error instanceof Error ? error.message : "Payment failed",
-        ...(error instanceof Error ? { cause: error } : {}),
-      }),
-    )
-    .mapOk((txId) => ({ transactionId: txId }));
-};
+const processPayment: OrderActivitiesHandler["processPayment"] = ({ amount }) =>
+  ResultAsync.fromPromise(paymentGateway.charge(amount), (error) =>
+    ApplicationFailure.create({
+      type: "PAYMENT_FAILED",
+      message: error instanceof Error ? error.message : "Payment failed",
+      ...(error instanceof Error ? { cause: error } : {}),
+    }),
+  ).map((txId) => ({ transactionId: txId }));
 
 // Use in handler
 export const activities = declareActivitiesHandler({
@@ -65,8 +59,8 @@ import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
 
 type MyActivities = ActivitiesHandler<typeof myContract>;
 // {
-//   sendEmail: (input: { to: string, body: string }) => Future<Result<{ sent: boolean }, ApplicationFailure>>;
-//   processPayment: (input: { amount: number }) => Future<Result<{ transactionId: string }, ApplicationFailure>>;
+//   sendEmail: (input: { to: string, body: string }) => ResultAsync<{ sent: boolean }, ApplicationFailure>;
+//   processPayment: (input: { amount: number }) => ResultAsync<{ transactionId: string }, ApplicationFailure>;
 // }
 ```
 
@@ -79,8 +73,8 @@ type SendEmailHandler = ActivitiesHandler<typeof contract>["sendEmail"];
 type ProcessPaymentHandler = ActivitiesHandler<typeof contract>["processPayment"];
 
 const sendEmail: SendEmailHandler = ({ to, body }) => {
-  // Implementation — must return Future<Result<T, ApplicationFailure>>
-  return Future.value(Result.Ok({ sent: true }));
+  // Implementation — must return ResultAsync<T, ApplicationFailure>
+  return okAsync({ sent: true });
 };
 ```
 
@@ -94,44 +88,38 @@ Implement activities in separate files:
 // activities/email.ts
 import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
 import { ApplicationFailure } from "@temporal-contract/worker/activity";
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 import { orderContract } from "../contracts/order.contract";
 
 type Handlers = ActivitiesHandler<typeof orderContract>;
 
-export const sendEmail: Handlers["sendEmail"] = ({ to, body }) => {
-  return Future.fromPromise(emailService.send({ to, body }))
-    .mapError((error) =>
-      ApplicationFailure.create({
-        type: "EMAIL_FAILED",
-        message: error instanceof Error ? error.message : "Failed to send email",
-        ...(error instanceof Error ? { cause: error } : {}),
-      }),
-    )
-    .mapOk(() => ({ sent: true }));
-};
+export const sendEmail: Handlers["sendEmail"] = ({ to, body }) =>
+  ResultAsync.fromPromise(emailService.send({ to, body }), (error) =>
+    ApplicationFailure.create({
+      type: "EMAIL_FAILED",
+      message: error instanceof Error ? error.message : "Failed to send email",
+      ...(error instanceof Error ? { cause: error } : {}),
+    }),
+  ).map(() => ({ sent: true }));
 ```
 
 ```typescript
 // activities/payment.ts
 import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
 import { ApplicationFailure } from "@temporal-contract/worker/activity";
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 import { orderContract } from "../contracts/order.contract";
 
 type Handlers = ActivitiesHandler<typeof orderContract>;
 
-export const processPayment: Handlers["processPayment"] = ({ amount }) => {
-  return Future.fromPromise(paymentGateway.charge(amount))
-    .mapError((error) =>
-      ApplicationFailure.create({
-        type: "PAYMENT_FAILED",
-        message: error instanceof Error ? error.message : "Payment failed",
-        ...(error instanceof Error ? { cause: error } : {}),
-      }),
-    )
-    .mapOk((txId) => ({ transactionId: txId }));
-};
+export const processPayment: Handlers["processPayment"] = ({ amount }) =>
+  ResultAsync.fromPromise(paymentGateway.charge(amount), (error) =>
+    ApplicationFailure.create({
+      type: "PAYMENT_FAILED",
+      message: error instanceof Error ? error.message : "Payment failed",
+      ...(error instanceof Error ? { cause: error } : {}),
+    }),
+  ).map((txId) => ({ transactionId: txId }));
 ```
 
 ```typescript
@@ -156,38 +144,32 @@ Create factory functions with typed activities:
 
 ```typescript
 import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
+import { ApplicationFailure } from "@temporal-contract/worker/activity";
+import { ResultAsync } from "neverthrow";
 
 type Handlers = ActivitiesHandler<typeof orderContract>;
 
-export const createEmailActivity = (emailService: EmailService): Handlers["sendEmail"] => {
-  return ({ to, body }) => {
-    return Future.fromPromise(emailService.send({ to, body }))
-      .mapError((error) =>
-        ApplicationFailure.create({
-          type: "EMAIL_FAILED",
-          message: error instanceof Error ? error.message : "Failed",
-          ...(error instanceof Error ? { cause: error } : {}),
-        }),
-      )
-      .mapOk(() => ({ sent: true }));
-  };
-};
+export const createEmailActivity =
+  (emailService: EmailService): Handlers["sendEmail"] =>
+  ({ to, body }) =>
+    ResultAsync.fromPromise(emailService.send({ to, body }), (error) =>
+      ApplicationFailure.create({
+        type: "EMAIL_FAILED",
+        message: error instanceof Error ? error.message : "Failed",
+        ...(error instanceof Error ? { cause: error } : {}),
+      }),
+    ).map(() => ({ sent: true }));
 
-export const createPaymentActivity = (
-  paymentGateway: PaymentGateway,
-): Handlers["processPayment"] => {
-  return ({ amount }) => {
-    return Future.fromPromise(paymentGateway.charge(amount))
-      .mapError((error) =>
-        ApplicationFailure.create({
-          type: "PAYMENT_FAILED",
-          message: error instanceof Error ? error.message : "Failed",
-          ...(error instanceof Error ? { cause: error } : {}),
-        }),
-      )
-      .mapOk((txId) => ({ transactionId: txId }));
-  };
-};
+export const createPaymentActivity =
+  (paymentGateway: PaymentGateway): Handlers["processPayment"] =>
+  ({ amount }) =>
+    ResultAsync.fromPromise(paymentGateway.charge(amount), (error) =>
+      ApplicationFailure.create({
+        type: "PAYMENT_FAILED",
+        message: error instanceof Error ? error.message : "Failed",
+        ...(error instanceof Error ? { cause: error } : {}),
+      }),
+    ).map((txId) => ({ transactionId: txId }));
 ```
 
 Usage:
@@ -211,14 +193,14 @@ Mock activities with correct types:
 
 ```typescript
 import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
-import { Future, Result } from "@swan-io/boxed";
+import { okAsync } from "neverthrow";
 
 type Handlers = ActivitiesHandler<typeof orderContract>;
 
 // Create mock activities for testing
 const mockActivities: Handlers = {
-  sendEmail: ({ to, body }) => Future.value(Result.Ok({ sent: true })),
-  processPayment: ({ amount }) => Future.value(Result.Ok({ transactionId: "TEST-TXN" })),
+  sendEmail: ({ to, body }) => okAsync({ sent: true }),
+  processPayment: ({ amount }) => okAsync({ transactionId: "TEST-TXN" }),
 };
 
 // Use in tests
@@ -334,14 +316,10 @@ Always extract types for better maintainability:
 ```typescript
 // ✅ Good
 type Handlers = ActivitiesHandler<typeof contract>;
-const sendEmail: Handlers["sendEmail"] = ({ to, body }) => {
-  return Future.value(Result.Ok({ sent: true }));
-};
+const sendEmail: Handlers["sendEmail"] = ({ to, body }) => okAsync({ sent: true });
 
 // ❌ Avoid inline typing
-const sendEmail = ({ to, body }: { to: string; body: string }) => {
-  return Future.value(Result.Ok({ sent: true }));
-};
+const sendEmail = ({ to, body }: { to: string; body: string }) => okAsync({ sent: true });
 ```
 
 ### 2. Organize by Domain
@@ -364,17 +342,14 @@ Make activities testable and configurable:
 
 ```typescript
 export const createActivities = (services: Services) => {
-  const sendEmail: Handlers["sendEmail"] = ({ to, body }) => {
-    return Future.fromPromise(services.email.send({ to, body }))
-      .mapError((error) =>
-        ApplicationFailure.create({
-          type: "EMAIL_FAILED",
-          message: error instanceof Error ? error.message : "Failed",
-          ...(error instanceof Error ? { cause: error } : {}),
-        }),
-      )
-      .mapOk(() => ({ sent: true }));
-  };
+  const sendEmail: Handlers["sendEmail"] = ({ to, body }) =>
+    ResultAsync.fromPromise(services.email.send({ to, body }), (error) =>
+      ApplicationFailure.create({
+        type: "EMAIL_FAILED",
+        message: error instanceof Error ? error.message : "Failed",
+        ...(error instanceof Error ? { cause: error } : {}),
+      }),
+    ).map(() => ({ sent: true }));
 
   return { sendEmail };
 };

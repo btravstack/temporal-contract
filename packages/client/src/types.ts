@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { Future, Result } from "@swan-io/boxed";
+import type { ResultAsync } from "neverthrow";
 import type {
   AnySchema,
   ActivityDefinition,
@@ -49,27 +49,27 @@ export type ClientInferActivity<TActivity extends ActivityDefinition> = (
 
 /**
  * Infer signal handler signature from client perspective
- * Client sends z.output and returns Future<Result<void, Error>>
+ * Client sends z.output and returns ResultAsync<void, Error>
  */
 export type ClientInferSignal<TSignal extends SignalDefinition> = (
   args: ClientInferInput<TSignal>,
-) => Future<Result<void, Error>>;
+) => ResultAsync<void, Error>;
 
 /**
  * Infer query handler signature from client perspective
- * Client sends z.output and receives z.input wrapped in Future<Result<T, Error>>
+ * Client sends z.output and receives z.input wrapped in ResultAsync<T, Error>
  */
 export type ClientInferQuery<TQuery extends QueryDefinition> = (
   args: ClientInferInput<TQuery>,
-) => Future<Result<ClientInferOutput<TQuery>, Error>>;
+) => ResultAsync<ClientInferOutput<TQuery>, Error>;
 
 /**
  * Infer update handler signature from client perspective
- * Client sends z.output and receives z.input wrapped in Future<Result<T, Error>>
+ * Client sends z.output and receives z.input wrapped in ResultAsync<T, Error>
  */
 export type ClientInferUpdate<TUpdate extends UpdateDefinition> = (
   args: ClientInferInput<TUpdate>,
-) => Future<Result<ClientInferOutput<TUpdate>, Error>>;
+) => ResultAsync<ClientInferOutput<TUpdate>, Error>;
 
 /**
  * CLIENT PERSPECTIVE - Contract-level types

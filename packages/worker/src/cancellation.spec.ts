@@ -55,8 +55,8 @@ describe("cancellableScope", () => {
     const result = await cancellableScope(async () => {
       throw new Error(CANCEL_MARKER);
     });
-    expect(result.isError()).toBe(true);
-    if (result.isError()) {
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
       expect(result.error).toBeInstanceOf(WorkflowCancelledError);
       // Cause is preserved so debug tooling can see the underlying failure.
       expect((result.error.cause as Error).message).toBe(CANCEL_MARKER);
@@ -95,8 +95,8 @@ describe("nonCancellableScope", () => {
     const result = await nonCancellableScope(async () => {
       throw new Error(CANCEL_MARKER);
     });
-    expect(result.isError()).toBe(true);
-    if (result.isError()) {
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
       expect(result.error).toBeInstanceOf(WorkflowCancelledError);
     }
   });

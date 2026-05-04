@@ -2,7 +2,7 @@ import { describe, expect, vi, beforeEach } from "vitest";
 import { Worker } from "@temporalio/worker";
 import { TypedClient } from "@temporal-contract/client";
 import { it as baseIt } from "@temporal-contract/testing/extension";
-import { Future, Result } from "@swan-io/boxed";
+import { okAsync, errAsync } from "neverthrow";
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { testContract } from "./test.contract.js";
@@ -69,20 +69,16 @@ const activities = declareActivitiesHandler({
 
     workflowWithActivities: {
       processPayment: ({ amount }) => {
-        return Future.value(
-          Result.Ok({
-            transactionId: `TXN-${amount}-${Date.now()}`,
-            success: amount > 0,
-          }),
-        );
+        return okAsync({
+          transactionId: `TXN-${amount}-${Date.now()}`,
+          success: amount > 0,
+        });
       },
 
       validateOrder: ({ orderId }) => {
-        return Future.value(
-          Result.Ok({
-            valid: orderId.startsWith("ORD-"),
-          }),
-        );
+        return okAsync({
+          valid: orderId.startsWith("ORD-"),
+        });
       },
     },
 
@@ -96,22 +92,20 @@ const activities = declareActivitiesHandler({
 
     logMessage: ({ message }) => {
       logMessages.push(message);
-      return Future.value(Result.Ok({}));
+      return okAsync({});
     },
 
     failableActivity: ({ shouldFail }) => {
       if (shouldFail) {
-        return Future.value(
-          Result.Error(
-            ApplicationFailure.create({
-              type: "ACTIVITY_FAILED",
-              message: "Activity was configured to fail",
-              details: [{ shouldFail: true }],
-            }),
-          ),
+        return errAsync(
+          ApplicationFailure.create({
+            type: "ACTIVITY_FAILED",
+            message: "Activity was configured to fail",
+            details: [{ shouldFail: true }],
+          }),
         );
       }
-      return Future.value(Result.Ok({ success: true }));
+      return okAsync({ success: true });
     },
   },
 });
@@ -137,14 +131,12 @@ describe("Worker Package - Integration Tests", () => {
       });
 
       // THEN
-      expect(result).toEqual(
-        expect.objectContaining({
-          tag: "Ok",
-          value: {
-            result: "Processed: test-data",
-          },
-        }),
-      );
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value).toEqual({
+          result: "Processed: test-data",
+        });
+      }
       expect(logMessages).toContain("Processing: test-data");
     });
 
@@ -167,14 +159,12 @@ describe("Worker Package - Integration Tests", () => {
       expect(handle.workflowId).toBe(workflowId);
 
       const result = await handle.result();
-      expect(result).toEqual(
-        expect.objectContaining({
-          tag: "Ok",
-          value: {
-            result: "Processed: async-test",
-          },
-        }),
-      );
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value).toEqual({
+          result: "Processed: async-test",
+        });
+      }
     });
 
     it("should retrieve workflow handle after start", async ({ client }) => {
@@ -196,14 +186,12 @@ describe("Worker Package - Integration Tests", () => {
 
       const handle = handleResult.value;
       const result = await handle.result();
-      expect(result).toEqual(
-        expect.objectContaining({
-          tag: "Ok",
-          value: {
-            result: "Processed: get-handle-test",
-          },
-        }),
-      );
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value).toEqual({
+          result: "Processed: get-handle-test",
+        });
+      }
     });
   });
 
@@ -222,16 +210,14 @@ describe("Worker Package - Integration Tests", () => {
       });
 
       // THEN
-      expect(result).toEqual(
-        expect.objectContaining({
-          tag: "Ok",
-          value: {
-            orderId: "ORD-123",
-            status: "success",
-            transactionId: expect.stringContaining("TXN-100"),
-          },
-        }),
-      );
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value).toEqual({
+          orderId: "ORD-123",
+          status: "success",
+          transactionId: expect.stringContaining("TXN-100"),
+        });
+      }
       expect(logMessages).toEqual(
         expect.arrayContaining([
           expect.stringContaining("Order ORD-123 completed with transaction TXN-100"),
@@ -253,16 +239,14 @@ describe("Worker Package - Integration Tests", () => {
       });
 
       // THEN
-      expect(result).toEqual(
-        expect.objectContaining({
-          tag: "Ok",
-          value: {
-            orderId: "INVALID-123",
-            status: "failed",
-            reason: "Invalid order ID",
-          },
-        }),
-      );
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value).toEqual({
+          orderId: "INVALID-123",
+          status: "failed",
+          reason: "Invalid order ID",
+        });
+      }
     });
 
     it("should handle payment failure in workflow", async ({ client }) => {
@@ -279,16 +263,14 @@ describe("Worker Package - Integration Tests", () => {
       });
 
       // THEN
-      expect(result).toEqual(
-        expect.objectContaining({
-          tag: "Ok",
-          value: {
-            orderId: "ORD-456",
-            status: "failed",
-            reason: "Payment failed",
-          },
-        }),
-      );
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value).toEqual({
+          orderId: "ORD-456",
+          status: "failed",
+          reason: "Payment failed",
+        });
+      }
     });
   });
 
@@ -306,14 +288,14 @@ describe("Worker Package - Integration Tests", () => {
         args: invalidInput,
       });
 
-      expect(execution).toEqual(
-        expect.objectContaining({
-          tag: "Error",
-          error: expect.objectContaining({
+      expect(execution.isErr()).toBe(true);
+      if (execution.isErr()) {
+        expect(execution.error).toEqual(
+          expect.objectContaining({
             name: "WorkflowValidationError",
           }),
-        }),
-      );
+        );
+      }
     });
 
     it("should validate activity input", async ({ client }) => {
@@ -349,14 +331,12 @@ describe("Worker Package - Integration Tests", () => {
       });
 
       // THEN
-      expect(result).toEqual(
-        expect.objectContaining({
-          tag: "Ok",
-          value: {
-            results: ["Child 0 completed", "Child 1 completed", "Child 2 completed"],
-          },
-        }),
-      );
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value).toEqual({
+          results: ["Child 0 completed", "Child 1 completed", "Child 2 completed"],
+        });
+      }
 
       // Check that child workflows logged
       expect(logMessages).toEqual(
@@ -388,14 +368,12 @@ describe("Worker Package - Integration Tests", () => {
 
       // THEN - Workflow should complete with updated value
       const result = await handle.result();
-      expect(result).toEqual(
-        expect.objectContaining({
-          tag: "Ok",
-          value: {
-            finalValue: 18, // 10 + 5 + 3
-          },
-        }),
-      );
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value).toEqual({
+          finalValue: 18, // 10 + 5 + 3
+        });
+      }
     });
 
     it("should query workflow state", async ({ client }) => {
@@ -414,14 +392,12 @@ describe("Worker Package - Integration Tests", () => {
       const queryResult = await handle.queries.getCurrentValue({});
 
       // THEN - Should return current value
-      expect(queryResult).toEqual(
-        expect.objectContaining({
-          tag: "Ok",
-          value: {
-            value: 42,
-          },
-        }),
-      );
+      expect(queryResult.isOk()).toBe(true);
+      if (queryResult.isOk()) {
+        expect(queryResult.value).toEqual({
+          value: 42,
+        });
+      }
 
       // Wait for workflow to complete
       await handle.result();
@@ -443,25 +419,21 @@ describe("Worker Package - Integration Tests", () => {
       const updateResult = await handle.updates.multiply({ factor: 3 });
 
       // THEN - Update should return the new value
-      expect(updateResult).toEqual(
-        expect.objectContaining({
-          tag: "Ok",
-          value: {
-            newValue: 15, // 5 * 3
-          },
-        }),
-      );
+      expect(updateResult.isOk()).toBe(true);
+      if (updateResult.isOk()) {
+        expect(updateResult.value).toEqual({
+          newValue: 15, // 5 * 3
+        });
+      }
 
       // Workflow should complete with the multiplied value
       const result = await handle.result();
-      expect(result).toEqual(
-        expect.objectContaining({
-          tag: "Ok",
-          value: {
-            finalValue: 15,
-          },
-        }),
-      );
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value).toEqual({
+          finalValue: 15,
+        });
+      }
     });
   });
 
@@ -482,15 +454,15 @@ describe("Worker Package - Integration Tests", () => {
       const describeResult = await handle.describe();
 
       // THEN
-      expect(describeResult).toEqual(
-        expect.objectContaining({
-          tag: "Ok",
-          value: expect.objectContaining({
+      expect(describeResult.isOk()).toBe(true);
+      if (describeResult.isOk()) {
+        expect(describeResult.value).toEqual(
+          expect.objectContaining({
             workflowId,
             type: "simpleWorkflow",
           }),
-        }),
-      );
+        );
+      }
 
       // Wait for workflow to complete
       await handle.result();
@@ -511,7 +483,7 @@ describe("Worker Package - Integration Tests", () => {
       // THEN — at the workflow boundary Temporal wraps the activity's
       // ApplicationFailure in an ActivityFailure (cause is the original
       // ApplicationFailure with the type/message/details preserved).
-      expect(result.isError()).toBe(true);
+      expect(result.isErr()).toBe(true);
       if (result.isOk()) throw new Error("Expected error result");
       const error = result.error;
       expect(error.message).toMatch(/failableActivity failed/);

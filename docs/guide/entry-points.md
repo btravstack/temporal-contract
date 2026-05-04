@@ -120,34 +120,28 @@ Create a single activities handler in your worker application:
 ```typescript
 // worker-application/src/activities/index.ts
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 import { orderContract } from "contract-package";
 
 export const activities = declareActivitiesHandler({
   contract: orderContract,
   activities: {
-    sendEmail: ({ to, body }) => {
-      return Future.fromPromise(emailService.send({ to, body }))
-        .mapError((error) =>
-          ApplicationFailure.create({
-            type: "EMAIL_FAILED",
-            message: error instanceof Error ? error.message : "Failed to send email",
-            cause: error,
-          }),
-        )
-        .mapOk(() => ({ sent: true }));
-    },
-    processPayment: ({ amount }) => {
-      return Future.fromPromise(paymentGateway.charge(amount))
-        .mapError((error) =>
-          ApplicationFailure.create({
-            type: "PAYMENT_FAILED",
-            message: error instanceof Error ? error.message : "Payment failed",
-            cause: error,
-          }),
-        )
-        .mapOk((txId) => ({ transactionId: txId }));
-    },
+    sendEmail: ({ to, body }) =>
+      ResultAsync.fromPromise(emailService.send({ to, body }), (error) =>
+        ApplicationFailure.create({
+          type: "EMAIL_FAILED",
+          message: error instanceof Error ? error.message : "Failed to send email",
+          cause: error instanceof Error ? error : undefined,
+        }),
+      ).map(() => ({ sent: true })),
+    processPayment: ({ amount }) =>
+      ResultAsync.fromPromise(paymentGateway.charge(amount), (error) =>
+        ApplicationFailure.create({
+          type: "PAYMENT_FAILED",
+          message: error instanceof Error ? error.message : "Payment failed",
+          cause: error instanceof Error ? error : undefined,
+        }),
+      ).map((txId) => ({ transactionId: txId })),
   },
 });
 ```
@@ -223,23 +217,23 @@ const connection = await Connection.connect({
 const temporalClient = new Client({ connection, namespace: "default" });
 const client = TypedClient.create(orderContract, temporalClient);
 
-// Start workflow with full type safety (returns Future<Result<TypedWorkflowHandle, ...>>)
+// Start workflow with full type safety (returns ResultAsync<TypedWorkflowHandle, ...>)
 const handleResult = await client.startWorkflow("processOrder", {
   workflowId: "order-123",
   args: { orderId: "ORD-123" }, // ✅ Type-checked!
 });
 
 // Unwrap the Result and wait for the workflow result
-handleResult.match({
-  Ok: async (handle) => {
+handleResult.match(
+  async (handle) => {
     const result = await handle.result();
-    result.match({
-      Ok: (output) => console.log(output.success), // ✅ TypeScript knows the shape
-      Error: (error) => console.error("Workflow failed:", error),
-    });
+    result.match(
+      (output) => console.log(output.success), // ✅ TypeScript knows the shape
+      (error) => console.error("Workflow failed:", error),
+    );
   },
-  Error: (error) => console.error("Failed to start workflow:", error),
-});
+  (error) => console.error("Failed to start workflow:", error),
+);
 ```
 
 ## Multiple Workflows
@@ -279,14 +273,14 @@ const contract = defineContract({
   },
 });
 
-// Activities handler must match — must return Future<Result<T, ApplicationFailure>>
+// Activities handler must match — must return ResultAsync<T, ApplicationFailure>
 declareActivitiesHandler({
   contract,
   activities: {
     processPayment: ({ amount }) => {
       // ✅ amount is number
-      return Future.value(Result.Ok({ transactionId: "TXN-123" }));
-      // ✅ Must return Future<Result<{ transactionId: string }, ApplicationFailure>>
+      return okAsync({ transactionId: "TXN-123" });
+      // ✅ Must return ResultAsync<{ transactionId: string }, ApplicationFailure>
     },
   },
 });
@@ -374,21 +368,22 @@ Clear separation of concerns:
 
 ```typescript
 // activities/shared.ts
-import { Future, Result } from "@swan-io/boxed";
+import { okAsync } from "neverthrow";
 
 export const sharedActivities = {
-  sendEmail: ({ to, body }) => Future.value(Result.Ok({ sent: true })),
-  logEvent: ({ event }) => Future.value(Result.Ok({ logged: true })),
+  sendEmail: ({ to, body }) => okAsync({ sent: true }),
+  logEvent: ({ event }) => okAsync({ logged: true }),
 };
 
 // activities/order.ts
+import { okAsync } from "neverthrow";
 import { sharedActivities } from "./shared";
 
 export const orderActivities = declareActivitiesHandler({
   contract: orderContract,
   activities: {
     ...sharedActivities,
-    processPayment: ({ amount }) => Future.value(Result.Ok({ transactionId: "TXN" })),
+    processPayment: ({ amount }) => okAsync({ transactionId: "TXN" }),
   },
 });
 ```
@@ -397,14 +392,14 @@ export const orderActivities = declareActivitiesHandler({
 
 ```typescript
 // activities/index.ts
-import { Future, Result } from "@swan-io/boxed";
+import { okAsync } from "neverthrow";
 
 const baseActivities = {
-  validateInput: ({ data }) => Future.value(Result.Ok({ valid: true })),
+  validateInput: ({ data }) => okAsync({ valid: true }),
 };
 
 const paymentActivities = {
-  processPayment: ({ amount }) => Future.value(Result.Ok({ transactionId: "TXN" })),
+  processPayment: ({ amount }) => okAsync({ transactionId: "TXN" }),
 };
 
 export const activities = declareActivitiesHandler({

@@ -28,7 +28,7 @@ features:
 
   - icon: 🎯
     title: Explicit Error Handling
-    details: Result/Future pattern for workflows that need explicit error handling without exceptions.
+    details: Result/ResultAsync pattern from neverthrow for workflows that need explicit error handling without exceptions.
 
   - icon: 📝
     title: Contract-First Design
@@ -74,7 +74,7 @@ export const orderContract = defineContract({
 ```
 
 ```typescript [2. Implement Activities]
-import { Future } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
 import { orderContract } from "./contract";
 
@@ -82,22 +82,22 @@ export const activities = declareActivitiesHandler({
   contract: orderContract,
   activities: {
     processOrder: {
-      processPayment: ({ customerId, amount }) => {
-        return Future.fromPromise(paymentService.charge(customerId, amount))
-          .mapOk((tx) => ({ transactionId: tx.id }))
-          .mapError((e) =>
-            ApplicationFailure.create({
-              type: "PAYMENT_FAILED",
-              message: e.message,
-              cause: e,
-            }),
-          );
-      },
-      sendNotification: ({ customerId, message }) => {
-        return Future.fromPromise(notificationService.send(customerId, message)).mapError((e) =>
-          ApplicationFailure.create({ type: "NOTIFICATION_FAILED", message: e.message, cause: e }),
-        );
-      },
+      processPayment: ({ customerId, amount }) =>
+        ResultAsync.fromPromise(paymentService.charge(customerId, amount), (e) =>
+          ApplicationFailure.create({
+            type: "PAYMENT_FAILED",
+            message: e instanceof Error ? e.message : "Payment failed",
+            cause: e instanceof Error ? e : undefined,
+          }),
+        ).map((tx) => ({ transactionId: tx.id })),
+      sendNotification: ({ customerId, message }) =>
+        ResultAsync.fromPromise(notificationService.send(customerId, message), (e) =>
+          ApplicationFailure.create({
+            type: "NOTIFICATION_FAILED",
+            message: e instanceof Error ? e.message : "Notification failed",
+            cause: e instanceof Error ? e : undefined,
+          }),
+        ),
     },
   },
 });
@@ -135,10 +135,10 @@ const future = client.executeWorkflow("processOrder", {
 
 const result = await future;
 
-result.match({
-  Ok: (output) => console.log(output.status), // ✅ 'success' | 'failed'
-  Error: (error) => console.error("Failed:", error),
-});
+result.match(
+  (output) => console.log(output.status), // ✅ 'success' | 'failed'
+  (error) => console.error("Failed:", error),
+);
 ```
 
 :::

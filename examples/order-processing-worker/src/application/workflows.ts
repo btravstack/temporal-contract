@@ -5,7 +5,7 @@ import { orderProcessingContract } from "@temporal-contract/sample-order-process
  * Process Order Workflow Implementation
  *
  * This workflow demonstrates a different approach to error handling:
- * - Activities use Result/Future pattern in their implementation (domain + infrastructure)
+ * - Activities use neverthrow's ResultAsync in their implementation (domain + infrastructure)
  * - Workflow checks activity results and returns appropriate status
  * - No exceptions thrown - pure functional style with explicit return values
  *
@@ -17,7 +17,7 @@ import { orderProcessingContract } from "@temporal-contract/sample-order-process
  * 5. Send confirmation
  * 6. Return success status
  *
- * Note: Activities internally use Result/Future pattern, but workflow code
+ * Note: Activities internally use ResultAsync, but workflow code
  * stays deterministic by working with the unwrapped values.
  */
 export const processOrder = declareWorkflow({

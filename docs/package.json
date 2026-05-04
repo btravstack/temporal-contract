@@ -12,7 +12,6 @@
     "preview": "vitepress preview"
   },
   "dependencies": {
-    "@temporal-contract/boxed": "workspace:*",
     "@temporal-contract/client": "workspace:*",
     "@temporal-contract/contract": "workspace:*",
     "@temporal-contract/testing": "workspace:*",

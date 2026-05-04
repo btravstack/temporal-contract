@@ -33,17 +33,17 @@ Install the required packages:
 ::: code-group
 
 ```bash [pnpm]
-pnpm add @temporal-contract/contract @temporal-contract/worker @temporal-contract/client
+pnpm add @temporal-contract/contract @temporal-contract/worker @temporal-contract/client neverthrow
 pnpm add zod @temporalio/client @temporalio/worker @temporalio/workflow
 ```
 
 ```bash [npm]
-npm install @temporal-contract/contract @temporal-contract/worker @temporal-contract/client
+npm install @temporal-contract/contract @temporal-contract/worker @temporal-contract/client neverthrow
 npm install zod @temporalio/client @temporalio/worker @temporalio/workflow
 ```
 
 ```bash [yarn]
-yarn add @temporal-contract/contract @temporal-contract/worker @temporal-contract/client
+yarn add @temporal-contract/contract @temporal-contract/worker @temporal-contract/client neverthrow
 yarn add zod @temporalio/client @temporalio/worker @temporalio/workflow
 ```
 
@@ -123,36 +123,30 @@ Implement your activities and workflows with full type safety:
 ```typescript
 // activities.ts
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 import { orderContract } from "./contract";
 
 export const activities = declareActivitiesHandler({
   contract: orderContract,
   activities: {
-    sendEmail: ({ to, subject, body }) => {
+    sendEmail: ({ to, subject, body }) =>
       // Full type safety - parameters are automatically typed!
-      return Future.fromPromise(emailService.send({ to, subject, body }))
-        .mapError((error) =>
-          ApplicationFailure.create({
-            type: "EMAIL_FAILED",
-            message: error instanceof Error ? error.message : "Failed to send email",
-            cause: error,
-          }),
-        )
-        .mapOk(() => ({ sent: true }));
-    },
-    processPayment: ({ customerId, amount }) => {
+      ResultAsync.fromPromise(emailService.send({ to, subject, body }), (error) =>
+        ApplicationFailure.create({
+          type: "EMAIL_FAILED",
+          message: error instanceof Error ? error.message : "Failed to send email",
+          cause: error instanceof Error ? error : undefined,
+        }),
+      ).map(() => ({ sent: true })),
+    processPayment: ({ customerId, amount }) =>
       // TypeScript knows the exact types
-      return Future.fromPromise(paymentGateway.charge(customerId, amount))
-        .mapError((error) =>
-          ApplicationFailure.create({
-            type: "PAYMENT_FAILED",
-            message: error instanceof Error ? error.message : "Payment failed",
-            cause: error,
-          }),
-        )
-        .mapOk((txId) => ({ transactionId: txId, success: true }));
-    },
+      ResultAsync.fromPromise(paymentGateway.charge(customerId, amount), (error) =>
+        ApplicationFailure.create({
+          type: "PAYMENT_FAILED",
+          message: error instanceof Error ? error.message : "Payment failed",
+          cause: error instanceof Error ? error : undefined,
+        }),
+      ).map((txId) => ({ transactionId: txId, success: true })),
   },
 });
 ```
@@ -220,22 +214,22 @@ const connection = await Connection.connect({
 const temporalClient = new Client({ connection });
 const client = TypedClient.create(orderContract, temporalClient);
 
-// Fully typed workflow execution with Result/Future pattern
-const future = client.executeWorkflow("processOrder", {
+// Fully typed workflow execution with Result/ResultAsync pattern
+const resultAsync = client.executeWorkflow("processOrder", {
   workflowId: "order-123",
   args: { orderId: "ORD-123", customerId: "CUST-456" },
 });
 
-const result = await future;
+const result = await resultAsync;
 
-result.match({
-  Ok: (output) => {
+result.match(
+  (output) => {
     console.log(output.status); // 'success' | 'failed' — fully typed!
   },
-  Error: (error) => {
+  (error) => {
     console.error("Workflow failed:", error);
   },
-});
+);
 ```
 
 ## What's Next?

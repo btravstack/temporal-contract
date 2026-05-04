@@ -20,14 +20,11 @@ temporal-contract consists of multiple packages. Install the ones you need:
 # Contract definitions
 pnpm add @temporal-contract/contract
 
-# Worker implementation (uses @swan-io/boxed for activities)
-pnpm add @temporal-contract/worker @swan-io/boxed
+# Worker implementation
+pnpm add @temporal-contract/worker neverthrow
 
-# For workflows (Temporal-compatible Result/Future)
-pnpm add @temporal-contract/boxed
-
-# Client for executing workflows (uses @swan-io/boxed)
-pnpm add @temporal-contract/client @swan-io/boxed
+# Client for executing workflows
+pnpm add @temporal-contract/client neverthrow
 
 # Required peer dependencies
 pnpm add zod @temporalio/client @temporalio/worker @temporalio/workflow
@@ -35,17 +32,15 @@ pnpm add zod @temporalio/client @temporalio/worker @temporalio/workflow
 
 ```bash [npm]
 npm install @temporal-contract/contract
-npm install @temporal-contract/worker @swan-io/boxed
-npm install @temporal-contract/boxed
-npm install @temporal-contract/client @swan-io/boxed
+npm install @temporal-contract/worker neverthrow
+npm install @temporal-contract/client neverthrow
 npm install zod @temporalio/client @temporalio/worker @temporalio/workflow
 ```
 
 ```bash [yarn]
 yarn add @temporal-contract/contract
-yarn add @temporal-contract/worker @swan-io/boxed
-yarn add @temporal-contract/boxed
-yarn add @temporal-contract/client @swan-io/boxed
+yarn add @temporal-contract/worker neverthrow
+yarn add @temporal-contract/client neverthrow
 yarn add zod @temporalio/client @temporalio/worker @temporalio/workflow
 ```
 
@@ -53,10 +48,12 @@ yarn add zod @temporalio/client @temporalio/worker @temporalio/workflow
 
 ::: tip Package Usage
 
-- **@swan-io/boxed**: Used for activities and clients (battle-tested, excellent performance)
-- **@temporal-contract/boxed**: Used for workflows (Temporal-compatible, deterministic execution)
+`neverthrow` provides the `Result` / `ResultAsync` types used by activities,
+workflows, and clients. The same package works in every context — workflows
+use it directly without a Temporal-specific wrapper.
 
-Both packages provide the same API, making it easy to work with both.
+If you are migrating from a previous version that used `@swan-io/boxed` and
+`@temporal-contract/boxed`, see [Migrating to neverthrow](/guide/migrating-to-neverthrow).
 :::
 
 ### Optional Packages

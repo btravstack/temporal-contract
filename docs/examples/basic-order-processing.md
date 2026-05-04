@@ -1,13 +1,13 @@
 # Order Processing Example
 
-A complete e-commerce order processing workflow example with Result/Future pattern.
+A complete e-commerce order processing workflow example using `Result` / `ResultAsync` from neverthrow.
 
 ## Overview
 
 This example demonstrates:
 
 - **Separated contract package**: Contract is in its own package that can be shared
-- **Result/Future pattern**: Explicit error handling with type-safe errors
+- **Result / ResultAsync pattern**: Explicit error handling with type-safe errors
 - Order validation
 - Payment processing
 - Inventory management
@@ -50,7 +50,7 @@ examples/
 └── order-processing-worker/             # Worker/Client implementation
     ├── src/
     │   ├── application/
-    │   │   ├── activities.ts           # Activity implementations (Result/Future)
+    │   │   ├── activities.ts           # Activity implementations (ResultAsync)
     │   │   ├── workflows.ts            # Workflow implementations
     │   │   ├── worker.ts               # Worker setup
     │   │   └── client.ts               # Client example
@@ -70,22 +70,22 @@ The contract is separated into its own package (`order-processing-contract`) whi
 - Provides full TypeScript type safety across all boundaries
 - Can be versioned and published independently
 
-### Result/Future Pattern
+### Result / ResultAsync Pattern
 
-This example demonstrates the Result/Future pattern using:
+This example demonstrates the neverthrow-based pattern:
 
-- **@swan-io/boxed** for activities - Battle-tested performance
-- **@temporal-contract/boxed** for workflows - Temporal-compatible
-- Activities return `Future<Result<T, ApplicationFailure>>` instead of throwing
-- Workflows return `Result<T, E>` for explicit error handling
+- **neverthrow** is used in activities, workflows, and clients — one library
+  covers every context
+- Activities return `ResultAsync<T, ApplicationFailure>` instead of throwing
+- Child workflow calls return `Result<T, E>` for explicit error handling
 - Errors are part of the type signature
-- Enables railway-oriented programming
+- Enables railway-oriented programming via `.andThen` / `.map` / `.mapErr`
 
 ### Worker Application
 
 The worker application imports the contract package and implements:
 
-- Activities that match the contract signatures with Result/Future pattern
+- Activities that match the contract signatures with `ResultAsync`
 - Workflows that use the contract's type definitions
 - Worker setup that registers the implementations
 
@@ -124,7 +124,7 @@ pnpm dev  # Terminal 2 - Run client
 ## Benefits of This Architecture
 
 1. **Contract Reusability**: The contract can be imported by multiple applications
-2. **Type Safety**: Full TypeScript support with Result/Future types
+2. **Type Safety**: Full TypeScript support with `Result` / `ResultAsync` types
 3. **Explicit Error Handling**: Errors are part of the type system
 4. **Independent Deployment**: Client and worker can be in different repositories
 5. **Clear Separation**: Contract definition is separate from implementation

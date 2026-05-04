@@ -32,7 +32,7 @@ graph TB
 
 ### [Order Processing Example](/examples/basic-order-processing)
 
-A complete e-commerce order processing workflow using Result/Future pattern for explicit error handling.
+A complete e-commerce order processing workflow using `Result` / `ResultAsync` from neverthrow for explicit error handling.
 
 **Features:**
 
@@ -180,11 +180,11 @@ export const orderContract = defineContract({
 
 ### Activity Implementation
 
-Clean, typed activity implementations with Result/Future pattern:
+Clean, typed activity implementations with `ResultAsync`:
 
 ```typescript
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 import { orderContract } from "../contracts/order.contract";
 import { emailService } from "../infrastructure/email.service";
 import { paymentService } from "../infrastructure/payment.service";
@@ -192,68 +192,36 @@ import { paymentService } from "../infrastructure/payment.service";
 export const activities = declareActivitiesHandler({
   contract: orderContract,
   activities: {
-    sendEmail: ({ to, subject, body }) => {
-      return Future.make(async (resolve) => {
-        try {
-          await emailService.send({ to, subject, body });
-          resolve(Result.Ok({ sent: true }));
-        } catch (error) {
-          resolve(
-            Result.Error(
-              ApplicationFailure.create({
-                type: "EMAIL_FAILED",
-                message: error instanceof Error ? error.message : "Failed to send email",
-                ...(error instanceof Error ? { cause: error } : {}),
-              }),
-            ),
-          );
-        }
-      });
-    },
+    sendEmail: ({ to, subject, body }) =>
+      ResultAsync.fromPromise(emailService.send({ to, subject, body }), (error) =>
+        ApplicationFailure.create({
+          type: "EMAIL_FAILED",
+          message: error instanceof Error ? error.message : "Failed to send email",
+          ...(error instanceof Error ? { cause: error } : {}),
+        }),
+      ).map(() => ({ sent: true })),
 
     processOrder: {
-      validateInventory: ({ items }) => {
-        return Future.make(async (resolve) => {
-          try {
-            const available = await inventoryService.checkAvailability(items);
-            resolve(Result.Ok({ available }));
-          } catch (error) {
-            resolve(
-              Result.Error(
-                ApplicationFailure.create({
-                  type: "INVENTORY_CHECK_FAILED",
-                  message: "Failed to check inventory",
-                  cause: error,
-                }),
-              ),
-            );
-          }
-        });
-      },
+      validateInventory: ({ items }) =>
+        ResultAsync.fromPromise(inventoryService.checkAvailability(items), (error) =>
+          ApplicationFailure.create({
+            type: "INVENTORY_CHECK_FAILED",
+            message: "Failed to check inventory",
+            cause: error instanceof Error ? error : undefined,
+          }),
+        ).map((available) => ({ available })),
 
-      processPayment: ({ customerId, amount }) => {
-        return Future.make(async (resolve) => {
-          try {
-            const result = await paymentService.charge(customerId, amount);
-            resolve(
-              Result.Ok({
-                transactionId: result.id,
-                success: result.status === "success",
-              }),
-            );
-          } catch (error) {
-            resolve(
-              Result.Error(
-                ApplicationFailure.create({
-                  type: "PAYMENT_FAILED",
-                  message: "Failed to process payment",
-                  cause: error,
-                }),
-              ),
-            );
-          }
-        });
-      },
+      processPayment: ({ customerId, amount }) =>
+        ResultAsync.fromPromise(paymentService.charge(customerId, amount), (error) =>
+          ApplicationFailure.create({
+            type: "PAYMENT_FAILED",
+            message: "Failed to process payment",
+            cause: error instanceof Error ? error : undefined,
+          }),
+        ).map((result) => ({
+          transactionId: result.id,
+          success: result.status === "success",
+        })),
     },
   },
 });

@@ -9,7 +9,7 @@ The `@temporal-contract/client` package provides a type-safe wrapper around Temp
 ## Installation
 
 ```bash
-pnpm add @temporal-contract/client @swan-io/boxed
+pnpm add @temporal-contract/client neverthrow
 ```
 
 ## Basic Setup
@@ -33,10 +33,11 @@ const client = TypedClient.create(myContract, temporalClient);
 
 ### Basic Execution
 
-Execute a workflow and wait for completion using the Result/Future pattern:
+Execute a workflow and wait for completion. `executeWorkflow` returns a
+`ResultAsync<T, E>` — `await` it to get a `Result<T, E>`:
 
 ```typescript
-const future = client.executeWorkflow("processOrder", {
+const resultAsync = client.executeWorkflow("processOrder", {
   workflowId: "order-123",
   args: {
     orderId: "ORD-123",
@@ -44,18 +45,18 @@ const future = client.executeWorkflow("processOrder", {
   },
 });
 
-// await the Future to get the Result
-const result = await future;
+// await the ResultAsync to get the Result
+const result = await resultAsync;
 
-// Handle the Result with pattern matching
-result.match({
-  Ok: (output) => {
+// Handle the Result with pattern matching (positional callbacks)
+result.match(
+  (output) => {
     console.log("Order processed:", output.status); // TypeScript knows the shape!
   },
-  Error: (error) => {
+  (error) => {
     console.error("Workflow failed:", error);
   },
-});
+);
 ```
 
 ### Start Without Waiting
@@ -71,22 +72,22 @@ const handleResult = await client.startWorkflow("processOrder", {
   },
 });
 
-handleResult.match({
-  Ok: async (handle) => {
+handleResult.match(
+  async (handle) => {
     // Get workflow ID
     console.log("Started workflow:", handle.workflowId);
 
     // Wait for result later
     const result = await handle.result();
-    result.match({
-      Ok: (output) => console.log("Completed:", output),
-      Error: (error) => console.error("Failed:", error),
-    });
+    result.match(
+      (output) => console.log("Completed:", output),
+      (error) => console.error("Failed:", error),
+    );
   },
-  Error: (error) => {
+  (error) => {
     console.error("Failed to start workflow:", error);
   },
-});
+);
 ```
 
 ## Type Safety
@@ -121,27 +122,27 @@ await client.executeWorkflow("invalidWorkflow", {
 });
 ```
 
-## Result/Future Pattern
+## Result Pattern
 
-The client uses `@swan-io/boxed` for explicit error handling:
+The client uses `neverthrow` for explicit error handling:
 
 ```typescript
-import { Result } from "@swan-io/boxed";
+import { Result } from "neverthrow";
 
 const result = await client.executeWorkflow("processOrder", {
   workflowId: "order-123",
   args: { orderId: "ORD-123", customerId: "CUST-456" },
 });
 
-// Handle result with pattern matching
-result.match({
-  Ok: (value) => {
+// Handle result with pattern matching (positional callbacks)
+result.match(
+  (value) => {
     console.log("Order processed:", value.transactionId);
   },
-  Error: (error) => {
+  (error) => {
     console.error("Order failed:", error);
   },
-});
+);
 ```
 
 ## Workflow Options
@@ -175,31 +176,31 @@ Get a handle to an existing workflow:
 ```typescript
 const handleResult = await client.getHandle("processOrder", "order-123");
 
-handleResult.match({
-  Ok: async (handle) => {
+handleResult.match(
+  async (handle) => {
     // Query the workflow
     const statusResult = await handle.queries.getStatus({});
-    statusResult.match({
-      Ok: (status) => console.log("Status:", status),
-      Error: (error) => console.error("Query failed:", error),
-    });
+    statusResult.match(
+      (status) => console.log("Status:", status),
+      (error) => console.error("Query failed:", error),
+    );
 
     // Signal the workflow
     const signalResult = await handle.signals.cancelOrder({ reason: "Customer request" });
-    signalResult.match({
-      Ok: () => console.log("Signal sent"),
-      Error: (error) => console.error("Signal failed:", error),
-    });
+    signalResult.match(
+      () => console.log("Signal sent"),
+      (error) => console.error("Signal failed:", error),
+    );
 
     // Get the result
     const result = await handle.result();
-    result.match({
-      Ok: (output) => console.log("Result:", output),
-      Error: (error) => console.error("Workflow failed:", error),
-    });
+    result.match(
+      (output) => console.log("Result:", output),
+      (error) => console.error("Workflow failed:", error),
+    );
   },
-  Error: (error) => console.error("Failed to get handle:", error),
-});
+  (error) => console.error("Failed to get handle:", error),
+);
 ```
 
 ## Multiple Workflows
@@ -228,10 +229,10 @@ const result = await client.executeWorkflow("processOrder", {
   args: { orderId: "ORD-123", customerId: "CUST-456" },
 });
 
-result.match({
-  Ok: (value) => console.log("Success:", value),
-  Error: (error) => console.error("Workflow returned error:", error),
-});
+result.match(
+  (value) => console.log("Success:", value),
+  (error) => console.error("Workflow returned error:", error),
+);
 ```
 
 ### Workflow Failures
@@ -324,14 +325,14 @@ Mock the client for testing:
 
 ```typescript
 import { describe, it, expect, vi } from "vitest";
-import { Result } from "@swan-io/boxed";
+import { ok } from "neverthrow";
 
 describe("OrderService", () => {
   it("should process order", async () => {
     const mockClient = {
       executeWorkflow: vi
         .fn()
-        .mockResolvedValue(Result.Ok({ status: "success", transactionId: "tx-123" })),
+        .mockResolvedValue(ok({ status: "success", transactionId: "tx-123" })),
     };
 
     const service = new OrderService(mockClient);
@@ -388,22 +389,22 @@ const result = await client.executeWorkflow("processOrder", {
   args: { orderId: "ORD-123", customerId: "CUST-456" },
 });
 
-result.match({
-  Ok: (value) => {
+result.match(
+  (value) => {
     // Handle success
     updateDatabase(value);
   },
-  Error: (error) => {
+  (error) => {
     // Handle error
     logError(error);
     notifySupport(error);
   },
-});
+);
 ```
 
 ## See Also
 
 - [Defining Contracts](/guide/defining-contracts) - Creating your contract definitions
 - [Worker Usage](/guide/worker-usage) - Implementing workflows and activities
-- [Result Pattern](/guide/result-pattern) - Understanding Result/Future error handling
+- [Result Pattern](/guide/result-pattern) - Understanding Result/ResultAsync error handling
 - [API Reference](/api/client) - Complete client API documentation

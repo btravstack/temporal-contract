@@ -112,8 +112,8 @@ describe("TypedClient.schedule", () => {
         },
       );
 
-      expect(result.isError()).toBe(true);
-      if (result.isError()) {
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(WorkflowNotFoundError);
       }
       expect(mockSchedule.create).not.toHaveBeenCalled();
@@ -127,8 +127,8 @@ describe("TypedClient.schedule", () => {
         args: { orderId: 123 },
       });
 
-      expect(result.isError()).toBe(true);
-      if (result.isError()) {
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(WorkflowValidationError);
       }
       expect(mockSchedule.create).not.toHaveBeenCalled();
@@ -143,8 +143,8 @@ describe("TypedClient.schedule", () => {
         args: { orderId: "sweep" },
       });
 
-      expect(result.isError()).toBe(true);
-      if (result.isError()) {
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(RuntimeClientError);
         expect((result.error as RuntimeClientError).operation).toBe("schedule.create");
       }
@@ -224,16 +224,16 @@ describe("TypedClient.schedule", () => {
       const handle = client.schedule.getHandle("daily-sweep");
       expect(handle.scheduleId).toBe("daily-sweep");
 
-      await expect(handle.pause("test")).resolves.toEqual(expect.objectContaining({ tag: "Ok" }));
+      expect((await handle.pause("test")).isOk()).toBe(true);
       expect(tempHandle.pause).toHaveBeenCalledWith("test");
 
-      await expect(handle.unpause()).resolves.toEqual(expect.objectContaining({ tag: "Ok" }));
+      expect((await handle.unpause()).isOk()).toBe(true);
       expect(tempHandle.unpause).toHaveBeenCalled();
 
-      await expect(handle.trigger()).resolves.toEqual(expect.objectContaining({ tag: "Ok" }));
+      expect((await handle.trigger()).isOk()).toBe(true);
       expect(tempHandle.trigger).toHaveBeenCalled();
 
-      await expect(handle.delete()).resolves.toEqual(expect.objectContaining({ tag: "Ok" }));
+      expect((await handle.delete()).isOk()).toBe(true);
       expect(tempHandle.delete).toHaveBeenCalled();
     });
 
@@ -244,8 +244,8 @@ describe("TypedClient.schedule", () => {
 
       const handle = client.schedule.getHandle("missing");
       const result = await handle.pause();
-      expect(result.isError()).toBe(true);
-      if (result.isError()) {
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(RuntimeClientError);
         expect((result.error as RuntimeClientError).operation).toBe("schedule.pause");
       }

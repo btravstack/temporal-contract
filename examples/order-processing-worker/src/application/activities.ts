@@ -1,4 +1,4 @@
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync, okAsync } from "neverthrow";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
 import { orderProcessingContract } from "@temporal-contract/sample-order-processing-contract";
 import {
@@ -14,7 +14,7 @@ import {
 /**
  * Translate an arbitrary thrown value into a Temporal `ApplicationFailure`.
  * Used by every activity below to wrap use-case rejections in the
- * `Result.Error` slot without each site repeating the boilerplate.
+ * `err(...)` slot without each site repeating the boilerplate.
  */
 const toApplicationFailure = (type: string, fallback: string, error: unknown): ApplicationFailure =>
   ApplicationFailure.create({
@@ -24,11 +24,12 @@ const toApplicationFailure = (type: string, fallback: string, error: unknown): A
   });
 
 /**
- * Activity implementations using the Result/Future pattern from @swan-io/boxed.
+ * Activity implementations using neverthrow's `ResultAsync` pattern.
  *
  * Instead of throwing exceptions, activities return:
- *   - Result.Ok(value) for success
- *   - Result.Error(ApplicationFailure) for failures
+ *   - okAsync(value) for success
+ *   - errAsync(ApplicationFailure) for failures (or a `ResultAsync.fromPromise`
+ *     chain that mapErr's a rejection into an `ApplicationFailure`).
  *
  * All technical exceptions MUST be caught and wrapped in `ApplicationFailure`
  * (Temporal's first-class failure shape, re-exported from
@@ -39,7 +40,7 @@ const toApplicationFailure = (type: string, fallback: string, error: unknown): A
  * Benefits:
  *   - Explicit error types in function signatures
  *   - Per-instance `nonRetryable` flag for permanent failures
- *   - Functional composition with map/flatMap/match
+ *   - Functional composition with map/andThen/match
  *   - Native Temporal serialization across the activity → workflow boundary
  */
 
@@ -48,9 +49,9 @@ const toApplicationFailure = (type: string, fallback: string, error: unknown): A
 // ============================================================================
 
 /**
- * Create the activities handler with Result/Future pattern.
+ * Create the activities handler with neverthrow's ResultAsync pattern.
  * Activities are thin wrappers that delegate to use cases.
- * All activities return `Future<Result<T, ApplicationFailure>>`.
+ * All activities return `ResultAsync<T, ApplicationFailure>`.
  *
  * Domain errors are wrapped in `ApplicationFailure` so Temporal applies the
  * configured retry policy. Set `nonRetryable: true` for permanent failures
@@ -61,53 +62,45 @@ export const activities = declareActivitiesHandler({
   activities: {
     log: ({ level, message }) => {
       loggerAdapter.log(level, message);
-      return Future.value(Result.Ok(undefined));
+      return okAsync(undefined);
     },
 
-    sendNotification: ({ customerId, subject, message }) => {
-      return Future.fromPromise(
+    sendNotification: ({ customerId, subject, message }) =>
+      ResultAsync.fromPromise(
         sendNotificationUseCase.execute(customerId, subject, message),
-      ).mapError((error) =>
-        toApplicationFailure("NOTIFICATION_FAILED", "Failed to send notification", error),
-      );
-    },
+        (error) =>
+          toApplicationFailure("NOTIFICATION_FAILED", "Failed to send notification", error),
+      ),
 
     processOrder: {
-      processPayment: ({ customerId, amount }) => {
-        return Future.fromPromise(processPaymentUseCase.execute(customerId, amount)).mapError(
-          (error) => toApplicationFailure("PAYMENT_FAILED", "Payment processing failed", error),
-        );
-      },
+      processPayment: ({ customerId, amount }) =>
+        ResultAsync.fromPromise(processPaymentUseCase.execute(customerId, amount), (error) =>
+          toApplicationFailure("PAYMENT_FAILED", "Payment processing failed", error),
+        ),
 
-      reserveInventory: (items) => {
-        return Future.fromPromise(reserveInventoryUseCase.execute(items)).mapError((error) =>
+      reserveInventory: (items) =>
+        ResultAsync.fromPromise(reserveInventoryUseCase.execute(items), (error) =>
           toApplicationFailure(
             "INVENTORY_RESERVATION_FAILED",
             "Inventory reservation failed",
             error,
           ),
-        );
-      },
+        ),
 
-      releaseInventory: (reservationId) => {
-        return Future.fromPromise(releaseInventoryUseCase.execute(reservationId)).mapError(
-          (error) =>
-            toApplicationFailure("INVENTORY_RELEASE_FAILED", "Inventory release failed", error),
-        );
-      },
+      releaseInventory: (reservationId) =>
+        ResultAsync.fromPromise(releaseInventoryUseCase.execute(reservationId), (error) =>
+          toApplicationFailure("INVENTORY_RELEASE_FAILED", "Inventory release failed", error),
+        ),
 
-      createShipment: ({ orderId, customerId }) => {
-        return Future.fromPromise(createShipmentUseCase.execute(orderId, customerId)).mapError(
-          (error) =>
-            toApplicationFailure("SHIPMENT_CREATION_FAILED", "Shipment creation failed", error),
-        );
-      },
+      createShipment: ({ orderId, customerId }) =>
+        ResultAsync.fromPromise(createShipmentUseCase.execute(orderId, customerId), (error) =>
+          toApplicationFailure("SHIPMENT_CREATION_FAILED", "Shipment creation failed", error),
+        ),
 
-      refundPayment: (transactionId) => {
-        return Future.fromPromise(refundPaymentUseCase.execute(transactionId)).mapError((error) =>
+      refundPayment: (transactionId) =>
+        ResultAsync.fromPromise(refundPaymentUseCase.execute(transactionId), (error) =>
           toApplicationFailure("REFUND_FAILED", "Refund failed", error),
-        );
-      },
+        ),
     },
   },
 });

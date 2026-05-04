@@ -15,22 +15,19 @@ pnpm add @temporal-contract/worker @temporal-contract/contract @temporalio/workf
 ```typescript
 // activities.ts
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 
 export const activities = declareActivitiesHandler({
   contract: myContract,
   activities: {
-    sendEmail: ({ to, body }) => {
-      return Future.fromPromise(emailService.send({ to, body }))
-        .mapError((error) =>
-          ApplicationFailure.create({
-            type: "EMAIL_FAILED",
-            message: error instanceof Error ? error.message : "Failed to send email",
-            cause: error,
-          }),
-        )
-        .mapOk(() => ({ sent: true }));
-    },
+    sendEmail: ({ to, body }) =>
+      ResultAsync.fromPromise(emailService.send({ to, body }), (error) =>
+        ApplicationFailure.create({
+          type: "EMAIL_FAILED",
+          message: error instanceof Error ? error.message : "Failed to send email",
+          cause: error,
+        }),
+      ).map(() => ({ sent: true })),
   },
 });
 
@@ -68,7 +65,7 @@ run().catch(console.error);
 
 ### Child Workflows
 
-Execute child workflows with type-safe Future/Result pattern. Supports both same-contract and cross-contract child workflows:
+Execute child workflows with type-safe `ResultAsync`. Supports both same-contract and cross-contract child workflows:
 
 ```typescript
 // workflows.ts
@@ -85,10 +82,10 @@ export const parentWorkflow = declareWorkflow({
       args: { amount: input.totalAmount },
     });
 
-    childResult.match({
-      Ok: (output) => console.log("Payment processed:", output),
-      Error: (error) => console.error("Payment failed:", error),
-    });
+    childResult.match(
+      (output) => console.log("Payment processed:", output),
+      (error) => console.error("Payment failed:", error),
+    );
 
     // Execute child workflow from another contract (another worker)
     const notificationResult = await context.executeChildWorkflow(
@@ -106,14 +103,14 @@ export const parentWorkflow = declareWorkflow({
       args: { to: "user@example.com", body: "Order received" },
     });
 
-    handleResult.match({
-      Ok: async (handle) => {
+    handleResult.match(
+      async (handle) => {
         // Can wait for result later
         const result = await handle.result();
         // ...
       },
-      Error: (error) => console.error("Failed to start:", error),
-    });
+      (error) => console.error("Failed to start:", error),
+    );
 
     return { success: true };
   },

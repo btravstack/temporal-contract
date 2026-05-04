@@ -22,8 +22,8 @@ End-to-end type safety and automatic validation for workflows and activities
 - ✅ **Automatic validation** — Zod schemas validate at all network boundaries
 - ✅ **Compile-time checks** — TypeScript catches missing or incorrect implementations
 - ✅ **Better DX** — Autocomplete, refactoring support, inline documentation
-- ✅ **Child workflows** — Type-safe child workflow execution with Result/Future pattern
-- ✅ **Result/Future pattern** — Explicit error handling without exceptions
+- ✅ **Child workflows** — Type-safe child workflow execution with neverthrow's `ResultAsync`
+- ✅ **Result pattern** — Explicit error handling without exceptions, powered by [neverthrow](https://github.com/supermacro/neverthrow)
 - 🚧 **Nexus support** — Cross-namespace operations (planned for v0.5.0)
 
 ## Quick Example
@@ -46,24 +46,21 @@ const contract = defineContract({
   },
 });
 
-// Implement activities with Future/Result pattern
+// Implement activities with neverthrow's ResultAsync
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { Future } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 
 const activities = declareActivitiesHandler({
   contract,
   activities: {
-    processPayment: ({ orderId }) => {
-      return Future.fromPromise(paymentService.process(orderId))
-        .mapError((error) =>
-          ApplicationFailure.create({
-            type: "PAYMENT_FAILED",
-            message: error instanceof Error ? error.message : "Payment failed",
-            ...(error instanceof Error ? { cause: error } : {}),
-          }),
-        )
-        .mapOk((txId) => ({ transactionId: txId }));
-    },
+    processPayment: ({ orderId }) =>
+      ResultAsync.fromPromise(paymentService.process(orderId), (error) =>
+        ApplicationFailure.create({
+          type: "PAYMENT_FAILED",
+          message: error instanceof Error ? error.message : "Payment failed",
+          ...(error instanceof Error ? { cause: error } : {}),
+        }),
+      ).map((txId) => ({ transactionId: txId })),
   },
 });
 
@@ -80,8 +77,8 @@ const result = await client.executeWorkflow("processOrder", {
 # Core packages
 pnpm add @temporal-contract/contract @temporal-contract/worker @temporal-contract/client
 
-# Result/Future pattern (already included in worker/client via @swan-io/boxed)
-pnpm add @swan-io/boxed
+# Result/ResultAsync — peer dep used by worker/client APIs
+pnpm add neverthrow
 ```
 
 ## Documentation
@@ -95,17 +92,16 @@ pnpm add @swan-io/boxed
 
 ## Packages
 
-| Package                                            | Description                                                                     |
-| -------------------------------------------------- | ------------------------------------------------------------------------------- |
-| [@temporal-contract/contract](./packages/contract) | Contract builder and type definitions                                           |
-| [@temporal-contract/worker](./packages/worker)     | Type-safe worker with automatic validation (uses @swan-io/boxed for activities) |
-| [@temporal-contract/client](./packages/client)     | Type-safe client for consuming workflows (uses @swan-io/boxed)                  |
-| [@temporal-contract/boxed](./packages/boxed)       | Temporal-compatible Result/Future types for workflows (alternative to @swan-io) |
-| [@temporal-contract/testing](./packages/testing)   | Testing utilities for integration tests                                         |
+| Package                                            | Description                                |
+| -------------------------------------------------- | ------------------------------------------ |
+| [@temporal-contract/contract](./packages/contract) | Contract builder and type definitions      |
+| [@temporal-contract/worker](./packages/worker)     | Type-safe worker with automatic validation |
+| [@temporal-contract/client](./packages/client)     | Type-safe client for consuming workflows   |
+| [@temporal-contract/testing](./packages/testing)   | Testing utilities for integration tests    |
 
 ## Usage Patterns
 
-temporal-contract uses **[@swan-io/boxed](https://github.com/swan-io/boxed)** for activities and clients, providing excellent error handling with Result/Future patterns. For workflows that require Temporal's deterministic execution, use **@temporal-contract/boxed** which provides a compatible API.
+temporal-contract uses **[neverthrow](https://github.com/supermacro/neverthrow)** end-to-end (workflows, activities, and the typed client) for explicit error handling via `Result` and `ResultAsync`. Migrating from a previous release that used `@swan-io/boxed`? See [Migrating to neverthrow](https://btravers.github.io/temporal-contract/guide/migrating-to-neverthrow).
 
 ## Contributing
 

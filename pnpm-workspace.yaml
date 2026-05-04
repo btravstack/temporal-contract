@@ -23,7 +23,6 @@ catalog:
   "@commitlint/cli": 20.5.3
   "@commitlint/config-conventional": 20.5.3
   "@standard-schema/spec": 1.1.0
-  "@swan-io/boxed": 3.2.1
   "@temporalio/client": 1.17.0
   "@temporalio/common": 1.17.0
   "@temporalio/worker": 1.17.0
@@ -33,6 +32,7 @@ catalog:
   arktype: 2.2.0
   knip: 6.11.0
   lefthook: 2.1.6
+  neverthrow: 8.2.0
   oxfmt: 0.47.0
   oxlint: 1.62.0
   pino: 10.3.1

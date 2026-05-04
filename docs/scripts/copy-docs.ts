@@ -1,6 +1,5 @@
 // These imports establish dependencies for knip detection and turbo build ordering.
 // They must be kept in sync with the packages array below.
-import "@temporal-contract/boxed";
 import "@temporal-contract/client";
 import "@temporal-contract/contract";
 import "@temporal-contract/testing/global-setup";
@@ -14,7 +13,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const docsApiDir = join(__dirname, "..", "api");
 const packagesDir = join(__dirname, "..", "..", "packages");
 
-const packages = ["boxed", "client", "contract", "testing", "worker"];
+const packages = ["client", "contract", "testing", "worker"];
 
 async function copyDocs(): Promise<void> {
   try {

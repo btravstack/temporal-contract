@@ -174,7 +174,7 @@ Property 'transactionId' does not exist on type 'never'.
      processOrder: {
        processPayment: ({ customerId, amount }) => {
          console.log(customerId);  // Type-safe!
-         return Future.value(Result.Ok({ transactionId: "tx-123" }));
+         return okAsync({ transactionId: "tx-123" });
        },
      },
    }
@@ -365,17 +365,14 @@ Error: Activity task failed: ApplicationFailure
 
    ```typescript
    // ✅ Return proper error result
-   processPayment: ({ customerId, amount }) => {
-     return Future.fromPromise(paymentService.charge(customerId, amount))
-       .mapOk((tx) => ({ transactionId: tx.id }))
-       .mapError((e) =>
-         ApplicationFailure.create({
-           type: "PAYMENT_FAILED",
-           message: e.message,
-           cause: e,
-         }),
-       );
-   };
+   processPayment: ({ customerId, amount }) =>
+     ResultAsync.fromPromise(paymentService.charge(customerId, amount), (e) =>
+       ApplicationFailure.create({
+         type: "PAYMENT_FAILED",
+         message: e instanceof Error ? e.message : "Payment failed",
+         cause: e instanceof Error ? e : undefined,
+       }),
+     ).map((tx) => ({ transactionId: tx.id }));
    ```
 
 2. **Handle errors in workflow:**
@@ -432,7 +429,7 @@ Error: Cannot find module './workflows'
    - Ensure TypeScript compiles workflows
    - Check that output directory contains workflow files
 
-## Result/Future Pattern Issues
+## Result / ResultAsync Pattern Issues
 
 ### "Cannot read property 'match' of undefined"
 
@@ -442,9 +439,9 @@ Error: Cannot find module './workflows'
 TypeError: Cannot read property 'match' of undefined
 ```
 
-**Cause:** Activity returned undefined instead of a Result.
+**Cause:** Activity returned `undefined` instead of a `ResultAsync`.
 
-**Solution:** Always return a Future/Result from activities:
+**Solution:** Always return a `ResultAsync` from activities:
 
 ```typescript
 // ❌ Returns undefined
@@ -453,15 +450,17 @@ processPayment: () => {
   // No return!
 };
 
-// ✅ Returns Future<Result>
-processPayment: ({ customerId, amount }) => {
-  return Future.fromPromise(paymentService.charge(customerId, amount))
-    .mapOk((tx) => ({ transactionId: tx.id }))
-    .mapError((e) => ApplicationFailure.create({ type: "PAYMENT_FAILED", message: e.message }));
-};
+// ✅ Returns ResultAsync<T, E>
+processPayment: ({ customerId, amount }) =>
+  ResultAsync.fromPromise(paymentService.charge(customerId, amount), (e) =>
+    ApplicationFailure.create({
+      type: "PAYMENT_FAILED",
+      message: e instanceof Error ? e.message : "Payment failed",
+    }),
+  ).map((tx) => ({ transactionId: tx.id }));
 ```
 
-### "Result.Ok is not a function"
+### "ok is not a function" / "Result.Ok is not a function"
 
 **Symptoms:**
 
@@ -469,17 +468,20 @@ processPayment: ({ customerId, amount }) => {
 TypeError: Result.Ok is not a function
 ```
 
-**Cause:** Importing from wrong package or incorrect import.
+**Cause:** Code is still using the old `@swan-io/boxed` API
+(`Result.Ok` / `Result.Error`) or importing from a package that no longer
+exists. The previous `@temporal-contract/boxed` package was removed in the
+neverthrow migration.
 
-**Solution:** Use correct imports:
+**Solution:** Use `neverthrow`:
 
 ```typescript
-// ✅ For activities (use @swan-io/boxed for performance)
-import { Future, Result } from "@swan-io/boxed";
-
-// ✅ For client results (temporal-contract internal)
-import { Result } from "@temporal-contract/boxed";
+// ✅ For activities, workflows, and clients
+import { ResultAsync, ok, err, okAsync, errAsync } from "neverthrow";
 ```
+
+See [Migrating to neverthrow](/guide/migrating-to-neverthrow) for the full
+mapping.
 
 ## Performance Issues
 
@@ -497,19 +499,18 @@ import { Result } from "@temporal-contract/boxed";
 
    ```typescript
    // ❌ Blocking operation
-   processOrder: ({ payload }) => {
-     return Future.fromPromise(fetch("http://slow-api.com/process"));
-   };
+   processOrder: ({ payload }) =>
+     ResultAsync.fromPromise(fetch("http://slow-api.com/process"), (e) => e);
 
    // ✅ Add timeouts and handle slow operations
-   processOrder: ({ payload }) => {
-     return Future.fromPromise(
+   processOrder: ({ payload }) =>
+     ResultAsync.fromPromise(
        Promise.race([
          fetch("http://api.com/process"),
          new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000)),
        ]),
+       (e) => e,
      );
-   };
    ```
 
 2. **Configure worker capacity:**

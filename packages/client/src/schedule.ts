@@ -8,10 +8,10 @@ import type {
   ScheduleSpec,
 } from "@temporalio/client";
 import type { ContractDefinition } from "@temporal-contract/contract";
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync, type Result, ok, err } from "neverthrow";
 import type { ClientInferInput } from "./types.js";
 import { RuntimeClientError, WorkflowNotFoundError, WorkflowValidationError } from "./errors.js";
-import { makeFuture } from "./internal.js";
+import { makeResultAsync } from "./internal.js";
 
 /**
  * Workflow-action–level overrides forwarded to Temporal's
@@ -73,22 +73,22 @@ export type TypedScheduleCreateOptions<
 /**
  * Typed handle to a schedule. Mirrors Temporal's `ScheduleHandle` lifecycle
  * methods (`pause`, `unpause`, `trigger`, `describe`, `delete`) wrapped in
- * the Future/Result pattern so call sites match the rest of the typed
- * client.
+ * the neverthrow ResultAsync pattern so call sites match the rest of the
+ * typed client.
  */
 export type TypedScheduleHandle = {
   /** This schedule's identifier. */
   readonly scheduleId: string;
   /** Pause the schedule. Optional note becomes part of the audit trail. */
-  pause: (note?: string) => Future<Result<void, RuntimeClientError>>;
+  pause: (note?: string) => ResultAsync<void, RuntimeClientError>;
   /** Resume a paused schedule. */
-  unpause: (note?: string) => Future<Result<void, RuntimeClientError>>;
+  unpause: (note?: string) => ResultAsync<void, RuntimeClientError>;
   /** Fire the schedule's action immediately. */
-  trigger: (overlap?: ScheduleOverlapPolicy) => Future<Result<void, RuntimeClientError>>;
+  trigger: (overlap?: ScheduleOverlapPolicy) => ResultAsync<void, RuntimeClientError>;
   /** Delete the schedule. */
-  delete: () => Future<Result<void, RuntimeClientError>>;
+  delete: () => ResultAsync<void, RuntimeClientError>;
   /** Fetch the schedule's current description from the server. */
-  describe: () => Future<Result<ScheduleDescription, RuntimeClientError>>;
+  describe: () => ResultAsync<ScheduleDescription, RuntimeClientError>;
 };
 
 /**
@@ -114,27 +114,23 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
   create<TWorkflowName extends keyof TContract["workflows"]>(
     workflowName: TWorkflowName,
     options: TypedScheduleCreateOptions<TContract, TWorkflowName>,
-  ): Future<
-    Result<
-      TypedScheduleHandle,
-      WorkflowNotFoundError | WorkflowValidationError | RuntimeClientError
-    >
+  ): ResultAsync<
+    TypedScheduleHandle,
+    WorkflowNotFoundError | WorkflowValidationError | RuntimeClientError
   > {
     type Ok = TypedScheduleHandle;
     type Err = WorkflowNotFoundError | WorkflowValidationError | RuntimeClientError;
     const work = async (): Promise<Result<Ok, Err>> => {
       const definition = this.contract.workflows[workflowName as string];
       if (!definition) {
-        return Result.Error(
+        return err(
           new WorkflowNotFoundError(String(workflowName), Object.keys(this.contract.workflows)),
         );
       }
 
       const inputResult = await definition.input["~standard"].validate(options.args);
       if (inputResult.issues) {
-        return Result.Error(
-          new WorkflowValidationError(String(workflowName), "input", inputResult.issues),
-        );
+        return err(new WorkflowValidationError(String(workflowName), "input", inputResult.issues));
       }
 
       try {
@@ -172,12 +168,12 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
           ...(options.state !== undefined ? { state: options.state } : {}),
           ...(options.memo !== undefined ? { memo: options.memo } : {}),
         });
-        return Result.Ok(wrapScheduleHandle(handle));
+        return ok(wrapScheduleHandle(handle));
       } catch (error) {
-        return Result.Error(new RuntimeClientError("schedule.create", error));
+        return err(new RuntimeClientError("schedule.create", error));
       }
     };
-    return makeFuture(work);
+    return makeResultAsync(work);
   }
 
   /**
@@ -194,23 +190,28 @@ function wrapScheduleHandle(handle: ScheduleHandle): TypedScheduleHandle {
   return {
     scheduleId: handle.scheduleId,
     pause: (note) =>
-      Future.fromPromise(handle.pause(note))
-        .mapError((error) => new RuntimeClientError("schedule.pause", error))
-        .mapOk(() => undefined),
+      ResultAsync.fromPromise(
+        handle.pause(note),
+        (error) => new RuntimeClientError("schedule.pause", error),
+      ).map(() => undefined),
     unpause: (note) =>
-      Future.fromPromise(handle.unpause(note))
-        .mapError((error) => new RuntimeClientError("schedule.unpause", error))
-        .mapOk(() => undefined),
+      ResultAsync.fromPromise(
+        handle.unpause(note),
+        (error) => new RuntimeClientError("schedule.unpause", error),
+      ).map(() => undefined),
     trigger: (overlap) =>
-      Future.fromPromise(handle.trigger(overlap))
-        .mapError((error) => new RuntimeClientError("schedule.trigger", error))
-        .mapOk(() => undefined),
+      ResultAsync.fromPromise(
+        handle.trigger(overlap),
+        (error) => new RuntimeClientError("schedule.trigger", error),
+      ).map(() => undefined),
     delete: () =>
-      Future.fromPromise(handle.delete())
-        .mapError((error) => new RuntimeClientError("schedule.delete", error))
-        .mapOk(() => undefined),
+      ResultAsync.fromPromise(
+        handle.delete(),
+        (error) => new RuntimeClientError("schedule.delete", error),
+      ).map(() => undefined),
     describe: () =>
-      Future.fromPromise(handle.describe()).mapError(
+      ResultAsync.fromPromise(
+        handle.describe(),
         (error) => new RuntimeClientError("schedule.describe", error),
       ),
   };

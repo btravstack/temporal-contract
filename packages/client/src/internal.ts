@@ -5,10 +5,10 @@
  * `exports` map, so consumers can't import from `@temporal-contract/client/internal`.
  * In-package modules and tests import it directly via relative path.
  */
-import { Future, Result } from "@swan-io/boxed";
 import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
 import { WorkflowFailedError as TemporalWorkflowFailedError } from "@temporalio/client";
 import { WorkflowNotFoundError as TemporalWorkflowNotFoundError } from "@temporalio/common";
+import { ResultAsync, type Result, err } from "neverthrow";
 import {
   RuntimeClientError,
   WorkflowAlreadyStartedError,
@@ -17,27 +17,23 @@ import {
 } from "./errors.js";
 
 /**
- * Wrap an async result-producing function in a `Future`, catching any
+ * Wrap an async result-producing function in a `ResultAsync`, catching any
  * unhandled rejection as a `RuntimeClientError("unexpected", error)`.
  *
  * The work function is expected to handle its own domain errors and return
- * a `Result.Error(...)` for them; the catch here is a safety net for
- * thrown exceptions the work didn't anticipate.
+ * an `err(...)` for them; the catch here is a safety net for thrown
+ * exceptions the work didn't anticipate.
  *
  * Used by `client.ts` (workflow operations) and `schedule.ts` (schedule
  * operations) so the unexpected-rejection shape is identical across the
  * typed client surface.
  */
-export function makeFuture<T, E>(
+export function makeResultAsync<T, E>(
   work: () => Promise<Result<T, E>>,
-): Future<Result<T, E | RuntimeClientError>> {
-  return Future.make((resolve) => {
-    work()
-      .then(resolve)
-      .catch((e: unknown) =>
-        resolve(Result.Error<T, E | RuntimeClientError>(new RuntimeClientError("unexpected", e))),
-      );
-  });
+): ResultAsync<T, E | RuntimeClientError> {
+  return new ResultAsync<T, E | RuntimeClientError>(
+    work().catch((e: unknown) => err(new RuntimeClientError("unexpected", e))),
+  );
 }
 
 /**

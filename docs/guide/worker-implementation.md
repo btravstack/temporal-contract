@@ -31,41 +31,35 @@ sequenceDiagram
 
 ## Activities Handler
 
-Create a handler for all activities using the Result/Future pattern:
+Create a handler for all activities using `ResultAsync`:
 
 ```typescript
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 import { myContract } from "./contract";
 
 export const activities = declareActivitiesHandler({
   contract: myContract,
   activities: {
-    // Global activities - use Future/Result for explicit error handling
-    sendEmail: ({ to, subject, body }) => {
-      return Future.fromPromise(emailService.send({ to, subject, body }))
-        .mapError((error) =>
-          ApplicationFailure.create({
-            type: "EMAIL_FAILED",
-            message: error instanceof Error ? error.message : "Failed to send email",
-            cause: error,
-          }),
-        )
-        .mapOk(() => ({ sent: true }));
-    },
+    // Global activities - use ResultAsync for explicit error handling
+    sendEmail: ({ to, subject, body }) =>
+      ResultAsync.fromPromise(emailService.send({ to, subject, body }), (error) =>
+        ApplicationFailure.create({
+          type: "EMAIL_FAILED",
+          message: error instanceof Error ? error.message : "Failed to send email",
+          cause: error instanceof Error ? error : undefined,
+        }),
+      ).map(() => ({ sent: true })),
 
     // Workflow-specific activities
-    processPayment: ({ customerId, amount }) => {
-      return Future.fromPromise(paymentGateway.charge(customerId, amount))
-        .mapError((error) =>
-          ApplicationFailure.create({
-            type: "PAYMENT_FAILED",
-            message: error instanceof Error ? error.message : "Payment failed",
-            cause: error,
-          }),
-        )
-        .mapOk((txId) => ({ transactionId: txId, success: true }));
-    },
+    processPayment: ({ customerId, amount }) =>
+      ResultAsync.fromPromise(paymentGateway.charge(customerId, amount), (error) =>
+        ApplicationFailure.create({
+          type: "PAYMENT_FAILED",
+          message: error instanceof Error ? error.message : "Payment failed",
+          cause: error instanceof Error ? error : undefined,
+        }),
+      ).map((txId) => ({ transactionId: txId, success: true })),
   },
 });
 ```
@@ -73,7 +67,7 @@ export const activities = declareActivitiesHandler({
 ## Working with the Activity Context
 
 `declareActivitiesHandler` accepts implementations in the
-`Future<Result<T, ApplicationFailure>>` shape and wraps each one into an
+`ResultAsync<T, ApplicationFailure>` shape and wraps each one into an
 ordinary Promise-returning Temporal activity (Temporal sees a normal
 `(args) => Promise<Output>` handler at the runtime boundary). The
 wrapper does **not** hide Temporal's `@temporalio/activity` runtime —
@@ -94,38 +88,35 @@ often you heartbeat, so size both timeouts with the activity's worst-
 case runtime in mind.
 
 Call `Context.current().heartbeat(details)` from inside your
-`Future`-returning body — heartbeats are independent of the
-Result/Future wrapping. The example below uses the inline-implementation
+`ResultAsync`-returning body — heartbeats are independent of the
+`Result` wrapping. The example below uses the inline-implementation
 pattern: TypeScript infers each activity's input/output shape from the
 contract via `declareActivitiesHandler`'s `activities` parameter, so no
 extra annotation is needed.
 
 ```typescript
 import { Context } from "@temporalio/activity";
-import { Future } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
 import { reportContract } from "./contract";
 
 export const activities = declareActivitiesHandler({
   contract: reportContract,
   activities: {
-    exportLargeReport: ({ reportId }) => {
-      return Future.fromPromise(
+    exportLargeReport: ({ reportId }) =>
+      ResultAsync.fromPromise(
         runExport(reportId, ({ chunkIndex }) => {
           // Heartbeat the most recent progress checkpoint. Temporal records
           // this as the activity's `heartbeatDetails` for the next attempt.
           Context.current().heartbeat({ chunkIndex });
         }),
-      )
-        .mapError((error) =>
+        (error) =>
           ApplicationFailure.create({
             type: "EXPORT_FAILED",
             message: error instanceof Error ? error.message : "Export failed",
-            cause: error,
+            cause: error instanceof Error ? error : undefined,
           }),
-        )
-        .mapOk(({ rowCount }) => ({ rowCount }));
-    },
+      ).map(({ rowCount }) => ({ rowCount })),
   },
 });
 ```
@@ -143,7 +134,7 @@ attempt already completed:
 
 ```typescript
 import { Context } from "@temporalio/activity";
-import { Future } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
 import { reportContract } from "./contract";
 
@@ -158,15 +149,13 @@ export const activities = declareActivitiesHandler({
       const last = Context.current().heartbeatDetails as { chunkIndex: number } | undefined;
       const startFrom = last?.chunkIndex ?? 0;
 
-      return Future.fromPromise(runExport(reportId, { startFrom }))
-        .mapError((error) =>
-          ApplicationFailure.create({
-            type: "EXPORT_FAILED",
-            message: error instanceof Error ? error.message : "Export failed",
-            cause: error,
-          }),
-        )
-        .mapOk(({ rowCount }) => ({ rowCount }));
+      return ResultAsync.fromPromise(runExport(reportId, { startFrom }), (error) =>
+        ApplicationFailure.create({
+          type: "EXPORT_FAILED",
+          message: error instanceof Error ? error.message : "Export failed",
+          cause: error instanceof Error ? error : undefined,
+        }),
+      ).map(({ rowCount }) => ({ rowCount }));
     },
   },
 });
@@ -181,7 +170,7 @@ behavior:
 
 ```typescript
 import { Context } from "@temporalio/activity";
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
 import { paymentContract } from "./contract";
 
@@ -195,15 +184,13 @@ export const activities = declareActivitiesHandler({
         workflowId: workflowExecution.workflowId,
         orderId,
       });
-      return Future.fromPromise(paymentGateway.charge(orderId, amount))
-        .mapError((error) =>
-          ApplicationFailure.create({
-            type: "PAYMENT_FAILED",
-            message: error instanceof Error ? error.message : "Payment failed",
-            cause: error,
-          }),
-        )
-        .mapOk((transactionId) => ({ transactionId }));
+      return ResultAsync.fromPromise(paymentGateway.charge(orderId, amount), (error) =>
+        ApplicationFailure.create({
+          type: "PAYMENT_FAILED",
+          message: error instanceof Error ? error.message : "Payment failed",
+          cause: error instanceof Error ? error : undefined,
+        }),
+      ).map((transactionId) => ({ transactionId }));
     },
   },
 });
@@ -227,17 +214,17 @@ Two outcomes need to coexist inside the activity body:
   `ApplicationFailure` so the regular retry/error semantics still apply.
 
 The cleanest shape is an inner `async` function that throws either
-class. `Future.fromPromise` converts the rejection into a
-`Result.Error`, the activity wrapper rethrows whatever it finds there,
-and Temporal's runtime recognizes the `CompleteAsyncError` class
-unchanged. The `<never, ApplicationFailure>` type parameters acknowledge
-that the contract advertises `ApplicationFailure` in the error slot — the
+class. `ResultAsync.fromPromise` converts the rejection into an `Err`,
+the activity wrapper rethrows whatever it finds there, and Temporal's
+runtime recognizes the `CompleteAsyncError` class unchanged. The
+`<never, ApplicationFailure>` type parameters acknowledge that the
+contract advertises `ApplicationFailure` in the error slot — the
 `CompleteAsyncError` is a runtime-only signal that never reaches the
 caller, so the assertion is safe.
 
 ```typescript
 import { Context, CompleteAsyncError } from "@temporalio/activity";
-import { Future } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
 import { approvalContract } from "./contract";
 
@@ -247,7 +234,7 @@ export const activities = declareActivitiesHandler({
     awaitApproval: ({ requestId }) => {
       const taskToken = Context.current().info.taskToken;
 
-      return Future.fromPromise<never, ApplicationFailure>(
+      return ResultAsync.fromPromise<never, ApplicationFailure>(
         (async () => {
           try {
             await enqueueApprovalRequest({ requestId, taskToken });
@@ -263,6 +250,7 @@ export const activities = declareActivitiesHandler({
           // CompleteAsyncError class after the wrapper rethrows it.
           throw new CompleteAsyncError();
         })(),
+        (e) => e as ApplicationFailure,
       );
     },
   },
@@ -431,7 +419,7 @@ implementation: async (context, args) => {
 
 ## Child Workflows
 
-Execute child workflows with type-safe Future/Result pattern. Child workflows can be from the same contract or from a different contract (cross-worker communication).
+Execute child workflows with the type-safe `Result` / `ResultAsync` pattern. Child workflows can be from the same contract or from a different contract (cross-worker communication).
 
 ```mermaid
 graph TB
@@ -474,10 +462,10 @@ export const parentWorkflow = declareWorkflow({
       args: { amount: args.totalAmount },
     });
 
-    result.match({
-      Ok: (output) => console.log("Payment processed:", output),
-      Error: (error) => console.error("Payment failed:", error),
-    });
+    result.match(
+      (output) => console.log("Payment processed:", output),
+      (error) => console.error("Payment failed:", error),
+    );
 
     return { success: true };
   },
@@ -500,7 +488,7 @@ export const orderWorkflow = declareWorkflow({
       args: { amount: args.total },
     });
 
-    if (paymentResult.isError()) {
+    if (paymentResult.isErr()) {
       return { status: "failed", reason: "payment" };
     }
 
@@ -538,16 +526,16 @@ export const orderWorkflow = declareWorkflow({
       args: { to: args.customerEmail, subject: "Order received" },
     });
 
-    handleResult.match({
-      Ok: async (handle) => {
+    handleResult.match(
+      async (handle) => {
         // Child workflow started successfully
         // Can wait for result later if needed
         const result = await handle.result();
       },
-      Error: (error) => {
+      (error) => {
         console.error("Failed to start notification:", error);
       },
-    });
+    );
 
     return { success: true };
   },
@@ -564,12 +552,12 @@ const result = await context.executeChildWorkflow(myContract, "processPayment", 
   args: { amount: 100 },
 });
 
-result.match({
-  Ok: (output) => {
+result.match(
+  (output) => {
     // Child workflow completed successfully
     console.log("Transaction ID:", output.transactionId);
   },
-  Error: (error) => {
+  (error) => {
     // Handle child workflow errors
     if (error instanceof ChildWorkflowNotFoundError) {
       console.error("Workflow not found in contract");
@@ -577,7 +565,7 @@ result.match({
       console.error("Child workflow failed:", error.message);
     }
   },
-});
+);
 ```
 
 ## Best Practices
@@ -588,50 +576,41 @@ Organize activities by domain:
 
 ```typescript
 // activities/payment.ts
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 import { ApplicationFailure } from "@temporal-contract/worker/activity";
 
 export const paymentActivities = {
-  processPayment: ({ customerId, amount }) => {
-    return Future.fromPromise(paymentGateway.charge(customerId, amount))
-      .mapError((err) =>
-        ApplicationFailure.create({
-          type: "PAYMENT_FAILED",
-          message: err.message,
-          cause: err,
-        }),
-      )
-      .mapOk((tx) => ({ transactionId: tx.id }));
-  },
-  refundPayment: ({ transactionId }) => {
-    return Future.fromPromise(paymentGateway.refund(transactionId))
-      .mapError((err) =>
-        ApplicationFailure.create({
-          type: "REFUND_FAILED",
-          message: err.message,
-          cause: err,
-        }),
-      )
-      .mapOk(() => ({ refunded: true }));
-  },
+  processPayment: ({ customerId, amount }) =>
+    ResultAsync.fromPromise(paymentGateway.charge(customerId, amount), (err) =>
+      ApplicationFailure.create({
+        type: "PAYMENT_FAILED",
+        message: err instanceof Error ? err.message : "Payment failed",
+        cause: err instanceof Error ? err : undefined,
+      }),
+    ).map((tx) => ({ transactionId: tx.id })),
+  refundPayment: ({ transactionId }) =>
+    ResultAsync.fromPromise(paymentGateway.refund(transactionId), (err) =>
+      ApplicationFailure.create({
+        type: "REFUND_FAILED",
+        message: err instanceof Error ? err.message : "Refund failed",
+        cause: err instanceof Error ? err : undefined,
+      }),
+    ).map(() => ({ refunded: true })),
 };
 
 // activities/email.ts
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 import { ApplicationFailure } from "@temporal-contract/worker/activity";
 
 export const emailActivities = {
-  sendEmail: ({ to, subject, body }) => {
-    return Future.fromPromise(emailService.send({ to, subject, body }))
-      .mapError((err) =>
-        ApplicationFailure.create({
-          type: "EMAIL_FAILED",
-          message: err.message,
-          cause: err,
-        }),
-      )
-      .mapOk(() => ({ sent: true }));
-  },
+  sendEmail: ({ to, subject, body }) =>
+    ResultAsync.fromPromise(emailService.send({ to, subject, body }), (err) =>
+      ApplicationFailure.create({
+        type: "EMAIL_FAILED",
+        message: err instanceof Error ? err.message : "Email failed",
+        cause: err instanceof Error ? err : undefined,
+      }),
+    ).map(() => ({ sent: true })),
 };
 
 // activities/index.ts
@@ -653,7 +632,7 @@ export const activities = declareActivitiesHandler({
 Make activities testable:
 
 ```typescript
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 import { ApplicationFailure } from "@temporal-contract/worker/activity";
 
 export const createActivities = (services: {
@@ -663,57 +642,48 @@ export const createActivities = (services: {
   declareActivitiesHandler({
     contract: myContract,
     activities: {
-      sendEmail: ({ to, subject, body }) => {
-        return Future.fromPromise(services.emailService.send({ to, subject, body }))
-          .mapError((err) =>
-            ApplicationFailure.create({
-              type: "EMAIL_FAILED",
-              message: err.message,
-              cause: err,
-            }),
-          )
-          .mapOk(() => ({ sent: true }));
-      },
-      processPayment: ({ customerId, amount }) => {
-        return Future.fromPromise(services.paymentGateway.charge(customerId, amount))
-          .mapError((err) =>
-            ApplicationFailure.create({
-              type: "PAYMENT_FAILED",
-              message: err.message,
-              cause: err,
-            }),
-          )
-          .mapOk((txId) => ({ transactionId: txId, success: true }));
-      },
+      sendEmail: ({ to, subject, body }) =>
+        ResultAsync.fromPromise(services.emailService.send({ to, subject, body }), (err) =>
+          ApplicationFailure.create({
+            type: "EMAIL_FAILED",
+            message: err instanceof Error ? err.message : "Email failed",
+            cause: err instanceof Error ? err : undefined,
+          }),
+        ).map(() => ({ sent: true })),
+      processPayment: ({ customerId, amount }) =>
+        ResultAsync.fromPromise(services.paymentGateway.charge(customerId, amount), (err) =>
+          ApplicationFailure.create({
+            type: "PAYMENT_FAILED",
+            message: err instanceof Error ? err.message : "Payment failed",
+            cause: err instanceof Error ? err : undefined,
+          }),
+        ).map((txId) => ({ transactionId: txId, success: true })),
     },
   });
 ```
 
 ### 3. Error Handling
 
-Activities use the Future/Result pattern for explicit error handling:
+Activities use `ResultAsync` for explicit error handling:
 
 ```typescript
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 
 export const activities = declareActivitiesHandler({
   contract: myContract,
   activities: {
-    processPayment: ({ customerId, amount }) => {
-      return Future.fromPromise(paymentGateway.charge(customerId, amount))
-        .mapError((error) => {
-          // Wrap technical errors in ApplicationFailure so Temporal's
-          // retry policy applies; set `nonRetryable: true` for permanent
-          // failures (e.g. card declined) so retries don't fire.
-          return ApplicationFailure.create({
-            type: "PAYMENT_FAILED",
-            message: error instanceof Error ? error.message : "Payment failed",
-            ...(error instanceof Error ? { cause: error } : {}),
-          });
-        })
-        .mapOk((txId) => ({ transactionId: txId, success: true }));
-    },
+    processPayment: ({ customerId, amount }) =>
+      ResultAsync.fromPromise(paymentGateway.charge(customerId, amount), (error) => {
+        // Wrap technical errors in ApplicationFailure so Temporal's
+        // retry policy applies; set `nonRetryable: true` for permanent
+        // failures (e.g. card declined) so retries don't fire.
+        return ApplicationFailure.create({
+          type: "PAYMENT_FAILED",
+          message: error instanceof Error ? error.message : "Payment failed",
+          ...(error instanceof Error ? { cause: error } : {}),
+        });
+      }).map((txId) => ({ transactionId: txId, success: true })),
   },
 });
 ```

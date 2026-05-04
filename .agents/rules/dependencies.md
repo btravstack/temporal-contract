@@ -8,7 +8,7 @@
 | `@temporalio/worker`          | Temporal worker SDK           |
 | `@temporalio/workflow`        | Temporal workflow API         |
 | `@standard-schema/spec`       | Standard Schema specification |
-| `@swan-io/boxed`              | Result and Future types       |
+| `neverthrow`                  | Result and ResultAsync types  |
 | `zod` / `valibot` / `arktype` | Schema validation libraries   |
 | `pino`                        | Structured logging            |
 

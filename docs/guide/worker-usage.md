@@ -9,16 +9,16 @@ The `@temporal-contract/worker` package provides type-safe implementations for w
 ## Installation
 
 ```bash
-pnpm add @temporal-contract/worker @swan-io/boxed
+pnpm add @temporal-contract/worker neverthrow
 ```
 
 ## Implementing Activities
 
-Activities use `@swan-io/boxed` for explicit error handling:
+Activities use `neverthrow` for explicit error handling:
 
 ```typescript
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync, okAsync } from "neverthrow";
 import { myContract } from "./contract";
 
 export const activities = declareActivitiesHandler({
@@ -27,22 +27,19 @@ export const activities = declareActivitiesHandler({
     // Global activities
     log: ({ level, message }) => {
       console.log(`[${level}] ${message}`);
-      return Future.value(Result.Ok(undefined));
+      return okAsync(undefined);
     },
 
     // Workflow-specific activities
     processOrder: {
-      processPayment: ({ customerId, amount }) => {
-        return Future.fromPromise(paymentService.charge(customerId, amount))
-          .mapError((error) =>
-            ApplicationFailure.create({
-              type: "PAYMENT_FAILED",
-              message: error instanceof Error ? error.message : "Payment processing failed",
-              cause: error,
-            }),
-          )
-          .mapOk((result) => ({ transactionId: result.id }));
-      },
+      processPayment: ({ customerId, amount }) =>
+        ResultAsync.fromPromise(paymentService.charge(customerId, amount), (error) =>
+          ApplicationFailure.create({
+            type: "PAYMENT_FAILED",
+            message: error instanceof Error ? error.message : "Payment processing failed",
+            cause: error instanceof Error ? error : undefined,
+          }),
+        ).map((result) => ({ transactionId: result.id })),
     },
   },
 });
@@ -50,7 +47,7 @@ export const activities = declareActivitiesHandler({
 
 ## Implementing Workflows
 
-Workflows must use `@temporal-contract/boxed` for Temporal's deterministic execution requirements. They return plain objects (not Result) due to network serialization. Activities called in workflows return plain values (Result is unwrapped by the framework):
+Workflows return plain objects (not `Result`) due to network serialization. Activities called in workflows return plain values (the `Result` is unwrapped by the framework):
 
 ```typescript
 import { declareWorkflow } from "@temporal-contract/worker/workflow";
@@ -113,22 +110,19 @@ main().catch((error) => {
 
 ```typescript
 import { ApplicationFailure } from "@temporal-contract/worker/activity";
-import { Future } from "@swan-io/boxed";
+import { ResultAsync } from "neverthrow";
 
-processPayment: ({ customerId, amount }) => {
-  return Future.fromPromise(paymentService.charge(customerId, amount))
-    .mapError((error) =>
-      ApplicationFailure.create({
-        type: "PAYMENT_FAILED", // categorizes the failure for retry policies / search
-        message: error instanceof Error ? error.message : "Payment failed",
-        // `nonRetryable: true` would tell Temporal to skip the retry policy
-        // for this attempt — useful for permanent failures like a declined card.
-        nonRetryable: false,
-        ...(error instanceof Error ? { cause: error } : {}),
-      }),
-    )
-    .mapOk((transaction) => ({ transactionId: transaction.id }));
-};
+processPayment: ({ customerId, amount }) =>
+  ResultAsync.fromPromise(paymentService.charge(customerId, amount), (error) =>
+    ApplicationFailure.create({
+      type: "PAYMENT_FAILED", // categorizes the failure for retry policies / search
+      message: error instanceof Error ? error.message : "Payment failed",
+      // `nonRetryable: true` would tell Temporal to skip the retry policy
+      // for this attempt — useful for permanent failures like a declined card.
+      nonRetryable: false,
+      ...(error instanceof Error ? { cause: error } : {}),
+    }),
+  ).map((transaction) => ({ transactionId: transaction.id }));
 ```
 
 ### Error Propagation
@@ -166,7 +160,7 @@ implementation: async (context, args) => {
 
 ## Child Workflows
 
-Execute child workflows with type safety using the Result/Future pattern:
+Execute child workflows with type safety using the `Result` / `ResultAsync` pattern:
 
 ```typescript
 import { declareWorkflow } from "@temporal-contract/worker/workflow";
@@ -176,23 +170,23 @@ export const parentWorkflow = declareWorkflow({
   contract: myContract,
   activityOptions: { startToCloseTimeout: "1 minute" },
   implementation: async (context, args) => {
-    // Execute child workflow - returns Future<Result>
+    // Execute child workflow - returns ResultAsync<T, E>
     const childResult = await context.executeChildWorkflow(myContract, "processPayment", {
       workflowId: `payment-${args.orderId}`,
       args: { amount: args.amount, customerId: args.customerId },
     });
 
-    // Handle the Result with pattern matching
-    return childResult.match({
-      Ok: (output) => ({
+    // Handle the Result with pattern matching (positional callbacks)
+    return childResult.match(
+      (output) => ({
         success: true,
         transactionId: output.transactionId,
       }),
-      Error: (error) => ({
+      (error) => ({
         success: false,
         error: error.message,
       }),
-    });
+    );
   },
 });
 ```
@@ -251,7 +245,6 @@ Test activities and workflows in isolation:
 
 ```typescript
 import { describe, it, expect } from "vitest";
-import { Result } from "@swan-io/boxed";
 import { activities } from "./activities";
 
 describe("Activities", () => {
@@ -261,10 +254,9 @@ describe("Activities", () => {
       amount: 100,
     });
 
-    const value = await result;
-    expect(value.isOk()).toBe(true);
-    if (value.isOk()) {
-      expect(value.value).toEqual({
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({
         transactionId: expect.any(String),
       });
     }
@@ -274,62 +266,53 @@ describe("Activities", () => {
 
 ## Best Practices
 
-### 1. Use Future.fromPromise with mapError/mapOk for Activities
+### 1. Use `ResultAsync.fromPromise` with `.map` / `.mapErr` for Activities
 
-Activities should use `Future.fromPromise` with `mapError` and `mapOk`:
+Activities should pass the error mapper directly to `ResultAsync.fromPromise`
+and chain `.map` for the success path:
 
 ```typescript
-// ✅ Good - explicit error handling with Future.fromPromise
-processPayment: ({ amount }) => {
-  return Future.fromPromise(paymentService.charge(amount))
-    .mapError((err) =>
-      ApplicationFailure.create({
-        type: "PAYMENT_FAILED",
-        message: err.message,
-        cause: err,
-      }),
-    )
-    .mapOk((tx) => ({ transactionId: tx.id }));
-};
+// ✅ Good - explicit error handling with ResultAsync.fromPromise
+processPayment: ({ amount }) =>
+  ResultAsync.fromPromise(paymentService.charge(amount), (err) =>
+    ApplicationFailure.create({
+      type: "PAYMENT_FAILED",
+      message: err instanceof Error ? err.message : "Payment failed",
+      cause: err instanceof Error ? err : undefined,
+    }),
+  ).map((tx) => ({ transactionId: tx.id }));
 
-// ❌ Avoid - using Future.make with try/catch
-processPayment: ({ amount }) => {
-  return Future.make(async (resolve) => {
-    try {
-      const tx = await paymentService.charge(amount);
-      resolve(Result.Ok({ transactionId: tx.id }));
-    } catch (err) {
-      resolve(
-        Result.Error(
-          ApplicationFailure.create({
-            type: "PAYMENT_FAILED",
-            message: err.message,
-            cause: err,
-          }),
-        ),
-      );
-    }
-  });
-};
+// ❌ Avoid - hand-rolling a Promise<Result> with try/catch
+processPayment: ({ amount }) =>
+  ResultAsync.fromPromise(
+    (async () => {
+      try {
+        const tx = await paymentService.charge(amount);
+        return ok({ transactionId: tx.id });
+      } catch (err) {
+        return err(/* ... */);
+      }
+    })(),
+    (e) => e,
+  );
 ```
 
 ### 2. Activities Return Plain DTOs (Not Result)
 
-Activities internally use Result, but the framework unwraps them for network serialization:
+Activities internally return a `Result`, but the framework unwraps it for
+network serialization:
 
 ```typescript
-// ✅ Good - activity returns Future<Result<T, ApplicationFailure>>
+// ✅ Good - activity returns ResultAsync<T, ApplicationFailure>
 // Framework unwraps to plain DTO over network
 processPayment: ({ amount }) =>
-  Future.fromPromise(paymentService.charge(amount))
-    .mapError((err) =>
-      ApplicationFailure.create({
-        type: "PAYMENT_FAILED",
-        message: err.message,
-        cause: err,
-      }),
-    )
-    .mapOk((tx) => ({ transactionId: tx.id }));
+  ResultAsync.fromPromise(paymentService.charge(amount), (err) =>
+    ApplicationFailure.create({
+      type: "PAYMENT_FAILED",
+      message: err instanceof Error ? err.message : "Payment failed",
+      cause: err instanceof Error ? err : undefined,
+    }),
+  ).map((tx) => ({ transactionId: tx.id }));
 
 // In the workflow, you receive the plain value:
 const payment = await activities.processPayment({ amount: 100 });
@@ -338,7 +321,7 @@ const payment = await activities.processPayment({ amount: 100 });
 
 ### 3. Workflows Return Plain Objects (Not Result)
 
-Workflows cannot return Result due to network serialization:
+Workflows cannot return `Result` due to network serialization:
 
 ```typescript
 // ✅ Good - return plain object
@@ -350,7 +333,7 @@ implementation: async (context, args) => {
 // ❌ Avoid - returning Result (will lose instance over network)
 implementation: async (context, args) => {
   const payment = await context.activities.processPayment({ amount: 100 });
-  return Result.Ok({ transactionId: payment.transactionId }); // Won't work!
+  return ok({ transactionId: payment.transactionId }); // Won't work!
 };
 ```
 
@@ -372,5 +355,5 @@ ApplicationFailure.create({ type: "ERROR", message: "Something went wrong" });
 
 - [Defining Contracts](/guide/defining-contracts) - Creating contract definitions
 - [Client Usage](/guide/client-usage) - Executing workflows from clients
-- [Result Pattern](/guide/result-pattern) - Understanding Result/Future patterns
+- [Result Pattern](/guide/result-pattern) - Understanding Result/ResultAsync patterns
 - [API Reference](/api/worker) - Complete worker API documentation

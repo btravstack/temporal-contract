@@ -1,10 +1,10 @@
 {
   "name": "@temporal-contract/worker",
   "version": "1.0.0",
-  "description": "Worker utilities with Result/Future pattern for implementing temporal-contract workflows and activities",
+  "description": "Worker utilities with neverthrow Result/ResultAsync for implementing temporal-contract workflows and activities",
   "keywords": [
     "contract",
-    "future",
+    "neverthrow",
     "result",
     "temporal",
     "typescript",
@@ -69,9 +69,8 @@
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:",
-    "@swan-io/boxed": "catalog:",
-    "@temporal-contract/boxed": "workspace:*",
-    "@temporal-contract/contract": "workspace:*"
+    "@temporal-contract/contract": "workspace:*",
+    "neverthrow": "catalog:"
   },
   "devDependencies": {
     "@temporal-contract/client": "workspace:*",

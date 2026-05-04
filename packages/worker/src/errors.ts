@@ -182,13 +182,13 @@ export class ChildWorkflowError extends WorkerError {
 }
 
 /**
- * Error returned in the `Result.Error` branch when a typed cancellation
- * scope is cancelled via Temporal's cancellation propagation. Returned by
- * both `context.cancellableScope` (when the workflow or an ancestor scope
- * cancels) and `context.nonCancellableScope` (when cancellation is raised
- * from inside the scope). Distinct from arbitrary thrown errors so call
- * sites can branch on cancellation explicitly while still surfacing
- * non-cancellation errors as Future rejections.
+ * Error surfaced in the `err(...)` branch of a `ResultAsync` when a typed
+ * cancellation scope is cancelled via Temporal's cancellation propagation.
+ * Returned by both `context.cancellableScope` (when the workflow or an
+ * ancestor scope cancels) and `context.nonCancellableScope` (when
+ * cancellation is raised from inside the scope). Distinct from arbitrary
+ * thrown errors so call sites can branch on cancellation explicitly while
+ * still surfacing non-cancellation errors as ResultAsync rejections.
  */
 export class WorkflowCancelledError extends WorkerError {
   constructor(cause?: unknown) {

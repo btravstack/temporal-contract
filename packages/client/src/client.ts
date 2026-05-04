@@ -20,7 +20,7 @@ import type {
   ClientInferWorkflowSignals,
   ClientInferWorkflowUpdates,
 } from "./types.js";
-import { Future, Result } from "@swan-io/boxed";
+import { ResultAsync, type Result, ok, err } from "neverthrow";
 import {
   WorkflowAlreadyStartedError,
   WorkflowExecutionNotFoundError,
@@ -37,7 +37,7 @@ import {
   classifyHandleError,
   classifyResultError,
   classifyStartError,
-  makeFuture,
+  makeResultAsync,
 } from "./internal.js";
 import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
 import { WorkflowFailedError as TemporalWorkflowFailedError } from "@temporalio/client";
@@ -147,55 +147,58 @@ function toTypedSearchAttributes(
 }
 
 /**
- * Typed workflow handle with validated results using Result/Future pattern
+ * Typed workflow handle with validated results using neverthrow Result/ResultAsync
  */
 export type TypedWorkflowHandle<TWorkflow extends WorkflowDefinition> = {
   workflowId: string;
 
   /**
    * Type-safe queries based on workflow definition with Result pattern
-   * Each query returns Future<Result<T, Error>> instead of Promise<T>
+   * Each query returns ResultAsync<T, Error> instead of Promise<T>
    */
   queries: {
     [K in keyof ClientInferWorkflowQueries<TWorkflow>]: ClientInferWorkflowQueries<TWorkflow>[K] extends (
       ...args: infer Args
-    ) => Future<Result<infer R, Error>>
+    ) => ResultAsync<infer R, Error>
       ? (
           ...args: Args
-        ) => Future<
-          Result<R, QueryValidationError | WorkflowExecutionNotFoundError | RuntimeClientError>
+        ) => ResultAsync<
+          R,
+          QueryValidationError | WorkflowExecutionNotFoundError | RuntimeClientError
         >
       : never;
   };
 
   /**
    * Type-safe signals based on workflow definition with Result pattern
-   * Each signal returns Future<Result<void, Error>> instead of Promise<void>
+   * Each signal returns ResultAsync<void, Error> instead of Promise<void>
    */
   signals: {
     [K in keyof ClientInferWorkflowSignals<TWorkflow>]: ClientInferWorkflowSignals<TWorkflow>[K] extends (
       ...args: infer Args
-    ) => Future<Result<void, Error>>
+    ) => ResultAsync<void, Error>
       ? (
           ...args: Args
-        ) => Future<
-          Result<void, SignalValidationError | WorkflowExecutionNotFoundError | RuntimeClientError>
+        ) => ResultAsync<
+          void,
+          SignalValidationError | WorkflowExecutionNotFoundError | RuntimeClientError
         >
       : never;
   };
 
   /**
    * Type-safe updates based on workflow definition with Result pattern
-   * Each update returns Future<Result<T, Error>> instead of Promise<T>
+   * Each update returns ResultAsync<T, Error> instead of Promise<T>
    */
   updates: {
     [K in keyof ClientInferWorkflowUpdates<TWorkflow>]: ClientInferWorkflowUpdates<TWorkflow>[K] extends (
       ...args: infer Args
-    ) => Future<Result<infer R, Error>>
+    ) => ResultAsync<infer R, Error>
       ? (
           ...args: Args
-        ) => Future<
-          Result<R, UpdateValidationError | WorkflowExecutionNotFoundError | RuntimeClientError>
+        ) => ResultAsync<
+          R,
+          UpdateValidationError | WorkflowExecutionNotFoundError | RuntimeClientError
         >
       : never;
   };
@@ -203,14 +206,12 @@ export type TypedWorkflowHandle<TWorkflow extends WorkflowDefinition> = {
   /**
    * Get workflow result with Result pattern
    */
-  result: () => Future<
-    Result<
-      ClientInferOutput<TWorkflow>,
-      | WorkflowValidationError
-      | WorkflowFailedError
-      | WorkflowExecutionNotFoundError
-      | RuntimeClientError
-    >
+  result: () => ResultAsync<
+    ClientInferOutput<TWorkflow>,
+    | WorkflowValidationError
+    | WorkflowFailedError
+    | WorkflowExecutionNotFoundError
+    | RuntimeClientError
   >;
 
   /**
@@ -218,36 +219,32 @@ export type TypedWorkflowHandle<TWorkflow extends WorkflowDefinition> = {
    */
   terminate: (
     reason?: string,
-  ) => Future<Result<void, WorkflowExecutionNotFoundError | RuntimeClientError>>;
+  ) => ResultAsync<void, WorkflowExecutionNotFoundError | RuntimeClientError>;
 
   /**
    * Cancel workflow with Result pattern
    */
-  cancel: () => Future<Result<void, WorkflowExecutionNotFoundError | RuntimeClientError>>;
+  cancel: () => ResultAsync<void, WorkflowExecutionNotFoundError | RuntimeClientError>;
 
   /**
    * Get workflow execution description including status and metadata
    */
-  describe: () => Future<
-    Result<
-      Awaited<ReturnType<WorkflowHandle["describe"]>>,
-      WorkflowExecutionNotFoundError | RuntimeClientError
-    >
+  describe: () => ResultAsync<
+    Awaited<ReturnType<WorkflowHandle["describe"]>>,
+    WorkflowExecutionNotFoundError | RuntimeClientError
   >;
 
   /**
    * Fetch the workflow execution history
    */
-  fetchHistory: () => Future<
-    Result<
-      Awaited<ReturnType<WorkflowHandle["fetchHistory"]>>,
-      WorkflowExecutionNotFoundError | RuntimeClientError
-    >
+  fetchHistory: () => ResultAsync<
+    Awaited<ReturnType<WorkflowHandle["fetchHistory"]>>,
+    WorkflowExecutionNotFoundError | RuntimeClientError
   >;
 };
 
 /**
- * Typed Temporal client with Result/Future pattern based on a contract
+ * Typed Temporal client with neverthrow Result/ResultAsync pattern based on a contract
  *
  * Provides type-safe methods to start and execute workflows
  * defined in the contract, with explicit error handling using Result pattern.
@@ -271,10 +268,10 @@ export class TypedClient<TContract extends ContractDefinition> {
    *   args: { orderId: "sweep" },
    * });
    *
-   * result.match({
-   *   Ok: async (handle) => { await handle.pause("maintenance"); },
-   *   Error: (error) => console.error("schedule create failed", error),
-   * });
+   * result.match(
+   *   async (handle) => { await handle.pause("maintenance"); },
+   *   (error) => console.error("schedule create failed", error),
+   * );
    * ```
    */
   readonly schedule: TypedScheduleClient<TContract>;
@@ -298,7 +295,7 @@ export class TypedClient<TContract extends ContractDefinition> {
   }
 
   /**
-   * Create a typed Temporal client with boxed pattern from a contract
+   * Create a typed Temporal client with neverthrow pattern from a contract
    *
    * @example
    * ```ts
@@ -311,10 +308,10 @@ export class TypedClient<TContract extends ContractDefinition> {
    *   args: { ... },
    * });
    *
-   * result.match({
-   *   Ok: (output) => console.log('Success:', output),
-   *   Error: (error) => console.error('Failed:', error),
-   * });
+   * result.match(
+   *   (output) => console.log('Success:', output),
+   *   (error) => console.error('Failed:', error),
+   * );
    * ```
    */
   static create<TContract extends ContractDefinition>(
@@ -325,7 +322,7 @@ export class TypedClient<TContract extends ContractDefinition> {
   }
 
   /**
-   * Start a workflow and return a typed handle with Future pattern
+   * Start a workflow and return a typed handle with ResultAsync pattern
    *
    * @example
    * ```ts
@@ -336,13 +333,13 @@ export class TypedClient<TContract extends ContractDefinition> {
    *   retry: { maximumAttempts: 3 },
    * });
    *
-   * handleResult.match({
-   *   Ok: async (handle) => {
+   * handleResult.match(
+   *   async (handle) => {
    *     const result = await handle.result();
    *     // ... handle result
    *   },
-   *   Error: (error) => console.error('Failed to start:', error),
-   * });
+   *   (error) => console.error('Failed to start:', error),
+   * );
    * ```
    */
   startWorkflow<TWorkflowName extends keyof TContract["workflows"]>(
@@ -352,14 +349,12 @@ export class TypedClient<TContract extends ContractDefinition> {
       searchAttributes,
       ...temporalOptions
     }: TypedWorkflowStartOptions<TContract, TWorkflowName>,
-  ): Future<
-    Result<
-      TypedWorkflowHandle<TContract["workflows"][TWorkflowName]>,
-      | WorkflowNotFoundError
-      | WorkflowValidationError
-      | WorkflowAlreadyStartedError
-      | RuntimeClientError
-    >
+  ): ResultAsync<
+    TypedWorkflowHandle<TContract["workflows"][TWorkflowName]>,
+    | WorkflowNotFoundError
+    | WorkflowValidationError
+    | WorkflowAlreadyStartedError
+    | RuntimeClientError
   > {
     type Ok = TypedWorkflowHandle<TContract["workflows"][TWorkflowName]>;
     type Err =
@@ -370,14 +365,12 @@ export class TypedClient<TContract extends ContractDefinition> {
     const work = async (): Promise<Result<Ok, Err>> => {
       const definition = this.contract.workflows[workflowName as string];
       if (!definition) {
-        return Result.Error(createWorkflowNotFoundError(workflowName, this.contract));
+        return err(createWorkflowNotFoundError(workflowName, this.contract));
       }
 
       const inputResult = await definition.input["~standard"].validate(args);
       if (inputResult.issues) {
-        return Result.Error(
-          createWorkflowValidationError(workflowName, "input", inputResult.issues),
-        );
+        return err(createWorkflowValidationError(workflowName, "input", inputResult.issues));
       }
 
       const typedSearchAttributes = toTypedSearchAttributes(
@@ -392,12 +385,12 @@ export class TypedClient<TContract extends ContractDefinition> {
           args: [inputResult.value],
           ...(typedSearchAttributes ? { typedSearchAttributes } : {}),
         });
-        return Result.Ok(this.createTypedHandle(handle, definition) as Ok);
+        return ok(this.createTypedHandle(handle, definition) as Ok);
       } catch (error) {
-        return Result.Error(classifyStartError("startWorkflow", error));
+        return err(classifyStartError("startWorkflow", error));
       }
     };
-    return makeFuture(work);
+    return makeResultAsync(work);
   }
 
   /**
@@ -420,10 +413,10 @@ export class TypedClient<TContract extends ContractDefinition> {
    *   signalArgs: { reason: 'duplicate' },
    * });
    *
-   * result.match({
-   *   Ok: (handle) => console.log('signaled run', handle.signaledRunId),
-   *   Error: (error) => console.error('signalWithStart failed', error),
-   * });
+   * result.match(
+   *   (handle) => console.log('signaled run', handle.signaledRunId),
+   *   (error) => console.error('signalWithStart failed', error),
+   * );
    * ```
    */
   signalWithStart<
@@ -438,15 +431,13 @@ export class TypedClient<TContract extends ContractDefinition> {
       searchAttributes,
       ...temporalOptions
     }: TypedSignalWithStartOptions<TContract, TWorkflowName, TSignalName>,
-  ): Future<
-    Result<
-      TypedWorkflowHandleWithSignaledRunId<TContract["workflows"][TWorkflowName]>,
-      | WorkflowNotFoundError
-      | WorkflowValidationError
-      | SignalValidationError
-      | WorkflowAlreadyStartedError
-      | RuntimeClientError
-    >
+  ): ResultAsync<
+    TypedWorkflowHandleWithSignaledRunId<TContract["workflows"][TWorkflowName]>,
+    | WorkflowNotFoundError
+    | WorkflowValidationError
+    | SignalValidationError
+    | WorkflowAlreadyStartedError
+    | RuntimeClientError
   > {
     type Ok = TypedWorkflowHandleWithSignaledRunId<TContract["workflows"][TWorkflowName]>;
     type Err =
@@ -459,15 +450,13 @@ export class TypedClient<TContract extends ContractDefinition> {
     const work = async (): Promise<Result<Ok, Err>> => {
       const definition = this.contract.workflows[workflowName as string];
       if (!definition) {
-        return Result.Error(createWorkflowNotFoundError(workflowName, this.contract));
+        return err(createWorkflowNotFoundError(workflowName, this.contract));
       }
 
       // Validate workflow input
       const inputResult = await definition.input["~standard"].validate(args);
       if (inputResult.issues) {
-        return Result.Error(
-          createWorkflowValidationError(workflowName, "input", inputResult.issues),
-        );
+        return err(createWorkflowValidationError(workflowName, "input", inputResult.issues));
       }
 
       // Validate signal input
@@ -477,7 +466,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       if (!signalDef) {
         // Type-level constraint should already prevent this; defensive for
         // raw-call / union-typed-name corner cases.
-        return Result.Error(
+        return err(
           new SignalValidationError(signalName, [
             {
               message: `Signal "${signalName}" is not declared on workflow "${String(workflowName)}".`,
@@ -487,7 +476,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       }
       const signalInputResult = await signalDef.input["~standard"].validate(signalArgs);
       if (signalInputResult.issues) {
-        return Result.Error(new SignalValidationError(signalName, signalInputResult.issues));
+        return err(new SignalValidationError(signalName, signalInputResult.issues));
       }
 
       const typedSearchAttributes = toTypedSearchAttributes(
@@ -507,16 +496,16 @@ export class TypedClient<TContract extends ContractDefinition> {
         const typed = this.createTypedHandle(handle, definition) as TypedWorkflowHandle<
           TContract["workflows"][TWorkflowName]
         >;
-        return Result.Ok({ ...typed, signaledRunId: handle.signaledRunId } as Ok);
+        return ok({ ...typed, signaledRunId: handle.signaledRunId } as Ok);
       } catch (error) {
-        return Result.Error(classifyStartError("signalWithStart", error));
+        return err(classifyStartError("signalWithStart", error));
       }
     };
-    return makeFuture(work);
+    return makeResultAsync(work);
   }
 
   /**
-   * Execute a workflow (start and wait for result) with Future/Result pattern
+   * Execute a workflow (start and wait for result) with ResultAsync pattern
    *
    * @example
    * ```ts
@@ -527,10 +516,10 @@ export class TypedClient<TContract extends ContractDefinition> {
    *   retry: { maximumAttempts: 3 },
    * });
    *
-   * result.match({
-   *   Ok: (output) => console.log('Order processed:', output.status),
-   *   Error: (error) => console.error('Processing failed:', error),
-   * });
+   * result.match(
+   *   (output) => console.log('Order processed:', output.status),
+   *   (error) => console.error('Processing failed:', error),
+   * );
    * ```
    */
   executeWorkflow<TWorkflowName extends keyof TContract["workflows"]>(
@@ -540,16 +529,14 @@ export class TypedClient<TContract extends ContractDefinition> {
       searchAttributes,
       ...temporalOptions
     }: TypedWorkflowStartOptions<TContract, TWorkflowName>,
-  ): Future<
-    Result<
-      ClientInferOutput<TContract["workflows"][TWorkflowName]>,
-      | WorkflowNotFoundError
-      | WorkflowValidationError
-      | WorkflowAlreadyStartedError
-      | WorkflowFailedError
-      | WorkflowExecutionNotFoundError
-      | RuntimeClientError
-    >
+  ): ResultAsync<
+    ClientInferOutput<TContract["workflows"][TWorkflowName]>,
+    | WorkflowNotFoundError
+    | WorkflowValidationError
+    | WorkflowAlreadyStartedError
+    | WorkflowFailedError
+    | WorkflowExecutionNotFoundError
+    | RuntimeClientError
   > {
     type Ok = ClientInferOutput<TContract["workflows"][TWorkflowName]>;
     type Err =
@@ -562,14 +549,12 @@ export class TypedClient<TContract extends ContractDefinition> {
     const work = async (): Promise<Result<Ok, Err>> => {
       const definition = this.contract.workflows[workflowName as string];
       if (!definition) {
-        return Result.Error(createWorkflowNotFoundError(workflowName, this.contract));
+        return err(createWorkflowNotFoundError(workflowName, this.contract));
       }
 
       const inputResult = await definition.input["~standard"].validate(args);
       if (inputResult.issues) {
-        return Result.Error(
-          createWorkflowValidationError(workflowName, "input", inputResult.issues),
-        );
+        return err(createWorkflowValidationError(workflowName, "input", inputResult.issues));
       }
 
       const typedSearchAttributes = toTypedSearchAttributes(
@@ -587,31 +572,27 @@ export class TypedClient<TContract extends ContractDefinition> {
 
         const outputResult = await definition.output["~standard"].validate(result);
         if (outputResult.issues) {
-          return Result.Error(
-            createWorkflowValidationError(workflowName, "output", outputResult.issues),
-          );
+          return err(createWorkflowValidationError(workflowName, "output", outputResult.issues));
         }
 
-        return Result.Ok(outputResult.value as Ok);
+        return ok(outputResult.value as Ok);
       } catch (error) {
         // executeWorkflow combines start + result, so it can surface any of
         // the discriminated kinds. Inline the three checks rather than
         // routing through a dedicated helper — this is the only call site
         // that needs the full union.
         if (error instanceof WorkflowExecutionAlreadyStartedError) {
-          return Result.Error(
-            new WorkflowAlreadyStartedError(error.workflowType, error.workflowId, error),
-          );
+          return err(new WorkflowAlreadyStartedError(error.workflowType, error.workflowId, error));
         }
         if (error instanceof TemporalWorkflowFailedError) {
           // Forward Temporal's nested cause directly — see
           // {@link classifyResultError} for the same rationale: Temporal's
           // `WorkflowFailedError` is a wrapper, and the actionable failure
           // (ApplicationFailure, CancelledFailure, etc.) lives on `.cause`.
-          return Result.Error(new WorkflowFailedError(temporalOptions.workflowId, error.cause));
+          return err(new WorkflowFailedError(temporalOptions.workflowId, error.cause));
         }
         if (error instanceof TemporalWorkflowNotFoundError) {
-          return Result.Error(
+          return err(
             new WorkflowExecutionNotFoundError(
               error.workflowId || temporalOptions.workflowId,
               error.runId,
@@ -619,52 +600,50 @@ export class TypedClient<TContract extends ContractDefinition> {
             ),
           );
         }
-        return Result.Error(createRuntimeClientError("executeWorkflow", error));
+        return err(createRuntimeClientError("executeWorkflow", error));
       }
     };
-    return makeFuture(work);
+    return makeResultAsync(work);
   }
 
   /**
-   * Get a handle to an existing workflow with Future/Result pattern
+   * Get a handle to an existing workflow with ResultAsync pattern
    *
    * @example
    * ```ts
    * const handleResult = await client.getHandle('processOrder', 'order-123');
-   * handleResult.match({
-   *   Ok: async (handle) => {
+   * handleResult.match(
+   *   async (handle) => {
    *     const result = await handle.result();
    *     // ... handle result
    *   },
-   *   Error: (error) => console.error('Failed to get handle:', error),
-   * });
+   *   (error) => console.error('Failed to get handle:', error),
+   * );
    * ```
    */
   getHandle<TWorkflowName extends keyof TContract["workflows"]>(
     workflowName: TWorkflowName,
     workflowId: string,
-  ): Future<
-    Result<
-      TypedWorkflowHandle<TContract["workflows"][TWorkflowName]>,
-      WorkflowNotFoundError | RuntimeClientError
-    >
+  ): ResultAsync<
+    TypedWorkflowHandle<TContract["workflows"][TWorkflowName]>,
+    WorkflowNotFoundError | RuntimeClientError
   > {
     type Ok = TypedWorkflowHandle<TContract["workflows"][TWorkflowName]>;
     type Err = WorkflowNotFoundError | RuntimeClientError;
     const work = async (): Promise<Result<Ok, Err>> => {
       const definition = this.contract.workflows[workflowName as string];
       if (!definition) {
-        return Result.Error(createWorkflowNotFoundError(workflowName, this.contract));
+        return err(createWorkflowNotFoundError(workflowName, this.contract));
       }
 
       try {
         const handle = this.client.workflow.getHandle(workflowId);
-        return Result.Ok(this.createTypedHandle(handle, definition) as Ok);
+        return ok(this.createTypedHandle(handle, definition) as Ok);
       } catch (error) {
-        return Result.Error(createRuntimeClientError("getHandle", error));
+        return err(createRuntimeClientError("getHandle", error));
       }
     };
-    return makeFuture(work);
+    return makeResultAsync(work);
   }
 
   private createTypedHandle<TWorkflow extends WorkflowDefinition>(
@@ -708,14 +687,12 @@ export class TypedClient<TContract extends ContractDefinition> {
       queries,
       signals,
       updates,
-      result: (): Future<
-        Result<
-          ClientInferOutput<TWorkflow>,
-          | WorkflowValidationError
-          | WorkflowFailedError
-          | WorkflowExecutionNotFoundError
-          | RuntimeClientError
-        >
+      result: (): ResultAsync<
+        ClientInferOutput<TWorkflow>,
+        | WorkflowValidationError
+        | WorkflowFailedError
+        | WorkflowExecutionNotFoundError
+        | RuntimeClientError
       > => {
         type Ok = ClientInferOutput<TWorkflow>;
         type Err =
@@ -728,7 +705,7 @@ export class TypedClient<TContract extends ContractDefinition> {
             const result = await workflowHandle.result();
             const outputResult = await definition.output["~standard"].validate(result);
             if (outputResult.issues) {
-              return Result.Error(
+              return err(
                 new WorkflowValidationError(
                   workflowHandle.workflowId,
                   "output",
@@ -736,39 +713,35 @@ export class TypedClient<TContract extends ContractDefinition> {
                 ),
               );
             }
-            return Result.Ok(outputResult.value as Ok);
+            return ok(outputResult.value as Ok);
           } catch (error) {
-            return Result.Error(classifyResultError("result", error, workflowHandle.workflowId));
+            return err(classifyResultError("result", error, workflowHandle.workflowId));
           }
         };
-        return makeFuture(work);
+        return makeResultAsync(work);
       },
       terminate: (
         reason?: string,
-      ): Future<Result<void, WorkflowExecutionNotFoundError | RuntimeClientError>> =>
-        Future.fromPromise(workflowHandle.terminate(reason))
-          .mapError((error) => classifyHandleError("terminate", error, workflowHandle.workflowId))
-          .mapOk(() => undefined),
-      cancel: (): Future<Result<void, WorkflowExecutionNotFoundError | RuntimeClientError>> =>
-        Future.fromPromise(workflowHandle.cancel())
-          .mapError((error) => classifyHandleError("cancel", error, workflowHandle.workflowId))
-          .mapOk(() => undefined),
-      describe: (): Future<
-        Result<
-          Awaited<ReturnType<WorkflowHandle["describe"]>>,
-          WorkflowExecutionNotFoundError | RuntimeClientError
-        >
+      ): ResultAsync<void, WorkflowExecutionNotFoundError | RuntimeClientError> =>
+        ResultAsync.fromPromise(workflowHandle.terminate(reason), (error) =>
+          classifyHandleError("terminate", error, workflowHandle.workflowId),
+        ).map(() => undefined),
+      cancel: (): ResultAsync<void, WorkflowExecutionNotFoundError | RuntimeClientError> =>
+        ResultAsync.fromPromise(workflowHandle.cancel(), (error) =>
+          classifyHandleError("cancel", error, workflowHandle.workflowId),
+        ).map(() => undefined),
+      describe: (): ResultAsync<
+        Awaited<ReturnType<WorkflowHandle["describe"]>>,
+        WorkflowExecutionNotFoundError | RuntimeClientError
       > =>
-        Future.fromPromise(workflowHandle.describe()).mapError((error) =>
+        ResultAsync.fromPromise(workflowHandle.describe(), (error) =>
           classifyHandleError("describe", error, workflowHandle.workflowId),
         ),
-      fetchHistory: (): Future<
-        Result<
-          Awaited<ReturnType<WorkflowHandle["fetchHistory"]>>,
-          WorkflowExecutionNotFoundError | RuntimeClientError
-        >
+      fetchHistory: (): ResultAsync<
+        Awaited<ReturnType<WorkflowHandle["fetchHistory"]>>,
+        WorkflowExecutionNotFoundError | RuntimeClientError
       > =>
-        Future.fromPromise(workflowHandle.fetchHistory()).mapError((error) =>
+        ResultAsync.fromPromise(workflowHandle.fetchHistory(), (error) =>
           classifyHandleError("fetchHistory", error, workflowHandle.workflowId),
         ),
     };
@@ -820,7 +793,7 @@ type ProxyOptions<TDef extends DefWithInput, TValidationError extends Error> = {
 };
 
 /**
- * Build a `{ name: (args) => Future<Result<...>> }` proxy for a contract's
+ * Build a `{ name: (args) => ResultAsync<...> }` proxy for a contract's
  * queries/signals/updates. The three call sites differ only in how they
  * invoke Temporal and whether they validate output, so the shared
  * input-validate → invoke → output-validate → wrap-Result pipeline lives
@@ -837,16 +810,15 @@ function buildValidatedProxy<TDef extends DefWithInput, TValidationError extends
   string,
   (
     args: unknown,
-  ) => Future<
-    Result<unknown, TValidationError | WorkflowExecutionNotFoundError | RuntimeClientError>
-  >
+  ) => ResultAsync<unknown, TValidationError | WorkflowExecutionNotFoundError | RuntimeClientError>
 > {
   const proxy: Record<
     string,
     (
       args: unknown,
-    ) => Future<
-      Result<unknown, TValidationError | WorkflowExecutionNotFoundError | RuntimeClientError>
+    ) => ResultAsync<
+      unknown,
+      TValidationError | WorkflowExecutionNotFoundError | RuntimeClientError
     >
   > = {};
   if (!defs) return proxy;
@@ -858,25 +830,25 @@ function buildValidatedProxy<TDef extends DefWithInput, TValidationError extends
       > => {
         const inputResult = await def.input["~standard"].validate(args);
         if (inputResult.issues) {
-          return Result.Error(makeValidationError(name, "input", inputResult.issues));
+          return err(makeValidationError(name, "input", inputResult.issues));
         }
 
         try {
           const result = await invoke(name, inputResult.value);
           const outputSchema = validateOutput(def);
           if (!outputSchema) {
-            return Result.Ok(result);
+            return ok(result);
           }
           const outputResult = await outputSchema["~standard"].validate(result);
           if (outputResult.issues) {
-            return Result.Error(makeValidationError(name, "output", outputResult.issues));
+            return err(makeValidationError(name, "output", outputResult.issues));
           }
-          return Result.Ok(outputResult.value);
+          return ok(outputResult.value);
         } catch (error) {
-          return Result.Error(classifyHandleError(operation, error, workflowId));
+          return err(classifyHandleError(operation, error, workflowId));
         }
       };
-      return makeFuture(work);
+      return makeResultAsync(work);
     };
   }
 
