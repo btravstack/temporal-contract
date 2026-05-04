@@ -8,8 +8,7 @@
       "@temporal-contract/worker",
       "@temporal-contract/client",
       "@temporal-contract/testing",
-      "@temporal-contract/boxed",
-      "@temporal-contract/tsconfig"
+      "@temporal-contract/boxed"
     ]
   ],
   "linked": [],
