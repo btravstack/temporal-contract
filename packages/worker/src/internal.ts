@@ -5,10 +5,16 @@
  * `exports` map, so consumers can't import from `@temporal-contract/worker/internal`.
  * In-package tests import it directly via relative path.
  */
-import { makeContinueAsNewFunc, proxyActivities } from "@temporalio/workflow";
+import { isCancellation, makeContinueAsNewFunc, proxyActivities } from "@temporalio/workflow";
 import type { ActivityOptions, ContinueAsNewOptions } from "@temporalio/workflow";
+import { ChildWorkflowFailure } from "@temporalio/common";
 import type { ActivityDefinition, ContractDefinition } from "@temporal-contract/contract";
-import { WorkflowInputValidationError } from "./errors.js";
+import {
+  ChildWorkflowCancelledError,
+  ChildWorkflowError,
+  ChildWorkflowNotFoundError,
+  WorkflowInputValidationError,
+} from "./errors.js";
 
 // Re-export the formatters so workflow.ts and existing tests can keep
 // importing from `./internal.js`. Their canonical home is `./format.js`,
@@ -235,4 +241,77 @@ function looksLikeCrossContractCall(arg1: unknown, arg2: unknown): boolean {
   if (typeof candidate["taskQueue"] !== "string") return false;
   const workflows = candidate["workflows"];
   return typeof workflows === "object" && workflows !== null;
+}
+
+/**
+ * Map a thrown error from `startChild` / `executeChild` / `handle.result()`
+ * (the worker-side child-workflow API) into the discriminated union surfaced
+ * by the typed worker. Mirrors the client's `classifyResultError`:
+ *
+ * - Cancellation (detected via `@temporalio/workflow`'s `isCancellation`,
+ *   which sees through nested `ChildWorkflowFailure → CancelledFailure`
+ *   chains) → {@link ChildWorkflowCancelledError}, with the original error
+ *   carried as `cause`.
+ * - Temporal's `ChildWorkflowFailure` (a wrapper whose actionable failure —
+ *   `ApplicationFailure`, `TimeoutFailure`, `TerminatedFailure`, etc. — lives
+ *   on its `cause` field) → {@link ChildWorkflowError}, with that *inner*
+ *   cause forwarded so consumers can match `err.cause instanceof
+ *   ApplicationFailure` without unwrapping twice. (If the wrapper's `cause`
+ *   is `undefined`, the wrapper itself is forwarded so identity is
+ *   preserved.)
+ * - Anything else → {@link ChildWorkflowError} carrying the raw thrown value
+ *   as `cause`.
+ *
+ * The `operation` discriminator drives the human-readable error message so
+ * call sites don't have to format their own.
+ *
+ * Note: `ChildWorkflowNotFoundError` is *not* produced here — it's only
+ * thrown from the input-validation path when the workflow definition is
+ * missing on the contract, before any Temporal call happens.
+ */
+export function classifyChildWorkflowError(
+  operation: "startChild" | "executeChild" | "result",
+  error: unknown,
+  childWorkflowName: string,
+): ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError {
+  // Cancellation takes priority: a cancelled child surfaces as a
+  // `ChildWorkflowFailure` whose cause is a `CancelledFailure`, and we want
+  // the cancellation discriminant rather than the generic wrapper.
+  if (isCancellation(error)) {
+    return new ChildWorkflowCancelledError(childWorkflowName, error);
+  }
+
+  // Temporal wraps the actionable failure (ApplicationFailure, TimeoutFailure,
+  // TerminatedFailure, etc.) inside a ChildWorkflowFailure. Forward the
+  // inner cause so consumers can branch on the failure category without
+  // unwrapping twice. Fall back to the wrapper itself if `cause` is missing
+  // so callers don't lose the error identity.
+  if (error instanceof ChildWorkflowFailure) {
+    const inner = error.cause ?? error;
+    const innerMessage = inner instanceof Error ? inner.message : String(inner);
+    return new ChildWorkflowError(
+      `${describeChildWorkflowOperation(operation, childWorkflowName)}: ${innerMessage}`,
+      inner,
+    );
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  return new ChildWorkflowError(
+    `${describeChildWorkflowOperation(operation, childWorkflowName)}: ${message}`,
+    error,
+  );
+}
+
+function describeChildWorkflowOperation(
+  operation: "startChild" | "executeChild" | "result",
+  childWorkflowName: string,
+): string {
+  switch (operation) {
+    case "startChild":
+      return `Failed to start child workflow "${childWorkflowName}"`;
+    case "executeChild":
+      return `Failed to execute child workflow "${childWorkflowName}"`;
+    case "result":
+      return `Child workflow "${childWorkflowName}" execution failed`;
+  }
 }

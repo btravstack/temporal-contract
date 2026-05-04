@@ -1,4 +1,32 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type {
+  ActivityFailure,
+  ApplicationFailure,
+  CancelledFailure,
+  ChildWorkflowFailure,
+  ServerFailure,
+  TerminatedFailure,
+  TimeoutFailure,
+} from "@temporalio/common";
+
+/**
+ * Union of the actionable Temporal failure types that can surface as the
+ * `cause` of a `WorkflowFailedError`. These all extend Temporal's internal
+ * `TemporalFailure` base class — we list them by leaf type rather than by
+ * the base class so consumer code can use a single `switch (true)` over
+ * `instanceof` discriminants without an exhaustiveness escape hatch.
+ *
+ * Re-exported from the package entry point so consumers can import it
+ * directly: `import type { TemporalFailure } from "@temporal-contract/client"`.
+ */
+export type TemporalFailure =
+  | ApplicationFailure
+  | CancelledFailure
+  | TerminatedFailure
+  | TimeoutFailure
+  | ChildWorkflowFailure
+  | ServerFailure
+  | ActivityFailure;
 
 /**
  * Base class for all typed client errors with boxed pattern
@@ -93,18 +121,22 @@ export class WorkflowExecutionNotFoundError extends TypedClientError {
  * on a workflow's result and the workflow completes with a failure —
  * Temporal's `WorkflowFailedError`.
  *
- * `cause` is the *unwrapped* underlying failure (typically an
+ * `cause` is the *unwrapped* underlying {@link TemporalFailure} (typically an
  * `ApplicationFailure`, `CancelledFailure`, `TerminatedFailure`, or
  * `TimeoutFailure`) lifted from Temporal's wrapper, so callers can branch
  * on the failure category in one step (`err.cause instanceof
- * ApplicationFailure`) instead of unwrapping twice via the SDK wrapper.
+ * ApplicationFailure`) instead of unwrapping twice via the SDK wrapper. It
+ * matches the shape produced by `classifyResultError`, which forwards the
+ * inner cause of Temporal's `WorkflowFailedError` directly — Temporal types
+ * that field as `TemporalFailure | undefined` so the typing is exact rather
+ * than widened.
  *
  * Returned from `executeWorkflow` and `handle.result()`.
  */
 export class WorkflowFailedError extends TypedClientError {
   constructor(
     public readonly workflowId: string,
-    public override readonly cause?: unknown,
+    public override readonly cause?: TemporalFailure,
   ) {
     const causeMessage =
       cause instanceof Error ? cause.message : String(cause ?? "unknown failure");

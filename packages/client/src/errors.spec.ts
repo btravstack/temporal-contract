@@ -1,16 +1,28 @@
 /**
- * Coverage for the path-aware issue formatting in client validation errors.
+ * Coverage for the path-aware issue formatting in client validation errors,
+ * plus the `WorkflowFailedError.cause` typing contract.
  *
  * Mirrors the worker-side test (#141 closes both surfaces); the helpers are
  * intentionally duplicated across packages so each entry point has its own
  * formatting source of truth.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type {
+  ActivityFailure,
+  ApplicationFailure,
+  CancelledFailure,
+  ChildWorkflowFailure,
+  ServerFailure,
+  TerminatedFailure,
+  TimeoutFailure,
+} from "@temporalio/common";
 import {
   QueryValidationError,
   SignalValidationError,
+  type TemporalFailure,
   UpdateValidationError,
+  WorkflowFailedError,
   WorkflowValidationError,
 } from "./errors.js";
 
@@ -117,5 +129,36 @@ describe("validation error message formatting", () => {
         `Validation failed for workflow "processOrder" input: at [Symbol(hidden)]: invalid`,
       );
     });
+  });
+});
+
+describe("WorkflowFailedError.cause typing", () => {
+  // These assertions are purely structural: `expectTypeOf` is a no-op at
+  // runtime — the type-checker is what fails the build if `cause` ever
+  // widens back to `unknown`. The point of locking this down is that
+  // consumers should be able to write `if (err.cause instanceof
+  // ApplicationFailure)` without a preceding `instanceof Error` narrow,
+  // and exhaustive `switch (true)` over the leaf failure types should
+  // type-check without a fallback case.
+
+  it("types `cause` as the TemporalFailure union, optional", () => {
+    expectTypeOf<WorkflowFailedError["cause"]>().toEqualTypeOf<TemporalFailure | undefined>();
+  });
+
+  it("`TemporalFailure` enumerates the leaf Temporal failure classes", () => {
+    expectTypeOf<TemporalFailure>().toEqualTypeOf<
+      | ApplicationFailure
+      | CancelledFailure
+      | TerminatedFailure
+      | TimeoutFailure
+      | ChildWorkflowFailure
+      | ServerFailure
+      | ActivityFailure
+    >();
+  });
+
+  it("does not widen to `unknown` (regression: PR2 of error refactor series)", () => {
+    // Negative assertion — would fail if the field reverted to `unknown`.
+    expectTypeOf<WorkflowFailedError["cause"]>().not.toBeUnknown();
   });
 });

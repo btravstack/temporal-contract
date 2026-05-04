@@ -22,6 +22,7 @@ export {
   SignalValidationError,
   UpdateValidationError,
 } from "./errors.js";
+export type { TemporalFailure } from "./errors.js";
 export type {
   ClientInferInput,
   ClientInferOutput,

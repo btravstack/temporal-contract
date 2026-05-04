@@ -172,12 +172,40 @@ export class ChildWorkflowNotFoundError extends WorkerError {
 }
 
 /**
- * Generic error for child workflow operations
+ * Generic error for child workflow operations.
+ *
+ * When the child execution itself fails (Temporal's `ChildWorkflowFailure`),
+ * `cause` is set to the *unwrapped* underlying failure (`ApplicationFailure`,
+ * `TimeoutFailure`, `TerminatedFailure`, etc.) lifted from Temporal's wrapper —
+ * mirroring the client-side `WorkflowFailedError.cause` behavior, so callers
+ * can branch on the failure category in one step instead of unwrapping twice.
  */
 export class ChildWorkflowError extends WorkerError {
   constructor(message: string, cause?: unknown) {
     super(message, cause);
     this.name = "ChildWorkflowError";
+  }
+}
+
+/**
+ * Discriminated variant of {@link ChildWorkflowError} surfaced when a child
+ * workflow operation (start, execute, or wait-for-result) was cancelled —
+ * either because the parent workflow itself was cancelled, the child was
+ * explicitly cancelled, or its enclosing cancellation scope was. Detected via
+ * `@temporalio/workflow`'s `isCancellation(...)`, which sees through nested
+ * `ChildWorkflowFailure` / `CancelledFailure` chains.
+ *
+ * Distinct from `ChildWorkflowError` so call sites can branch on cancellation
+ * explicitly without inspecting `error.cause` against a Temporal SDK class —
+ * the worker-side analogue of the client-side cause-forwarding pattern.
+ */
+export class ChildWorkflowCancelledError extends WorkerError {
+  constructor(
+    public readonly childWorkflowName: string,
+    cause?: unknown,
+  ) {
+    super(`Child workflow "${childWorkflowName}" was cancelled`, cause);
+    this.name = "ChildWorkflowCancelledError";
   }
 }
 

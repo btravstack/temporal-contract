@@ -11,6 +11,7 @@ import { WorkflowNotFoundError as TemporalWorkflowNotFoundError } from "@tempora
 import { ResultAsync, type Result, err } from "neverthrow";
 import {
   RuntimeClientError,
+  type TemporalFailure,
   WorkflowAlreadyStartedError,
   WorkflowExecutionNotFoundError,
   WorkflowFailedError,
@@ -97,7 +98,11 @@ export function classifyResultError(
   workflowId: string,
 ): WorkflowFailedError | WorkflowExecutionNotFoundError | RuntimeClientError {
   if (error instanceof TemporalWorkflowFailedError) {
-    return new WorkflowFailedError(workflowId, error.cause);
+    // Temporal types `cause` as `Error | undefined`, but the SDK only ever
+    // populates it with a `TemporalFailure` subclass when surfacing a
+    // workflow result failure. Narrow with the public union so consumers
+    // can branch on the leaf failure types without an extra cast.
+    return new WorkflowFailedError(workflowId, error.cause as TemporalFailure | undefined);
   }
   if (error instanceof TemporalWorkflowNotFoundError) {
     return new WorkflowExecutionNotFoundError(error.workflowId || workflowId, error.runId, error);

@@ -19,6 +19,7 @@ import {
 import {
   ActivityInputValidationError,
   ActivityOutputValidationError,
+  ChildWorkflowCancelledError,
   ChildWorkflowError,
   ChildWorkflowNotFoundError,
   WorkflowCancelledError,
@@ -43,6 +44,7 @@ import {
 import { ResultAsync, type Result, ok, err } from "neverthrow";
 import {
   buildRawActivitiesProxy,
+  classifyChildWorkflowError,
   createContinueAsNew,
   extractHandlerInput,
   formatChildWorkflowValidationMessage,
@@ -61,6 +63,7 @@ import {
 export {
   ActivityInputValidationError,
   ActivityOutputValidationError,
+  ChildWorkflowCancelledError,
   ChildWorkflowError,
   ChildWorkflowNotFoundError,
   QueryInputValidationError,
@@ -526,7 +529,7 @@ type WorkflowContext<
     options: TypedChildWorkflowOptions<TChildContract, TChildWorkflowName>,
   ) => ResultAsync<
     TypedChildWorkflowHandle<TChildContract["workflows"][TChildWorkflowName]>,
-    ChildWorkflowError
+    ChildWorkflowError | ChildWorkflowCancelledError
   >;
 
   /**
@@ -565,7 +568,7 @@ type WorkflowContext<
     options: TypedChildWorkflowOptions<TChildContract, TChildWorkflowName>,
   ) => ResultAsync<
     ClientInferOutput<TChildContract["workflows"][TChildWorkflowName]>,
-    ChildWorkflowError
+    ChildWorkflowError | ChildWorkflowCancelledError
   >;
 
   /**
@@ -675,7 +678,10 @@ type TypedChildWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
   /**
    * Get child workflow result with Result pattern
    */
-  result: () => ResultAsync<ClientInferOutput<TWorkflow>, ChildWorkflowError>;
+  result: () => ResultAsync<
+    ClientInferOutput<TWorkflow>,
+    ChildWorkflowError | ChildWorkflowCancelledError
+  >;
 
   /**
    * Child workflow ID
@@ -857,20 +863,18 @@ function createTypedChildHandle<TChildWorkflow extends AnyWorkflowDefinition>(
 ): TypedChildWorkflowHandle<TChildWorkflow> {
   return {
     workflowId: handle.workflowId,
-    result: (): ResultAsync<ClientInferOutput<TChildWorkflow>, ChildWorkflowError> => {
+    result: (): ResultAsync<
+      ClientInferOutput<TChildWorkflow>,
+      ChildWorkflowError | ChildWorkflowCancelledError
+    > => {
       const work = async (): Promise<
-        Result<ClientInferOutput<TChildWorkflow>, ChildWorkflowError>
+        Result<ClientInferOutput<TChildWorkflow>, ChildWorkflowError | ChildWorkflowCancelledError>
       > => {
         try {
           const result = await handle.result();
           return validateChildWorkflowOutput(childDefinition, result, childWorkflowName);
         } catch (error) {
-          return err(
-            new ChildWorkflowError(
-              `Child workflow execution failed: ${error instanceof Error ? error.message : String(error)}`,
-              error,
-            ),
-          );
+          return err(classifyChildWorkflowError("result", error, childWorkflowName));
         }
       };
       return new ResultAsync(work());
@@ -887,10 +891,10 @@ function createStartChildWorkflow<
   options: TypedChildWorkflowOptions<TChildContract, TChildWorkflowName>,
 ): ResultAsync<
   TypedChildWorkflowHandle<TChildContract["workflows"][TChildWorkflowName]>,
-  ChildWorkflowError
+  ChildWorkflowError | ChildWorkflowCancelledError
 > {
   type Ok = TypedChildWorkflowHandle<TChildContract["workflows"][TChildWorkflowName]>;
-  const work = async (): Promise<Result<Ok, ChildWorkflowError>> => {
+  const work = async (): Promise<Result<Ok, ChildWorkflowError | ChildWorkflowCancelledError>> => {
     const validationResult = await getAndValidateChildWorkflow(
       childContract,
       childWorkflowName,
@@ -915,12 +919,7 @@ function createStartChildWorkflow<
 
       return ok(typedHandle);
     } catch (error) {
-      return err(
-        new ChildWorkflowError(
-          `Failed to start child workflow: ${error instanceof Error ? error.message : String(error)}`,
-          error,
-        ),
-      );
+      return err(classifyChildWorkflowError("startChild", error, String(childWorkflowName)));
     }
   };
   return new ResultAsync(work());
@@ -935,10 +934,10 @@ function createExecuteChildWorkflow<
   options: TypedChildWorkflowOptions<TChildContract, TChildWorkflowName>,
 ): ResultAsync<
   ClientInferOutput<TChildContract["workflows"][TChildWorkflowName]>,
-  ChildWorkflowError
+  ChildWorkflowError | ChildWorkflowCancelledError
 > {
   type Ok = ClientInferOutput<TChildContract["workflows"][TChildWorkflowName]>;
-  const work = async (): Promise<Result<Ok, ChildWorkflowError>> => {
+  const work = async (): Promise<Result<Ok, ChildWorkflowError | ChildWorkflowCancelledError>> => {
     const validationResult = await getAndValidateChildWorkflow(
       childContract,
       childWorkflowName,
@@ -971,12 +970,7 @@ function createExecuteChildWorkflow<
 
       return ok(outputValidationResult.value as Ok);
     } catch (error) {
-      return err(
-        new ChildWorkflowError(
-          `Failed to execute child workflow: ${error instanceof Error ? error.message : String(error)}`,
-          error,
-        ),
-      );
+      return err(classifyChildWorkflowError("executeChild", error, String(childWorkflowName)));
     }
   };
   return new ResultAsync(work());

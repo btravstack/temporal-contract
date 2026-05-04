@@ -23,6 +23,7 @@ import type {
 } from "./types.js";
 import { ResultAsync, type Result, ok, err } from "neverthrow";
 import {
+  type TemporalFailure,
   WorkflowAlreadyStartedError,
   WorkflowExecutionNotFoundError,
   WorkflowFailedError,
@@ -590,7 +591,16 @@ export class TypedClient<TContract extends ContractDefinition> {
           // {@link classifyResultError} for the same rationale: Temporal's
           // `WorkflowFailedError` is a wrapper, and the actionable failure
           // (ApplicationFailure, CancelledFailure, etc.) lives on `.cause`.
-          return err(new WorkflowFailedError(temporalOptions.workflowId, error.cause));
+          // Temporal types `cause` as `Error | undefined`, but the SDK only
+          // ever populates it with a `TemporalFailure` subclass here; narrow
+          // with the public union so the typed `cause` lines up with the
+          // surfaced `WorkflowFailedError`.
+          return err(
+            new WorkflowFailedError(
+              temporalOptions.workflowId,
+              error.cause as TemporalFailure | undefined,
+            ),
+          );
         }
         if (error instanceof TemporalWorkflowNotFoundError) {
           return err(
