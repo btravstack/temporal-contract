@@ -28,7 +28,7 @@ export const activities = declareActivitiesHandler({
 Use `declareWorkflow` for type-safe workflow implementation:
 
 ```typescript
-import { declareWorkflow } from "@temporal-contract/worker";
+import { declareWorkflow } from "@temporal-contract/worker/workflow";
 
 export const processOrder = declareWorkflow({
   workflowName: "processOrder",

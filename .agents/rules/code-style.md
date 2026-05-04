@@ -3,9 +3,9 @@
 ## TypeScript Rules
 
 - **No `any`** — always use `unknown` (enforced by oxlint)
-- **No `interface`** — use `type` instead (enforced by oxlint `consistent-type-definitions`)
+- **No `interface`** — use `type` instead (enforced by oxlint `consistent-type-definitions`). The one allowed exception is module augmentation / declaration merging, where the language requires `interface` (e.g. `packages/testing/src/global-setup.ts` augments vitest's `ProvidedContext`). Disable the rule inline with a comment in those cases.
 - **Use `.js` extensions** in all imports (even for `.ts` files)
-- **Use `type` imports** where possible (`import type { ... }`)
+- **Prefer `type` imports** (`import type { ... }`) where possible — not currently lint-enforced, so use judgement
 - All packages extend `@temporal-contract/tsconfig/base.json` (strict mode)
 
 ## Error Handling
@@ -32,5 +32,5 @@
   but don't add intermediate `index.ts` files inside subfolders. Within a package,
   always import from specific modules (`./builder.js`, not `.`).
 - No default exports in library code
-- No `console.log` — use structured logging (pino)
+- **Published packages don't log.** No `console.log`, no `pino`, no nothing — let the consumer wire their own observability. The `examples/` workers/clients use `pino` for their own demo logging, but `packages/*/src/` is silent.
 - No mutation of shared state

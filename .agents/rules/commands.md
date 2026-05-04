@@ -29,6 +29,15 @@ pnpm test:integration        # Run integration tests (requires Docker)
 
 ```bash
 pnpm changeset        # Create a changeset
-pnpm version          # Apply changesets and bump versions
-pnpm release          # Build and publish to npm
+pnpm run version      # Apply changesets and bump versions
+pnpm run release      # Build and publish to npm (OIDC Trusted Publishing)
 ```
+
+**Use `pnpm run` for `version` and `release`** — bare `pnpm version` collides with pnpm's built-in (which silently prints `process.versions` instead of running the changeset script). Bare `pnpm release` happens to work today but `pnpm run` form is consistent and safe.
+
+## Release flow
+
+1. PR merges to `main` → `Version Packages` PR opens (changesets/action) with bumped `package.json` files and consolidated CHANGELOGs.
+2. Merging the `Version Packages` PR triggers the `release` workflow, which runs `pnpm run release`.
+3. `pnpm run release` runs `pnpm publish -r --access public --no-git-checks`. Auth is via npm Trusted Publishing (OIDC) — there's no `NPM_TOKEN` secret. Each published package needs a Trusted Publisher configured on npmjs.com pointing at this repo + `.github/workflows/release.yml`.
+4. The release uses a `RELEASE_PAT` secret rather than the default `GITHUB_TOKEN` so the `Version Packages` PR triggers CI (GitHub's anti-recursion safeguard skips workflows on bot-authored events).
