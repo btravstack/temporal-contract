@@ -55,11 +55,15 @@
     "@temporal-contract/typedoc": "workspace:*",
     "@vitest/coverage-v8": "catalog:",
     "arktype": "catalog:",
+    "neverthrow": "catalog:",
     "tsdown": "catalog:",
     "typedoc": "catalog:",
     "typedoc-plugin-markdown": "catalog:",
     "typescript": "catalog:",
     "valibot": "catalog:",
     "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "neverthrow": "^8"
   }
 }

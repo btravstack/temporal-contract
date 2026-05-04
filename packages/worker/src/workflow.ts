@@ -25,6 +25,7 @@ import {
   WorkflowCancelledError,
   WorkflowInputValidationError,
   WorkflowOutputValidationError,
+  WorkflowScopeError,
 } from "./errors.js";
 import { cancellableScope, nonCancellableScope } from "./cancellation.js";
 import {
@@ -41,13 +42,14 @@ import {
   WorkerInferInput,
   WorkerInferOutput,
 } from "./types.js";
-import { ResultAsync, type Result, ok, err } from "neverthrow";
+import { type ResultAsync, type Result, ok, err } from "neverthrow";
 import {
   buildRawActivitiesProxy,
   classifyChildWorkflowError,
   createContinueAsNew,
   extractHandlerInput,
   formatChildWorkflowValidationMessage,
+  makeResultAsync,
   type TypedContinueAsNewOptions,
 } from "./internal.js";
 import {
@@ -74,6 +76,7 @@ export {
   WorkflowCancelledError,
   WorkflowInputValidationError,
   WorkflowOutputValidationError,
+  WorkflowScopeError,
 } from "./errors.js";
 
 /**
@@ -578,9 +581,11 @@ type WorkflowContext<
    * rejecting — letting callers handle cancellation explicitly, typically
    * to perform a graceful exit from the current step.
    *
-   * Non-cancellation errors thrown by `fn` propagate as ResultAsync
-   * rejections unchanged, preserving their identity for upstream
-   * `try/catch` blocks.
+   * Non-cancellation errors thrown by `fn` resolve to
+   * `err(WorkflowScopeError)` (with the original error preserved on
+   * `cause`). Both failure modes ride neverthrow's railway, so
+   * `result.match(...)` is exhaustive — nothing escapes as an unhandled
+   * rejection.
    *
    * @example
    * ```ts
@@ -590,18 +595,24 @@ type WorkflowContext<
    *   });
    *
    *   if (result.isErr()) {
-   *     // workflow was cancelled — perform cleanup that must not be cancelled:
-   *     await context.nonCancellableScope(async () => {
-   *       await context.activities.releaseResources(args);
-   *     });
-   *     return { status: "cancelled" };
+   *     if (result.error instanceof WorkflowCancelledError) {
+   *       // workflow was cancelled — perform cleanup that must not be cancelled:
+   *       await context.nonCancellableScope(async () => {
+   *         await context.activities.releaseResources(args);
+   *       });
+   *       return { status: "cancelled" };
+   *     }
+   *     // result.error instanceof WorkflowScopeError — domain failure
+   *     return { status: "failed" };
    *   }
    *
    *   return { status: "ok" };
    * }
    * ```
    */
-  cancellableScope: <T>(fn: () => T | Promise<T>) => ResultAsync<T, WorkflowCancelledError>;
+  cancellableScope: <T>(
+    fn: () => T | Promise<T>,
+  ) => ResultAsync<T, WorkflowCancelledError | WorkflowScopeError>;
 
   /**
    * Run `fn` inside a non-cancellable Temporal scope. Cancellation requests
@@ -609,11 +620,14 @@ type WorkflowContext<
    * to perform cleanup work that must not be interrupted.
    *
    * Returns the same `ResultAsync<...>` shape as
-   * {@link WorkflowContext.cancellableScope} for symmetry; the `err(...)`
-   * branch only triggers when cancellation is raised from *inside* the
-   * scope, which is rare.
+   * {@link WorkflowContext.cancellableScope} for symmetry; the
+   * `err(WorkflowCancelledError)` branch only triggers when cancellation is
+   * raised from *inside* the scope, which is rare. Non-cancellation errors
+   * surface as `err(WorkflowScopeError)`.
    */
-  nonCancellableScope: <T>(fn: () => T | Promise<T>) => ResultAsync<T, WorkflowCancelledError>;
+  nonCancellableScope: <T>(
+    fn: () => T | Promise<T>,
+  ) => ResultAsync<T, WorkflowCancelledError | WorkflowScopeError>;
 
   /**
    * Continue this workflow execution as a new run, optionally with a different
@@ -877,7 +891,17 @@ function createTypedChildHandle<TChildWorkflow extends AnyWorkflowDefinition>(
           return err(classifyChildWorkflowError("result", error, childWorkflowName));
         }
       };
-      return new ResultAsync(work());
+      // makeResultAsync wraps `work` so a synchronous throw (e.g. a future
+      // refactor that mutates state before the first await) surfaces as
+      // `err(ChildWorkflowError)` instead of an unhandled rejection.
+      return makeResultAsync(
+        work,
+        (error) =>
+          new ChildWorkflowError(
+            `Child workflow execution failed: ${error instanceof Error ? error.message : String(error)}`,
+            error,
+          ),
+      );
     },
   };
 }
@@ -924,7 +948,14 @@ function createStartChildWorkflow<
       return err(classifyChildWorkflowError("startChild", error, String(childWorkflowName)));
     }
   };
-  return new ResultAsync(work());
+  return makeResultAsync(
+    work,
+    (error) =>
+      new ChildWorkflowError(
+        `Failed to start child workflow: ${error instanceof Error ? error.message : String(error)}`,
+        error,
+      ),
+  );
 }
 
 function createExecuteChildWorkflow<
@@ -977,5 +1008,12 @@ function createExecuteChildWorkflow<
       return err(classifyChildWorkflowError("executeChild", error, String(childWorkflowName)));
     }
   };
-  return new ResultAsync(work());
+  return makeResultAsync(
+    work,
+    (error) =>
+      new ChildWorkflowError(
+        `Failed to execute child workflow: ${error instanceof Error ? error.message : String(error)}`,
+        error,
+      ),
+  );
 }

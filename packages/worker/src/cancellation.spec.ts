@@ -7,8 +7,13 @@
  * - successful resolution surfaces as `Result.Ok`,
  * - cancellation surfaces as `Result.Error(WorkflowCancelledError)`
  *   (matched via the mocked `isCancellation` predicate),
- * - non-cancellation errors propagate as Future rejections rather than
- *   being silently wrapped,
+ * - non-cancellation errors surface as `Result.Error(WorkflowScopeError)`
+ *   with the original error preserved on `cause` — closing the prior
+ *   unhandled-rejection gap where `throw error` inside the helper became a
+ *   raw `ResultAsync` rejection (`new ResultAsync(promise)` does not catch),
+ * - synchronous throws thrown before the first `await` of the work
+ *   function are caught and routed through the same `WorkflowScopeError`
+ *   channel rather than escaping as an unhandled rejection,
  * - the helpers route through `CancellationScope.cancellable` /
  *   `CancellationScope.nonCancellable` respectively.
  *
@@ -34,7 +39,7 @@ vi.mock("@temporalio/workflow", () => ({
 const { CancellationScope } = await import("@temporalio/workflow");
 const { cancellableScope, nonCancellableScope } = await import("./cancellation.js");
 const { declareWorkflow } = await import("./workflow.js");
-const { WorkflowCancelledError } = await import("./errors.js");
+const { WorkflowCancelledError, WorkflowScopeError } = await import("./errors.js");
 
 describe("cancellableScope", () => {
   it("returns Result.Ok with the resolved value on success", async () => {
@@ -63,13 +68,39 @@ describe("cancellableScope", () => {
     }
   });
 
-  it("propagates non-cancellation errors as Future rejections (not wrapped)", async () => {
+  it("returns Result.Error(WorkflowScopeError) when a non-cancellation error is thrown", async () => {
+    // Previously these errors were re-thrown out of the helper, becoming a
+    // ResultAsync rejection that escaped neverthrow's railway as an unhandled
+    // rejection. The helper now routes them through the typed err(...) channel
+    // alongside WorkflowCancelledError so result.match(...) is exhaustive.
     const original = new Error("activity exploded");
-    await expect(
-      cancellableScope(async () => {
-        throw original;
-      }),
-    ).rejects.toBe(original);
+    const result = await cancellableScope(async () => {
+      throw original;
+    });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(WorkflowScopeError);
+      expect(result.error).not.toBeInstanceOf(WorkflowCancelledError);
+      // Original error preserved on `cause` so callers can introspect it.
+      expect(result.error.cause).toBe(original);
+    }
+  });
+
+  it("catches synchronous throws from the work body as Result.Error(WorkflowScopeError)", async () => {
+    // The wrapper's safety net: if `fn` throws *before* its first await,
+    // `new ResultAsync(work())` would surface that as an unhandled rejection.
+    // makeResultAsync's catch funnels it back into the typed err(...) channel.
+    const original = new Error("sync explosion");
+    const result = await cancellableScope(() => {
+      throw original;
+    });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(WorkflowScopeError);
+      // The CancellationScope mock awaits fn(), so the throw is caught inside
+      // the inner try/catch and lands here with the original error on `cause`.
+      expect(result.error.cause).toBe(original);
+    }
   });
 });
 
@@ -101,13 +132,29 @@ describe("nonCancellableScope", () => {
     }
   });
 
-  it("propagates non-cancellation errors as Future rejections", async () => {
+  it("returns Result.Error(WorkflowScopeError) when a non-cancellation error is thrown", async () => {
     const original = new Error("cleanup failure");
-    await expect(
-      nonCancellableScope(async () => {
-        throw original;
-      }),
-    ).rejects.toBe(original);
+    const result = await nonCancellableScope(async () => {
+      throw original;
+    });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(WorkflowScopeError);
+      expect(result.error).not.toBeInstanceOf(WorkflowCancelledError);
+      expect(result.error.cause).toBe(original);
+    }
+  });
+
+  it("catches synchronous throws from the work body as Result.Error(WorkflowScopeError)", async () => {
+    const original = new Error("sync cleanup explosion");
+    const result = await nonCancellableScope(() => {
+      throw original;
+    });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(WorkflowScopeError);
+      expect(result.error.cause).toBe(original);
+    }
   });
 });
 
