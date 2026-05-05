@@ -529,7 +529,7 @@ type WorkflowContext<
     options: TypedChildWorkflowOptions<TChildContract, TChildWorkflowName>,
   ) => ResultAsync<
     TypedChildWorkflowHandle<TChildContract["workflows"][TChildWorkflowName]>,
-    ChildWorkflowError | ChildWorkflowCancelledError
+    ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError
   >;
 
   /**
@@ -568,7 +568,7 @@ type WorkflowContext<
     options: TypedChildWorkflowOptions<TChildContract, TChildWorkflowName>,
   ) => ResultAsync<
     ClientInferOutput<TChildContract["workflows"][TChildWorkflowName]>,
-    ChildWorkflowError | ChildWorkflowCancelledError
+    ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError
   >;
 
   /**
@@ -891,10 +891,12 @@ function createStartChildWorkflow<
   options: TypedChildWorkflowOptions<TChildContract, TChildWorkflowName>,
 ): ResultAsync<
   TypedChildWorkflowHandle<TChildContract["workflows"][TChildWorkflowName]>,
-  ChildWorkflowError | ChildWorkflowCancelledError
+  ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError
 > {
   type Ok = TypedChildWorkflowHandle<TChildContract["workflows"][TChildWorkflowName]>;
-  const work = async (): Promise<Result<Ok, ChildWorkflowError | ChildWorkflowCancelledError>> => {
+  const work = async (): Promise<
+    Result<Ok, ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError>
+  > => {
     const validationResult = await getAndValidateChildWorkflow(
       childContract,
       childWorkflowName,
@@ -934,10 +936,12 @@ function createExecuteChildWorkflow<
   options: TypedChildWorkflowOptions<TChildContract, TChildWorkflowName>,
 ): ResultAsync<
   ClientInferOutput<TChildContract["workflows"][TChildWorkflowName]>,
-  ChildWorkflowError | ChildWorkflowCancelledError
+  ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError
 > {
   type Ok = ClientInferOutput<TChildContract["workflows"][TChildWorkflowName]>;
-  const work = async (): Promise<Result<Ok, ChildWorkflowError | ChildWorkflowCancelledError>> => {
+  const work = async (): Promise<
+    Result<Ok, ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError>
+  > => {
     const validationResult = await getAndValidateChildWorkflow(
       childContract,
       childWorkflowName,
