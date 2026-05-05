@@ -37,3 +37,4 @@ coverage/
 # Generated TypeDoc
 packages/*/docs/
 docs/api/*/
+.claude/

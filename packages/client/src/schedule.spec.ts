@@ -7,7 +7,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { Client } from "@temporalio/client";
-import { defineContract } from "@temporal-contract/contract";
+import { TypedSearchAttributes } from "@temporalio/common";
+import { defineContract, defineSearchAttribute, defineWorkflow } from "@temporal-contract/contract";
 import { TypedClient } from "./client.js";
 import { RuntimeClientError, WorkflowNotFoundError, WorkflowValidationError } from "./errors.js";
 
@@ -213,6 +214,90 @@ describe("TypedClient.schedule", () => {
         memo: { tag: "schedule-level" },
         action: expect.objectContaining({ memo: { tag: "workflow-level" } }),
       });
+    });
+  });
+
+  describe("create with typed searchAttributes", () => {
+    // Schedule-spawned workflows used to silently lose typed search-attribute
+    // indexing (caller passed `searchAttributes`, but the schedule create
+    // path didn't accept the field). They now flow through the same
+    // `toTypedSearchAttributes` translation as direct starts and surface on
+    // the underlying `startWorkflow` action.
+    const searchContract = defineContract({
+      taskQueue: "schedule-search-q",
+      workflows: {
+        processOrder: defineWorkflow({
+          input: z.object({ orderId: z.string() }),
+          output: z.object({ status: z.string() }),
+          searchAttributes: {
+            customerId: defineSearchAttribute({ kind: "KEYWORD" }),
+            priority: defineSearchAttribute({ kind: "INT" }),
+          },
+        }),
+      },
+    });
+
+    let searchClient: TypedClient<typeof searchContract>;
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      const rawClient = {
+        workflow: { start: vi.fn(), execute: vi.fn(), getHandle: vi.fn() },
+        schedule: mockSchedule,
+      } as unknown as Client;
+      searchClient = TypedClient.create(searchContract, rawClient);
+    });
+
+    it("translates declared searchAttributes into the action's typedSearchAttributes", async () => {
+      mockSchedule.create.mockResolvedValue(createMockHandle());
+
+      await searchClient.schedule.create("processOrder", {
+        scheduleId: "search-sweep",
+        spec: { cronExpressions: ["0 2 * * *"] },
+        args: { orderId: "ORD-1" },
+        searchAttributes: { customerId: "CUST-9", priority: 7 },
+      });
+
+      const passed = mockSchedule.create.mock.calls[0]?.[0] as {
+        action: { typedSearchAttributes?: TypedSearchAttributes };
+      };
+      expect(passed.action.typedSearchAttributes).toBeInstanceOf(TypedSearchAttributes);
+    });
+
+    it("omits typedSearchAttributes from the action when no searchAttributes are provided", async () => {
+      mockSchedule.create.mockResolvedValue(createMockHandle());
+
+      await searchClient.schedule.create("processOrder", {
+        scheduleId: "search-sweep",
+        spec: { cronExpressions: ["0 2 * * *"] },
+        args: { orderId: "ORD-1" },
+      });
+
+      const passed = mockSchedule.create.mock.calls[0]?.[0] as {
+        action: Record<string, unknown>;
+      };
+      expect(Object.hasOwn(passed.action, "typedSearchAttributes")).toBe(false);
+    });
+
+    it("rejects undeclared attribute keys with a RuntimeClientError", async () => {
+      const result = await searchClient.schedule.create("processOrder", {
+        scheduleId: "search-sweep",
+        spec: { cronExpressions: ["0 2 * * *"] },
+        args: { orderId: "ORD-1" },
+        searchAttributes: {
+          customerId: "CUST-9",
+          // @ts-expect-error — unknownAttr isn't declared on processOrder
+          unknownAttr: "ignored",
+        },
+      });
+
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
+        expect(result.error).toBeInstanceOf(RuntimeClientError);
+        expect((result.error as RuntimeClientError).operation).toBe("searchAttributes");
+        expect((result.error as RuntimeClientError).message).toContain("unknownAttr");
+      }
+      expect(mockSchedule.create).not.toHaveBeenCalled();
     });
   });
 

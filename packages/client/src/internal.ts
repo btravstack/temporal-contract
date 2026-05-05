@@ -7,9 +7,15 @@
  */
 import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
 import { WorkflowFailedError as TemporalWorkflowFailedError } from "@temporalio/client";
-import { WorkflowNotFoundError as TemporalWorkflowNotFoundError } from "@temporalio/common";
+import {
+  defineSearchAttributeKey,
+  type SearchAttributePair,
+  TypedSearchAttributes,
+  WorkflowNotFoundError as TemporalWorkflowNotFoundError,
+} from "@temporalio/common";
+import type { AnyWorkflowDefinition, SearchAttributeDefinition } from "@temporal-contract/contract";
 import { _internal_makeResultAsync } from "@temporal-contract/contract/result-async";
-import type { ResultAsync, Result } from "neverthrow";
+import { ok, err, type ResultAsync, type Result } from "neverthrow";
 import {
   RuntimeClientError,
   type TemporalFailure,
@@ -17,6 +23,49 @@ import {
   WorkflowExecutionNotFoundError,
   WorkflowFailedError,
 } from "./errors.js";
+
+/**
+ * Translate the contract's typed `searchAttributes` map (declared
+ * name → value) into a Temporal `TypedSearchAttributes` instance, so the
+ * Temporal client honours indexing when starting the workflow.
+ *
+ * Workflows without a `searchAttributes` block (or callers passing no
+ * values) resolve to `ok(undefined)`, matching the Temporal SDK's
+ * "absent ≠ empty" semantics.
+ *
+ * Returns `err(RuntimeClientError)` on unknown keys. The TypeScript
+ * surface already gates the happy path; the runtime check catches typed
+ * escape hatches (`as never`, `as any`, raw-call interop) where a typo
+ * would otherwise silently drop the attribute, leaving the workflow
+ * unindexed without any signal to the caller.
+ */
+export function toTypedSearchAttributes(
+  workflowDef: AnyWorkflowDefinition,
+  workflowName: string,
+  values: Record<string, unknown> | undefined,
+): Result<TypedSearchAttributes | undefined, RuntimeClientError> {
+  if (!values || !workflowDef.searchAttributes) return ok(undefined);
+  const declared = workflowDef.searchAttributes as Record<string, SearchAttributeDefinition>;
+  const pairs: SearchAttributePair[] = [];
+  for (const [name, value] of Object.entries(values)) {
+    if (value === undefined) continue;
+    const def = declared[name];
+    if (!def) {
+      return err(
+        new RuntimeClientError(
+          "searchAttributes",
+          new Error(
+            `Search attribute "${name}" is not declared on workflow "${workflowName}". ` +
+              `Declared attributes: ${Object.keys(declared).join(", ") || "none"}.`,
+          ),
+        ),
+      );
+    }
+    const key = defineSearchAttributeKey(name, def.kind);
+    pairs.push({ key, value } as SearchAttributePair);
+  }
+  return ok(pairs.length > 0 ? new TypedSearchAttributes(pairs) : undefined);
+}
 
 /**
  * Wrap an async result-producing function in a `ResultAsync`, catching any
