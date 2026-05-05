@@ -1,5 +1,7 @@
 export {
+  readTypedSearchAttributes,
   TypedClient,
+  type TypedSearchAttributeMap,
   type TypedSignalWithStartOptions,
   type TypedWorkflowHandle,
   type TypedWorkflowHandleWithSignaledRunId,

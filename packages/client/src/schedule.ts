@@ -9,9 +9,10 @@ import type {
 } from "@temporalio/client";
 import type { ContractDefinition } from "@temporal-contract/contract";
 import { ResultAsync, type Result, ok, err } from "neverthrow";
+import type { TypedSearchAttributeMap } from "./client.js";
 import type { ClientInferInput } from "./types.js";
 import { RuntimeClientError, WorkflowNotFoundError, WorkflowValidationError } from "./errors.js";
-import { makeResultAsync } from "./internal.js";
+import { makeResultAsync, toTypedSearchAttributes } from "./internal.js";
 
 /**
  * Workflow-action–level overrides forwarded to Temporal's
@@ -54,6 +55,15 @@ export type TypedScheduleCreateOptions<
   spec: ScheduleSpec;
   /** Workflow input — validated against the contract's input schema. */
   args: ClientInferInput<TContract["workflows"][TWorkflowName]>;
+  /**
+   * Indexed search attributes for each workflow run spawned by this
+   * schedule. Keys and value types are constrained to those declared on
+   * the destination workflow's contract via `defineSearchAttribute`.
+   * Translated to Temporal's `typedSearchAttributes` and attached to the
+   * schedule's `startWorkflow` action so each spawned run is indexed
+   * identically to one started directly via `client.startWorkflow`.
+   */
+  searchAttributes?: TypedSearchAttributeMap<TContract["workflows"][TWorkflowName]>;
   /** Temporal schedule policies (overlap, catchupWindow, pauseOnFailure, etc.). */
   policies?: ScheduleOptions["policies"];
   /** Temporal schedule state (paused, note, limited, etc.). */
@@ -131,6 +141,19 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
         return err(new WorkflowValidationError(workflowName, "input", inputResult.issues));
       }
 
+      // Translate typed search attributes for the spawned workflow runs.
+      // Lives on the schedule's `startWorkflow` action (workflow-level
+      // indexing), not on the schedule itself. Mirrors what
+      // `client.startWorkflow` does for direct starts so schedule-spawned
+      // runs share visibility with their direct-start counterparts.
+      const searchAttributesResult = toTypedSearchAttributes(
+        definition,
+        workflowName,
+        options.searchAttributes as Record<string, unknown> | undefined,
+      );
+      if (searchAttributesResult.isErr()) return err(searchAttributesResult.error);
+      const typedSearchAttributes = searchAttributesResult.value;
+
       try {
         const overrides = options.action ?? {};
         const action: ScheduleOptionsStartWorkflowAction<never> = {
@@ -138,6 +161,7 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
           workflowType: workflowName,
           taskQueue: this.contract.taskQueue,
           args: [inputResult.value] as never,
+          ...(typedSearchAttributes ? { typedSearchAttributes } : {}),
           ...(overrides.workflowId !== undefined ? { workflowId: overrides.workflowId } : {}),
           ...(overrides.workflowExecutionTimeout !== undefined
             ? { workflowExecutionTimeout: overrides.workflowExecutionTimeout }

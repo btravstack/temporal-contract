@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
 import { defineContract, defineSearchAttribute, defineWorkflow } from "@temporal-contract/contract";
-import { TypedClient } from "./client.js";
+import { readTypedSearchAttributes, TypedClient } from "./client.js";
 import {
   QueryValidationError,
   RuntimeClientError,
@@ -19,6 +19,7 @@ import {
   WorkflowFailedError as TemporalWorkflowFailedError,
 } from "@temporalio/client";
 import {
+  defineSearchAttributeKey,
   TypedSearchAttributes,
   WorkflowNotFoundError as TemporalWorkflowNotFoundError,
 } from "@temporalio/common";
@@ -910,22 +911,12 @@ describe("TypedClient", () => {
       expect(passed.typedSearchAttributes).toBeInstanceOf(TypedSearchAttributes);
     });
 
-    it("filters out attribute keys that aren't declared on the workflow at runtime", async () => {
-      // Type-system catches this at the call site, but the runtime defensively
-      // drops unknown keys rather than handing them to Temporal.
-      mockWorkflow.start.mockResolvedValue({
-        workflowId: "order-1",
-        result: vi.fn(),
-        query: vi.fn(),
-        signal: vi.fn(),
-        executeUpdate: vi.fn(),
-        terminate: vi.fn(),
-        cancel: vi.fn(),
-        describe: vi.fn(),
-        fetchHistory: vi.fn(),
-      });
-
-      await searchClient.startWorkflow("processOrder", {
+    it("rejects attribute keys that aren't declared on the workflow at runtime", async () => {
+      // Type-system catches this at the call site, but the runtime guard
+      // exists for typed-escape-hatch cases (`as never`, `as any`,
+      // raw-call interop) where a typo would otherwise silently drop the
+      // attribute and leave the workflow unindexed without any signal.
+      const result = await searchClient.startWorkflow("processOrder", {
         workflowId: "order-1",
         args: { orderId: "ORD-1" },
         searchAttributes: {
@@ -935,13 +926,43 @@ describe("TypedClient", () => {
         },
       });
 
-      const passed = mockWorkflow.start.mock.calls[0]?.[1] as {
-        typedSearchAttributes?: TypedSearchAttributes;
-      };
-      expect(passed.typedSearchAttributes).toBeInstanceOf(TypedSearchAttributes);
-      // The TypedSearchAttributes instance should only contain `customerId`.
-      // We can't easily introspect it, but the call shouldn't have thrown
-      // and Temporal's serializer would reject unknown keys downstream.
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
+        expect(result.error).toBeInstanceOf(RuntimeClientError);
+        const op = (result.error as RuntimeClientError).operation;
+        expect(op).toBe("searchAttributes");
+        expect((result.error as RuntimeClientError).message).toContain("unknownAttr");
+      }
+      // Temporal must NOT have been called with the bad attribute.
+      expect(mockWorkflow.start).not.toHaveBeenCalled();
+    });
+
+    it("readTypedSearchAttributes round-trips declared keys with proper types", () => {
+      // Build a TypedSearchAttributes instance the way Temporal would
+      // populate one in `describe()`'s response, then round-trip through
+      // the public reader and assert the values come back narrowed.
+      const placedAt = new Date("2026-04-01T00:00:00Z");
+      const instance = new TypedSearchAttributes([
+        { key: defineSearchAttributeKey("customerId", "KEYWORD"), value: "CUST-9" },
+        { key: defineSearchAttributeKey("priority", "INT"), value: 7 },
+        { key: defineSearchAttributeKey("placedAt", "DATETIME"), value: placedAt },
+        { key: defineSearchAttributeKey("urgent", "BOOL"), value: true },
+        { key: defineSearchAttributeKey("tags", "KEYWORD_LIST"), value: ["a", "b"] },
+      ]);
+
+      const attrs = readTypedSearchAttributes(searchContract.workflows.processOrder, instance);
+
+      expect(attrs.customerId).toBe("CUST-9");
+      expect(attrs.priority).toBe(7);
+      expect(attrs.placedAt).toEqual(placedAt);
+      expect(attrs.urgent).toBe(true);
+      expect(attrs.tags).toEqual(["a", "b"]);
+    });
+
+    it("readTypedSearchAttributes returns {} for workflows with no declared attributes", () => {
+      const instance = new TypedSearchAttributes([]);
+      const attrs = readTypedSearchAttributes(searchContract.workflows.plain, instance);
+      expect(attrs).toEqual({});
     });
   });
 

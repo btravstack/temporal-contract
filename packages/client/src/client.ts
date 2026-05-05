@@ -1,10 +1,6 @@
 import { Client, WorkflowHandle } from "@temporalio/client";
 import type { WorkflowSignalWithStartOptions, WorkflowStartOptions } from "@temporalio/client";
-import {
-  defineSearchAttributeKey,
-  type SearchAttributePair,
-  TypedSearchAttributes,
-} from "@temporalio/common";
+import { defineSearchAttributeKey, TypedSearchAttributes } from "@temporalio/common";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type {
   AnyWorkflowDefinition,
@@ -40,6 +36,7 @@ import {
   classifyResultError,
   classifyStartError,
   makeResultAsync,
+  toTypedSearchAttributes,
 } from "./internal.js";
 import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
 import { WorkflowFailedError as TemporalWorkflowFailedError } from "@temporalio/client";
@@ -64,6 +61,55 @@ export type TypedSearchAttributeMap<TWorkflow extends AnyWorkflowDefinition> =
         >;
       }
     : never;
+
+/**
+ * Read declared search attributes off a `TypedSearchAttributes` instance —
+ * the read-side counterpart to the write-side `searchAttributes` option on
+ * `startWorkflow` / `signalWithStart` / `executeWorkflow` /
+ * `schedule.create`.
+ *
+ * Use it on the result of `handle.describe()` (or a schedule's describe) to
+ * recover the typed shape of indexed attributes. The Temporal SDK only
+ * exposes a `.get(key)` accessor on `TypedSearchAttributes` and requires
+ * the caller to reconstruct each `SearchAttributeKey` from the contract's
+ * declared `kind` — this helper does that lookup once for every declared
+ * attribute, returning a `Partial<TypedSearchAttributeMap<TWorkflow>>`
+ * (each declared key may or may not have been set on the workflow).
+ *
+ * Workflows without declared `searchAttributes` get an empty object back.
+ *
+ * @example
+ * ```ts
+ * const description = await handle.describe();
+ * if (description.isOk()) {
+ *   const attrs = readTypedSearchAttributes(
+ *     myContract.workflows.processOrder,
+ *     description.value.typedSearchAttributes,
+ *   );
+ *   // attrs.customerId: string | undefined
+ *   // attrs.priority:   number | undefined
+ * }
+ * ```
+ */
+export function readTypedSearchAttributes<TWorkflow extends AnyWorkflowDefinition>(
+  workflowDef: TWorkflow,
+  instance: TypedSearchAttributes,
+): Partial<TypedSearchAttributeMap<TWorkflow>> {
+  const declared = workflowDef.searchAttributes as
+    | Record<string, SearchAttributeDefinition>
+    | undefined;
+  if (!declared) return {} as Partial<TypedSearchAttributeMap<TWorkflow>>;
+
+  const result: Record<string, unknown> = {};
+  for (const [name, def] of Object.entries(declared)) {
+    const key = defineSearchAttributeKey(name, def.kind);
+    const value = instance.get(key);
+    if (value !== undefined) {
+      result[name] = value;
+    }
+  }
+  return result as Partial<TypedSearchAttributeMap<TWorkflow>>;
+}
 
 export type TypedWorkflowStartOptions<
   TContract extends ContractDefinition,
@@ -122,31 +168,6 @@ export type TypedWorkflowHandleWithSignaledRunId<TWorkflow extends AnyWorkflowDe
      */
     readonly signaledRunId: string;
   };
-
-/**
- * Translate the contract's typed `searchAttributes` map (declared
- * name → value) into a Temporal `TypedSearchAttributes` instance, so the
- * Temporal client honours indexing when starting the workflow.
- *
- * Workflows without a `searchAttributes` block (or callers passing no
- * values) skip the conversion entirely and return `undefined`, matching
- * the Temporal SDK's "absent ≠ empty" semantics.
- */
-function toTypedSearchAttributes(
-  workflowDef: AnyWorkflowDefinition,
-  values: Record<string, unknown> | undefined,
-): TypedSearchAttributes | undefined {
-  if (!values || !workflowDef.searchAttributes) return undefined;
-  const pairs: SearchAttributePair[] = [];
-  for (const [name, value] of Object.entries(values)) {
-    if (value === undefined) continue;
-    const def = (workflowDef.searchAttributes as Record<string, SearchAttributeDefinition>)[name];
-    if (!def) continue;
-    const key = defineSearchAttributeKey(name, def.kind);
-    pairs.push({ key, value } as SearchAttributePair);
-  }
-  return pairs.length > 0 ? new TypedSearchAttributes(pairs) : undefined;
-}
 
 /**
  * Typed workflow handle with validated results using neverthrow Result/ResultAsync
@@ -287,7 +308,7 @@ async function resolveDefinitionAndValidateInput<
 ): Promise<
   Result<
     ResolvedWorkflow<TContract["workflows"][TWorkflowName]>,
-    WorkflowNotFoundError | WorkflowValidationError
+    WorkflowNotFoundError | WorkflowValidationError | RuntimeClientError
   >
 > {
   const definition = contract.workflows[workflowName];
@@ -300,7 +321,13 @@ async function resolveDefinitionAndValidateInput<
     return err(createWorkflowValidationError(workflowName, "input", inputResult.issues));
   }
 
-  const typedSearchAttributes = toTypedSearchAttributes(definition, searchAttributes);
+  const searchAttributesResult = toTypedSearchAttributes(
+    definition,
+    workflowName,
+    searchAttributes,
+  );
+  if (searchAttributesResult.isErr()) return err(searchAttributesResult.error);
+  const typedSearchAttributes = searchAttributesResult.value;
 
   return ok({
     definition: definition as TContract["workflows"][TWorkflowName],
