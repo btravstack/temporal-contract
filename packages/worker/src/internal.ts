@@ -28,7 +28,7 @@ export { formatIssue, summarizeIssues, formatChildWorkflowValidationMessage } fr
 // `new ResultAsync(work())` gap — the bare constructor doesn't catch
 // rejections, so a synchronous throw or a rejected promise from `work()`
 // would otherwise escape neverthrow's railway as an unhandled rejection.
-export { _internal_makeResultAsync as makeResultAsync } from "@temporal-contract/contract";
+export { _internal_makeResultAsync as makeResultAsync } from "@temporal-contract/contract/result-async";
 
 /**
  * Extract the single payload from a Temporal handler's `...args` array.

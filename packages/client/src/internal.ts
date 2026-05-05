@@ -8,7 +8,7 @@
 import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
 import { WorkflowFailedError as TemporalWorkflowFailedError } from "@temporalio/client";
 import { WorkflowNotFoundError as TemporalWorkflowNotFoundError } from "@temporalio/common";
-import { _internal_makeResultAsync } from "@temporal-contract/contract";
+import { _internal_makeResultAsync } from "@temporal-contract/contract/result-async";
 import type { ResultAsync, Result } from "neverthrow";
 import {
   RuntimeClientError,
