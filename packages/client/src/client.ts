@@ -246,6 +246,70 @@ export type TypedWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
 };
 
 /**
+ * Result of {@link resolveDefinitionAndValidateInput} — the contract-side
+ * pre-call ritual the start/signal-with-start/execute methods share. Holds
+ * the resolved workflow definition, the schema-validated input, and the
+ * translated typed search attributes (or `undefined` when the workflow
+ * declared none / the caller passed none).
+ */
+type ResolvedWorkflow<TWorkflow extends AnyWorkflowDefinition> = {
+  definition: TWorkflow;
+  validatedInput: unknown;
+  typedSearchAttributes: TypedSearchAttributes | undefined;
+};
+
+/**
+ * Shared pre-call ritual for the three contract-driven entry points that
+ * actually start a workflow (`startWorkflow`, `signalWithStart`,
+ * `executeWorkflow`):
+ *
+ *   1. Look up the workflow definition on the contract.
+ *   2. Surface a `WorkflowNotFoundError` if absent.
+ *   3. Validate `args` against the workflow's input schema.
+ *   4. Surface a `WorkflowValidationError` if validation fails.
+ *   5. Translate any caller-supplied `searchAttributes` into Temporal's
+ *      `TypedSearchAttributes` shape (or `undefined`).
+ *
+ * `getHandle` deliberately keeps its own three-line lookup — it doesn't
+ * accept `args` or `searchAttributes`, so it can't share this helper. The
+ * call-specific extras (signal validation, post-call output validation,
+ * extended error classification) stay at the call site — those are the
+ * differentiators that make each method distinct.
+ */
+async function resolveDefinitionAndValidateInput<
+  TContract extends ContractDefinition,
+  TWorkflowName extends keyof TContract["workflows"] & string,
+>(
+  contract: TContract,
+  workflowName: TWorkflowName,
+  args: unknown,
+  searchAttributes: Record<string, unknown> | undefined,
+): Promise<
+  Result<
+    ResolvedWorkflow<TContract["workflows"][TWorkflowName]>,
+    WorkflowNotFoundError | WorkflowValidationError
+  >
+> {
+  const definition = contract.workflows[workflowName];
+  if (!definition) {
+    return err(createWorkflowNotFoundError(workflowName, contract));
+  }
+
+  const inputResult = await definition.input["~standard"].validate(args);
+  if (inputResult.issues) {
+    return err(createWorkflowValidationError(workflowName, "input", inputResult.issues));
+  }
+
+  const typedSearchAttributes = toTypedSearchAttributes(definition, searchAttributes);
+
+  return ok({
+    definition: definition as TContract["workflows"][TWorkflowName],
+    validatedInput: inputResult.value,
+    typedSearchAttributes,
+  });
+}
+
+/**
  * Typed Temporal client with neverthrow Result/ResultAsync pattern based on a contract
  *
  * Provides type-safe methods to start and execute workflows
@@ -365,26 +429,20 @@ export class TypedClient<TContract extends ContractDefinition> {
       | WorkflowAlreadyStartedError
       | RuntimeClientError;
     const work = async (): Promise<Result<Ok, Err>> => {
-      const definition = this.contract.workflows[workflowName];
-      if (!definition) {
-        return err(createWorkflowNotFoundError(workflowName, this.contract));
-      }
-
-      const inputResult = await definition.input["~standard"].validate(args);
-      if (inputResult.issues) {
-        return err(createWorkflowValidationError(workflowName, "input", inputResult.issues));
-      }
-
-      const typedSearchAttributes = toTypedSearchAttributes(
-        definition,
+      const resolved = await resolveDefinitionAndValidateInput(
+        this.contract,
+        workflowName,
+        args,
         searchAttributes as Record<string, unknown> | undefined,
       );
+      if (resolved.isErr()) return err(resolved.error);
+      const { definition, validatedInput, typedSearchAttributes } = resolved.value;
 
       try {
         const handle = await this.client.workflow.start(workflowName, {
           ...temporalOptions,
           taskQueue: this.contract.taskQueue,
-          args: [inputResult.value],
+          args: [validatedInput],
           ...(typedSearchAttributes ? { typedSearchAttributes } : {}),
         });
         return ok(this.createTypedHandle(handle, definition) as Ok);
@@ -450,18 +508,16 @@ export class TypedClient<TContract extends ContractDefinition> {
       | RuntimeClientError;
 
     const work = async (): Promise<Result<Ok, Err>> => {
-      const definition = this.contract.workflows[workflowName];
-      if (!definition) {
-        return err(createWorkflowNotFoundError(workflowName, this.contract));
-      }
+      const resolved = await resolveDefinitionAndValidateInput(
+        this.contract,
+        workflowName,
+        args,
+        searchAttributes as Record<string, unknown> | undefined,
+      );
+      if (resolved.isErr()) return err(resolved.error);
+      const { definition, validatedInput, typedSearchAttributes } = resolved.value;
 
-      // Validate workflow input
-      const inputResult = await definition.input["~standard"].validate(args);
-      if (inputResult.issues) {
-        return err(createWorkflowValidationError(workflowName, "input", inputResult.issues));
-      }
-
-      // Validate signal input
+      // Validate signal input — call-site-specific, kept inline.
       const signalDef = (definition.signals as Record<string, SignalDefinition> | undefined)?.[
         signalName
       ];
@@ -481,16 +537,11 @@ export class TypedClient<TContract extends ContractDefinition> {
         return err(new SignalValidationError(signalName, signalInputResult.issues));
       }
 
-      const typedSearchAttributes = toTypedSearchAttributes(
-        definition,
-        searchAttributes as Record<string, unknown> | undefined,
-      );
-
       try {
         const handle = await this.client.workflow.signalWithStart(workflowName, {
           ...temporalOptions,
           taskQueue: this.contract.taskQueue,
-          args: [inputResult.value],
+          args: [validatedInput],
           signal: signalName,
           signalArgs: [signalInputResult.value],
           ...(typedSearchAttributes ? { typedSearchAttributes } : {}),
@@ -549,29 +600,26 @@ export class TypedClient<TContract extends ContractDefinition> {
       | WorkflowExecutionNotFoundError
       | RuntimeClientError;
     const work = async (): Promise<Result<Ok, Err>> => {
-      const definition = this.contract.workflows[workflowName];
-      if (!definition) {
-        return err(createWorkflowNotFoundError(workflowName, this.contract));
-      }
-
-      const inputResult = await definition.input["~standard"].validate(args);
-      if (inputResult.issues) {
-        return err(createWorkflowValidationError(workflowName, "input", inputResult.issues));
-      }
-
-      const typedSearchAttributes = toTypedSearchAttributes(
-        definition,
+      const resolved = await resolveDefinitionAndValidateInput(
+        this.contract,
+        workflowName,
+        args,
         searchAttributes as Record<string, unknown> | undefined,
       );
+      if (resolved.isErr()) return err(resolved.error);
+      const { definition, validatedInput, typedSearchAttributes } = resolved.value;
 
       try {
         const result = await this.client.workflow.execute(workflowName, {
           ...temporalOptions,
           taskQueue: this.contract.taskQueue,
-          args: [inputResult.value],
+          args: [validatedInput],
           ...(typedSearchAttributes ? { typedSearchAttributes } : {}),
         });
 
+        // Output validation runs *after* the Temporal call returns — kept
+        // inline because it's specific to executeWorkflow's start-and-wait
+        // shape; the helper only handles pre-call concerns.
         const outputResult = await definition.output["~standard"].validate(result);
         if (outputResult.issues) {
           return err(createWorkflowValidationError(workflowName, "output", outputResult.issues));

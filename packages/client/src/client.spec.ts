@@ -783,6 +783,9 @@ describe("TypedClient", () => {
         processOrder: defineWorkflow({
           input: z.object({ orderId: z.string() }),
           output: z.object({ status: z.string() }),
+          signals: {
+            cancel: { input: z.tuple([z.object({ reason: z.string() })]) },
+          },
           searchAttributes: {
             customerId: defineSearchAttribute({ kind: "KEYWORD" }),
             priority: defineSearchAttribute({ kind: "INT" }),
@@ -871,6 +874,37 @@ describe("TypedClient", () => {
       });
 
       const passed = mockWorkflow.execute.mock.calls[0]?.[1] as {
+        typedSearchAttributes?: TypedSearchAttributes;
+      };
+      expect(passed.typedSearchAttributes).toBeInstanceOf(TypedSearchAttributes);
+    });
+
+    it("translates declared searchAttributes through signalWithStart", async () => {
+      // Regression: signalWithStart now flows through the same
+      // resolveDefinitionAndValidateInput helper as start/execute, so the
+      // typed search-attribute translation must fire there as well.
+      mockWorkflow.signalWithStart.mockResolvedValue({
+        workflowId: "order-1",
+        signaledRunId: "run-abc",
+        result: vi.fn(),
+        query: vi.fn(),
+        signal: vi.fn(),
+        executeUpdate: vi.fn(),
+        terminate: vi.fn(),
+        cancel: vi.fn(),
+        describe: vi.fn(),
+        fetchHistory: vi.fn(),
+      });
+
+      await searchClient.signalWithStart("processOrder", {
+        workflowId: "order-1",
+        args: { orderId: "ORD-1" },
+        signalName: "cancel",
+        signalArgs: [{ reason: "duplicate" }],
+        searchAttributes: { customerId: "CUST-1" },
+      });
+
+      const passed = mockWorkflow.signalWithStart.mock.calls[0]?.[1] as {
         typedSearchAttributes?: TypedSearchAttributes;
       };
       expect(passed.typedSearchAttributes).toBeInstanceOf(TypedSearchAttributes);

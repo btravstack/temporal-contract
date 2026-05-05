@@ -5,20 +5,17 @@
 // `Result`/`ResultAsync` rely only on Promise scheduling, so they replay
 // deterministically alongside Temporal's machinery. Activity code (see
 // activity.ts) uses the same neverthrow API.
-import {
+import type {
   ActivityDefinition,
-  type AnyWorkflowDefinition,
   ContractDefinition,
   QueryDefinition,
-  type QueryNamesOf,
+  QueryNamesOf,
   SignalDefinition,
-  type SignalNamesOf,
+  SignalNamesOf,
   UpdateDefinition,
-  type UpdateNamesOf,
+  UpdateNamesOf,
 } from "@temporal-contract/contract";
 import {
-  ActivityInputValidationError,
-  ActivityOutputValidationError,
   ChildWorkflowCancelledError,
   ChildWorkflowError,
   ChildWorkflowNotFoundError,
@@ -42,25 +39,24 @@ import {
   WorkerInferInput,
   WorkerInferOutput,
 } from "./types.js";
-import { type ResultAsync, type Result, ok, err } from "neverthrow";
+import type { ResultAsync } from "neverthrow";
 import {
   buildRawActivitiesProxy,
-  classifyChildWorkflowError,
   createContinueAsNew,
   extractHandlerInput,
-  formatChildWorkflowValidationMessage,
-  makeResultAsync,
   type TypedContinueAsNewOptions,
 } from "./internal.js";
 import {
-  ActivityOptions,
-  ChildWorkflowHandle,
-  ChildWorkflowOptions,
-  executeChild,
-  startChild,
-  WorkflowInfo,
-  workflowInfo,
-} from "@temporalio/workflow";
+  createStartChildWorkflow,
+  createExecuteChildWorkflow,
+  type TypedChildWorkflowHandle,
+  type TypedChildWorkflowOptions,
+} from "./child-workflow.js";
+import {
+  createValidatedActivities,
+  type WorkflowInferWorkflowContextActivities,
+} from "./activities-proxy.js";
+import { ActivityOptions, WorkflowInfo, workflowInfo } from "@temporalio/workflow";
 
 export {
   ActivityInputValidationError,
@@ -674,346 +670,3 @@ type WorkflowContext<
     ): Promise<never>;
   };
 };
-
-/**
- * Options for starting a child workflow
- */
-type TypedChildWorkflowOptions<
-  TChildContract extends ContractDefinition,
-  TChildWorkflowName extends keyof TChildContract["workflows"] & string,
-> = Omit<ChildWorkflowOptions, "taskQueue" | "args"> & {
-  args: ClientInferInput<TChildContract["workflows"][TChildWorkflowName]>;
-};
-
-/**
- * Typed handle for a child workflow with neverthrow ResultAsync pattern
- */
-type TypedChildWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
-  /**
-   * Get child workflow result with Result pattern
-   */
-  result: () => ResultAsync<
-    ClientInferOutput<TWorkflow>,
-    ChildWorkflowError | ChildWorkflowCancelledError
-  >;
-
-  /**
-   * Child workflow ID
-   */
-  workflowId: string;
-};
-
-/**
- * Activity function signature from workflow execution perspective
- *
- * Workflows call activities with validated input (z.input parsed) and receive validated output (z.output)
- */
-type WorkflowInferActivity<TActivity extends ActivityDefinition> = (
-  args: ClientInferInput<TActivity>,
-) => Promise<ClientInferOutput<TActivity>>;
-
-/**
- * All global activities from a contract (workflow execution perspective)
- */
-type WorkflowInferActivities<TContract extends ContractDefinition> =
-  TContract["activities"] extends Record<string, ActivityDefinition>
-    ? {
-        [K in keyof TContract["activities"]]: WorkflowInferActivity<TContract["activities"][K]>;
-      }
-    : {};
-
-/**
- * Workflow-specific activities (workflow execution perspective)
- */
-type WorkflowInferWorkflowActivities<T extends AnyWorkflowDefinition> =
-  T["activities"] extends Record<string, ActivityDefinition>
-    ? {
-        [K in keyof T["activities"]]: WorkflowInferActivity<T["activities"][K]>;
-      }
-    : {};
-
-/**
- * All activities available in a workflow context (workflow execution perspective)
- *
- * Combines workflow-specific activities with global contract activities
- */
-type WorkflowInferWorkflowContextActivities<
-  TContract extends ContractDefinition,
-  TWorkflowName extends keyof TContract["workflows"] & string,
-> = WorkflowInferWorkflowActivities<TContract["workflows"][TWorkflowName]> &
-  WorkflowInferActivities<TContract>;
-
-/**
- * Create a validated activities proxy that parses inputs and outputs
- *
- * This wrapper ensures data integrity across the network boundary between
- * workflow and activity execution.
- */
-function createValidatedActivities<
-  TContract extends ContractDefinition,
-  TWorkflowName extends keyof TContract["workflows"] & string,
->(
-  rawActivities: Record<string, (...args: unknown[]) => Promise<unknown>>,
-  workflowActivitiesDefinition: Record<string, ActivityDefinition> | undefined,
-  contractActivitiesDefinition: Record<string, ActivityDefinition> | undefined,
-): WorkflowInferWorkflowContextActivities<TContract, TWorkflowName> {
-  const validatedActivities = {} as WorkflowInferWorkflowContextActivities<
-    TContract,
-    TWorkflowName
-  >;
-
-  // Merge workflow-specific and global contract activities. defineContract
-  // guarantees there are no name collisions across scopes, so spread order
-  // is just a stable iteration choice (workflow-local last).
-  const allActivitiesDefinition = {
-    ...contractActivitiesDefinition,
-    ...workflowActivitiesDefinition,
-  };
-
-  for (const [activityName, activityDef] of Object.entries(allActivitiesDefinition)) {
-    const rawActivity = rawActivities[activityName];
-
-    if (!rawActivity) {
-      throw new Error(
-        `Activity implementation not found for: "${activityName}". ` +
-          `Available activities: ${Object.keys(rawActivities).length > 0 ? Object.keys(rawActivities).join(", ") : "none"}`,
-      );
-    }
-
-    // Wrap activity with input/output validation
-    // Register the wrapped activity
-    (validatedActivities as Record<string, unknown>)[activityName] = async (input: unknown) => {
-      // Validate input before sending over the network
-      const inputResult = await activityDef.input["~standard"].validate(input);
-      if (inputResult.issues) {
-        throw new ActivityInputValidationError(activityName, inputResult.issues);
-      }
-
-      // Call the actual activity with validated input
-      const result = await rawActivity(inputResult.value);
-
-      // Validate output after receiving from the network
-      const outputResult = await activityDef.output["~standard"].validate(result);
-      if (outputResult.issues) {
-        throw new ActivityOutputValidationError(activityName, outputResult.issues);
-      }
-
-      return outputResult.value;
-    };
-  }
-
-  return validatedActivities;
-}
-
-async function validateChildWorkflowOutput<TChildWorkflow extends AnyWorkflowDefinition>(
-  childDefinition: TChildWorkflow,
-  result: unknown,
-  childWorkflowName: string,
-): Promise<Result<ClientInferOutput<TChildWorkflow>, ChildWorkflowError>> {
-  const outputResult = await childDefinition.output["~standard"].validate(result);
-  if (outputResult.issues) {
-    return err(
-      new ChildWorkflowError(
-        formatChildWorkflowValidationMessage(childWorkflowName, "output", outputResult.issues),
-      ),
-    );
-  }
-  return ok(outputResult.value as ClientInferOutput<TChildWorkflow>);
-}
-
-async function getAndValidateChildWorkflow<
-  TChildContract extends ContractDefinition,
-  TChildWorkflowName extends keyof TChildContract["workflows"] & string,
->(
-  childContract: TChildContract,
-  childWorkflowName: TChildWorkflowName,
-  args: unknown,
-): Promise<
-  Result<
-    {
-      definition: TChildContract["workflows"][TChildWorkflowName];
-      validatedInput: WorkerInferInput<TChildContract["workflows"][TChildWorkflowName]>;
-      taskQueue: string;
-    },
-    ChildWorkflowError
-  >
-> {
-  const childDefinition = childContract.workflows[childWorkflowName];
-
-  if (!childDefinition) {
-    return err(
-      new ChildWorkflowNotFoundError(
-        childWorkflowName,
-        Object.keys(childContract.workflows) as string[],
-      ),
-    );
-  }
-
-  const inputResult = await childDefinition.input["~standard"].validate(args);
-  if (inputResult.issues) {
-    return err(
-      new ChildWorkflowError(
-        formatChildWorkflowValidationMessage(childWorkflowName, "input", inputResult.issues),
-      ),
-    );
-  }
-
-  const validatedInput = inputResult.value as WorkerInferInput<
-    TChildContract["workflows"][TChildWorkflowName]
-  >;
-
-  return ok({
-    definition: childDefinition as TChildContract["workflows"][TChildWorkflowName],
-    validatedInput,
-    taskQueue: childContract.taskQueue,
-  });
-}
-
-function createTypedChildHandle<TChildWorkflow extends AnyWorkflowDefinition>(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  handle: ChildWorkflowHandle<any>,
-  childDefinition: TChildWorkflow,
-  childWorkflowName: string,
-): TypedChildWorkflowHandle<TChildWorkflow> {
-  return {
-    workflowId: handle.workflowId,
-    result: (): ResultAsync<
-      ClientInferOutput<TChildWorkflow>,
-      ChildWorkflowError | ChildWorkflowCancelledError
-    > => {
-      const work = async (): Promise<
-        Result<ClientInferOutput<TChildWorkflow>, ChildWorkflowError | ChildWorkflowCancelledError>
-      > => {
-        try {
-          const result = await handle.result();
-          return validateChildWorkflowOutput(childDefinition, result, childWorkflowName);
-        } catch (error) {
-          return err(classifyChildWorkflowError("result", error, childWorkflowName));
-        }
-      };
-      // makeResultAsync wraps `work` so a synchronous throw (e.g. a future
-      // refactor that mutates state before the first await) surfaces as
-      // `err(ChildWorkflowError)` instead of an unhandled rejection.
-      return makeResultAsync(
-        work,
-        (error) =>
-          new ChildWorkflowError(
-            `Child workflow execution failed: ${error instanceof Error ? error.message : String(error)}`,
-            error,
-          ),
-      );
-    },
-  };
-}
-
-function createStartChildWorkflow<
-  TChildContract extends ContractDefinition,
-  TChildWorkflowName extends keyof TChildContract["workflows"] & string,
->(
-  childContract: TChildContract,
-  childWorkflowName: TChildWorkflowName,
-  options: TypedChildWorkflowOptions<TChildContract, TChildWorkflowName>,
-): ResultAsync<
-  TypedChildWorkflowHandle<TChildContract["workflows"][TChildWorkflowName]>,
-  ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError
-> {
-  type Ok = TypedChildWorkflowHandle<TChildContract["workflows"][TChildWorkflowName]>;
-  const work = async (): Promise<
-    Result<Ok, ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError>
-  > => {
-    const validationResult = await getAndValidateChildWorkflow(
-      childContract,
-      childWorkflowName,
-      options.args,
-    );
-
-    if (validationResult.isErr()) {
-      return err(validationResult.error);
-    }
-
-    const { definition: childDefinition, validatedInput, taskQueue } = validationResult.value;
-
-    try {
-      const { args: _args, ...temporalOptions } = options;
-      const handle = await startChild(childWorkflowName, {
-        ...temporalOptions,
-        taskQueue,
-        args: [validatedInput],
-      });
-
-      const typedHandle = createTypedChildHandle(handle, childDefinition, childWorkflowName) as Ok;
-
-      return ok(typedHandle);
-    } catch (error) {
-      return err(classifyChildWorkflowError("startChild", error, String(childWorkflowName)));
-    }
-  };
-  return makeResultAsync(
-    work,
-    (error) =>
-      new ChildWorkflowError(
-        `Failed to start child workflow: ${error instanceof Error ? error.message : String(error)}`,
-        error,
-      ),
-  );
-}
-
-function createExecuteChildWorkflow<
-  TChildContract extends ContractDefinition,
-  TChildWorkflowName extends keyof TChildContract["workflows"] & string,
->(
-  childContract: TChildContract,
-  childWorkflowName: TChildWorkflowName,
-  options: TypedChildWorkflowOptions<TChildContract, TChildWorkflowName>,
-): ResultAsync<
-  ClientInferOutput<TChildContract["workflows"][TChildWorkflowName]>,
-  ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError
-> {
-  type Ok = ClientInferOutput<TChildContract["workflows"][TChildWorkflowName]>;
-  const work = async (): Promise<
-    Result<Ok, ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError>
-  > => {
-    const validationResult = await getAndValidateChildWorkflow(
-      childContract,
-      childWorkflowName,
-      options.args,
-    );
-
-    if (validationResult.isErr()) {
-      return err(validationResult.error);
-    }
-
-    const { definition: childDefinition, validatedInput, taskQueue } = validationResult.value;
-
-    try {
-      const { args: _args, ...temporalOptions } = options;
-      const result = await executeChild(childWorkflowName, {
-        ...temporalOptions,
-        taskQueue,
-        args: [validatedInput],
-      });
-
-      const outputValidationResult = await validateChildWorkflowOutput(
-        childDefinition,
-        result,
-        childWorkflowName,
-      );
-
-      if (outputValidationResult.isErr()) {
-        return err(outputValidationResult.error);
-      }
-
-      return ok(outputValidationResult.value as Ok);
-    } catch (error) {
-      return err(classifyChildWorkflowError("executeChild", error, String(childWorkflowName)));
-    }
-  };
-  return makeResultAsync(
-    work,
-    (error) =>
-      new ChildWorkflowError(
-        `Failed to execute child workflow: ${error instanceof Error ? error.message : String(error)}`,
-        error,
-      ),
-  );
-}
