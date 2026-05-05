@@ -1,24 +1,30 @@
 import { declareWorkflow } from "@temporal-contract/worker/workflow";
+import { log } from "@temporalio/workflow";
 import { orderProcessingContract } from "@temporal-contract/sample-order-processing-contract";
 
 /**
  * Process Order Workflow Implementation
  *
- * This workflow demonstrates a different approach to error handling:
- * - Activities use neverthrow's ResultAsync in their implementation (domain + infrastructure)
- * - Workflow checks activity results and returns appropriate status
- * - No exceptions thrown - pure functional style with explicit return values
+ * - Activities use neverthrow's `ResultAsync` in their implementation
+ *   (domain + infrastructure).
+ * - Workflow checks activity results and returns appropriate status.
+ * - No exceptions thrown — pure functional style with explicit return values.
+ *
+ * Logging note: this workflow uses the `log` namespace from
+ * `@temporalio/workflow` (replay-safe, routed through the worker's
+ * configured logger sink). It does **not** define a `log` Temporal
+ * activity — calling an activity per log line would inflate workflow
+ * history (every line becomes a recorded event), cost money on Temporal
+ * Cloud, and replay on every recovery. Workflow logs go through `log.*`;
+ * domain effects go through activities.
  *
  * Flow:
  * 1. Log order start
- * 2. Process payment -> if failed, return early
- * 3. Reserve inventory -> if failed, return early
+ * 2. Process payment → if failed, return early
+ * 3. Reserve inventory → if failed, refund payment and return
  * 4. Create shipment
  * 5. Send confirmation
  * 6. Return success status
- *
- * Note: Activities internally use ResultAsync, but workflow code
- * stays deterministic by working with the unwrapped values.
  */
 export const processOrder = declareWorkflow({
   workflowName: "processOrder",
@@ -28,31 +34,21 @@ export const processOrder = declareWorkflow({
 
     // State tracking for rollback
     let paymentTransactionId: string | undefined;
-    let inventoryReservationId: string | undefined;
 
     // Step 1: Log order start
-    await activities.log({
-      level: "info",
-      message: `Starting order processing for ${order.orderId} (workflow: ${info.workflowId})`,
-    });
+    log.info(`Starting order processing for ${order.orderId} (workflow: ${info.workflowId})`);
 
     // Step 2: Process payment
-    await activities.log({
-      level: "info",
-      message: `Processing payment of $${order.totalAmount}`,
-    });
+    log.info(`Processing payment of $${order.totalAmount}`);
 
     const paymentResult = await activities.processPayment({
       customerId: order.customerId,
       amount: order.totalAmount,
     });
 
-    // Check payment status - return early if failed
+    // Check payment status — return early if failed
     if (paymentResult.status === "failed") {
-      await activities.log({
-        level: "error",
-        message: "Payment failed: Card declined",
-      });
+      log.error("Payment failed: card declined");
 
       await activities.sendNotification({
         customerId: order.customerId,
@@ -69,29 +65,20 @@ export const processOrder = declareWorkflow({
     }
 
     paymentTransactionId = paymentResult.transactionId;
-    await activities.log({
-      level: "info",
-      message: `Payment successful: ${paymentTransactionId}`,
-    });
+    log.info(`Payment successful: ${paymentTransactionId}`);
 
     // Step 3: Reserve inventory
-    await activities.log({ level: "info", message: "Reserving inventory" });
+    log.info("Reserving inventory");
     const inventoryResult = await activities.reserveInventory(order.items);
 
-    // Check inventory - rollback payment if failed
+    // Check inventory — rollback payment if failed
     if (!inventoryResult.reserved) {
-      await activities.log({
-        level: "error",
-        message: "Inventory reservation failed",
-      });
+      log.error("Inventory reservation failed");
 
       // Rollback: Refund payment
-      await activities.log({ level: "info", message: "Rolling back: refunding payment" });
+      log.info("Rolling back: refunding payment");
       await activities.refundPayment(paymentTransactionId);
-      await activities.log({
-        level: "info",
-        message: `Payment refunded: ${paymentTransactionId}`,
-      });
+      log.info(`Payment refunded: ${paymentTransactionId}`);
 
       await activities.sendNotification({
         customerId: order.customerId,
@@ -107,23 +94,16 @@ export const processOrder = declareWorkflow({
       };
     }
 
-    inventoryReservationId = inventoryResult.reservationId;
-    await activities.log({
-      level: "info",
-      message: `Inventory reserved: ${inventoryReservationId}`,
-    });
+    log.info(`Inventory reserved: ${inventoryResult.reservationId}`);
 
     // Step 4: Create shipment
-    await activities.log({ level: "info", message: "Creating shipment" });
+    log.info("Creating shipment");
     const shippingResult = await activities.createShipment({
       orderId: order.orderId,
       customerId: order.customerId,
     });
 
-    await activities.log({
-      level: "info",
-      message: `Shipment created: ${shippingResult.trackingNumber}`,
-    });
+    log.info(`Shipment created: ${shippingResult.trackingNumber}`);
 
     // Step 5: Send success notification (non-critical)
     try {
@@ -134,17 +114,11 @@ export const processOrder = declareWorkflow({
       });
     } catch (error) {
       // Non-critical: log but continue
-      await activities.log({
-        level: "warn",
-        message: `Failed to send confirmation notification: ${error}`,
-      });
+      log.warn(`Failed to send confirmation notification: ${error}`);
     }
 
     // Success!
-    await activities.log({
-      level: "info",
-      message: `Order ${order.orderId} processed successfully`,
-    });
+    log.info(`Order ${order.orderId} processed successfully`);
 
     return {
       orderId: order.orderId,

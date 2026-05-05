@@ -32,17 +32,6 @@ export const orderProcessingContract = defineContract({
    */
   activities: {
     /**
-     * Log a message to the console
-     */
-    log: {
-      input: z.object({
-        level: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]),
-        message: z.string(),
-      }),
-      output: z.void(),
-    },
-
-    /**
      * Send a notification to a customer
      */
     sendNotification: {

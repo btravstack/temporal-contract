@@ -1,6 +1,6 @@
 import { describe, expect, vi, beforeEach } from "vitest";
 import { Worker } from "@temporalio/worker";
-import { TypedClient } from "@temporal-contract/client";
+import { TypedClient, WorkflowValidationError } from "@temporal-contract/client";
 import { it as baseIt } from "@temporal-contract/testing/extension";
 import {
   orderProcessingContract,
@@ -246,23 +246,20 @@ describe("Order Processing Workflow - Integration Tests", () => {
     // THEN
     expect(execution.isErr()).toBe(true);
     if (execution.isErr()) {
-      expect(execution.error).toEqual(
-        expect.objectContaining({
-          name: "WorkflowValidationError",
-          workflowName: "processOrder",
-          direction: "input",
-          issues: [
-            {
-              origin: "number",
-              code: "too_small",
-              minimum: 0,
-              inclusive: false,
-              path: ["items", 0, "quantity"],
-              message: "Too small: expected number to be >0",
-            },
-          ],
-        }),
-      );
+      expect(execution.error).toBeInstanceOf(WorkflowValidationError);
+      const validationError = execution.error as WorkflowValidationError;
+      expect(validationError.workflowName).toBe("processOrder");
+      expect(validationError.direction).toBe("input");
+      expect(validationError.issues).toEqual([
+        {
+          origin: "number",
+          code: "too_small",
+          minimum: 0,
+          inclusive: false,
+          path: ["items", 0, "quantity"],
+          message: "Too small: expected number to be >0",
+        },
+      ]);
     }
   });
 

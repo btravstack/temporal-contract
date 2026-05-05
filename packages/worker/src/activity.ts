@@ -45,7 +45,27 @@ type ResultActivityImplementation<TActivity extends ActivityDefinition> = (
 ) => ResultAsync<WorkerInferOutput<TActivity>, ApplicationFailure>;
 
 /**
- * Map of all activity implementations for a contract (global + all workflow-specific)
+ * Map of all activity implementations for a contract (global + all workflow-specific).
+ *
+ * **Shape note — input is nested by workflow, output is flat.** This
+ * asymmetry is deliberate:
+ *
+ * - The implementation map you write **mirrors the contract's structure**:
+ *   global activities sit at the root, workflow-local activities nest
+ *   under their owning workflow's name. Mirroring the contract gives
+ *   IDE autocomplete that matches `defineContract`, prevents typos that
+ *   put a workflow-local activity at the global level, and makes
+ *   ownership visible at definition time.
+ * - The handler returned by {@link declareActivitiesHandler} (see
+ *   {@link ActivitiesHandler}) is **flat** because Temporal's worker
+ *   sees a single activity namespace at runtime —
+ *   `proxyActivities<...>()` resolves names from one map regardless of
+ *   which workflow consumes them. `defineContract` enforces no name
+ *   collisions across global + workflow-local scopes, so the flat
+ *   output has no ambiguity to resolve.
+ *
+ * In short: write nested (mirror the contract); the wrapper flattens
+ * for Temporal.
  */
 type ContractResultActivitiesImplementations<TContract extends ContractDefinition> =
   // Global activities
@@ -89,9 +109,12 @@ type UnionToIntersection<U> = (U extends unknown ? (k: U) => void : never) exten
   : never;
 
 /**
- * Activities handler ready for Temporal Worker
+ * Activities handler ready for Temporal's `Worker.create({ activities })`.
  *
- * Flat structure: all activities (global + all workflow-specific) are at the root level
+ * Flat shape: every activity (global + all workflow-local) lives at the
+ * root of the returned map. See the doc comment on
+ * {@link ContractResultActivitiesImplementations} for why the input you
+ * write is nested by workflow while this output is flat.
  */
 export type ActivitiesHandler<TContract extends ContractDefinition> =
   // Global activities
