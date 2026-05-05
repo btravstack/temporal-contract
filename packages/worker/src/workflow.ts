@@ -203,6 +203,16 @@ export function declareWorkflow<
       definition.activities,
       contract.activities,
     );
+
+    // Shared across workflow invocations after the proxyActivities hoist
+    // (PR #211); freeze so user code can't mutate one invocation's view of
+    // activities and have it leak into others. The freeze is shallow, which
+    // is sufficient because `createValidatedActivities` returns a flat
+    // `{ [name]: (input) => Promise<output> }` map — every value is a
+    // stateless validation wrapper function, not a nested object users could
+    // reach into. The matching `Readonly<...>` on `WorkflowContext.activities`
+    // surfaces the immutability at the type level.
+    Object.freeze(contextActivities);
   }
 
   return async (...args: unknown[]) => {
@@ -379,7 +389,7 @@ type WorkflowContext<
   TContract extends ContractDefinition,
   TWorkflowName extends keyof TContract["workflows"],
 > = {
-  activities: WorkflowInferWorkflowContextActivities<TContract, TWorkflowName>;
+  activities: Readonly<WorkflowInferWorkflowContextActivities<TContract, TWorkflowName>>;
   info: WorkflowInfo;
 
   /**
