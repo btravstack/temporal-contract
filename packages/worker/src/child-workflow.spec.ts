@@ -105,7 +105,7 @@ describe("classifyChildWorkflowError", () => {
 
       expect(result).toBeInstanceOf(ChildWorkflowCancelledError);
       const surfaced = result as ChildWorkflowCancelledError;
-      expect(surfaced.childWorkflowName).toBe("cancelMe");
+      expect(surfaced.workflowName).toBe("cancelMe");
       expect(surfaced.cause).toBe(error);
     });
 
@@ -133,7 +133,7 @@ describe("classifyChildWorkflowError", () => {
       const result = classifyChildWorkflowError("result", error, "child-2");
 
       expect(result).toBeInstanceOf(ChildWorkflowCancelledError);
-      expect((result as ChildWorkflowCancelledError).childWorkflowName).toBe("child-2");
+      expect((result as ChildWorkflowCancelledError).workflowName).toBe("child-2");
     });
   });
 

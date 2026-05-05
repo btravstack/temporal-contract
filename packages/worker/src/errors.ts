@@ -195,16 +195,18 @@ export class ChildWorkflowError extends WorkerError {
  * `@temporalio/workflow`'s `isCancellation(...)`, which sees through nested
  * `ChildWorkflowFailure` / `CancelledFailure` chains.
  *
- * Distinct from `ChildWorkflowError` so call sites can branch on cancellation
+ * Extends {@link ChildWorkflowError} so existing `instanceof ChildWorkflowError`
+ * checks still match cancellation, while `instanceof ChildWorkflowCancelledError`
+ * lets call sites narrow further when they need to branch on cancellation
  * explicitly without inspecting `error.cause` against a Temporal SDK class —
  * the worker-side analogue of the client-side cause-forwarding pattern.
  */
-export class ChildWorkflowCancelledError extends WorkerError {
+export class ChildWorkflowCancelledError extends ChildWorkflowError {
   constructor(
-    public readonly childWorkflowName: string,
+    public readonly workflowName: string,
     cause?: unknown,
   ) {
-    super(`Child workflow "${childWorkflowName}" was cancelled`, cause);
+    super(`Child workflow "${workflowName}" was cancelled`, cause);
     this.name = "ChildWorkflowCancelledError";
   }
 }

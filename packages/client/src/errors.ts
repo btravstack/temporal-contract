@@ -125,11 +125,13 @@ export class WorkflowExecutionNotFoundError extends TypedClientError {
  * `ApplicationFailure`, `CancelledFailure`, `TerminatedFailure`, or
  * `TimeoutFailure`) lifted from Temporal's wrapper, so callers can branch
  * on the failure category in one step (`err.cause instanceof
- * ApplicationFailure`) instead of unwrapping twice via the SDK wrapper. It
- * matches the shape produced by `classifyResultError`, which forwards the
- * inner cause of Temporal's `WorkflowFailedError` directly — Temporal types
- * that field as `TemporalFailure | undefined` so the typing is exact rather
- * than widened.
+ * ApplicationFailure`) instead of unwrapping twice via the SDK wrapper. The
+ * SDK declares `WorkflowFailedError.cause` as the wider `Error | undefined`
+ * (since `cause` lives on `Error`), but the runtime guarantee — driven by
+ * Temporal's wire format — is that it is always a `TemporalFailure` subclass
+ * when the wrapper is surfaced. `classifyResultError` narrows that wider
+ * static type to the public {@link TemporalFailure} union with a cast, so
+ * consumers see the precise leaf-failure typing instead of a bare `Error`.
  *
  * Returned from `executeWorkflow` and `handle.result()`.
  */
