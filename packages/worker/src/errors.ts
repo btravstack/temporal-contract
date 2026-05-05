@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { summarizeIssues } from "./format.js";
+import { summarizeIssues } from "@temporal-contract/contract";
 
 /**
  * Base error class for worker errors

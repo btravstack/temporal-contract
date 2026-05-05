@@ -8,7 +8,12 @@
 import { isCancellation, makeContinueAsNewFunc, proxyActivities } from "@temporalio/workflow";
 import type { ActivityOptions, ContinueAsNewOptions } from "@temporalio/workflow";
 import { ChildWorkflowFailure } from "@temporalio/common";
-import type { ActivityDefinition, ContractDefinition } from "@temporal-contract/contract";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import {
+  type ActivityDefinition,
+  type ContractDefinition,
+  summarizeIssues,
+} from "@temporal-contract/contract";
 import {
   ChildWorkflowCancelledError,
   ChildWorkflowError,
@@ -16,11 +21,19 @@ import {
   WorkflowInputValidationError,
 } from "./errors.js";
 
-// Re-export the formatters so workflow.ts and existing tests can keep
-// importing from `./internal.js`. Their canonical home is `./format.js`,
-// which both `errors.ts` and `internal.ts` import from to avoid a
-// circular dependency once `internal.ts` started importing error classes.
-export { formatIssue, summarizeIssues, formatChildWorkflowValidationMessage } from "./format.js";
+/**
+ * Build the message attached to a `ChildWorkflowError` for input/output
+ * validation failures. Centralized so the worker formats child-workflow
+ * validation diagnostics identically across call sites. Composes the shared
+ * `summarizeIssues` from `@temporal-contract/contract`.
+ */
+export function formatChildWorkflowValidationMessage(
+  workflowName: string,
+  direction: "input" | "output",
+  issues: ReadonlyArray<StandardSchemaV1.Issue>,
+): string {
+  return `Child workflow "${workflowName}" ${direction} validation failed: ${summarizeIssues(issues)}`;
+}
 
 // Re-export the shared `_internal_makeResultAsync` helper from the contract
 // package so worker call sites can wrap their `() => Promise<Result<T, E>>`

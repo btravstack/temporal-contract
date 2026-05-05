@@ -8,6 +8,8 @@ export {
   defineWorkflow,
 } from "./builder.js";
 
+export { formatIssue, summarizeIssues } from "./format.js";
+
 export type {
   AnySchema,
   ActivityDefinition,

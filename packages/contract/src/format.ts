@@ -1,13 +1,10 @@
 /**
- * Issue / validation-message formatters.
+ * Standard Schema issue / validation-message formatters.
  *
- * Lives in its own module (separate from `errors.ts` and `internal.ts`) so
- * both can import these helpers without forming a circular dependency:
- * `errors.ts` -> `format.ts` and `internal.ts` -> `format.ts` are both safe,
- * even when `internal.ts` later needs to import error classes from
- * `errors.ts` (as `createContinueAsNew` does).
- *
- * Not part of the package's public exports map.
+ * Exposed from the contract package so client and worker share a single
+ * source of truth for diagnostic rendering. Both used to carry their own
+ * byte-identical copies and a comment promising the maintainers would
+ * keep them in sync — that promise lives here now.
  */
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
@@ -24,6 +21,21 @@ const SAFE_IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 /**
  * Render a Standard Schema {@link StandardSchemaV1.Issue} into a human-readable
  * string that includes the failing field's path.
+ *
+ * Example output:
+ * - `at items[0].quantity: Expected number, received undefined`
+ * - `at customerId: Expected string, received undefined`
+ * - `at user["first name"]: Expected string, received undefined`
+ * - `Validation error` *(no path)*
+ *
+ * Path segments come either as bare `PropertyKey` values or as
+ * `{ key: PropertyKey }` objects (per the spec); both are normalized.
+ * - Numeric keys → `[N]`
+ * - String keys that are valid JS identifiers → bare (first) or `.key`
+ * - String keys that aren't valid identifiers → `["..."]` with JSON-style
+ *   escaping (handles dots, spaces, leading digits, the empty string, the
+ *   literal string `"0"`, embedded quotes, etc.)
+ * - Symbol / other `PropertyKey` → `[Symbol(name)]`
  */
 export function formatIssue(issue: StandardSchemaV1.Issue): string {
   if (issue.path === undefined || issue.path.length === 0) {
@@ -53,17 +65,4 @@ export function formatIssue(issue: StandardSchemaV1.Issue): string {
  */
 export function summarizeIssues(issues: ReadonlyArray<StandardSchemaV1.Issue>): string {
   return issues.map(formatIssue).join("; ");
-}
-
-/**
- * Build the message attached to a `ChildWorkflowError` for input/output
- * validation failures. Centralized so the worker and any future call sites
- * format identically.
- */
-export function formatChildWorkflowValidationMessage(
-  workflowName: string,
-  direction: "input" | "output",
-  issues: ReadonlyArray<StandardSchemaV1.Issue>,
-): string {
-  return `Child workflow "${workflowName}" ${direction} validation failed: ${summarizeIssues(issues)}`;
 }
