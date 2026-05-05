@@ -1,6 +1,6 @@
 {
   "name": "@temporal-contract/worker",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Worker utilities with neverthrow Result/ResultAsync for implementing temporal-contract workflows and activities",
   "keywords": [
     "contract",

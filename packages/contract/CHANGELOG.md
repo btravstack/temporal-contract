@@ -1,5 +1,42 @@
 # @temporal-contract/contract
 
+## 2.2.0
+
+### Patch Changes
+
+- 45bd7ee: Closes the remaining audit items: documents the activity input/output shape asymmetry, replaces the example `log` Temporal activity with `@temporalio/workflow`'s `log` namespace, and converts test assertions from `expect.objectContaining({ name: "...Error" })` to `toBeInstanceOf(...)` across worker / client / example specs.
+
+  **Audit #15 — example `log` Temporal activity is a footgun.** Calling an activity per log line balloons workflow history, costs money on Temporal Cloud, and replays on every recovery. The example contract no longer declares a `log` activity; the example workflow imports `log` from `@temporalio/workflow` (replay-safe, routed through the worker's configured logger sink) and calls `log.info(...)` / `log.error(...)` / `log.warn(...)` directly. Domain effects still go through activities. Removed the unused `inventoryReservationId` variable while in there.
+
+  **Audit #16 — test assertions on internal shape rather than error class.** Eight sites across `worker/__tests__/worker.spec.ts`, `worker/activity.spec.ts`, `worker/continue-as-new.spec.ts`, `client/__tests__/client.spec.ts`, and the order-processing example's `integration.spec.ts` were asserting on `name: "...Error"` strings instead of the actual error classes. Switched to `toBeInstanceOf(...)`, which catches subclass renames at compile time and matches the contract-not-implementation rule the codebase aspires to.
+
+  **Audit #10 — activity input/output shape asymmetry.** Documented in the JSDoc on `ContractResultActivitiesImplementations` and `ActivitiesHandler`. The asymmetry is intentional and worth keeping: the input you write mirrors the contract's structure (global at root + workflow-local nested under their owning workflow), giving IDE autocomplete that matches `defineContract`; the output is flat because Temporal's worker sees a single namespace at runtime. `defineContract` already enforces no-collisions across global+workflow scopes, so the flat output has no ambiguity.
+
+- a24a2e4: Round-trip typed search attributes; reject undeclared keys; surface a typed reader.
+
+  **Three improvements to the search-attribute story:**
+  1. **Schedules now accept typed `searchAttributes`** on `client.schedule.create(...)`. They translate through the same helper as `client.startWorkflow` / `executeWorkflow` and attach to the schedule's `startWorkflow` action so spawned runs are indexed identically to direct starts. Closes a real production gotcha where schedule-spawned workflows silently lost typed indexing.
+
+  2. **Undeclared attribute keys are now rejected with `RuntimeClientError`** instead of being silently dropped. The TypeScript surface already gates the happy path; the runtime check catches typed-escape-hatch cases (`as never`, `as any`, raw-call interop) where a typo would otherwise leave the workflow unindexed without any signal to the caller. The error's `operation` is `"searchAttributes"` so callers can branch on it.
+
+  3. **New public helper `readTypedSearchAttributes(workflowDef, instance)`** exposed from `@temporal-contract/client` — the read-side counterpart to the write-side `searchAttributes` option. Pass it the result of `handle.describe()` (or a schedule's describe) and recover the typed shape:
+
+     ```ts
+     const description = await handle.describe();
+     if (description.isOk()) {
+       const attrs = readTypedSearchAttributes(
+         myContract.workflows.processOrder,
+         description.value.typedSearchAttributes,
+       );
+       // attrs.customerId: string | undefined
+       // attrs.priority:   number | undefined
+     }
+     ```
+
+     The Temporal SDK only exposes `.get(key)` requiring callers to reconstruct each `SearchAttributeKey`; this helper does that lookup once for every declared attribute and returns a `Partial<TypedSearchAttributeMap<TWorkflow>>`.
+
+  Internal: `toTypedSearchAttributes` moved from `client.ts` to `internal.ts` so `schedule.ts` can share the implementation. The previous "filters out attribute keys that aren't declared on the workflow at runtime" test was renamed and now asserts the new throw behavior.
+
 ## 2.1.0
 
 ### Minor Changes
