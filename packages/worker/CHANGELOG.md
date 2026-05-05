@@ -1,5 +1,68 @@
 # @temporal-contract/worker
 
+## 2.1.0
+
+### Minor Changes
+
+- 4401951: Make the worker-side child-workflow error model coherent with the client-side parent-workflow error model, and tighten `WorkflowFailedError.cause` typing.
+
+  **Worker (`@temporal-contract/worker`):**
+  - New `ChildWorkflowCancelledError` discriminant — `extends ChildWorkflowError`, so existing `instanceof ChildWorkflowError` checks keep matching cancellations while `instanceof ChildWorkflowCancelledError` lets callers narrow further. Re-exported from `@temporal-contract/worker/workflow`.
+  - New `classifyChildWorkflowError` internal helper mirrors the client-side `classifyResultError` pattern: cancellation (via `isCancellation`) takes priority, then `ChildWorkflowFailure → cause` unwrapping, then a generic fallback.
+  - `startChildWorkflow` / `executeChildWorkflow` now correctly forward Temporal's nested `ApplicationFailure` / `TimeoutFailure` / `TerminatedFailure` cause through `ChildWorkflowError.cause` instead of wrapping the raw `ChildWorkflowFailure`. Consumers can now match `err.cause instanceof ApplicationFailure` in one step. `ChildWorkflowNotFoundError` is now part of the return-type union.
+
+  **Client (`@temporal-contract/client`):**
+  - New public `TemporalFailure` union type re-exported from `@temporalio/common`: `ApplicationFailure | CancelledFailure | TerminatedFailure | TimeoutFailure | ChildWorkflowFailure | ServerFailure | ActivityFailure`.
+  - `WorkflowFailedError.cause` re-typed from `unknown` to `TemporalFailure | undefined`. `classifyResultError` already produced this shape at runtime; the type now matches. Consumers can `instanceof`-match the cause directly without a manual narrow.
+
+- 4401951: Close two `ResultAsync` rejection-handling gaps and widen the cancellation-scope error channel so domain errors stay on neverthrow's railway.
+
+  **`@temporal-contract/contract`:**
+  - New subpath export `@temporal-contract/contract/result-async` exposing `_internal_makeResultAsync`. This is the helper the client and worker packages already share — moved into `contract` so both consumers and any future first-party packages can use a single source of truth without duplicating it. The helper wraps a `() => Promise<Result<T, E>>` work function so synchronous throws and rejected promises route through a typed `err(...)` instead of leaking as unhandled rejections.
+  - `neverthrow` is declared as an **optional peer dependency** (`peerDependenciesMeta.neverthrow.optional: true`). Contract-only consumers who don't import the `/result-async` subpath don't need to install it.
+
+  **`@temporal-contract/worker`:**
+  - New `WorkflowScopeError` re-exported from `@temporal-contract/worker/workflow`. Wraps non-cancellation errors thrown inside `cancellableScope` / `nonCancellableScope`; the original error is preserved on `cause`.
+  - **Behavior change** for `cancellableScope` and `nonCancellableScope`: non-cancellation errors thrown by `fn` previously propagated as `ResultAsync` rejections (escaping neverthrow's railway). They now resolve to `err(WorkflowScopeError)`, so `result.match(...)` is exhaustive — every failure mode rides the railway. The error channel is widened to `WorkflowCancelledError | WorkflowScopeError`. Callers that relied on the old "let domain errors propagate as rejections" behavior should now branch on `instanceof WorkflowCancelledError` vs `instanceof WorkflowScopeError`.
+  - Internal: 5 worker call sites that previously used `new ResultAsync(work())` now use the shared `_internal_makeResultAsync` helper, closing a synchronous-throw gap that the client side had already fixed.
+
+- 4401951: Align with documented Temporal SDK contracts for `proxyActivities` and Update handlers.
+
+  **`proxyActivities` is now hoisted to declaration time.** Previously it was called inside the closure returned from `declareWorkflow`, which meant every workflow invocation re-ran the registration. The Temporal SDK documents `proxyActivities` as a module-scope helper — it registers stub functions and may carry bookkeeping (validator pre-registration, payload-converter caching) that breaks if re-invoked per run. The call now happens once at `declareWorkflow` time.
+
+  The validation wrapper (`createValidatedActivities`) is hoisted alongside it; the resulting `contextActivities` map is `Object.freeze`d before being exposed on the workflow context, and `WorkflowContext.activities` is now typed `Readonly<...>`. This prevents stray mutations in one workflow run from leaking into later runs in the same isolate.
+
+  **Update handlers now use Temporal's `validator` slot.** `bindUpdateHandler` previously ran schema validation inside the async handler body, which meant bad input produced a workflow history event for a rejected update and surfaced as `WorkflowUpdateFailedError` on the client. Validation now runs synchronously in the `validator` passed to `setHandler`, so:
+  - Invalid input is rejected at admission time with **no history event written**.
+  - Clients receive `WorkflowUpdateValidationRejectedError` (Temporal's admission-rejection error class) instead of `WorkflowUpdateFailedError`. **This is the only consumer-visible change** — handle invalid update input by checking that error class instead.
+  - Async input schemas are now rejected with a clear message at handler-binding time (mirroring the existing query-handler guard); use synchronous schemas for update inputs.
+
+  Output validation continues to run inside the handler body, since update output isn't admission-gated.
+
+### Patch Changes
+
+- cc6add7: Expose `formatIssue` and `summarizeIssues` from `@temporal-contract/contract`. Both helpers were previously duplicated between the `client` and `worker` packages (and explicitly hand-synced) — they now live in the contract package as the single source of truth.
+
+  Internal: split `packages/worker/src/workflow.ts` (1019 lines) into focused modules — `child-workflow.ts` (child-workflow types + start/execute helpers) and `activities-proxy.ts` (validated-activities proxy + activity inference types). Public API of the worker package is unchanged. Also extract a `resolveDefinitionAndValidateInput` helper in the client package, used by `startWorkflow` / `signalWithStart` / `executeWorkflow` to share the contract-lookup → input-validation → search-attribute-translation ritual.
+
+- 4401951: Fix two TypeScript soundness bugs and add public name-helper types to `@temporal-contract/contract`.
+
+  **Soundness fixes** (previously made `args: unknown` and accepted any string as a signal name):
+  - `WorkflowDefinition` is now parameterized over `<TInput, TOutput, ...>`. Schema literal types flow through `defineWorkflow` so `client.startWorkflow("processOrder", { args: ??? })` infers `args` as the schema's inferred input type instead of `unknown`.
+  - Empty-collection generics default to `Record<string, never>` instead of `Record<string, ...Definition>`, so `keyof` of the default is genuinely empty. Typos in `signalName` / `queryName` / `updateName` on workflows that declare no signals/queries/updates are now compile-time errors.
+  - `& string` added to every `TWorkflowName extends keyof TContract["workflows"]` constraint; the compensating `as string` casts at the Temporal-API call sites are gone.
+
+  **New public exports from `@temporal-contract/contract`:**
+  - `AnyWorkflowDefinition` — widened-constraint alias used in `Record<string, …>` constraint positions and `T extends WorkflowDefinition` constraints. Lets the narrow `WorkflowDefinition` defaults stay narrow without breaking constraint-position usage.
+  - `SignalNamesOf<W>` / `QueryNamesOf<W>` / `UpdateNamesOf<W>` — distributive name-helper types that return `never` when the corresponding field is absent or `undefined` (handles `exactOptionalPropertyTypes`) and distribute correctly over union workflow types.
+
+  **Worker error rename**: `ChildWorkflowCancelledError`'s public field renamed from `childWorkflowName` to `workflowName`, matching the rest of the workflow-error surface (`WorkflowInputValidationError`, `ChildWorkflowNotFoundError`, etc.).
+
+- Updated dependencies [cc6add7]
+- Updated dependencies [4401951]
+- Updated dependencies [4401951]
+  - @temporal-contract/contract@2.1.0
+
 ## 2.0.0
 
 ### Major Changes
