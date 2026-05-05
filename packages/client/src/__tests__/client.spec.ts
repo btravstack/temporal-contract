@@ -1,6 +1,7 @@
 import { describe, expect, vi, beforeEach } from "vitest";
 import { Worker } from "@temporalio/worker";
 import { TypedClient } from "../client.js";
+import { WorkflowValidationError } from "../errors.js";
 import { it as baseIt } from "@temporal-contract/testing/extension";
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -185,9 +186,7 @@ describe("Client Package - Integration Tests", () => {
 
       expect(execution.isErr()).toBe(true);
       if (execution.isErr()) {
-        expect(execution.error).toEqual(
-          expect.objectContaining({ name: "WorkflowValidationError" }),
-        );
+        expect(execution.error).toBeInstanceOf(WorkflowValidationError);
       }
     });
 

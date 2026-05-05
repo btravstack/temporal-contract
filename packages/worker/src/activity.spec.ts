@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { ResultAsync, okAsync, errAsync } from "neverthrow";
 import { z } from "zod";
-import { ActivityDefinitionNotFoundError } from "./errors.js";
+import {
+  ActivityDefinitionNotFoundError,
+  ActivityInputValidationError,
+  ActivityOutputValidationError,
+} from "./errors.js";
 import type { ContractDefinition } from "@temporal-contract/contract";
 import { ApplicationFailure, declareActivitiesHandler } from "./activity.js";
 
@@ -337,13 +341,15 @@ describe("Worker neverthrow Package", () => {
       });
 
       // WHEN / THEN
-      await expect(activities.strictActivity({ amount: -10, email: "invalid" })).rejects.toEqual(
-        expect.objectContaining({
-          name: "ActivityInputValidationError",
-          activityName: "strictActivity",
-          message: expect.stringContaining("strictActivity"),
-        }),
-      );
+      await expect(
+        activities.strictActivity({ amount: -10, email: "invalid" }),
+      ).rejects.toBeInstanceOf(ActivityInputValidationError);
+      await expect(
+        activities.strictActivity({ amount: -10, email: "invalid" }),
+      ).rejects.toMatchObject({
+        activityName: "strictActivity",
+        message: expect.stringContaining("strictActivity"),
+      });
     });
 
     it("should throw ActivityOutputValidationError for invalid output", async () => {
@@ -368,13 +374,13 @@ describe("Worker neverthrow Package", () => {
       });
 
       // WHEN / THEN
-      await expect(activities.strictOutputActivity({ id: "123" })).rejects.toEqual(
-        expect.objectContaining({
-          name: "ActivityOutputValidationError",
-          activityName: "strictOutputActivity",
-          message: expect.stringContaining("strictOutputActivity"),
-        }),
+      await expect(activities.strictOutputActivity({ id: "123" })).rejects.toBeInstanceOf(
+        ActivityOutputValidationError,
       );
+      await expect(activities.strictOutputActivity({ id: "123" })).rejects.toMatchObject({
+        activityName: "strictOutputActivity",
+        message: expect.stringContaining("strictOutputActivity"),
+      });
     });
   });
 });

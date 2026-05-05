@@ -1,8 +1,7 @@
-import { ResultAsync, okAsync } from "neverthrow";
+import { ResultAsync } from "neverthrow";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
 import { orderProcessingContract } from "@temporal-contract/sample-order-processing-contract";
 import {
-  loggerAdapter,
   sendNotificationUseCase,
   processPaymentUseCase,
   reserveInventoryUseCase,
@@ -60,11 +59,6 @@ const toApplicationFailure = (type: string, fallback: string, error: unknown): A
 export const activities = declareActivitiesHandler({
   contract: orderProcessingContract,
   activities: {
-    log: ({ level, message }) => {
-      loggerAdapter.log(level, message);
-      return okAsync(undefined);
-    },
-
     sendNotification: ({ customerId, subject, message }) =>
       ResultAsync.fromPromise(
         sendNotificationUseCase.execute(customerId, subject, message),

@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { ContinueAsNewOptions } from "@temporalio/workflow";
 import { defineActivity, defineContract, defineWorkflow } from "@temporal-contract/contract";
+import { WorkflowInputValidationError } from "./errors.js";
 
 type CapturedCall = { options: ContinueAsNewOptions; args: unknown[] };
 
@@ -91,8 +92,10 @@ describe("context.continueAsNew", () => {
   it("same-workflow: throws WorkflowInputValidationError when args fail validation", async () => {
     const continueAsNew = createContinueAsNew(contract, "counter");
 
+    await expect(continueAsNew({ n: "not a number" })).rejects.toBeInstanceOf(
+      WorkflowInputValidationError,
+    );
     await expect(continueAsNew({ n: "not a number" })).rejects.toMatchObject({
-      name: "WorkflowInputValidationError",
       message: expect.stringContaining(`Workflow "counter" input validation failed`),
     });
     expect(captured).toHaveLength(0);
@@ -117,8 +120,10 @@ describe("context.continueAsNew", () => {
 
     await expect(
       continueAsNew(otherContract, "archive", { id: "wrong-key" }),
+    ).rejects.toBeInstanceOf(WorkflowInputValidationError);
+    await expect(
+      continueAsNew(otherContract, "archive", { id: "wrong-key" }),
     ).rejects.toMatchObject({
-      name: "WorkflowInputValidationError",
       message: expect.stringContaining(`Workflow "archive" input validation failed`),
     });
     expect(captured).toHaveLength(0);
@@ -127,8 +132,10 @@ describe("context.continueAsNew", () => {
   it("cross-contract: rejects with WorkflowInputValidationError when the target workflow isn't declared", async () => {
     const continueAsNew = createContinueAsNew(contract, "counter");
 
+    await expect(continueAsNew(otherContract, "ghost", { batchId: "B-1" })).rejects.toBeInstanceOf(
+      WorkflowInputValidationError,
+    );
     await expect(continueAsNew(otherContract, "ghost", { batchId: "B-1" })).rejects.toMatchObject({
-      name: "WorkflowInputValidationError",
       message: expect.stringContaining(`continueAsNew target workflow "ghost"`),
     });
     expect(captured).toHaveLength(0);
