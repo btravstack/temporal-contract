@@ -218,7 +218,7 @@ export function declareWorkflow<
     Object.freeze(contextActivities);
   }
 
-  return async (...args: unknown[]) => {
+  const workflowFn = async (...args: unknown[]) => {
     const input = extractHandlerInput(args);
 
     // Validate workflow input
@@ -291,6 +291,12 @@ export function declareWorkflow<
 
     return outputResult.value as WorkerInferOutput<TContract["workflows"][TWorkflowName]>;
   };
+
+  // Temporal's client.workflow.start(fn, ...) reads `fn.name` to derive the
+  // workflow type; without this the anonymous arrow above would surface as "".
+  Object.defineProperty(workflowFn, "name", { value: workflowName, configurable: true });
+
+  return workflowFn;
 }
 
 /**
