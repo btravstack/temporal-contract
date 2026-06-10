@@ -1,6 +1,6 @@
 {
   "name": "@temporal-contract/client",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "Client utilities with neverthrow Result/ResultAsync for consuming temporal-contract workflows",
   "keywords": [
     "client",

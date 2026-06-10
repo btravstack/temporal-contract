@@ -1,5 +1,11 @@
 # @temporal-contract/worker
 
+## 2.3.1
+
+### Patch Changes
+
+- @temporal-contract/contract@2.3.1
+
 ## 2.3.0
 
 ### Minor Changes
