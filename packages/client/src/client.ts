@@ -350,8 +350,10 @@ export class TypedClient<TContract extends ContractDefinition> {
    *
    * **Requires `@temporalio/client` 1.16+.** The Schedule API was added in
    * 1.16; on older versions this property is unset and any access throws.
-   * The package's peer dep is pinned to `^1.16.0` so the standard install
-   * paths surface a peer-dependency warning rather than a runtime crash.
+   * The package's peer dep allows the whole `^1` range to stay permissive
+   * about the installed Temporal version, so consumers on < 1.16 who never
+   * touch schedules keep working — the constructor below fails fast with a
+   * clear message for anyone who does reach for the Schedule API too early.
    *
    * @example
    * ```ts
@@ -374,10 +376,10 @@ export class TypedClient<TContract extends ContractDefinition> {
     private readonly client: Client,
   ) {
     // `client.schedule` is the ScheduleClient wired into Temporal's
-    // top-level `Client` since 1.16. Fail early with a clear message if a
-    // consumer is on an older version (peer dep is pinned to ^1.16, but
-    // installs that ignore peer-dep warnings shouldn't crash with a
-    // confusing `Cannot read properties of undefined`).
+    // top-level `Client` since 1.16. The peer dep allows all of `^1`, so a
+    // consumer can be on an older version — fail early with a clear message
+    // rather than crashing later with a confusing
+    // `Cannot read properties of undefined`.
     if (!client.schedule) {
       throw new Error(
         "TypedClient requires @temporalio/client >= 1.16 (the Schedule API was added in 1.16). " +

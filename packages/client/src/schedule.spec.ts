@@ -59,9 +59,9 @@ describe("TypedClient.schedule", () => {
   describe("@temporalio/client < 1.16 guard", () => {
     it("throws a clear error when the underlying Client is missing `schedule`", () => {
       // Simulates a consumer who installed @temporalio/client < 1.16
-      // (where the Schedule API didn't exist). The peer dep is pinned to
-      // ^1.16, but installs that ignore peer-dep warnings shouldn't crash
-      // with a confusing `Cannot read properties of undefined`.
+      // (where the Schedule API didn't exist). The peer dep allows all of
+      // ^1, so this is a supported install — it just shouldn't crash with a
+      // confusing `Cannot read properties of undefined`.
       const oldClient = {
         workflow: { start: vi.fn(), execute: vi.fn(), getHandle: vi.fn() },
         // schedule intentionally absent
