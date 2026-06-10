@@ -1,6 +1,6 @@
 {
   "name": "@temporal-contract/testing",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Temporal testing utilities",
   "homepage": "https://github.com/btravers/temporal-contract#readme",
   "bugs": {

@@ -1,6 +1,6 @@
 {
   "name": "@temporal-contract/contract",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Contract builder for temporal-contract",
   "keywords": [
     "contract",

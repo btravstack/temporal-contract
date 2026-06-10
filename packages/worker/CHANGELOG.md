@@ -1,5 +1,17 @@
 # @temporal-contract/worker
 
+## 2.3.0
+
+### Minor Changes
+
+- 12b860e: Bump runtime dependencies: `testcontainers` 11 → 12 and `@temporalio/*` 1.17 → 1.18 in `@temporal-contract/testing`. Peer ranges (`@temporalio/*` `^1`, `neverthrow` `^8`) are unchanged.
+
+### Patch Changes
+
+- c0b6b0b: Surface the contract's workflow name on the function returned by `declareWorkflow` (previously anonymous). Temporal's `client.workflow.start(fn, …)` reads `fn.name` to derive the workflow type, so callers who passed the declaration by reference — typically tests sidestepping the typed client — hit an empty workflow type. The typed-client and `workflowsPath` paths were unaffected because they resolve workflows by string name.
+- Updated dependencies [12b860e]
+  - @temporal-contract/contract@2.3.0
+
 ## 2.2.0
 
 ### Patch Changes
