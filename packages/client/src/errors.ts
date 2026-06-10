@@ -30,7 +30,7 @@ export type TemporalFailure =
   | ActivityFailure;
 
 /**
- * Base class for all typed client errors with boxed pattern
+ * Base class for all typed client errors.
  */
 abstract class TypedClientError extends Error {
   protected constructor(message: string) {
