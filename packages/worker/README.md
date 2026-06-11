@@ -117,6 +117,45 @@ export const parentWorkflow = declareWorkflow({
 });
 ```
 
+### Per-activity options
+
+`activityOptions` sets defaults for every activity reachable from the workflow.
+To override options for individual activities, add `activityOptionsByName`. Each
+entry shallow-merges over the defaults — the override wins on every property it
+sets, including the whole nested `retry` block.
+
+The override value is Temporal's full `ActivityOptions`, so `taskQueue` is
+available too. That lets you route specific activities to dedicated worker pools
+(e.g. a concurrency-capped queue for LLM calls) while the rest of the workflow
+stays on the default queue — without dropping to a raw `proxyActivities` call,
+which would bypass the Zod input/output validation:
+
+```typescript
+export const extractLayout = declareWorkflow({
+  workflowName: "extractLayout",
+  contract: myContract,
+  activityOptions: { startToCloseTimeout: "10 minutes" }, // default for all
+  activityOptionsByName: {
+    // LLM activity → dedicated, concurrency-capped queue.
+    extractLayoutChunk: { taskQueue: "gemini-pro" },
+    // Slow payment gateway → longer timeout + aggressive retry.
+    chargePayment: {
+      startToCloseTimeout: "5 minutes",
+      retry: { maximumAttempts: 5 },
+    },
+    // Activities not listed here fall through to the default queue/options.
+  },
+  implementation: async ({ activities }, input) => {
+    // Each call still validates input/output against the contract.
+    const layout = await activities.extractLayoutChunk({ docId: input.docId });
+    return { layout };
+  },
+});
+```
+
+Activity names are typed against the contract (workflow-local + global), so
+typos surface as TypeScript errors rather than silently running with defaults.
+
 ## Documentation
 
 📖 **[Read the full documentation →](https://btravers.github.io/temporal-contract)**

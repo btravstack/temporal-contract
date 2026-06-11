@@ -100,12 +100,16 @@ export {
  *   },
  *   // Optional: override `activityOptions` for specific activities. Each
  *   // entry shallow-merges over the workflow default — the override wins on
- *   // every property it specifies, including the whole `retry` block.
+ *   // every property it specifies, including the whole `retry` block. The
+ *   // override is Temporal's full `ActivityOptions`, so `taskQueue` works too,
+ *   // letting you route individual activities to a dedicated worker pool.
  *   activityOptionsByName: {
  *     chargePayment: {
  *       startToCloseTimeout: '5 minutes',
  *       retry: { maximumAttempts: 5 },
  *     },
+ *     // Route this activity to a dedicated, concurrency-capped queue.
+ *     scoreRisk: { taskQueue: 'ml-inference' },
  *   },
  *   implementation: async (context, args) => {
  *     // context.activities: typed activities (workflow + global)
@@ -351,10 +355,17 @@ type DeclareWorkflowOptions<
    * entire nested `retry` block when present, matching Temporal's
    * single-options-per-`proxyActivities`-call semantics).
    *
+   * The override value is Temporal's full `ActivityOptions`, so any field is
+   * fair game — including `taskQueue`, which lets you route individual
+   * activities to dedicated worker pools (e.g. concurrency-capped queues for
+   * LLM calls) while the rest of the workflow's activities stay on the default
+   * queue. This keeps the Zod-validated typed-activities boundary intact, where
+   * a raw `proxyActivities({ taskQueue })` would forfeit it.
+   *
    * Activity names are typed against the contract; typos surface as TypeScript
    * errors rather than running silently with the default options.
    *
-   * @example
+   * @example Tune timeouts and retries per activity
    * ```ts
    * activityOptions: { startToCloseTimeout: '1 minute' }, // default
    * activityOptionsByName: {
@@ -363,6 +374,16 @@ type DeclareWorkflowOptions<
    *     retry: { maximumAttempts: 5 },
    *   },
    *   fastValidation: { startToCloseTimeout: '5 seconds' },
+   * },
+   * ```
+   *
+   * @example Route specific activities to a dedicated task queue
+   * ```ts
+   * activityOptions: { startToCloseTimeout: '10 minutes' }, // default queue
+   * activityOptionsByName: {
+   *   // LLM call → dedicated, concurrency-capped queue.
+   *   extractLayoutChunk: { taskQueue: 'gemini-pro' },
+   *   // finalizeLayout, extractImages, … fall through to the default queue.
    * },
    * ```
    */
