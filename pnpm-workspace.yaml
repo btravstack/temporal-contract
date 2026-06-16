@@ -47,7 +47,7 @@ catalog:
   "@temporalio/common": 1.18.1
   "@temporalio/worker": 1.18.1
   "@temporalio/workflow": 1.18.1
-  "@types/node": 24.13.1
+  "@types/node": 24.13.2
   "@vitest/coverage-v8": 4.1.8
   arktype: 2.2.0
   knip: 6.16.1
