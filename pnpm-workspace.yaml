@@ -14,15 +14,23 @@ peerDependencyRules:
 
 overrides:
   fast-uri: ">=3.1.2"
+  protobufjs: ">=7.6.1"
 
 # esbuild <0.28.1 advisory (GHSA-gv7w-rqvm-qjhr): a Deno-only dev-server binary
 # integrity issue. Only reachable transitively via vitepress>vite>esbuild, and
 # vitepress pins a vite that is incompatible with esbuild 0.28.x (its build
 # crashes transforming destructuring). Not exploitable for a static docs build,
 # so it is ignored until vitepress ships a vite compatible with the fixed esbuild.
+#
+# vite <=6.4.2 advisory (GHSA-fx2h-pf6j-xcff): a `server.fs.deny` bypass on
+# Windows alternate paths in `vite dev`. Only reachable transitively via
+# vitepress 1.x, which pins vite 5.x; the fix exists only in vite 6.4.3+. The
+# bypass affects the dev server only and is not exploitable for the static
+# `vitepress build` output we ship, so it is ignored until vitepress 2.x lands.
 auditConfig:
   ignoreGhsas:
     - "GHSA-gv7w-rqvm-qjhr"
+    - "GHSA-fx2h-pf6j-xcff"
 
 packages:
   - packages/*
