@@ -95,5 +95,8 @@
     "@temporalio/worker": "^1",
     "@temporalio/workflow": "^1",
     "neverthrow": "^8"
+  },
+  "engines": {
+    "node": ">=22.19.0"
   }
 }

@@ -76,5 +76,8 @@
     "@temporalio/client": "^1",
     "@temporalio/common": "^1",
     "neverthrow": "^8"
+  },
+  "engines": {
+    "node": ">=22.19.0"
   }
 }
