@@ -191,14 +191,20 @@ export default withMermaid(
       ["meta", { property: "og:locale", content: "en_US" }],
       [
         "meta",
-        { property: "og:image", content: "https://btravstack.github.io/temporal-contract/logo.svg" },
+        {
+          property: "og:image",
+          content: "https://btravstack.github.io/temporal-contract/logo.svg",
+        },
       ],
       ["meta", { property: "og:image:alt", content: "temporal-contract logo" }],
       // Twitter Card meta tags
       ["meta", { name: "twitter:card", content: "summary" }],
       [
         "meta",
-        { name: "twitter:image", content: "https://btravstack.github.io/temporal-contract/logo.svg" },
+        {
+          name: "twitter:image",
+          content: "https://btravstack.github.io/temporal-contract/logo.svg",
+        },
       ],
       ["meta", { name: "twitter:image:alt", content: "temporal-contract logo" }],
       // Additional SEO meta tags

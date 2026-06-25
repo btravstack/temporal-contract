@@ -16,7 +16,7 @@
 | `packages/` | Published `@temporal-contract/*` packages (the four below)                            |
 | `examples/` | `private: true` sample apps (`@temporal-contract/sample-*`) that consume the packages |
 | `tools/`    | Shared workspace configs (`tsconfig`, `typedoc`) — also `private: true`               |
-| `docs/`     | VitePress site (`btravstack.github.io/temporal-contract`)                               |
+| `docs/`     | VitePress site (`btravstack.github.io/temporal-contract`)                             |
 
 ## Published Packages
 
