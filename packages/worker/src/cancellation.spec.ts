@@ -20,7 +20,6 @@
  * Closes #183.
  */
 import { describe, expect, it, vi } from "vitest";
-import { isOk, isErr, isDefect } from "unthrown";
 import { z } from "zod";
 import { defineContract, defineWorkflow } from "@temporal-contract/contract";
 
@@ -46,7 +45,7 @@ describe("cancellableScope", () => {
   it("returns Result.Ok with the resolved value on success", async () => {
     const result = await cancellableScope(async () => 42);
     expect(result).toBeOk();
-    if (isOk(result)) {
+    if (result.isOk()) {
       expect(result.value).toBe(42);
     }
   });
@@ -62,7 +61,7 @@ describe("cancellableScope", () => {
       throw new Error(CANCEL_MARKER);
     });
     expect(result).toBeErr();
-    if (isErr(result)) {
+    if (result.isErr()) {
       expect(result.error).toBeInstanceOf(WorkflowCancelledError);
       // Cause is preserved so debug tooling can see the underlying failure.
       expect((result.error.cause as Error).message).toBe(CANCEL_MARKER);
@@ -78,7 +77,7 @@ describe("cancellableScope", () => {
       throw original;
     });
     expect(result).toBeDefect();
-    if (isDefect(result)) {
+    if (result.isDefect()) {
       expect(result.cause).toBe(original);
     }
   });
@@ -92,7 +91,7 @@ describe("cancellableScope", () => {
       throw original;
     });
     expect(result).toBeDefect();
-    if (isDefect(result)) {
+    if (result.isDefect()) {
       expect(result.cause).toBe(original);
     }
   });
@@ -102,7 +101,7 @@ describe("nonCancellableScope", () => {
   it("returns Result.Ok with the resolved value on success", async () => {
     const result = await nonCancellableScope(async () => "released");
     expect(result).toBeOk();
-    if (isOk(result)) {
+    if (result.isOk()) {
       expect(result.value).toBe("released");
     }
   });
@@ -121,7 +120,7 @@ describe("nonCancellableScope", () => {
       throw new Error(CANCEL_MARKER);
     });
     expect(result).toBeErr();
-    if (isErr(result)) {
+    if (result.isErr()) {
       expect(result.error).toBeInstanceOf(WorkflowCancelledError);
     }
   });
@@ -132,7 +131,7 @@ describe("nonCancellableScope", () => {
       throw original;
     });
     expect(result).toBeDefect();
-    if (isDefect(result)) {
+    if (result.isDefect()) {
       expect(result.cause).toBe(original);
     }
   });
@@ -143,7 +142,7 @@ describe("nonCancellableScope", () => {
       throw original;
     });
     expect(result).toBeDefect();
-    if (isDefect(result)) {
+    if (result.isDefect()) {
       expect(result.cause).toBe(original);
     }
   });
@@ -156,7 +155,7 @@ describe("scope helpers accept synchronous callbacks", () => {
   it("cancellableScope wraps a sync return as Result.Ok", async () => {
     const result = await cancellableScope(() => "sync-ok");
     expect(result).toBeOk();
-    if (isOk(result)) {
+    if (result.isOk()) {
       expect(result.value).toBe("sync-ok");
     }
   });
@@ -164,7 +163,7 @@ describe("scope helpers accept synchronous callbacks", () => {
   it("nonCancellableScope wraps a sync return as Result.Ok", async () => {
     const result = await nonCancellableScope(() => 7);
     expect(result).toBeOk();
-    if (isOk(result)) {
+    if (result.isOk()) {
       expect(result.value).toBe(7);
     }
   });

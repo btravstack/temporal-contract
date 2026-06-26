@@ -35,7 +35,7 @@ ApplicationFailure.create({
 - Use unthrown's `Result<T, E>` / `AsyncResult<T, E>` instead of throwing exceptions
 - Activities return `AsyncResult<T, ApplicationFailure>`
 - Client methods return `AsyncResult<T, E>` with specific error types
-- Narrow results before reaching `.value` / `.error` / `.cause` — both the `r.isOk()` method and the `isOk(r)` free function are type guards (same for `isErr` / `isDefect`); the codebase prefers the free functions
+- Narrow results before reaching `.value` / `.error` / `.cause` — both the `r.isOk()` method and the `isOk(r)` free function are type guards (same for `isErr` / `isDefect`); the codebase uses the methods
 - An unanticipated throw surfaces on unthrown's third **`defect`** channel, not as a typed `err`; build error classes with `TaggedError("Name")<{ ...payload }>`
 - Wrap technical exceptions in `ApplicationFailure` (re-exported from `@temporal-contract/worker/activity`) with a `type` field; set `nonRetryable: true` for permanent failures
 

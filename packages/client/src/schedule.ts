@@ -8,7 +8,7 @@ import type {
   ScheduleSpec,
 } from "@temporalio/client";
 import type { ContractDefinition } from "@temporal-contract/contract";
-import { type AsyncResult, type Result, ok, err, isErr, fromPromise } from "unthrown";
+import { type AsyncResult, type Result, ok, err, fromPromise } from "unthrown";
 import type { TypedSearchAttributeMap } from "./client.js";
 import type { ClientInferInput } from "./types.js";
 import { RuntimeClientError, WorkflowNotFoundError, WorkflowValidationError } from "./errors.js";
@@ -154,7 +154,7 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
       // `toTypedSearchAttributes` only ever builds ok/err; assert away the
       // impossible defect so `.error` / `.value` narrow cleanly.
       assertNoDefect(searchAttributesResult);
-      if (isErr(searchAttributesResult)) return err(searchAttributesResult.error);
+      if (searchAttributesResult.isErr()) return err(searchAttributesResult.error);
       const typedSearchAttributes = searchAttributesResult.value;
 
       try {

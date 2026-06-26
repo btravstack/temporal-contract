@@ -86,13 +86,11 @@ it to an `AsyncResult` with `.toAsync()`:
 
 Both narrow. The `result.isOk()` / `result.isErr()` / `result.isDefect()`
 **methods** are type guards (as in neverthrow), and unthrown also exports the
-matching **free functions** `isOk` / `isErr` / `isDefect`. This codebase
-prefers the free functions, but either reaches `.value` / `.error` / `.cause`:
+matching **free functions** `isOk` / `isErr` / `isDefect`. This codebase uses
+the methods, but either reaches `.value` / `.error` / `.cause`:
 
 ```ts
-import { isErr } from "unthrown";
-
-if (isErr(result)) {
+if (result.isErr()) {
   console.error(result.error);
   return;
 }

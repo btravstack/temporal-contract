@@ -17,7 +17,7 @@ import type {
   ClientInferWorkflowSignals,
   ClientInferWorkflowUpdates,
 } from "./types.js";
-import { type AsyncResult, type Result, ok, err, isErr, fromPromise } from "unthrown";
+import { type AsyncResult, type Result, ok, err, fromPromise } from "unthrown";
 import {
   type TemporalFailure,
   WorkflowAlreadyStartedError,
@@ -82,7 +82,7 @@ export type TypedSearchAttributeMap<TWorkflow extends AnyWorkflowDefinition> =
  * @example
  * ```ts
  * const description = await handle.describe();
- * if (isOk(description)) {
+ * if (description.isOk()) {
  *   const attrs = readTypedSearchAttributes(
  *     myContract.workflows.processOrder,
  *     description.value.typedSearchAttributes,
@@ -330,7 +330,7 @@ async function resolveDefinitionAndValidateInput<
   // `toTypedSearchAttributes` only ever builds ok/err; assert away the
   // impossible defect so `.error` / `.value` narrow cleanly.
   assertNoDefect(searchAttributesResult);
-  if (isErr(searchAttributesResult)) return err(searchAttributesResult.error);
+  if (searchAttributesResult.isErr()) return err(searchAttributesResult.error);
   const typedSearchAttributes = searchAttributesResult.value;
 
   return ok({
@@ -473,7 +473,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       );
       // The resolver only ever builds ok/err; assert away the impossible defect.
       assertNoDefect(resolved);
-      if (isErr(resolved)) return err(resolved.error);
+      if (resolved.isErr()) return err(resolved.error);
       const { definition, validatedInput, typedSearchAttributes } = resolved.value;
 
       try {
@@ -555,7 +555,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       );
       // The resolver only ever builds ok/err; assert away the impossible defect.
       assertNoDefect(resolved);
-      if (isErr(resolved)) return err(resolved.error);
+      if (resolved.isErr()) return err(resolved.error);
       const { definition, validatedInput, typedSearchAttributes } = resolved.value;
 
       // Validate signal input — call-site-specific, kept inline.
@@ -650,7 +650,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       );
       // The resolver only ever builds ok/err; assert away the impossible defect.
       assertNoDefect(resolved);
-      if (isErr(resolved)) return err(resolved.error);
+      if (resolved.isErr()) return err(resolved.error);
       const { definition, validatedInput, typedSearchAttributes } = resolved.value;
 
       try {

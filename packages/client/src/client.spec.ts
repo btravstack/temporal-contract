@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { isOk, isErr } from "unthrown";
 import { z } from "zod";
 import { defineContract, defineSearchAttribute, defineWorkflow } from "@temporal-contract/contract";
 import { readTypedSearchAttributes, TypedClient } from "./client.js";
@@ -168,7 +167,7 @@ describe("TypedClient", () => {
       });
 
       expect(result).toBeOk();
-      if (isOk(result)) {
+      if (result.isOk()) {
         expect(result.value).toEqual(
           expect.objectContaining({
             workflowId: "test-123",
@@ -190,7 +189,7 @@ describe("TypedClient", () => {
       });
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(WorkflowValidationError);
       }
     });
@@ -205,7 +204,7 @@ describe("TypedClient", () => {
       );
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(WorkflowNotFoundError);
       }
     });
@@ -221,7 +220,7 @@ describe("TypedClient", () => {
       });
 
       expect(result).toBeOk();
-      if (isOk(result)) {
+      if (result.isOk()) {
         expect(result.value).toEqual({ result: "success" });
       }
 
@@ -241,7 +240,7 @@ describe("TypedClient", () => {
       });
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(WorkflowValidationError);
       }
     });
@@ -295,7 +294,7 @@ describe("TypedClient", () => {
       });
 
       expect(result).toBeOk();
-      if (isOk(result)) {
+      if (result.isOk()) {
         expect(result.value.workflowId).toBe("test-123");
         expect(result.value.signaledRunId).toBe("run-abc");
       }
@@ -322,7 +321,7 @@ describe("TypedClient", () => {
       );
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(WorkflowNotFoundError);
       }
       expect(mockWorkflow.signalWithStart).not.toHaveBeenCalled();
@@ -338,7 +337,7 @@ describe("TypedClient", () => {
       });
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(WorkflowValidationError);
       }
       expect(mockWorkflow.signalWithStart).not.toHaveBeenCalled();
@@ -354,7 +353,7 @@ describe("TypedClient", () => {
       });
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(SignalValidationError);
       }
       expect(mockWorkflow.signalWithStart).not.toHaveBeenCalled();
@@ -371,7 +370,7 @@ describe("TypedClient", () => {
       });
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(RuntimeClientError);
         expect((result.error as RuntimeClientError).operation).toBe("signalWithStart");
       }
@@ -397,7 +396,7 @@ describe("TypedClient", () => {
       const result = await typedClient.getHandle("testWorkflow", "test-123");
 
       expect(result).toBeOk();
-      if (isOk(result)) {
+      if (result.isOk()) {
         expect(result.value).toEqual(expect.objectContaining({ workflowId: "test-123" }));
       }
     });
@@ -409,7 +408,7 @@ describe("TypedClient", () => {
       );
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(WorkflowNotFoundError);
       }
     });
@@ -458,11 +457,11 @@ describe("TypedClient", () => {
 
       expect(handleResult).toBeOk();
 
-      if (isOk(handleResult)) {
+      if (handleResult.isOk()) {
         const result = await handleResult.value.result();
 
         expect(result).toBeOk();
-        if (isOk(result)) {
+        if (result.isOk()) {
           expect(result.value).toEqual({ result: "success" });
         }
       }
@@ -478,11 +477,11 @@ describe("TypedClient", () => {
 
       expect(handleResult).toBeOk();
 
-      if (isOk(handleResult)) {
+      if (handleResult.isOk()) {
         const result = await handleResult.value.queries.getStatus([]);
 
         expect(result).toBeOk();
-        if (isOk(result)) {
+        if (result.isOk()) {
           expect(result.value).toEqual("running");
         }
       }
@@ -496,7 +495,7 @@ describe("TypedClient", () => {
 
       expect(handleResult).toBeOk();
 
-      if (isOk(handleResult)) {
+      if (handleResult.isOk()) {
         const result = await handleResult.value.signals.updateProgress([50]);
 
         expect(result).toBeOk();
@@ -514,11 +513,11 @@ describe("TypedClient", () => {
 
       expect(handleResult).toBeOk();
 
-      if (isOk(handleResult)) {
+      if (handleResult.isOk()) {
         const result = await handleResult.value.updates.setConfig([{ value: "new-config" }]);
 
         expect(result).toBeOk();
-        if (isOk(result)) {
+        if (result.isOk()) {
           expect(result.value).toEqual(true);
         }
       }
@@ -532,7 +531,7 @@ describe("TypedClient", () => {
 
       expect(handleResult).toBeOk();
 
-      if (isOk(handleResult)) {
+      if (handleResult.isOk()) {
         const result = await handleResult.value.terminate("test reason");
 
         expect(result).toBeOk();
@@ -548,7 +547,7 @@ describe("TypedClient", () => {
 
       expect(handleResult).toBeOk();
 
-      if (isOk(handleResult)) {
+      if (handleResult.isOk()) {
         const result = await handleResult.value.cancel();
 
         expect(result).toBeOk();
@@ -564,11 +563,11 @@ describe("TypedClient", () => {
 
       expect(handleResult).toBeOk();
 
-      if (isOk(handleResult)) {
+      if (handleResult.isOk()) {
         const result = await handleResult.value.describe();
 
         expect(result).toBeOk();
-        if (isOk(result)) {
+        if (result.isOk()) {
           expect(result.value).toEqual(expect.objectContaining({ workflowId: "test-123" }));
         }
       }
@@ -583,7 +582,7 @@ describe("TypedClient", () => {
           workflowId: "test-123",
           args: { name: "hello", value: 42 },
         });
-        if (!isOk(handleResult)) throw new Error("expected Ok");
+        if (!handleResult.isOk()) throw new Error("expected Ok");
 
         // getStatus expects z.tuple([]); pass a non-tuple to bypass at runtime
         const result = await handleResult.value.queries.getStatus(
@@ -592,7 +591,7 @@ describe("TypedClient", () => {
         );
 
         expect(result).toBeErr();
-        if (isErr(result)) {
+        if (result.isErr()) {
           expect(result.error).toBeInstanceOf(QueryValidationError);
           expect((result.error as QueryValidationError).direction).toBe("input");
         }
@@ -607,12 +606,12 @@ describe("TypedClient", () => {
           workflowId: "test-123",
           args: { name: "hello", value: 42 },
         });
-        if (!isOk(handleResult)) throw new Error("expected Ok");
+        if (!handleResult.isOk()) throw new Error("expected Ok");
 
         const result = await handleResult.value.queries.getStatus([]);
 
         expect(result).toBeErr();
-        if (isErr(result)) {
+        if (result.isErr()) {
           expect(result.error).toBeInstanceOf(QueryValidationError);
           expect((result.error as QueryValidationError).direction).toBe("output");
         }
@@ -625,12 +624,12 @@ describe("TypedClient", () => {
           workflowId: "test-123",
           args: { name: "hello", value: 42 },
         });
-        if (!isOk(handleResult)) throw new Error("expected Ok");
+        if (!handleResult.isOk()) throw new Error("expected Ok");
 
         const result = await handleResult.value.queries.getStatus([]);
 
         expect(result).toBeErr();
-        if (isErr(result)) {
+        if (result.isErr()) {
           expect(result.error).toBeInstanceOf(RuntimeClientError);
           expect((result.error as RuntimeClientError).operation).toBe("query");
         }
@@ -641,7 +640,7 @@ describe("TypedClient", () => {
           workflowId: "test-123",
           args: { name: "hello", value: 42 },
         });
-        if (!isOk(handleResult)) throw new Error("expected Ok");
+        if (!handleResult.isOk()) throw new Error("expected Ok");
 
         // updateProgress expects z.tuple([z.number()]); pass a string
         const result = await handleResult.value.signals.updateProgress(
@@ -650,7 +649,7 @@ describe("TypedClient", () => {
         );
 
         expect(result).toBeErr();
-        if (isErr(result)) {
+        if (result.isErr()) {
           expect(result.error).toBeInstanceOf(SignalValidationError);
         }
         expect(mockHandle.signal).not.toHaveBeenCalled();
@@ -663,12 +662,12 @@ describe("TypedClient", () => {
           workflowId: "test-123",
           args: { name: "hello", value: 42 },
         });
-        if (!isOk(handleResult)) throw new Error("expected Ok");
+        if (!handleResult.isOk()) throw new Error("expected Ok");
 
         const result = await handleResult.value.signals.updateProgress([50]);
 
         expect(result).toBeErr();
-        if (isErr(result)) {
+        if (result.isErr()) {
           expect(result.error).toBeInstanceOf(RuntimeClientError);
           expect((result.error as RuntimeClientError).operation).toBe("signal");
         }
@@ -679,7 +678,7 @@ describe("TypedClient", () => {
           workflowId: "test-123",
           args: { name: "hello", value: 42 },
         });
-        if (!isOk(handleResult)) throw new Error("expected Ok");
+        if (!handleResult.isOk()) throw new Error("expected Ok");
 
         // setConfig expects z.tuple([z.object({ value: z.string() })]);
         // pass an object with the wrong shape
@@ -689,7 +688,7 @@ describe("TypedClient", () => {
         );
 
         expect(result).toBeErr();
-        if (isErr(result)) {
+        if (result.isErr()) {
           expect(result.error).toBeInstanceOf(UpdateValidationError);
           expect((result.error as UpdateValidationError).direction).toBe("input");
         }
@@ -704,12 +703,12 @@ describe("TypedClient", () => {
           workflowId: "test-123",
           args: { name: "hello", value: 42 },
         });
-        if (!isOk(handleResult)) throw new Error("expected Ok");
+        if (!handleResult.isOk()) throw new Error("expected Ok");
 
         const result = await handleResult.value.updates.setConfig([{ value: "ok" }]);
 
         expect(result).toBeErr();
-        if (isErr(result)) {
+        if (result.isErr()) {
           expect(result.error).toBeInstanceOf(UpdateValidationError);
           expect((result.error as UpdateValidationError).direction).toBe("output");
         }
@@ -722,12 +721,12 @@ describe("TypedClient", () => {
           workflowId: "test-123",
           args: { name: "hello", value: 42 },
         });
-        if (!isOk(handleResult)) throw new Error("expected Ok");
+        if (!handleResult.isOk()) throw new Error("expected Ok");
 
         const result = await handleResult.value.updates.setConfig([{ value: "ok" }]);
 
         expect(result).toBeErr();
-        if (isErr(result)) {
+        if (result.isErr()) {
           expect(result.error).toBeInstanceOf(RuntimeClientError);
           expect((result.error as RuntimeClientError).operation).toBe("update");
         }
@@ -772,7 +771,7 @@ describe("TypedClient", () => {
       const mapped = result.map((value) => value.result.toUpperCase());
 
       expect(mapped).toBeOk();
-      if (isOk(mapped)) {
+      if (mapped.isOk()) {
         expect(mapped.value).toEqual("SUCCESS");
       }
     });
@@ -931,7 +930,7 @@ describe("TypedClient", () => {
       });
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(RuntimeClientError);
         const op = (result.error as RuntimeClientError).operation;
         expect(op).toBe("searchAttributes");
@@ -960,7 +959,7 @@ describe("TypedClient", () => {
       );
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(RuntimeClientError);
         expect((result.error as RuntimeClientError).operation).toBe("searchAttributes");
         expect((result.error as RuntimeClientError).message).toContain("customerId");
@@ -1013,7 +1012,7 @@ describe("TypedClient", () => {
       });
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(WorkflowAlreadyStartedError);
         const err = result.error as WorkflowAlreadyStartedError;
         expect(err.workflowId).toBe("test-123");
@@ -1031,7 +1030,7 @@ describe("TypedClient", () => {
       });
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(RuntimeClientError);
         expect(result.error).not.toBeInstanceOf(WorkflowAlreadyStartedError);
         expect((result.error as RuntimeClientError).operation).toBe("startWorkflow");
@@ -1051,7 +1050,7 @@ describe("TypedClient", () => {
       });
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(WorkflowAlreadyStartedError);
       }
     });
@@ -1067,7 +1066,7 @@ describe("TypedClient", () => {
       });
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(WorkflowAlreadyStartedError);
       }
     });
@@ -1089,7 +1088,7 @@ describe("TypedClient", () => {
       });
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(WorkflowFailedError);
         const err = result.error as WorkflowFailedError;
         expect(err.workflowId).toBe("test-123");
@@ -1110,7 +1109,7 @@ describe("TypedClient", () => {
       });
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(WorkflowExecutionNotFoundError);
         const err = result.error as WorkflowExecutionNotFoundError;
         expect(err.workflowId).toBe("test-123");
@@ -1138,11 +1137,11 @@ describe("TypedClient", () => {
       mockWorkflow.getHandle.mockReturnValue(handle);
 
       const handleResult = await typedClient.getHandle("testWorkflow", "test-123");
-      if (!isOk(handleResult)) throw new Error("getHandle should succeed");
+      if (!handleResult.isOk()) throw new Error("getHandle should succeed");
       const result = await handleResult.value.result();
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(WorkflowFailedError);
         const err = result.error as WorkflowFailedError;
         expect(err.workflowId).toBe("test-123");
@@ -1175,11 +1174,11 @@ describe("TypedClient", () => {
       mockWorkflow.getHandle.mockReturnValue(handle);
 
       const handleResult = await typedClient.getHandle("testWorkflow", "test-123");
-      if (!isOk(handleResult)) throw new Error("getHandle should succeed");
+      if (!handleResult.isOk()) throw new Error("getHandle should succeed");
       const result = await handleResult.value.cancel();
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(WorkflowExecutionNotFoundError);
         const err = result.error as WorkflowExecutionNotFoundError;
         // Fallback applied: the handle's workflowId rather than the
@@ -1205,11 +1204,11 @@ describe("TypedClient", () => {
       mockWorkflow.getHandle.mockReturnValue(handle);
 
       const handleResult = await typedClient.getHandle("testWorkflow", "test-123");
-      if (!isOk(handleResult)) throw new Error("getHandle should succeed");
+      if (!handleResult.isOk()) throw new Error("getHandle should succeed");
       const result = await handleResult.value.terminate("done");
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(WorkflowExecutionNotFoundError);
       }
     });
@@ -1231,11 +1230,11 @@ describe("TypedClient", () => {
       mockWorkflow.getHandle.mockReturnValue(handle);
 
       const handleResult = await typedClient.getHandle("testWorkflow", "test-123");
-      if (!isOk(handleResult)) throw new Error("getHandle should succeed");
+      if (!handleResult.isOk()) throw new Error("getHandle should succeed");
       const result = await handleResult.value.signals.updateProgress([50]);
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(WorkflowExecutionNotFoundError);
       }
     });
@@ -1257,11 +1256,11 @@ describe("TypedClient", () => {
       mockWorkflow.getHandle.mockReturnValue(handle);
 
       const handleResult = await typedClient.getHandle("testWorkflow", "test-123");
-      if (!isOk(handleResult)) throw new Error("getHandle should succeed");
+      if (!handleResult.isOk()) throw new Error("getHandle should succeed");
       const result = await handleResult.value.describe();
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         const err = result.error as WorkflowExecutionNotFoundError;
         expect(err).toBeInstanceOf(WorkflowExecutionNotFoundError);
         expect(err.runId).toBe("run-xyz");

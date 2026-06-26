@@ -48,7 +48,7 @@ value before checking `isOk(result)` / `isErr(result)` need no changes.
 > guards: the `result.isOk()` / `result.isErr()` / `result.isDefect()`
 > **methods** and the matching **free functions** `isOk(result)` /
 > `isErr(result)` / `isDefect(result)` imported from `"unthrown"`. This
-> codebase uses the free functions; either works.
+> codebase uses the methods; either works.
 
 ## Basic Usage
 

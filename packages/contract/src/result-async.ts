@@ -12,7 +12,6 @@
  */
 import {
   fromSafePromise,
-  isDefect,
   type AsyncResult,
   type ErrView,
   type OkView,
@@ -47,7 +46,7 @@ export function _internal_makeAsyncResult<T, E>(
  * Assert that a `Result` is not a `Defect`, narrowing it to `Ok | Err`.
  *
  * unthrown's `Result<T, E>` type always includes the out-of-band `Defect`
- * variant, so `if (isErr(r)) … else r.value` does not type-check — the `else`
+ * variant, so `if (r.isErr()) … else r.value` does not type-check — the `else`
  * branch is still `Ok | Defect`. For an internally-produced result that is
  * *known* to be built only from `ok(...)` / `err(...)`, this collapses the
  * "impossible defect" case in one call: it re-throws a present defect's cause
@@ -61,7 +60,7 @@ export function _internal_makeAsyncResult<T, E>(
 export function _internal_assertNoDefect<T, E>(
   result: Result<T, E>,
 ): asserts result is OkView<T, E> | ErrView<E, T> {
-  if (isDefect(result)) {
+  if (result.isDefect()) {
     throw result.cause;
   }
 }
