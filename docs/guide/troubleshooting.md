@@ -439,9 +439,9 @@ Error: Cannot find module './workflows'
 TypeError: Cannot read property 'match' of undefined
 ```
 
-**Cause:** Activity returned `undefined` instead of a `AsyncResult`.
+**Cause:** Activity returned `undefined` instead of an `AsyncResult`.
 
-**Solution:** Always return a `AsyncResult` from activities:
+**Solution:** Always return an `AsyncResult` from activities:
 
 ```typescript
 // ❌ Returns undefined

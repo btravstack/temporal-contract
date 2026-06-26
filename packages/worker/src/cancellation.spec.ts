@@ -71,7 +71,7 @@ describe("cancellableScope", () => {
 
   it("routes a non-cancellation error to the defect channel", async () => {
     // A thrown non-cancellation error is an *unmodeled* failure: the helper
-    // re-throws it so the `makeResultAsync` boundary captures it as a defect,
+    // re-throws it so the `makeAsyncResult` boundary captures it as a defect,
     // with the original error on `cause`, rather than a typed err(...).
     const original = new Error("activity exploded");
     const result = await cancellableScope(async () => {
@@ -84,8 +84,9 @@ describe("cancellableScope", () => {
   });
 
   it("captures synchronous throws from the work body as a defect", async () => {
-    // If `fn` throws *before* its first await, `fromPromise`'s thunk form still
-    // captures it — as a defect carrying the original cause.
+    // If `fn` throws *before* its first await, `makeAsyncResult` (via unthrown's
+    // `fromSafePromise`) still captures it — as a defect carrying the original
+    // cause.
     const original = new Error("sync explosion");
     const result = await cancellableScope(() => {
       throw original;

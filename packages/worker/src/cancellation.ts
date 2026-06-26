@@ -15,7 +15,7 @@
 import { CancellationScope, isCancellation } from "@temporalio/workflow";
 import { type AsyncResult, type Result, ok, err } from "unthrown";
 import { WorkflowCancelledError } from "./errors.js";
-import { makeResultAsync } from "./internal.js";
+import { makeAsyncResult } from "./internal.js";
 
 /**
  * Run `fn` inside a cancellable Temporal scope. If the workflow (or an
@@ -59,12 +59,12 @@ export function cancellableScope<T>(
       if (isCancellation(error)) {
         return err(new WorkflowCancelledError(error));
       }
-      // Non-cancellation throw → re-throw so `makeResultAsync`'s boundary
+      // Non-cancellation throw → re-throw so `makeAsyncResult`'s boundary
       // routes it through the `defect` channel as an unmodeled failure.
       throw error;
     }
   };
-  return makeResultAsync(work);
+  return makeAsyncResult(work);
 }
 
 /**
@@ -99,5 +99,5 @@ export function nonCancellableScope<T>(
       throw error;
     }
   };
-  return makeResultAsync(work);
+  return makeAsyncResult(work);
 }

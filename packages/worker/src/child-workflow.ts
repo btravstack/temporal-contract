@@ -19,7 +19,7 @@ import {
 import {
   classifyChildWorkflowError,
   formatChildWorkflowValidationMessage,
-  makeResultAsync,
+  makeAsyncResult,
 } from "./internal.js";
 import type { ClientInferInput, ClientInferOutput, WorkerInferInput } from "./types.js";
 
@@ -139,7 +139,7 @@ function createTypedChildHandle<TChildWorkflow extends AnyWorkflowDefinition>(
           return err(classifyChildWorkflowError("result", error, childWorkflowName));
         }
       };
-      return makeResultAsync(work);
+      return makeAsyncResult(work);
     },
   };
 }
@@ -191,7 +191,7 @@ export function createStartChildWorkflow<
       return err(classifyChildWorkflowError("startChild", error, String(childWorkflowName)));
     }
   };
-  return makeResultAsync(work);
+  return makeAsyncResult(work);
 }
 
 export function createExecuteChildWorkflow<
@@ -250,5 +250,5 @@ export function createExecuteChildWorkflow<
       return err(classifyChildWorkflowError("executeChild", error, String(childWorkflowName)));
     }
   };
-  return makeResultAsync(work);
+  return makeAsyncResult(work);
 }

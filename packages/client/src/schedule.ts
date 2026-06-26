@@ -12,7 +12,7 @@ import { type AsyncResult, type Result, ok, err, isOk, isErr, fromPromise } from
 import type { TypedSearchAttributeMap } from "./client.js";
 import type { ClientInferInput } from "./types.js";
 import { RuntimeClientError, WorkflowNotFoundError, WorkflowValidationError } from "./errors.js";
-import { makeResultAsync, toTypedSearchAttributes } from "./internal.js";
+import { makeAsyncResult, toTypedSearchAttributes } from "./internal.js";
 
 /**
  * Workflow-action–level overrides forwarded to Temporal's
@@ -198,7 +198,7 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
         return err(new RuntimeClientError("schedule.create", error));
       }
     };
-    return makeResultAsync(work);
+    return makeAsyncResult(work);
   }
 
   /**

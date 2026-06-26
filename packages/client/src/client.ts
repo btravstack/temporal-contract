@@ -35,7 +35,7 @@ import {
   classifyHandleError,
   classifyResultError,
   classifyStartError,
-  makeResultAsync,
+  makeAsyncResult,
   toTypedSearchAttributes,
 } from "./internal.js";
 import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
@@ -486,7 +486,7 @@ export class TypedClient<TContract extends ContractDefinition> {
         return err(classifyStartError("startWorkflow", error));
       }
     };
-    return makeResultAsync(work);
+    return makeAsyncResult(work);
   }
 
   /**
@@ -593,7 +593,7 @@ export class TypedClient<TContract extends ContractDefinition> {
         return err(classifyStartError("signalWithStart", error));
       }
     };
-    return makeResultAsync(work);
+    return makeAsyncResult(work);
   }
 
   /**
@@ -704,7 +704,7 @@ export class TypedClient<TContract extends ContractDefinition> {
         return err(createRuntimeClientError("executeWorkflow", error));
       }
     };
-    return makeResultAsync(work);
+    return makeAsyncResult(work);
   }
 
   /**
@@ -744,7 +744,7 @@ export class TypedClient<TContract extends ContractDefinition> {
         return err(createRuntimeClientError("getHandle", error));
       }
     };
-    return makeResultAsync(work);
+    return makeAsyncResult(work);
   }
 
   private createTypedHandle<TWorkflow extends AnyWorkflowDefinition>(
@@ -819,7 +819,7 @@ export class TypedClient<TContract extends ContractDefinition> {
             return err(classifyResultError("result", error, workflowHandle.workflowId));
           }
         };
-        return makeResultAsync(work);
+        return makeAsyncResult(work);
       },
       terminate: (
         reason?: string,
@@ -949,7 +949,7 @@ function buildValidatedProxy<TDef extends DefWithInput, TValidationError extends
           return err(classifyHandleError(operation, error, workflowId));
         }
       };
-      return makeResultAsync(work);
+      return makeAsyncResult(work);
     };
   }
 

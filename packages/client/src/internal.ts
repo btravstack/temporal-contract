@@ -90,7 +90,7 @@ export function toTypedSearchAttributes(
  * `@temporal-contract/contract` so the same wrapper is shared between the
  * client and worker packages.
  */
-export function makeResultAsync<T, E>(work: () => Promise<Result<T, E>>): AsyncResult<T, E> {
+export function makeAsyncResult<T, E>(work: () => Promise<Result<T, E>>): AsyncResult<T, E> {
   return _internal_makeAsyncResult(work);
 }
 
