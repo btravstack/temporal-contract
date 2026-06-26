@@ -188,6 +188,13 @@ const message = matchTags(result, {
 > The worker's `ValidationError` subclasses are the exception — they still
 > extend Temporal's `ApplicationFailure` rather than `TaggedError`.
 
+> [!NOTE]
+> temporal-contract's own error tags are **package-namespaced** — e.g.
+> `_tag === "@temporal-contract/WorkflowExecutionNotFoundError"` — while each
+> error's `.name` stays the bare class name. If you `matchTags` over library
+> errors, the handler keys carry the prefix:
+> `matchTags(result, { "@temporal-contract/WorkflowExecutionNotFoundError": ... })`.
+
 ## End-to-end activity example
 
 **Before (neverthrow):**
