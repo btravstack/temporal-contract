@@ -83,6 +83,7 @@ allowBuilds:
   protobufjs: true
   ssh2: true
 
+minimumReleaseAge: 10080
 minimumReleaseAgeStrict: true
 # First-party btravstack packages — the maturity delay guards against
 # third-party supply-chain risk, which does not apply to our own org's libraries.
