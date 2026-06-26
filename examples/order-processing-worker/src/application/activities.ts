@@ -1,4 +1,4 @@
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
 import { orderProcessingContract } from "@temporal-contract/sample-order-processing-contract";
 import {
@@ -23,12 +23,12 @@ const toApplicationFailure = (type: string, fallback: string, error: unknown): A
   });
 
 /**
- * Activity implementations using neverthrow's `ResultAsync` pattern.
+ * Activity implementations using unthrown's `AsyncResult` pattern.
  *
  * Instead of throwing exceptions, activities return:
- *   - okAsync(value) for success
- *   - errAsync(ApplicationFailure) for failures (or a `ResultAsync.fromPromise`
- *     chain that mapErr's a rejection into an `ApplicationFailure`).
+ *   - ok(value).toAsync() for success
+ *   - err(ApplicationFailure).toAsync() for failures (or a `fromPromise`
+ *     chain that qualifies a rejection into an `ApplicationFailure`).
  *
  * All technical exceptions MUST be caught and wrapped in `ApplicationFailure`
  * (Temporal's first-class failure shape, re-exported from
@@ -39,7 +39,7 @@ const toApplicationFailure = (type: string, fallback: string, error: unknown): A
  * Benefits:
  *   - Explicit error types in function signatures
  *   - Per-instance `nonRetryable` flag for permanent failures
- *   - Functional composition with map/andThen/match
+ *   - Functional composition with map/flatMap/match
  *   - Native Temporal serialization across the activity → workflow boundary
  */
 
@@ -48,9 +48,9 @@ const toApplicationFailure = (type: string, fallback: string, error: unknown): A
 // ============================================================================
 
 /**
- * Create the activities handler with neverthrow's ResultAsync pattern.
+ * Create the activities handler with unthrown's AsyncResult pattern.
  * Activities are thin wrappers that delegate to use cases.
- * All activities return `ResultAsync<T, ApplicationFailure>`.
+ * All activities return `AsyncResult<T, ApplicationFailure>`.
  *
  * Domain errors are wrapped in `ApplicationFailure` so Temporal applies the
  * configured retry policy. Set `nonRetryable: true` for permanent failures
@@ -60,20 +60,18 @@ export const activities = declareActivitiesHandler({
   contract: orderProcessingContract,
   activities: {
     sendNotification: ({ customerId, subject, message }) =>
-      ResultAsync.fromPromise(
-        sendNotificationUseCase.execute(customerId, subject, message),
-        (error) =>
-          toApplicationFailure("NOTIFICATION_FAILED", "Failed to send notification", error),
+      fromPromise(sendNotificationUseCase.execute(customerId, subject, message), (error) =>
+        toApplicationFailure("NOTIFICATION_FAILED", "Failed to send notification", error),
       ),
 
     processOrder: {
       processPayment: ({ customerId, amount }) =>
-        ResultAsync.fromPromise(processPaymentUseCase.execute(customerId, amount), (error) =>
+        fromPromise(processPaymentUseCase.execute(customerId, amount), (error) =>
           toApplicationFailure("PAYMENT_FAILED", "Payment processing failed", error),
         ),
 
       reserveInventory: (items) =>
-        ResultAsync.fromPromise(reserveInventoryUseCase.execute(items), (error) =>
+        fromPromise(reserveInventoryUseCase.execute(items), (error) =>
           toApplicationFailure(
             "INVENTORY_RESERVATION_FAILED",
             "Inventory reservation failed",
@@ -82,17 +80,17 @@ export const activities = declareActivitiesHandler({
         ),
 
       releaseInventory: (reservationId) =>
-        ResultAsync.fromPromise(releaseInventoryUseCase.execute(reservationId), (error) =>
+        fromPromise(releaseInventoryUseCase.execute(reservationId), (error) =>
           toApplicationFailure("INVENTORY_RELEASE_FAILED", "Inventory release failed", error),
         ),
 
       createShipment: ({ orderId, customerId }) =>
-        ResultAsync.fromPromise(createShipmentUseCase.execute(orderId, customerId), (error) =>
+        fromPromise(createShipmentUseCase.execute(orderId, customerId), (error) =>
           toApplicationFailure("SHIPMENT_CREATION_FAILED", "Shipment creation failed", error),
         ),
 
       refundPayment: (transactionId) =>
-        ResultAsync.fromPromise(refundPaymentUseCase.execute(transactionId), (error) =>
+        fromPromise(refundPaymentUseCase.execute(transactionId), (error) =>
           toApplicationFailure("REFUND_FAILED", "Refund failed", error),
         ),
     },

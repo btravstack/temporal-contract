@@ -13,15 +13,15 @@ Instead of defining activity implementations inline, you can extract types for r
 ```typescript
 import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 import { orderContract } from "./contract";
 
 // Extract all activity handler types from contract
 type OrderActivitiesHandler = ActivitiesHandler<typeof orderContract>;
 
-// Implement activities with explicit types using ResultAsync
+// Implement activities with explicit types using AsyncResult
 const sendEmail: OrderActivitiesHandler["sendEmail"] = ({ to, body }) =>
-  ResultAsync.fromPromise(emailService.send({ to, body }), (error) =>
+  fromPromise(emailService.send({ to, body }), (error) =>
     ApplicationFailure.create({
       type: "EMAIL_FAILED",
       message: error instanceof Error ? error.message : "Failed to send email",
@@ -30,7 +30,7 @@ const sendEmail: OrderActivitiesHandler["sendEmail"] = ({ to, body }) =>
   ).map(() => ({ sent: true }));
 
 const processPayment: OrderActivitiesHandler["processPayment"] = ({ amount }) =>
-  ResultAsync.fromPromise(paymentGateway.charge(amount), (error) =>
+  fromPromise(paymentGateway.charge(amount), (error) =>
     ApplicationFailure.create({
       type: "PAYMENT_FAILED",
       message: error instanceof Error ? error.message : "Payment failed",
@@ -59,8 +59,8 @@ import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
 
 type MyActivities = ActivitiesHandler<typeof myContract>;
 // {
-//   sendEmail: (input: { to: string, body: string }) => ResultAsync<{ sent: boolean }, ApplicationFailure>;
-//   processPayment: (input: { amount: number }) => ResultAsync<{ transactionId: string }, ApplicationFailure>;
+//   sendEmail: (input: { to: string, body: string }) => AsyncResult<{ sent: boolean }, ApplicationFailure>;
+//   processPayment: (input: { amount: number }) => AsyncResult<{ transactionId: string }, ApplicationFailure>;
 // }
 ```
 
@@ -73,8 +73,8 @@ type SendEmailHandler = ActivitiesHandler<typeof contract>["sendEmail"];
 type ProcessPaymentHandler = ActivitiesHandler<typeof contract>["processPayment"];
 
 const sendEmail: SendEmailHandler = ({ to, body }) => {
-  // Implementation — must return ResultAsync<T, ApplicationFailure>
-  return okAsync({ sent: true });
+  // Implementation — must return AsyncResult<T, ApplicationFailure>
+  return ok({ sent: true }).toAsync();
 };
 ```
 
@@ -88,13 +88,13 @@ Implement activities in separate files:
 // activities/email.ts
 import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
 import { ApplicationFailure } from "@temporal-contract/worker/activity";
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 import { orderContract } from "../contracts/order.contract";
 
 type Handlers = ActivitiesHandler<typeof orderContract>;
 
 export const sendEmail: Handlers["sendEmail"] = ({ to, body }) =>
-  ResultAsync.fromPromise(emailService.send({ to, body }), (error) =>
+  fromPromise(emailService.send({ to, body }), (error) =>
     ApplicationFailure.create({
       type: "EMAIL_FAILED",
       message: error instanceof Error ? error.message : "Failed to send email",
@@ -107,13 +107,13 @@ export const sendEmail: Handlers["sendEmail"] = ({ to, body }) =>
 // activities/payment.ts
 import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
 import { ApplicationFailure } from "@temporal-contract/worker/activity";
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 import { orderContract } from "../contracts/order.contract";
 
 type Handlers = ActivitiesHandler<typeof orderContract>;
 
 export const processPayment: Handlers["processPayment"] = ({ amount }) =>
-  ResultAsync.fromPromise(paymentGateway.charge(amount), (error) =>
+  fromPromise(paymentGateway.charge(amount), (error) =>
     ApplicationFailure.create({
       type: "PAYMENT_FAILED",
       message: error instanceof Error ? error.message : "Payment failed",
@@ -145,14 +145,14 @@ Create factory functions with typed activities:
 ```typescript
 import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
 import { ApplicationFailure } from "@temporal-contract/worker/activity";
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 
 type Handlers = ActivitiesHandler<typeof orderContract>;
 
 export const createEmailActivity =
   (emailService: EmailService): Handlers["sendEmail"] =>
   ({ to, body }) =>
-    ResultAsync.fromPromise(emailService.send({ to, body }), (error) =>
+    fromPromise(emailService.send({ to, body }), (error) =>
       ApplicationFailure.create({
         type: "EMAIL_FAILED",
         message: error instanceof Error ? error.message : "Failed",
@@ -163,7 +163,7 @@ export const createEmailActivity =
 export const createPaymentActivity =
   (paymentGateway: PaymentGateway): Handlers["processPayment"] =>
   ({ amount }) =>
-    ResultAsync.fromPromise(paymentGateway.charge(amount), (error) =>
+    fromPromise(paymentGateway.charge(amount), (error) =>
       ApplicationFailure.create({
         type: "PAYMENT_FAILED",
         message: error instanceof Error ? error.message : "Failed",
@@ -193,14 +193,14 @@ Mock activities with correct types:
 
 ```typescript
 import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
-import { okAsync } from "neverthrow";
+import { ok } from "unthrown";
 
 type Handlers = ActivitiesHandler<typeof orderContract>;
 
 // Create mock activities for testing
 const mockActivities: Handlers = {
-  sendEmail: ({ to, body }) => okAsync({ sent: true }),
-  processPayment: ({ amount }) => okAsync({ transactionId: "TEST-TXN" }),
+  sendEmail: ({ to, body }) => ok({ sent: true }).toAsync(),
+  processPayment: ({ amount }) => ok({ transactionId: "TEST-TXN" }).toAsync(),
 };
 
 // Use in tests
@@ -316,10 +316,10 @@ Always extract types for better maintainability:
 ```typescript
 // ✅ Good
 type Handlers = ActivitiesHandler<typeof contract>;
-const sendEmail: Handlers["sendEmail"] = ({ to, body }) => okAsync({ sent: true });
+const sendEmail: Handlers["sendEmail"] = ({ to, body }) => ok({ sent: true }).toAsync();
 
 // ❌ Avoid inline typing
-const sendEmail = ({ to, body }: { to: string; body: string }) => okAsync({ sent: true });
+const sendEmail = ({ to, body }: { to: string; body: string }) => ok({ sent: true }).toAsync();
 ```
 
 ### 2. Organize by Domain
@@ -343,7 +343,7 @@ Make activities testable and configurable:
 ```typescript
 export const createActivities = (services: Services) => {
   const sendEmail: Handlers["sendEmail"] = ({ to, body }) =>
-    ResultAsync.fromPromise(services.email.send({ to, body }), (error) =>
+    fromPromise(services.email.send({ to, body }), (error) =>
       ApplicationFailure.create({
         type: "EMAIL_FAILED",
         message: error instanceof Error ? error.message : "Failed",

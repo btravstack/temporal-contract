@@ -1,31 +1,31 @@
 # Result Pattern
 
-Learn how to use explicit error handling with the `Result` / `ResultAsync`
-pattern from [neverthrow].
+Learn how to use explicit error handling with the `Result` / `AsyncResult`
+pattern from [unthrown].
 
-[neverthrow]: https://github.com/supermacro/neverthrow
+[unthrown]: https://github.com/btravstack/unthrown
 
 ## Overview
 
-temporal-contract uses neverthrow's `Result<T, E>` and `ResultAsync<T, E>`
+temporal-contract uses unthrown's `Result<T, E>` and `AsyncResult<T, E>`
 types throughout its public surface:
 
-- **Activities** return `ResultAsync<T, ApplicationFailure>`.
+- **Activities** return `AsyncResult<T, ApplicationFailure>`.
 - **Workflows** await activities and child workflows; the framework unwraps
   the `Result` for activities (so a workflow sees a plain value or a thrown
   error) and surfaces `Result` directly for child workflows.
-- **Clients** await `ResultAsync<T, E>`; the resolved value is a
-  `Result<T, E>` that you destructure with `.match(okFn, errFn)` or
-  `.isOk()` / `.isErr()`.
+- **Clients** await `AsyncResult<T, E>`; the resolved value is a
+  `Result<T, E>` that you destructure with `result.match({ ok, err, defect })`
+  or the free functions `isOk(result)` / `isErr(result)` / `isDefect(result)`.
 
 A single library covers every context — the same import works inside
 activities, workflows, and clients.
 
 ```mermaid
 graph LR
-    A[Activities] -->|neverthrow| B[Result / ResultAsync]
-    C[Workflows] -->|neverthrow| B
-    D[Clients] -->|neverthrow| B
+    A[Activities] -->|unthrown| B[Result / AsyncResult]
+    C[Workflows] -->|unthrown| B
+    D[Clients] -->|unthrown| B
 
     style A fill:#10b981,stroke:#059669,color:#fff
     style C fill:#3b82f6,stroke:#1e40af,color:#fff
@@ -35,31 +35,38 @@ graph LR
 ## Installation
 
 ```bash
-pnpm add neverthrow
+pnpm add unthrown
 ```
 
-`ResultAsync<T, E>` is awaitable: `await resultAsync` resolves to
+`AsyncResult<T, E>` is awaitable: `await asyncResult` resolves to
 `Result<T, E>`. The underlying Promise is constructed when the chain runs,
 so the type behaves like a lazy task — call sites that already `await` the
-value before checking `.isOk()` / `.isErr()` need no changes.
+value before checking `isOk(result)` / `isErr(result)` need no changes.
+
+> [!IMPORTANT]
+> unthrown narrows with **free functions** — `isOk(result)`, `isErr(result)`,
+> `isDefect(result)` imported from `"unthrown"`. The `result.isOk()` /
+> `result.isErr()` **methods** return a plain boolean and do **not** narrow
+> the type, so reach for the free functions before touching `.value` /
+> `.error` / `.cause`.
 
 ## Basic Usage
 
 ### Activities
 
-Activities return `ResultAsync<T, ApplicationFailure>`. The cleanest shape
-is `ResultAsync.fromPromise(promise, mapError)`:
+Activities return `AsyncResult<T, ApplicationFailure>`. The cleanest shape
+is `fromPromise(promise, mapError)`:
 
 ```typescript
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 import { orderContract } from "./contract";
 
 export const activities = declareActivitiesHandler({
   contract: orderContract,
   activities: {
     processPayment: ({ amount }) =>
-      ResultAsync.fromPromise(paymentGateway.charge(amount), (error) =>
+      fromPromise(paymentGateway.charge(amount), (error) =>
         ApplicationFailure.create({
           type: "PAYMENT_FAILED",
           message: error instanceof Error ? error.message : "Payment failed",
@@ -68,7 +75,7 @@ export const activities = declareActivitiesHandler({
       ).map((txId) => ({ transactionId: txId, success: true })),
 
     sendEmail: ({ to, body }) =>
-      ResultAsync.fromPromise(emailService.send({ to, body }), (error) =>
+      fromPromise(emailService.send({ to, body }), (error) =>
         ApplicationFailure.create({
           type: "EMAIL_FAILED",
           message: error instanceof Error ? error.message : "Email failed",
@@ -114,7 +121,7 @@ export const processOrder = declareWorkflow({
 
 ### Clients
 
-Clients receive a `ResultAsync<T, E>` from `executeWorkflow` /
+Clients receive an `AsyncResult<T, E>` from `executeWorkflow` /
 `startWorkflow`. Awaiting it yields a `Result<T, E>`:
 
 ```typescript
@@ -130,30 +137,35 @@ const result = await client.executeWorkflow("processOrder", {
   args: { orderId: "ORD-123", amount: 100 },
 });
 
-// Handle result with pattern matching (positional callbacks)
-result.match(
-  (value) => {
+// Handle result with pattern matching (object form, three channels)
+result.match({
+  ok: (value) => {
     console.log("Order processed:", value.transactionId);
   },
-  (error) => {
+  err: (error) => {
     console.error("Order failed:", error);
   },
-);
+  defect: (cause) => {
+    console.error("Unexpected failure:", cause);
+  },
+});
 ```
 
 ## Awaiting and inspecting
 
-`ResultAsync<T, E>` is a thin wrapper around a `Promise<Result<T, E>>`. You
+`AsyncResult<T, E>` is a thin wrapper around a `Promise<Result<T, E>>`. You
 can `await` it once and then inspect synchronously, or chain with
-`.map`, `.mapErr`, `.andThen`, `.orElse` before awaiting:
+`.map`, `.mapErr`, `.flatMap`, `.orElse` before awaiting:
 
 ```typescript
+import { isErr } from "unthrown";
+
 const result = await client.executeWorkflow("processOrder", {
   workflowId: "order-123",
   args: { orderId: "ORD-123", amount: 100 },
 });
 
-if (result.isErr()) {
+if (isErr(result)) {
   console.error(result.error);
   return;
 }
@@ -230,7 +242,7 @@ export const processOrder = declareWorkflow({
 Define typed errors in your activities:
 
 ```typescript
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 import { ApplicationFailure } from "@temporal-contract/worker/activity";
 
 type PaymentError =
@@ -240,9 +252,9 @@ type PaymentError =
 
 type EmailError = { type: "InvalidEmail" } | { type: "ServiceUnavailable" };
 
-// Activities return ResultAsync with typed errors
+// Activities return AsyncResult with typed errors
 processPayment: ({ amount }) =>
-  ResultAsync.fromPromise(paymentGateway.charge(amount), (error) => {
+  fromPromise(paymentGateway.charge(amount), (error) => {
     // Wrap domain errors in ApplicationFailure so Temporal applies the
     // configured retry policy; set `nonRetryable: true` for permanent
     // failures.
@@ -258,15 +270,15 @@ processPayment: ({ amount }) =>
 
 ### 1. Explicit Error Handling
 
-Activities use the `ResultAsync` pattern internally, while workflows use
+Activities use the `AsyncResult` pattern internally, while workflows use
 try/catch:
 
 ```typescript
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 
-// Activity implementation (uses ResultAsync)
+// Activity implementation (uses AsyncResult)
 const processPayment = ({ amount }) =>
-  ResultAsync.fromPromise(paymentGateway.charge(amount), (error) =>
+  fromPromise(paymentGateway.charge(amount), (error) =>
     ApplicationFailure.create({
       type: "PAYMENT_FAILED",
       message: "Payment failed",
@@ -294,12 +306,12 @@ export const processOrder = declareWorkflow({
 
 ### 2. No Hidden Exceptions in Activities
 
-Activities explicitly return `ResultAsync` instead of throwing:
+Activities explicitly return `AsyncResult` instead of throwing:
 
 ```typescript
-// ✅ Clear - activity returns ResultAsync<T, ApplicationFailure>
+// ✅ Clear - activity returns AsyncResult<T, ApplicationFailure>
 const processPayment = ({ amount }) =>
-  ResultAsync.fromPromise(paymentGateway.charge(amount), (error) =>
+  fromPromise(paymentGateway.charge(amount), (error) =>
     ApplicationFailure.create({
       type: "PAYMENT_FAILED",
       message: "Payment failed",
@@ -317,7 +329,7 @@ async function processPayment({ amount }) {
 ### 3. Railway-Oriented Programming (Activities)
 
 Activity implementations can chain operations that short-circuit on error
-using `.andThen` (the neverthrow equivalent of boxed's `.flatMap`):
+using `.flatMap` (unthrown's bind/chain operator):
 
 ```mermaid
 graph LR
@@ -337,9 +349,9 @@ graph LR
 // Activity implementation with chaining
 const processOrder = ({ orderId }) =>
   validateOrderId(orderId)
-    .andThen((validId) => fetchOrder(validId))
-    .andThen((order) => processPayment(order))
-    .andThen((payment) => updateDatabase(payment))
+    .flatMap((validId) => fetchOrder(validId))
+    .flatMap((order) => processPayment(order))
+    .flatMap((payment) => updateDatabase(payment))
     .mapErr((error) =>
       ApplicationFailure.create({
         type: "ORDER_FAILED",
@@ -392,25 +404,25 @@ export const processOrder = declareWorkflow({
 
 ## Combining results
 
-neverthrow exposes `Result.combine([...])` to fan in a list of `Result`s
-into a single `Result<T[], E>` that fails on the first error. There is no
-direct equivalent of boxed's `Result.allFromDict({...})` — destructure the
-combined array, or call `.match` per entry:
+unthrown exposes `all([...])` to fan in a list of `Result`s into a single
+`Result<T[], E>` that fails on the first error. Destructure the combined
+array, or call `.match` on the result:
 
 ```typescript
-import { Result } from "neverthrow";
+import { all } from "unthrown";
 
-const combined = Result.combine([validateA(a), validateB(b), validateC(c)]);
+const combined = all([validateA(a), validateB(b), validateC(c)]);
 
-return combined.match(
-  ([resA, resB, resC]) => proceed({ resA, resB, resC }),
-  (error) => fail(error),
-);
+return combined.match({
+  ok: ([resA, resB, resC]) => proceed({ resA, resB, resC }),
+  err: (error) => fail(error),
+  defect: (cause) => fail(cause),
+});
 ```
 
 ## Child Workflows
 
-Child workflows return `ResultAsync` for consistent error handling:
+Child workflows return `AsyncResult` for consistent error handling:
 
 ### Execute and Wait
 
@@ -429,16 +441,20 @@ export const parentWorkflow = declareWorkflow({
     });
 
     // Workflows return plain objects, not Result
-    return result.match(
-      (output) => ({
+    return result.match({
+      ok: (output) => ({
         success: true,
         transactionId: output.transactionId,
       }),
-      (error) => ({
+      err: (error) => ({
         success: false,
         error: error.message,
       }),
-    );
+      defect: (cause) => ({
+        success: false,
+        error: cause instanceof Error ? cause.message : "Unexpected failure",
+      }),
+    });
   },
 });
 ```
@@ -457,16 +473,19 @@ export const parentWorkflow = declareWorkflow({
       args: { message: "Order received" },
     });
 
-    handleResult.match(
-      async (handle) => {
+    handleResult.match({
+      ok: async (handle) => {
         // Child started successfully
         // Can wait for result later if needed
         const result = await handle.result();
       },
-      (error) => {
+      err: (error) => {
         console.error("Failed to start child:", error);
       },
-    );
+      defect: (cause) => {
+        console.error("Unexpected failure starting child:", cause);
+      },
+    });
 
     // Workflows return plain objects, not Result
     return { success: true };
@@ -497,22 +516,103 @@ export const orderWorkflow = declareWorkflow({
     );
 
     // Workflows return plain objects, not Result
-    return notifyResult.match(
-      () => ({ status: "completed" }),
-      (error) => ({
+    return notifyResult.match({
+      ok: () => ({ status: "completed" }),
+      err: (error) => ({
         status: "failed",
         error: error.message,
       }),
-    );
+      defect: (cause) => ({
+        status: "failed",
+        error: cause instanceof Error ? cause.message : "Unexpected failure",
+      }),
+    });
   },
+});
+```
+
+## The `defect` channel
+
+unthrown models **three** outcomes, not two. Besides `ok` (success) and
+`err` (a deliberate, anticipated failure), there is a third channel —
+`defect` — for **unanticipated** failures: bugs, programmer errors, or any
+exception you never modeled.
+
+- An `err` is a value you returned on purpose (`err(...)` /
+  `errAsync` → `err(...).toAsync()`, or a rejection mapped through
+  `fromPromise(promise, errFn)`). It is part of your type signature.
+- A `defect` is captured when an unexpected throw escapes — for example a
+  `fromSafePromise(...)` thunk that throws, or an unhandled exception inside
+  a `.map`. It is **not** part of the modeled error type and carries the raw
+  failure on `result.cause`.
+
+A defect **re-throws** when you `await`/unwrap it rather than being handled
+as a value, so genuine bugs surface loudly instead of being silently
+swallowed. Inspect it with the free function `isDefect(result)` and
+`result.cause`, or handle all three channels at once with
+`result.match({ ok, err, defect })`:
+
+```typescript
+import { isOk, isErr, isDefect } from "unthrown";
+
+const result = await client.executeWorkflow("processOrder", {
+  workflowId: "order-123",
+  args: { orderId: "ORD-123", amount: 100 },
+});
+
+if (isOk(result)) {
+  console.log(result.value);
+} else if (isErr(result)) {
+  console.error("Modeled failure:", result.error); // anticipated boundary error
+} else if (isDefect(result)) {
+  console.error("Unexpected failure (bug):", result.cause); // unmodeled
+}
+```
+
+Keep deliberate boundary errors in the `err` channel (wrap them in
+`ApplicationFailure` for activities) and let only truly unexpected throws
+become defects.
+
+## `TaggedError` and `matchTags`
+
+Error classes are built with `TaggedError`, which stamps each class with a
+`_tag` discriminant:
+
+```typescript
+import { TaggedError } from "unthrown";
+
+class PaymentDeclined extends TaggedError("PaymentDeclined")<{
+  readonly customerId: string;
+}> {}
+
+class GatewayTimeout extends TaggedError("GatewayTimeout")<{
+  readonly elapsedMs: number;
+}> {}
+```
+
+> [!NOTE]
+> The worker's `ValidationError` subclasses are the exception — they still
+> extend Temporal's `ApplicationFailure` rather than `TaggedError`.
+
+Because every tagged error carries a `_tag`, unthrown's `matchTags` folds a
+`Result` exhaustively by tag, with dedicated `Ok` and `Defect` channels:
+
+```typescript
+import { matchTags } from "unthrown";
+
+const message = matchTags(result, {
+  Ok: (value) => `charged ${value.transactionId}`,
+  PaymentDeclined: (e) => `declined for ${e.customerId}`,
+  GatewayTimeout: (e) => `timed out after ${e.elapsedMs}ms`,
+  Defect: (cause) => `unexpected: ${String(cause)}`,
 });
 ```
 
 ## When to Use
 
-### Use `Result` / `ResultAsync` When:
+### Use `Result` / `AsyncResult` When:
 
-- **In Activity Implementations**: Always use `ResultAsync` for explicit error handling
+- **In Activity Implementations**: Always use `AsyncResult` for explicit error handling
 - **For Child Workflows**: Child workflows return `Result` for explicit error handling
 - **For Type-Safe Errors**: When you need `ApplicationFailure` with `type` / `nonRetryable` for proper retry policies
 
@@ -524,6 +624,6 @@ export const orderWorkflow = declareWorkflow({
 
 ## See Also
 
-- [Migrating to neverthrow](/guide/migrating-to-neverthrow)
+- [Migrating from neverthrow](/guide/migrating-to-unthrown)
 - [Order Processing Example](/examples/basic-order-processing)
 - [Worker Implementation](/guide/worker-implementation)

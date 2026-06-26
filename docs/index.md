@@ -28,7 +28,7 @@ features:
 
   - icon: 🎯
     title: Explicit Error Handling
-    details: Result/ResultAsync pattern from neverthrow for workflows that need explicit error handling without exceptions.
+    details: Result/AsyncResult pattern from unthrown for workflows that need explicit error handling without exceptions.
 
   - icon: 📝
     title: Contract-First Design
@@ -74,7 +74,7 @@ export const orderContract = defineContract({
 ```
 
 ```typescript [2. Implement Activities]
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
 import { orderContract } from "./contract";
 
@@ -83,7 +83,7 @@ export const activities = declareActivitiesHandler({
   activities: {
     processOrder: {
       processPayment: ({ customerId, amount }) =>
-        ResultAsync.fromPromise(paymentService.charge(customerId, amount), (e) =>
+        fromPromise(paymentService.charge(customerId, amount), (e) =>
           ApplicationFailure.create({
             type: "PAYMENT_FAILED",
             message: e instanceof Error ? e.message : "Payment failed",
@@ -91,7 +91,7 @@ export const activities = declareActivitiesHandler({
           }),
         ).map((tx) => ({ transactionId: tx.id })),
       sendNotification: ({ customerId, message }) =>
-        ResultAsync.fromPromise(notificationService.send(customerId, message), (e) =>
+        fromPromise(notificationService.send(customerId, message), (e) =>
           ApplicationFailure.create({
             type: "NOTIFICATION_FAILED",
             message: e instanceof Error ? e.message : "Notification failed",
@@ -135,10 +135,11 @@ const future = client.executeWorkflow("processOrder", {
 
 const result = await future;
 
-result.match(
-  (output) => console.log(output.status), // ✅ 'success' | 'failed'
-  (error) => console.error("Failed:", error),
-);
+result.match({
+  ok: (output) => console.log(output.status), // ✅ 'success' | 'failed'
+  err: (error) => console.error("Failed:", error),
+  defect: (cause) => console.error("Unexpected:", cause),
+});
 ```
 
 :::

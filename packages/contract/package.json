@@ -65,19 +65,19 @@
     "@temporal-contract/typedoc": "workspace:*",
     "@vitest/coverage-v8": "catalog:",
     "arktype": "catalog:",
-    "neverthrow": "catalog:",
     "tsdown": "catalog:",
     "typedoc": "catalog:",
     "typedoc-plugin-markdown": "catalog:",
     "typescript": "catalog:",
+    "unthrown": "catalog:",
     "valibot": "catalog:",
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "neverthrow": "^8"
+    "unthrown": "^0.1"
   },
   "peerDependenciesMeta": {
-    "neverthrow": {
+    "unthrown": {
       "optional": true
     }
   },

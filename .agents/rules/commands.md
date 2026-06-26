@@ -43,7 +43,7 @@ pnpm test:integration        # Run integration tests (requires Docker)
 | `chore`    | Maintenance / housekeeping (release commits, lockfile bumps)  |
 | `revert`   | Reverts a prior commit                                        |
 
-Add `!` after the type for a breaking change (e.g. `feat!: replace boxed with neverthrow`). Header is capped at 100 chars; the type must be lowercase.
+Add `!` after the type for a breaking change (e.g. `feat!: replace neverthrow with unthrown`). Header is capped at 100 chars; the type must be lowercase.
 
 ## Versioning & Release
 

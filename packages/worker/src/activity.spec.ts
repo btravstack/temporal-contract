@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ResultAsync, okAsync, errAsync } from "neverthrow";
+import { ok, err, fromSafePromise, type AsyncResult } from "unthrown";
 import { z } from "zod";
 import {
   ActivityDefinitionNotFoundError,
@@ -9,7 +9,11 @@ import {
 import type { ContractDefinition } from "@temporal-contract/contract";
 import { ApplicationFailure, declareActivitiesHandler } from "./activity.js";
 
-describe("Worker neverthrow Package", () => {
+// unthrown has no `okAsync`/`errAsync`; lift a sync `Result` with `.toAsync()`.
+const okAsync = <T>(value: T): AsyncResult<T, never> => ok(value).toAsync();
+const errAsync = <E>(error: E): AsyncResult<never, E> => err(error).toAsync();
+
+describe("Worker unthrown Package", () => {
   describe("declareActivitiesHandler", () => {
     it("should create an activities handler with Result pattern", () => {
       // GIVEN
@@ -112,7 +116,7 @@ describe("Worker neverthrow Package", () => {
         activities: {
           fetchData: (
             _args,
-          ): ResultAsync<{ data: string; timestamp: number }, ApplicationFailure> =>
+          ): AsyncResult<{ data: string; timestamp: number }, ApplicationFailure> =>
             // @ts-expect-error - intentionally returning invalid output
             okAsync({ data: "test" }), // Missing timestamp
         },
@@ -243,7 +247,7 @@ describe("Worker neverthrow Package", () => {
         contract,
         activities: {
           asyncActivity: (args) =>
-            ResultAsync.fromSafePromise<{ completed: boolean }, ApplicationFailure>(
+            fromSafePromise<{ completed: boolean }>(
               new Promise((resolve) => {
                 setTimeout(() => resolve({ completed: true }), args.delay);
               }),

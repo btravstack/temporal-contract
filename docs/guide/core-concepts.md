@@ -142,10 +142,11 @@ const result = await client.executeWorkflow("processOrder", {
   args: { orderId: "ORD-123", amount: 100 },
 });
 
-// result is a Result — use .match() or .isOk() to unwrap
+// result is a Result — use .match({ ok, err, defect }) or isOk(result) to unwrap
 result.match({
-  Ok: (output) => console.log(output.transactionId),
-  Error: (error) => console.error("Workflow failed:", error),
+  ok: (output) => console.log(output.transactionId),
+  err: (error) => console.error("Workflow failed:", error),
+  defect: (cause) => console.error("Unexpected failure:", cause),
 });
 ```
 

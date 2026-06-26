@@ -22,8 +22,8 @@ End-to-end type safety and automatic validation for workflows and activities
 - ✅ **Automatic validation** — Zod schemas validate at all network boundaries
 - ✅ **Compile-time checks** — TypeScript catches missing or incorrect implementations
 - ✅ **Better DX** — Autocomplete, refactoring support, inline documentation
-- ✅ **Child workflows** — Type-safe child workflow execution with neverthrow's `ResultAsync`
-- ✅ **Result pattern** — Explicit error handling without exceptions, powered by [neverthrow](https://github.com/supermacro/neverthrow)
+- ✅ **Child workflows** — Type-safe child workflow execution with unthrown's `AsyncResult`
+- ✅ **Result pattern** — Explicit error handling without exceptions, powered by [unthrown](https://github.com/btravstack/unthrown)
 - 🚧 **Nexus support** — Cross-namespace operations (planned for v0.5.0)
 
 ## Quick Example
@@ -46,15 +46,15 @@ const contract = defineContract({
   },
 });
 
-// Implement activities with neverthrow's ResultAsync
+// Implement activities with unthrown's AsyncResult
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 
 const activities = declareActivitiesHandler({
   contract,
   activities: {
     processPayment: ({ orderId }) =>
-      ResultAsync.fromPromise(paymentService.process(orderId), (error) =>
+      fromPromise(paymentService.process(orderId), (error) =>
         ApplicationFailure.create({
           type: "PAYMENT_FAILED",
           message: error instanceof Error ? error.message : "Payment failed",
@@ -77,8 +77,8 @@ const result = await client.executeWorkflow("processOrder", {
 # Core packages
 pnpm add @temporal-contract/contract @temporal-contract/worker @temporal-contract/client
 
-# Result/ResultAsync — peer dep used by worker/client APIs
-pnpm add neverthrow
+# Result/AsyncResult — peer dep used by worker/client APIs
+pnpm add unthrown
 ```
 
 ## Documentation
@@ -101,7 +101,7 @@ pnpm add neverthrow
 
 ## Usage Patterns
 
-temporal-contract uses **[neverthrow](https://github.com/supermacro/neverthrow)** end-to-end (workflows, activities, and the typed client) for explicit error handling via `Result` and `ResultAsync`. Migrating from a previous release that used `@swan-io/boxed`? See [Migrating to neverthrow](https://btravstack.github.io/temporal-contract/guide/migrating-to-neverthrow).
+temporal-contract uses **[unthrown](https://github.com/btravstack/unthrown)** end-to-end (workflows, activities, and the typed client) for explicit error handling via `Result` and `AsyncResult`, with a separate `defect` channel for unanticipated failures. Migrating from a previous release that used `neverthrow`? See [Migrating to unthrown](https://btravstack.github.io/temporal-contract/guide/migrating-to-unthrown).
 
 ## Contributing
 

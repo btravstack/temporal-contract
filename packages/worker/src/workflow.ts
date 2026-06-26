@@ -1,10 +1,10 @@
 // Entry point for workflow implementations.
 //
 // Workflows run inside Temporal's deterministic sandbox, which intercepts
-// timers, randomness, and Promise scheduling for replay. neverthrow's
-// `Result`/`ResultAsync` rely only on Promise scheduling, so they replay
+// timers, randomness, and Promise scheduling for replay. unthrown's
+// `Result`/`AsyncResult` rely only on Promise scheduling, so they replay
 // deterministically alongside Temporal's machinery. Activity code (see
-// activity.ts) uses the same neverthrow API.
+// activity.ts) uses the same unthrown API.
 import type {
   ActivityDefinition,
   ContractDefinition,
@@ -22,7 +22,6 @@ import {
   WorkflowCancelledError,
   WorkflowInputValidationError,
   WorkflowOutputValidationError,
-  WorkflowScopeError,
 } from "./errors.js";
 import { cancellableScope, nonCancellableScope } from "./cancellation.js";
 import {
@@ -39,7 +38,7 @@ import {
   WorkerInferInput,
   WorkerInferOutput,
 } from "./types.js";
-import type { ResultAsync } from "neverthrow";
+import type { AsyncResult } from "unthrown";
 import {
   buildRawActivitiesProxy,
   createContinueAsNew,
@@ -73,7 +72,6 @@ export {
   WorkflowCancelledError,
   WorkflowInputValidationError,
   WorkflowOutputValidationError,
-  WorkflowScopeError,
 } from "./errors.js";
 
 /**
@@ -518,7 +516,7 @@ type WorkflowContext<
   ) => void;
 
   /**
-   * Start a child workflow and return a typed handle with ResultAsync pattern
+   * Start a child workflow and return a typed handle with AsyncResult pattern
    *
    * Supports both same-contract and cross-contract child workflows:
    * - Same contract: Pass workflowName from current contract
@@ -538,13 +536,14 @@ type WorkflowContext<
    *   args: { message: 'Hello' }
    * });
    *
-   * childResult.match(
-   *   async (handle) => {
+   * await childResult.match({
+   *   ok: async (handle) => {
    *     const result = await handle.result();
    *     // ... handle result
    *   },
-   *   (error) => console.error('Failed to start:', error),
-   * );
+   *   err: (error) => console.error('Failed to start:', error),
+   *   defect: (cause) => console.error('Unexpected failure:', cause),
+   * });
    * ```
    */
   startChildWorkflow: <
@@ -554,13 +553,13 @@ type WorkflowContext<
     contract: TChildContract,
     workflowName: TChildWorkflowName,
     options: TypedChildWorkflowOptions<TChildContract, TChildWorkflowName>,
-  ) => ResultAsync<
+  ) => AsyncResult<
     TypedChildWorkflowHandle<TChildContract["workflows"][TChildWorkflowName]>,
     ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError
   >;
 
   /**
-   * Execute a child workflow (start and wait for result) with ResultAsync pattern
+   * Execute a child workflow (start and wait for result) with AsyncResult pattern
    *
    * Supports both same-contract and cross-contract child workflows:
    * - Same contract: Pass workflowName from current contract
@@ -580,10 +579,11 @@ type WorkflowContext<
    *   args: { message: 'Hello' }
    * });
    *
-   * result.match(
-   *   (output) => console.log('Payment processed:', output),
-   *   (error) => console.error('Processing failed:', error),
-   * );
+   * await result.match({
+   *   ok: (output) => console.log('Payment processed:', output),
+   *   err: (error) => console.error('Processing failed:', error),
+   *   defect: (cause) => console.error('Unexpected failure:', cause),
+   * });
    * ```
    */
   executeChildWorkflow: <
@@ -593,7 +593,7 @@ type WorkflowContext<
     contract: TChildContract,
     workflowName: TChildWorkflowName,
     options: TypedChildWorkflowOptions<TChildContract, TChildWorkflowName>,
-  ) => ResultAsync<
+  ) => AsyncResult<
     ClientInferOutput<TChildContract["workflows"][TChildWorkflowName]>,
     ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError
   >;
@@ -601,57 +601,50 @@ type WorkflowContext<
   /**
    * Run `fn` inside a cancellable Temporal scope. If the workflow (or an
    * ancestor scope) is cancelled while `fn` is in flight, the resulting
-   * ResultAsync resolves to `err(WorkflowCancelledError)` instead of
+   * AsyncResult resolves to `err(WorkflowCancelledError)` instead of
    * rejecting — letting callers handle cancellation explicitly, typically
    * to perform a graceful exit from the current step.
    *
-   * Non-cancellation errors thrown by `fn` resolve to
-   * `err(WorkflowScopeError)` (with the original error preserved on
-   * `cause`). Both failure modes ride neverthrow's railway, so
-   * `result.match(...)` is exhaustive — nothing escapes as an unhandled
-   * rejection.
+   * Non-cancellation errors thrown by `fn` are *unmodeled* failures: they ride
+   * unthrown's `defect` channel (inspectable via `result.isDefect()` /
+   * `result.cause`, re-thrown at the edge), keeping the modeled error channel
+   * to the single anticipated outcome — cancellation.
    *
    * @example
    * ```ts
+   * import { isErr } from "unthrown";
+   *
    * implementation: async (context, args) => {
    *   const result = await context.cancellableScope(async () => {
    *     return context.activities.processStep(args);
    *   });
    *
-   *   if (result.isErr()) {
-   *     if (result.error instanceof WorkflowCancelledError) {
-   *       // workflow was cancelled — perform cleanup that must not be cancelled:
-   *       await context.nonCancellableScope(async () => {
-   *         await context.activities.releaseResources(args);
-   *       });
-   *       return { status: "cancelled" };
-   *     }
-   *     // result.error instanceof WorkflowScopeError — domain failure
-   *     return { status: "failed" };
+   *   if (isErr(result) && result.error instanceof WorkflowCancelledError) {
+   *     // workflow was cancelled — perform cleanup that must not be cancelled:
+   *     await context.nonCancellableScope(async () => {
+   *       await context.activities.releaseResources(args);
+   *     });
+   *     return { status: "cancelled" };
    *   }
    *
    *   return { status: "ok" };
    * }
    * ```
    */
-  cancellableScope: <T>(
-    fn: () => T | Promise<T>,
-  ) => ResultAsync<T, WorkflowCancelledError | WorkflowScopeError>;
+  cancellableScope: <T>(fn: () => T | Promise<T>) => AsyncResult<T, WorkflowCancelledError>;
 
   /**
    * Run `fn` inside a non-cancellable Temporal scope. Cancellation requests
    * from outside the scope are ignored for its duration — the idiomatic way
    * to perform cleanup work that must not be interrupted.
    *
-   * Returns the same `ResultAsync<...>` shape as
+   * Returns the same `AsyncResult<...>` shape as
    * {@link WorkflowContext.cancellableScope} for symmetry; the
    * `err(WorkflowCancelledError)` branch only triggers when cancellation is
    * raised from *inside* the scope, which is rare. Non-cancellation errors
-   * surface as `err(WorkflowScopeError)`.
+   * surface on the `defect` channel.
    */
-  nonCancellableScope: <T>(
-    fn: () => T | Promise<T>,
-  ) => ResultAsync<T, WorkflowCancelledError | WorkflowScopeError>;
+  nonCancellableScope: <T>(fn: () => T | Promise<T>) => AsyncResult<T, WorkflowCancelledError>;
 
   /**
    * Continue this workflow execution as a new run, optionally with a different

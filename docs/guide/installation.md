@@ -21,10 +21,10 @@ temporal-contract consists of multiple packages. Install the ones you need:
 pnpm add @temporal-contract/contract
 
 # Worker implementation
-pnpm add @temporal-contract/worker neverthrow
+pnpm add @temporal-contract/worker unthrown
 
 # Client for executing workflows
-pnpm add @temporal-contract/client neverthrow
+pnpm add @temporal-contract/client unthrown
 
 # Required peer dependencies
 pnpm add zod @temporalio/client @temporalio/worker @temporalio/workflow
@@ -32,15 +32,15 @@ pnpm add zod @temporalio/client @temporalio/worker @temporalio/workflow
 
 ```bash [npm]
 npm install @temporal-contract/contract
-npm install @temporal-contract/worker neverthrow
-npm install @temporal-contract/client neverthrow
+npm install @temporal-contract/worker unthrown
+npm install @temporal-contract/client unthrown
 npm install zod @temporalio/client @temporalio/worker @temporalio/workflow
 ```
 
 ```bash [yarn]
 yarn add @temporal-contract/contract
-yarn add @temporal-contract/worker neverthrow
-yarn add @temporal-contract/client neverthrow
+yarn add @temporal-contract/worker unthrown
+yarn add @temporal-contract/client unthrown
 yarn add zod @temporalio/client @temporalio/worker @temporalio/workflow
 ```
 
@@ -48,12 +48,14 @@ yarn add zod @temporalio/client @temporalio/worker @temporalio/workflow
 
 ::: tip Package Usage
 
-`neverthrow` provides the `Result` / `ResultAsync` types used by activities,
+`unthrown` provides the `Result` / `AsyncResult` types used by activities,
 workflows, and clients. The same package works in every context — workflows
 use it directly without a Temporal-specific wrapper.
 
-If you are migrating from a previous version that used `@swan-io/boxed` and
-`@temporal-contract/boxed`, see [Migrating to neverthrow](/guide/migrating-to-neverthrow).
+If you are upgrading from a previous version that used `neverthrow`, see
+[Migrating from neverthrow](/guide/migrating-to-unthrown). If you are coming
+from the older `@swan-io/boxed` / `@temporal-contract/boxed` version, see
+[Migrating from @swan-io/boxed](/guide/migrating-to-neverthrow).
 :::
 
 ### Optional Packages

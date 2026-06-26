@@ -9,7 +9,7 @@
 | `@temporalio/workflow`  | Temporal workflow API — peer dep of `worker`                                                                                     |
 | `@temporalio/common`    | Shared Temporal types — peer dep of `client`/`worker`                                                                            |
 | `@standard-schema/spec` | Standard Schema specification — direct dep                                                                                       |
-| `neverthrow`            | `Result` / `ResultAsync` — peer dep of `client`/`worker`                                                                         |
+| `unthrown`              | `Result` / `AsyncResult` — peer dep of `client`/`worker`                                                                         |
 | `zod`                   | Direct dep of `contract` (used internally for the `defineContract` runtime validation pass); user-side schema lib for the others |
 | `valibot` / `arktype`   | User-side schema libraries (Standard Schema)                                                                                     |
 
@@ -39,8 +39,8 @@ Anything that appears in a published package's **public type signatures** must b
 
 | Package  | Peer dependencies                                                                            |
 | -------- | -------------------------------------------------------------------------------------------- |
-| client   | `@temporalio/client ^1.16.0`, `@temporalio/common ^1`, `neverthrow ^8`                       |
-| worker   | `@temporalio/common ^1`, `@temporalio/worker ^1`, `@temporalio/workflow ^1`, `neverthrow ^8` |
+| client   | `@temporalio/client ^1.16.0`, `@temporalio/common ^1`, `unthrown ^0.1`                       |
+| worker   | `@temporalio/common ^1`, `@temporalio/worker ^1`, `@temporalio/workflow ^1`, `unthrown ^0.1` |
 | contract | none (pure type definitions)                                                                 |
 | testing  | `vitest ^4` (the `globalSetup` hook integrates with vitest's test runner)                    |
 

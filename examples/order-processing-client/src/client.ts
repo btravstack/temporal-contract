@@ -14,15 +14,16 @@ import {
 } from "@temporal-contract/sample-order-processing-contract";
 import type { z } from "zod";
 import { match, P } from "ts-pattern";
+import { isOk, isErr, isDefect } from "unthrown";
 import { logger } from "./logger.js";
 
 type Order = z.infer<typeof OrderSchema>;
 
 /**
- * Order Processing Client with neverthrow ResultAsync Pattern
+ * Order Processing Client with unthrown AsyncResult Pattern
  *
  * This client demonstrates how to interact with the unified order processing contract
- * using neverthrow's `ResultAsync` for explicit error handling.
+ * using unthrown's `AsyncResult` for explicit error handling.
  *
  * Usage:
  *   1. Start Temporal server: temporal server start-dev
@@ -30,7 +31,7 @@ type Order = z.infer<typeof OrderSchema>;
  *   3. Run this client: cd examples/order-processing-client && pnpm dev
  */
 async function run() {
-  logger.info("🚀 Starting Order Processing Client (neverthrow ResultAsync)...");
+  logger.info("🚀 Starting Order Processing Client (unthrown AsyncResult)...");
 
   // Connect to Temporal server
   const connection = await Connection.connect({
@@ -42,7 +43,7 @@ async function run() {
     namespace: "default",
   });
 
-  // Create type-safe client with neverthrow ResultAsync pattern
+  // Create type-safe client with unthrown AsyncResult pattern
   const contractClient = TypedClient.create(orderProcessingContract, rawClient);
 
   // Example orders to process
@@ -78,7 +79,7 @@ async function run() {
     },
   ];
 
-  logger.info("📦 Processing orders with neverthrow ResultAsync...");
+  logger.info("📦 Processing orders with unthrown AsyncResult...");
 
   for (const order of orders) {
     logger.info({ order }, `📦 Creating order: ${order.orderId}`);
@@ -90,7 +91,7 @@ async function run() {
     });
 
     // Handle workflow start errors
-    if (handleResult.isErr()) {
+    if (isErr(handleResult)) {
       const error = handleResult.error;
       match(error)
         .with(P.instanceOf(WorkflowNotFoundError), (err) => {
@@ -114,6 +115,15 @@ async function run() {
         .exhaustive();
       continue;
     }
+    // A defect is an unmodeled failure (a bug) — surfaced on its own channel
+    // rather than as a typed domain error.
+    if (isDefect(handleResult)) {
+      logger.error(
+        { cause: handleResult.cause, orderId: order.orderId },
+        "❌ Unexpected failure starting workflow",
+      );
+      continue;
+    }
 
     const handle = handleResult.value;
     logger.info({ workflowId: handle.workflowId }, `✅ Workflow started: ${handle.workflowId}`);
@@ -123,7 +133,7 @@ async function run() {
     const result = await handle.result();
 
     // Handle workflow execution result
-    if (result.isErr()) {
+    if (isErr(result)) {
       const error = result.error;
       match(error)
         .with(P.instanceOf(WorkflowValidationError), (err) => {
@@ -150,6 +160,13 @@ async function run() {
         .exhaustive();
       continue;
     }
+    if (isDefect(result)) {
+      logger.error(
+        { cause: result.cause, orderId: order.orderId },
+        "❌ Unexpected failure waiting for workflow result",
+      );
+      continue;
+    }
 
     const output = result.value;
     // Handle successful result
@@ -174,8 +191,8 @@ async function run() {
     }
   }
 
-  // Example using executeWorkflow with ResultAsync pattern
-  logger.info("\n📦 Example: Using executeWorkflow with ResultAsync...");
+  // Example using executeWorkflow with AsyncResult pattern
+  logger.info("\n📦 Example: Using executeWorkflow with AsyncResult...");
 
   const exampleOrder: Order = {
     orderId: `ORD-${Date.now()}-EXAMPLE`,
@@ -197,7 +214,7 @@ async function run() {
   });
 
   // Handle result with pattern matching
-  if (result.isOk()) {
+  if (isOk(result)) {
     const output = result.value;
     const summary = {
       id: output.orderId,
@@ -208,8 +225,8 @@ async function run() {
           : `Order failed: ${output.failureReason}`,
     };
     logger.info({ data: summary }, `📊 Order summary: ${summary.message}`);
-  } else {
-    // Handle errors
+  } else if (isErr(result)) {
+    // Handle modeled errors
     match(result.error)
       .with(P.instanceOf(WorkflowNotFoundError), (err) => {
         logger.error({ error: err }, "❌ Workflow not found");
@@ -230,14 +247,17 @@ async function run() {
         logger.error({ error: err }, "❌ Workflow execution failed");
       })
       .exhaustive();
+  } else {
+    // A defect is an unmodeled failure (a bug), not an anticipated outcome.
+    logger.error({ cause: result.cause }, "❌ Unexpected failure executing workflow");
   }
 
   logger.info("\n✨ Done!");
   logger.info("");
-  logger.info("💡 Benefits of neverthrow ResultAsync:");
+  logger.info("💡 Benefits of unthrown AsyncResult:");
   logger.info("   - Explicit error handling - no hidden exceptions");
   logger.info("   - Type-safe error values");
-  logger.info("   - Functional composition with andThen, map, mapErr, orElse");
+  logger.info("   - Functional composition with flatMap, map, mapErr, orElse");
   logger.info("   - Railway-oriented programming");
   logger.info("   - Exhaustive error matching with ts-pattern");
 

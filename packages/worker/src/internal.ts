@@ -17,7 +17,6 @@ import {
 import {
   ChildWorkflowCancelledError,
   ChildWorkflowError,
-  ChildWorkflowNotFoundError,
   WorkflowInputValidationError,
 } from "./errors.js";
 
@@ -35,13 +34,12 @@ export function formatChildWorkflowValidationMessage(
   return `Child workflow "${workflowName}" ${direction} validation failed: ${summarizeIssues(issues)}`;
 }
 
-// Re-export the shared `_internal_makeResultAsync` helper from the contract
+// Re-export the shared `_internal_makeAsyncResult` helper from the contract
 // package so worker call sites can wrap their `() => Promise<Result<T, E>>`
-// work functions identically to the client side. This closes the
-// `new ResultAsync(work())` gap — the bare constructor doesn't catch
-// rejections, so a synchronous throw or a rejected promise from `work()`
-// would otherwise escape neverthrow's railway as an unhandled rejection.
-export { _internal_makeResultAsync as makeResultAsync } from "@temporal-contract/contract/result-async";
+// work functions identically to the client side. Unanticipated rejections
+// (a synchronous throw or a rejected promise from `work()`) are routed through
+// unthrown's `defect` channel rather than escaping as an unhandled rejection.
+export { _internal_makeAsyncResult as makeResultAsync } from "@temporal-contract/contract/result-async";
 
 /**
  * Extract the single payload from a Temporal handler's `...args` array.
@@ -294,7 +292,7 @@ export function classifyChildWorkflowError(
   operation: "startChild" | "executeChild" | "result",
   error: unknown,
   childWorkflowName: string,
-): ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError {
+): ChildWorkflowError | ChildWorkflowCancelledError {
   // Cancellation takes priority: a cancelled child surfaces as a
   // `ChildWorkflowFailure` whose cause is a `CancelledFailure`, and we want
   // the cancellation discriminant rather than the generic wrapper.

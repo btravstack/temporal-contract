@@ -32,7 +32,7 @@ graph TB
 
 ### [Order Processing Example](/examples/basic-order-processing)
 
-A complete e-commerce order processing workflow using `Result` / `ResultAsync` from neverthrow for explicit error handling.
+A complete e-commerce order processing workflow using `Result` / `AsyncResult` from unthrown for explicit error handling.
 
 **Features:**
 
@@ -180,11 +180,11 @@ export const orderContract = defineContract({
 
 ### Activity Implementation
 
-Clean, typed activity implementations with `ResultAsync`:
+Clean, typed activity implementations with `AsyncResult`:
 
 ```typescript
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 import { orderContract } from "../contracts/order.contract";
 import { emailService } from "../infrastructure/email.service";
 import { paymentService } from "../infrastructure/payment.service";
@@ -193,7 +193,7 @@ export const activities = declareActivitiesHandler({
   contract: orderContract,
   activities: {
     sendEmail: ({ to, subject, body }) =>
-      ResultAsync.fromPromise(emailService.send({ to, subject, body }), (error) =>
+      fromPromise(emailService.send({ to, subject, body }), (error) =>
         ApplicationFailure.create({
           type: "EMAIL_FAILED",
           message: error instanceof Error ? error.message : "Failed to send email",
@@ -203,7 +203,7 @@ export const activities = declareActivitiesHandler({
 
     processOrder: {
       validateInventory: ({ items }) =>
-        ResultAsync.fromPromise(inventoryService.checkAvailability(items), (error) =>
+        fromPromise(inventoryService.checkAvailability(items), (error) =>
           ApplicationFailure.create({
             type: "INVENTORY_CHECK_FAILED",
             message: "Failed to check inventory",
@@ -212,7 +212,7 @@ export const activities = declareActivitiesHandler({
         ).map((available) => ({ available })),
 
       processPayment: ({ customerId, amount }) =>
-        ResultAsync.fromPromise(paymentService.charge(customerId, amount), (error) =>
+        fromPromise(paymentService.charge(customerId, amount), (error) =>
           ApplicationFailure.create({
             type: "PAYMENT_FAILED",
             message: "Failed to process payment",

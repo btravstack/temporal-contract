@@ -1,8 +1,8 @@
 // Entry point for activity implementations.
 //
-// Activities run *outside* the workflow sandbox, so they use neverthrow's
-// `ResultAsync` directly. Workflow code (see workflow.ts) uses the same
-// neverthrow API — neverthrow's evaluation is compatible with Temporal's
+// Activities run *outside* the workflow sandbox, so they use unthrown's
+// `AsyncResult` directly. Workflow code (see workflow.ts) uses the same
+// unthrown API — unthrown's evaluation is compatible with Temporal's
 // deterministic replay machinery.
 //
 // Errors flow through Temporal's `ApplicationFailure` (re-exported from
@@ -11,7 +11,7 @@
 // `nonRetryable`, `type`, `details`, and `category` natively, and survives
 // the activity → workflow serialization boundary unchanged.
 import { ActivityDefinition, ContractDefinition } from "@temporal-contract/contract";
-import type { ResultAsync } from "neverthrow";
+import type { AsyncResult } from "unthrown";
 import { ApplicationFailure } from "@temporalio/common";
 import { WorkerInferInput, WorkerInferOutput } from "./types.js";
 import {
@@ -33,17 +33,18 @@ export {
 export { ApplicationFailure } from "@temporalio/common";
 
 /**
- * Activity implementation using neverthrow's `ResultAsync`.
+ * Activity implementation using unthrown's `AsyncResult`.
  *
- * Returns `ResultAsync<Output, ApplicationFailure>` for explicit error
+ * Returns `AsyncResult<Output, ApplicationFailure>` for explicit error
  * handling instead of throwing. The wrapper rethrows `err()` payloads at
  * the activity boundary; Temporal recognizes `ApplicationFailure` natively
  * and applies the configured retry policy (with `nonRetryable: true`
- * opting an instance out per-call).
+ * opting an instance out per-call). An unexpected throw surfaces as a
+ * `defect` and is re-thrown with its original cause.
  */
 type ResultActivityImplementation<TActivity extends ActivityDefinition> = (
   args: WorkerInferInput<TActivity>,
-) => ResultAsync<WorkerInferOutput<TActivity>, ApplicationFailure>;
+) => AsyncResult<WorkerInferOutput<TActivity>, ApplicationFailure>;
 
 /**
  * Map of all activity implementations for a contract (global + all workflow-specific).
@@ -139,7 +140,7 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  *
  * This wraps all activity implementations with:
  * - Validation at network boundaries
- * - `ResultAsync<T, ApplicationFailure>` pattern for explicit error handling
+ * - `AsyncResult<T, ApplicationFailure>` pattern for explicit error handling
  * - Automatic conversion from Result to Promise (throwing on Error)
  *
  * TypeScript ensures ALL activities (global + workflow-specific) are implemented.
@@ -149,15 +150,15 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  * @example
  * ```ts
  * import { declareActivitiesHandler, ApplicationFailure } from '@temporal-contract/worker/activity';
- * import { ResultAsync, errAsync, okAsync } from 'neverthrow';
+ * import { fromPromise } from 'unthrown';
  * import myContract from './contract';
  *
  * export const activities = declareActivitiesHandler({
  *   contract: myContract,
  *   activities: {
- *     // Activity returns ResultAsync instead of throwing.
+ *     // Activity returns AsyncResult instead of throwing.
  *     sendEmail: (args) =>
- *       ResultAsync.fromPromise(
+ *       fromPromise(
  *         emailService.send(args),
  *         (error) =>
  *           // Wrap technical errors in ApplicationFailure. `nonRetryable`
@@ -185,10 +186,11 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  *
  * @remarks
  * The wrapper accepts implementations in the
- * `ResultAsync<T, ApplicationFailure>` shape and produces ordinary
+ * `AsyncResult<T, ApplicationFailure>` shape and produces ordinary
  * Promise-returning Temporal handlers (`err(...)` → thrown
  * `ApplicationFailure`; `ok(...)` → output validated against the
- * contract and resolved). It does **not** hide Temporal's
+ * contract and resolved; `defect` → original cause re-thrown). It does
+ * **not** hide Temporal's
  * `@temporalio/activity` runtime: inside the body you can still call
  * `Context.current()` from `@temporalio/activity` to access heartbeats
  * (`heartbeat(details)`, `heartbeatDetails`), activity info (attempt
@@ -208,7 +210,7 @@ export function declareActivitiesHandler<TContract extends ContractDefinition>(
   function makeWrapped(
     activityName: string,
     activityDef: ActivityDefinition,
-    activityImpl: (args: unknown) => ResultAsync<unknown, ApplicationFailure>,
+    activityImpl: (args: unknown) => AsyncResult<unknown, ApplicationFailure>,
   ) {
     return async (...args: unknown[]) => {
       const input = extractHandlerInput(args);
@@ -219,24 +221,31 @@ export function declareActivitiesHandler<TContract extends ContractDefinition>(
         throw new ActivityInputValidationError(activityName, inputResult.issues);
       }
 
-      // Execute neverthrow activity (returns ResultAsync<T, ApplicationFailure>);
+      // Execute unthrown activity (returns AsyncResult<T, ApplicationFailure>);
       // awaiting yields a Result<T, ApplicationFailure>.
       const result = await activityImpl(inputResult.value);
 
-      // Process result: validate output or throw error
-      if (result.isOk()) {
-        // Validate output on success
-        const outputResult = await activityDef.output["~standard"].validate(result.value);
-        if (outputResult.issues) {
-          throw new ActivityOutputValidationError(activityName, outputResult.issues);
-        }
-        return outputResult.value;
-      } else {
+      // Fold the three channels: validate output on `ok`, surface the modeled
+      // `ApplicationFailure` on `err`, and re-throw a `defect`'s original cause
+      // (an unexpected throw inside the activity is a bug, not a domain error).
+      return result.match({
+        ok: async (value) => {
+          const outputResult = await activityDef.output["~standard"].validate(value);
+          if (outputResult.issues) {
+            throw new ActivityOutputValidationError(activityName, outputResult.issues);
+          }
+          return outputResult.value;
+        },
         // Convert err(...) payload to thrown ApplicationFailure for Temporal.
-        // Temporal recognizes this class natively and applies the
-        // configured retry policy (honoring `nonRetryable: true`).
-        throw result.error;
-      }
+        // Temporal recognizes this class natively and applies the configured
+        // retry policy (honoring `nonRetryable: true`).
+        err: (error) => {
+          throw error;
+        },
+        defect: (cause) => {
+          throw cause;
+        },
+      });
     };
   }
 
@@ -257,7 +266,7 @@ export function declareActivitiesHandler<TContract extends ContractDefinition>(
       (wrappedActivities as Record<string, unknown>)[activityName] = makeWrapped(
         activityName,
         activityDef,
-        impl as (args: unknown) => ResultAsync<unknown, ApplicationFailure>,
+        impl as (args: unknown) => AsyncResult<unknown, ApplicationFailure>,
       );
     }
   }
@@ -288,7 +297,7 @@ export function declareActivitiesHandler<TContract extends ContractDefinition>(
         (wrappedActivities as Record<string, unknown>)[activityName] = makeWrapped(
           `${workflowName}.${activityName}`,
           activityDef,
-          impl as (args: unknown) => ResultAsync<unknown, ApplicationFailure>,
+          impl as (args: unknown) => AsyncResult<unknown, ApplicationFailure>,
         );
       }
     }

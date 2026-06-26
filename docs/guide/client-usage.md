@@ -9,7 +9,7 @@ The `@temporal-contract/client` package provides a type-safe wrapper around Temp
 ## Installation
 
 ```bash
-pnpm add @temporal-contract/client neverthrow
+pnpm add @temporal-contract/client unthrown
 ```
 
 ## Basic Setup
@@ -33,8 +33,8 @@ const client = TypedClient.create(myContract, temporalClient);
 
 ### Basic Execution
 
-Execute a workflow and wait for completion. `executeWorkflow` returns a
-`ResultAsync<T, E>` — `await` it to get a `Result<T, E>`:
+Execute a workflow and wait for completion. `executeWorkflow` returns an
+`AsyncResult<T, E>` — `await` it to get a `Result<T, E>`:
 
 ```typescript
 const resultAsync = client.executeWorkflow("processOrder", {
@@ -45,18 +45,21 @@ const resultAsync = client.executeWorkflow("processOrder", {
   },
 });
 
-// await the ResultAsync to get the Result
+// await the AsyncResult to get the Result
 const result = await resultAsync;
 
-// Handle the Result with pattern matching (positional callbacks)
-result.match(
-  (output) => {
+// Handle the Result with pattern matching (object form, three channels)
+result.match({
+  ok: (output) => {
     console.log("Order processed:", output.status); // TypeScript knows the shape!
   },
-  (error) => {
+  err: (error) => {
     console.error("Workflow failed:", error);
   },
-);
+  defect: (cause) => {
+    console.error("Unexpected failure:", cause);
+  },
+});
 ```
 
 ### Start Without Waiting
@@ -72,22 +75,26 @@ const handleResult = await client.startWorkflow("processOrder", {
   },
 });
 
-handleResult.match(
-  async (handle) => {
+handleResult.match({
+  ok: async (handle) => {
     // Get workflow ID
     console.log("Started workflow:", handle.workflowId);
 
     // Wait for result later
     const result = await handle.result();
-    result.match(
-      (output) => console.log("Completed:", output),
-      (error) => console.error("Failed:", error),
-    );
+    result.match({
+      ok: (output) => console.log("Completed:", output),
+      err: (error) => console.error("Failed:", error),
+      defect: (cause) => console.error("Unexpected failure:", cause),
+    });
   },
-  (error) => {
+  err: (error) => {
     console.error("Failed to start workflow:", error);
   },
-);
+  defect: (cause) => {
+    console.error("Unexpected failure:", cause);
+  },
+});
 ```
 
 ## Type Safety
@@ -124,25 +131,28 @@ await client.executeWorkflow("invalidWorkflow", {
 
 ## Result Pattern
 
-The client uses `neverthrow` for explicit error handling:
+The client uses `unthrown` for explicit error handling:
 
 ```typescript
-import { Result } from "neverthrow";
+import { Result } from "unthrown";
 
 const result = await client.executeWorkflow("processOrder", {
   workflowId: "order-123",
   args: { orderId: "ORD-123", customerId: "CUST-456" },
 });
 
-// Handle result with pattern matching (positional callbacks)
-result.match(
-  (value) => {
+// Handle result with pattern matching (object form, three channels)
+result.match({
+  ok: (value) => {
     console.log("Order processed:", value.transactionId);
   },
-  (error) => {
+  err: (error) => {
     console.error("Order failed:", error);
   },
-);
+  defect: (cause) => {
+    console.error("Unexpected failure:", cause);
+  },
+});
 ```
 
 ## Workflow Options
@@ -176,31 +186,35 @@ Get a handle to an existing workflow:
 ```typescript
 const handleResult = await client.getHandle("processOrder", "order-123");
 
-handleResult.match(
-  async (handle) => {
+handleResult.match({
+  ok: async (handle) => {
     // Query the workflow
     const statusResult = await handle.queries.getStatus({});
-    statusResult.match(
-      (status) => console.log("Status:", status),
-      (error) => console.error("Query failed:", error),
-    );
+    statusResult.match({
+      ok: (status) => console.log("Status:", status),
+      err: (error) => console.error("Query failed:", error),
+      defect: (cause) => console.error("Unexpected failure:", cause),
+    });
 
     // Signal the workflow
     const signalResult = await handle.signals.cancelOrder({ reason: "Customer request" });
-    signalResult.match(
-      () => console.log("Signal sent"),
-      (error) => console.error("Signal failed:", error),
-    );
+    signalResult.match({
+      ok: () => console.log("Signal sent"),
+      err: (error) => console.error("Signal failed:", error),
+      defect: (cause) => console.error("Unexpected failure:", cause),
+    });
 
     // Get the result
     const result = await handle.result();
-    result.match(
-      (output) => console.log("Result:", output),
-      (error) => console.error("Workflow failed:", error),
-    );
+    result.match({
+      ok: (output) => console.log("Result:", output),
+      err: (error) => console.error("Workflow failed:", error),
+      defect: (cause) => console.error("Unexpected failure:", cause),
+    });
   },
-  (error) => console.error("Failed to get handle:", error),
-);
+  err: (error) => console.error("Failed to get handle:", error),
+  defect: (cause) => console.error("Unexpected failure:", cause),
+});
 ```
 
 ## Multiple Workflows
@@ -229,10 +243,11 @@ const result = await client.executeWorkflow("processOrder", {
   args: { orderId: "ORD-123", customerId: "CUST-456" },
 });
 
-result.match(
-  (value) => console.log("Success:", value),
-  (error) => console.error("Workflow returned error:", error),
-);
+result.match({
+  ok: (value) => console.log("Success:", value),
+  err: (error) => console.error("Workflow returned error:", error),
+  defect: (cause) => console.error("Unexpected failure:", cause),
+});
 ```
 
 ### Workflow Failures
@@ -325,7 +340,7 @@ Mock the client for testing:
 
 ```typescript
 import { describe, it, expect, vi } from "vitest";
-import { ok } from "neverthrow";
+import { ok } from "unthrown";
 
 describe("OrderService", () => {
   it("should process order", async () => {
@@ -389,22 +404,27 @@ const result = await client.executeWorkflow("processOrder", {
   args: { orderId: "ORD-123", customerId: "CUST-456" },
 });
 
-result.match(
-  (value) => {
+result.match({
+  ok: (value) => {
     // Handle success
     updateDatabase(value);
   },
-  (error) => {
+  err: (error) => {
     // Handle error
     logError(error);
     notifySupport(error);
   },
-);
+  defect: (cause) => {
+    // Handle unexpected failure (bug)
+    logError(cause);
+    notifySupport(cause);
+  },
+});
 ```
 
 ## See Also
 
 - [Defining Contracts](/guide/defining-contracts) - Creating your contract definitions
 - [Worker Usage](/guide/worker-usage) - Implementing workflows and activities
-- [Result Pattern](/guide/result-pattern) - Understanding Result/ResultAsync error handling
+- [Result Pattern](/guide/result-pattern) - Understanding Result/AsyncResult error handling
 - [API Reference](/api/client) - Complete client API documentation

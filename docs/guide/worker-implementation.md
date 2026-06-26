@@ -31,19 +31,19 @@ sequenceDiagram
 
 ## Activities Handler
 
-Create a handler for all activities using `ResultAsync`:
+Create a handler for all activities using `AsyncResult`:
 
 ```typescript
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 import { myContract } from "./contract";
 
 export const activities = declareActivitiesHandler({
   contract: myContract,
   activities: {
-    // Global activities - use ResultAsync for explicit error handling
+    // Global activities - use AsyncResult for explicit error handling
     sendEmail: ({ to, subject, body }) =>
-      ResultAsync.fromPromise(emailService.send({ to, subject, body }), (error) =>
+      fromPromise(emailService.send({ to, subject, body }), (error) =>
         ApplicationFailure.create({
           type: "EMAIL_FAILED",
           message: error instanceof Error ? error.message : "Failed to send email",
@@ -53,7 +53,7 @@ export const activities = declareActivitiesHandler({
 
     // Workflow-specific activities
     processPayment: ({ customerId, amount }) =>
-      ResultAsync.fromPromise(paymentGateway.charge(customerId, amount), (error) =>
+      fromPromise(paymentGateway.charge(customerId, amount), (error) =>
         ApplicationFailure.create({
           type: "PAYMENT_FAILED",
           message: error instanceof Error ? error.message : "Payment failed",
@@ -67,7 +67,7 @@ export const activities = declareActivitiesHandler({
 ## Working with the Activity Context
 
 `declareActivitiesHandler` accepts implementations in the
-`ResultAsync<T, ApplicationFailure>` shape and wraps each one into an
+`AsyncResult<T, ApplicationFailure>` shape and wraps each one into an
 ordinary Promise-returning Temporal activity (Temporal sees a normal
 `(args) => Promise<Output>` handler at the runtime boundary). The
 wrapper does **not** hide Temporal's `@temporalio/activity` runtime —
@@ -88,7 +88,7 @@ often you heartbeat, so size both timeouts with the activity's worst-
 case runtime in mind.
 
 Call `Context.current().heartbeat(details)` from inside your
-`ResultAsync`-returning body — heartbeats are independent of the
+`AsyncResult`-returning body — heartbeats are independent of the
 `Result` wrapping. The example below uses the inline-implementation
 pattern: TypeScript infers each activity's input/output shape from the
 contract via `declareActivitiesHandler`'s `activities` parameter, so no
@@ -96,7 +96,7 @@ extra annotation is needed.
 
 ```typescript
 import { Context } from "@temporalio/activity";
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
 import { reportContract } from "./contract";
 
@@ -104,7 +104,7 @@ export const activities = declareActivitiesHandler({
   contract: reportContract,
   activities: {
     exportLargeReport: ({ reportId }) =>
-      ResultAsync.fromPromise(
+      fromPromise(
         runExport(reportId, ({ chunkIndex }) => {
           // Heartbeat the most recent progress checkpoint. Temporal records
           // this as the activity's `heartbeatDetails` for the next attempt.
@@ -134,7 +134,7 @@ attempt already completed:
 
 ```typescript
 import { Context } from "@temporalio/activity";
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
 import { reportContract } from "./contract";
 
@@ -149,7 +149,7 @@ export const activities = declareActivitiesHandler({
       const last = Context.current().heartbeatDetails as { chunkIndex: number } | undefined;
       const startFrom = last?.chunkIndex ?? 0;
 
-      return ResultAsync.fromPromise(runExport(reportId, { startFrom }), (error) =>
+      return fromPromise(runExport(reportId, { startFrom }), (error) =>
         ApplicationFailure.create({
           type: "EXPORT_FAILED",
           message: error instanceof Error ? error.message : "Export failed",
@@ -170,7 +170,7 @@ behavior:
 
 ```typescript
 import { Context } from "@temporalio/activity";
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
 import { paymentContract } from "./contract";
 
@@ -184,7 +184,7 @@ export const activities = declareActivitiesHandler({
         workflowId: workflowExecution.workflowId,
         orderId,
       });
-      return ResultAsync.fromPromise(paymentGateway.charge(orderId, amount), (error) =>
+      return fromPromise(paymentGateway.charge(orderId, amount), (error) =>
         ApplicationFailure.create({
           type: "PAYMENT_FAILED",
           message: error instanceof Error ? error.message : "Payment failed",
@@ -214,7 +214,7 @@ Two outcomes need to coexist inside the activity body:
   `ApplicationFailure` so the regular retry/error semantics still apply.
 
 The cleanest shape is an inner `async` function that throws either
-class. `ResultAsync.fromPromise` converts the rejection into an `Err`,
+class. `fromPromise` converts the rejection into an `Err`,
 the activity wrapper rethrows whatever it finds there, and Temporal's
 runtime recognizes the `CompleteAsyncError` class unchanged. The
 `<never, ApplicationFailure>` type parameters acknowledge that the
@@ -224,7 +224,7 @@ caller, so the assertion is safe.
 
 ```typescript
 import { Context, CompleteAsyncError } from "@temporalio/activity";
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
 import { approvalContract } from "./contract";
 
@@ -234,7 +234,7 @@ export const activities = declareActivitiesHandler({
     awaitApproval: ({ requestId }) => {
       const taskToken = Context.current().info.taskToken;
 
-      return ResultAsync.fromPromise<never, ApplicationFailure>(
+      return fromPromise<never, ApplicationFailure>(
         (async () => {
           try {
             await enqueueApprovalRequest({ requestId, taskToken });
@@ -419,7 +419,7 @@ implementation: async (context, args) => {
 
 ## Child Workflows
 
-Execute child workflows with the type-safe `Result` / `ResultAsync` pattern. Child workflows can be from the same contract or from a different contract (cross-worker communication).
+Execute child workflows with the type-safe `Result` / `AsyncResult` pattern. Child workflows can be from the same contract or from a different contract (cross-worker communication).
 
 ```mermaid
 graph TB
@@ -462,10 +462,11 @@ export const parentWorkflow = declareWorkflow({
       args: { amount: args.totalAmount },
     });
 
-    result.match(
-      (output) => console.log("Payment processed:", output),
-      (error) => console.error("Payment failed:", error),
-    );
+    result.match({
+      ok: (output) => console.log("Payment processed:", output),
+      err: (error) => console.error("Payment failed:", error),
+      defect: (cause) => console.error("Unexpected failure:", cause),
+    });
 
     return { success: true };
   },
@@ -477,6 +478,8 @@ export const parentWorkflow = declareWorkflow({
 Invoke child workflows from different contracts and workers:
 
 ```typescript
+import { isErr } from "unthrown";
+
 export const orderWorkflow = declareWorkflow({
   workflowName: "processOrder",
   contract: orderContract,
@@ -488,7 +491,8 @@ export const orderWorkflow = declareWorkflow({
       args: { amount: args.total },
     });
 
-    if (paymentResult.isErr()) {
+    // Free-function narrowing — the `.isErr()` method would not narrow the type.
+    if (isErr(paymentResult)) {
       return { status: "failed", reason: "payment" };
     }
 
@@ -526,16 +530,19 @@ export const orderWorkflow = declareWorkflow({
       args: { to: args.customerEmail, subject: "Order received" },
     });
 
-    handleResult.match(
-      async (handle) => {
+    handleResult.match({
+      ok: async (handle) => {
         // Child workflow started successfully
         // Can wait for result later if needed
         const result = await handle.result();
       },
-      (error) => {
+      err: (error) => {
         console.error("Failed to start notification:", error);
       },
-    );
+      defect: (cause) => {
+        console.error("Unexpected failure starting notification:", cause);
+      },
+    });
 
     return { success: true };
   },
@@ -552,12 +559,12 @@ const result = await context.executeChildWorkflow(myContract, "processPayment", 
   args: { amount: 100 },
 });
 
-result.match(
-  (output) => {
+result.match({
+  ok: (output) => {
     // Child workflow completed successfully
     console.log("Transaction ID:", output.transactionId);
   },
-  (error) => {
+  err: (error) => {
     // Handle child workflow errors
     if (error instanceof ChildWorkflowNotFoundError) {
       console.error("Workflow not found in contract");
@@ -565,7 +572,11 @@ result.match(
       console.error("Child workflow failed:", error.message);
     }
   },
-);
+  defect: (cause) => {
+    // Unexpected failure (bug), not a modeled child-workflow error
+    console.error("Unexpected failure:", cause);
+  },
+});
 ```
 
 ## Best Practices
@@ -576,12 +587,12 @@ Organize activities by domain:
 
 ```typescript
 // activities/payment.ts
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 import { ApplicationFailure } from "@temporal-contract/worker/activity";
 
 export const paymentActivities = {
   processPayment: ({ customerId, amount }) =>
-    ResultAsync.fromPromise(paymentGateway.charge(customerId, amount), (err) =>
+    fromPromise(paymentGateway.charge(customerId, amount), (err) =>
       ApplicationFailure.create({
         type: "PAYMENT_FAILED",
         message: err instanceof Error ? err.message : "Payment failed",
@@ -589,7 +600,7 @@ export const paymentActivities = {
       }),
     ).map((tx) => ({ transactionId: tx.id })),
   refundPayment: ({ transactionId }) =>
-    ResultAsync.fromPromise(paymentGateway.refund(transactionId), (err) =>
+    fromPromise(paymentGateway.refund(transactionId), (err) =>
       ApplicationFailure.create({
         type: "REFUND_FAILED",
         message: err instanceof Error ? err.message : "Refund failed",
@@ -599,12 +610,12 @@ export const paymentActivities = {
 };
 
 // activities/email.ts
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 import { ApplicationFailure } from "@temporal-contract/worker/activity";
 
 export const emailActivities = {
   sendEmail: ({ to, subject, body }) =>
-    ResultAsync.fromPromise(emailService.send({ to, subject, body }), (err) =>
+    fromPromise(emailService.send({ to, subject, body }), (err) =>
       ApplicationFailure.create({
         type: "EMAIL_FAILED",
         message: err instanceof Error ? err.message : "Email failed",
@@ -632,7 +643,7 @@ export const activities = declareActivitiesHandler({
 Make activities testable:
 
 ```typescript
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 import { ApplicationFailure } from "@temporal-contract/worker/activity";
 
 export const createActivities = (services: {
@@ -643,7 +654,7 @@ export const createActivities = (services: {
     contract: myContract,
     activities: {
       sendEmail: ({ to, subject, body }) =>
-        ResultAsync.fromPromise(services.emailService.send({ to, subject, body }), (err) =>
+        fromPromise(services.emailService.send({ to, subject, body }), (err) =>
           ApplicationFailure.create({
             type: "EMAIL_FAILED",
             message: err instanceof Error ? err.message : "Email failed",
@@ -651,7 +662,7 @@ export const createActivities = (services: {
           }),
         ).map(() => ({ sent: true })),
       processPayment: ({ customerId, amount }) =>
-        ResultAsync.fromPromise(services.paymentGateway.charge(customerId, amount), (err) =>
+        fromPromise(services.paymentGateway.charge(customerId, amount), (err) =>
           ApplicationFailure.create({
             type: "PAYMENT_FAILED",
             message: err instanceof Error ? err.message : "Payment failed",
@@ -664,17 +675,17 @@ export const createActivities = (services: {
 
 ### 3. Error Handling
 
-Activities use `ResultAsync` for explicit error handling:
+Activities use `AsyncResult` for explicit error handling:
 
 ```typescript
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 
 export const activities = declareActivitiesHandler({
   contract: myContract,
   activities: {
     processPayment: ({ customerId, amount }) =>
-      ResultAsync.fromPromise(paymentGateway.charge(customerId, amount), (error) => {
+      fromPromise(paymentGateway.charge(customerId, amount), (error) => {
         // Wrap technical errors in ApplicationFailure so Temporal's
         // retry policy applies; set `nonRetryable: true` for permanent
         // failures (e.g. card declined) so retries don't fire.

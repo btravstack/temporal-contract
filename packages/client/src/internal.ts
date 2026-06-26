@@ -14,8 +14,8 @@ import {
   WorkflowNotFoundError as TemporalWorkflowNotFoundError,
 } from "@temporalio/common";
 import type { AnyWorkflowDefinition, SearchAttributeDefinition } from "@temporal-contract/contract";
-import { _internal_makeResultAsync } from "@temporal-contract/contract/result-async";
-import { ok, err, type ResultAsync, type Result } from "neverthrow";
+import { _internal_makeAsyncResult } from "@temporal-contract/contract/result-async";
+import { ok, err, type AsyncResult, type Result } from "unthrown";
 import {
   RuntimeClientError,
   type TemporalFailure,
@@ -75,26 +75,23 @@ export function toTypedSearchAttributes(
 }
 
 /**
- * Wrap an async result-producing function in a `ResultAsync`, catching any
- * unhandled rejection as a `RuntimeClientError("unexpected", error)`.
+ * Wrap an async result-producing function in an `AsyncResult`, routing any
+ * unanticipated rejection through unthrown's `defect` channel.
  *
  * The work function is expected to handle its own domain errors and return
- * an `err(...)` for them; the catch here is a safety net for thrown
- * exceptions the work didn't anticipate.
+ * an `err(...)` for them; a thrown exception the work didn't anticipate is an
+ * *unmodeled* failure and surfaces as a defect (inspectable via
+ * `result.isDefect()` / `result.cause`, re-thrown at the edge) rather than a
+ * manufactured `RuntimeClientError`.
  *
  * Used by `client.ts` (workflow operations) and `schedule.ts` (schedule
  * operations) so the unexpected-rejection shape is identical across the
- * typed client surface. Delegates to `_internal_makeResultAsync` from
+ * typed client surface. Delegates to `_internal_makeAsyncResult` from
  * `@temporal-contract/contract` so the same wrapper is shared between the
  * client and worker packages.
  */
-export function makeResultAsync<T, E>(
-  work: () => Promise<Result<T, E>>,
-): ResultAsync<T, E | RuntimeClientError> {
-  return _internal_makeResultAsync<T, E | RuntimeClientError>(
-    work,
-    (e) => new RuntimeClientError("unexpected", e),
-  );
+export function makeResultAsync<T, E>(work: () => Promise<Result<T, E>>): AsyncResult<T, E> {
+  return _internal_makeAsyncResult(work);
 }
 
 /**

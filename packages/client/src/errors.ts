@@ -1,5 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { summarizeIssues } from "@temporal-contract/contract";
+import { TaggedError } from "unthrown";
 import type {
   ActivityFailure,
   ApplicationFailure,
@@ -30,45 +31,38 @@ export type TemporalFailure =
   | ActivityFailure;
 
 /**
- * Base class for all typed client errors.
- */
-abstract class TypedClientError extends Error {
-  protected constructor(message: string) {
-    super(message);
-    this.name = this.constructor.name;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, this.constructor);
-    }
-  }
-}
-
-/**
  * Generic runtime failure wrapper when no specific error type applies
  */
-export class RuntimeClientError extends TypedClientError {
-  constructor(
-    public readonly operation: string,
-    public override readonly cause?: unknown,
-  ) {
-    super(
-      `Operation "${operation}" failed: ${
+export class RuntimeClientError extends TaggedError("RuntimeClientError")<{
+  operation: string;
+  cause?: unknown;
+  message: string;
+}> {
+  constructor(operation: string, cause?: unknown) {
+    super({
+      operation,
+      cause,
+      message: `Operation "${operation}" failed: ${
         cause instanceof Error ? cause.message : String(cause ?? "unknown error")
       }`,
-    );
+    });
   }
 }
 
 /**
  * Thrown when a workflow is not found in the contract
  */
-export class WorkflowNotFoundError extends TypedClientError {
-  constructor(
-    public readonly workflowName: string,
-    public readonly availableWorkflows: string[],
-  ) {
-    super(
-      `Workflow "${workflowName}" not found in contract. Available workflows: ${availableWorkflows.join(", ")}`,
-    );
+export class WorkflowNotFoundError extends TaggedError("WorkflowNotFoundError")<{
+  workflowName: string;
+  availableWorkflows: string[];
+  message: string;
+}> {
+  constructor(workflowName: string, availableWorkflows: string[]) {
+    super({
+      workflowName,
+      availableWorkflows,
+      message: `Workflow "${workflowName}" not found in contract. Available workflows: ${availableWorkflows.join(", ")}`,
+    });
   }
 }
 
@@ -83,13 +77,19 @@ export class WorkflowNotFoundError extends TypedClientError {
  * branch on it explicitly (e.g. fetch the existing handle and continue)
  * without inspecting `error.cause` against a Temporal SDK class.
  */
-export class WorkflowAlreadyStartedError extends TypedClientError {
-  constructor(
-    public readonly workflowType: string,
-    public readonly workflowId: string,
-    public override readonly cause?: unknown,
-  ) {
-    super(`Workflow "${workflowType}" with ID "${workflowId}" is already started or in retention.`);
+export class WorkflowAlreadyStartedError extends TaggedError("WorkflowAlreadyStartedError")<{
+  workflowType: string;
+  workflowId: string;
+  cause?: unknown;
+  message: string;
+}> {
+  constructor(workflowType: string, workflowId: string, cause?: unknown) {
+    super({
+      workflowType,
+      workflowId,
+      cause,
+      message: `Workflow "${workflowType}" with ID "${workflowId}" is already started or in retention.`,
+    });
   }
 }
 
@@ -105,15 +105,19 @@ export class WorkflowAlreadyStartedError extends TypedClientError {
  * - `executeWorkflow` (when the underlying execute call hits a missing
  *   execution mid-flight)
  */
-export class WorkflowExecutionNotFoundError extends TypedClientError {
-  constructor(
-    public readonly workflowId: string,
-    public readonly runId?: string,
-    public override readonly cause?: unknown,
-  ) {
-    super(
-      `Workflow execution "${workflowId}"${runId ? ` (run "${runId}")` : ""} not found in namespace.`,
-    );
+export class WorkflowExecutionNotFoundError extends TaggedError("WorkflowExecutionNotFoundError")<{
+  workflowId: string;
+  runId?: string | undefined;
+  cause?: unknown;
+  message: string;
+}> {
+  constructor(workflowId: string, runId?: string, cause?: unknown) {
+    super({
+      workflowId,
+      runId,
+      cause,
+      message: `Workflow execution "${workflowId}"${runId ? ` (run "${runId}")` : ""} not found in namespace.`,
+    });
   }
 }
 
@@ -136,14 +140,19 @@ export class WorkflowExecutionNotFoundError extends TypedClientError {
  *
  * Returned from `executeWorkflow` and `handle.result()`.
  */
-export class WorkflowFailedError extends TypedClientError {
-  constructor(
-    public readonly workflowId: string,
-    public override readonly cause?: TemporalFailure,
-  ) {
+export class WorkflowFailedError extends TaggedError("WorkflowFailedError")<{
+  workflowId: string;
+  cause?: TemporalFailure | undefined;
+  message: string;
+}> {
+  constructor(workflowId: string, cause?: TemporalFailure) {
     const causeMessage =
       cause instanceof Error ? cause.message : String(cause ?? "unknown failure");
-    super(`Workflow "${workflowId}" completed with failure: ${causeMessage}`);
+    super({
+      workflowId,
+      cause,
+      message: `Workflow "${workflowId}" completed with failure: ${causeMessage}`,
+    });
   }
 }
 
@@ -155,52 +164,85 @@ export class WorkflowFailedError extends TypedClientError {
 /**
  * Thrown when workflow input or output validation fails
  */
-export class WorkflowValidationError extends TypedClientError {
+export class WorkflowValidationError extends TaggedError("WorkflowValidationError")<{
+  workflowName: string;
+  direction: "input" | "output";
+  issues: ReadonlyArray<StandardSchemaV1.Issue>;
+  message: string;
+}> {
   constructor(
-    public readonly workflowName: string,
-    public readonly direction: "input" | "output",
-    public readonly issues: ReadonlyArray<StandardSchemaV1.Issue>,
+    workflowName: string,
+    direction: "input" | "output",
+    issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) {
-    super(
-      `Validation failed for workflow "${workflowName}" ${direction}: ${summarizeIssues(issues)}`,
-    );
+    super({
+      workflowName,
+      direction,
+      issues,
+      message: `Validation failed for workflow "${workflowName}" ${direction}: ${summarizeIssues(issues)}`,
+    });
   }
 }
 
 /**
  * Thrown when query input or output validation fails
  */
-export class QueryValidationError extends TypedClientError {
+export class QueryValidationError extends TaggedError("QueryValidationError")<{
+  queryName: string;
+  direction: "input" | "output";
+  issues: ReadonlyArray<StandardSchemaV1.Issue>;
+  message: string;
+}> {
   constructor(
-    public readonly queryName: string,
-    public readonly direction: "input" | "output",
-    public readonly issues: ReadonlyArray<StandardSchemaV1.Issue>,
+    queryName: string,
+    direction: "input" | "output",
+    issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) {
-    super(`Validation failed for query "${queryName}" ${direction}: ${summarizeIssues(issues)}`);
+    super({
+      queryName,
+      direction,
+      issues,
+      message: `Validation failed for query "${queryName}" ${direction}: ${summarizeIssues(issues)}`,
+    });
   }
 }
 
 /**
  * Thrown when signal input validation fails
  */
-export class SignalValidationError extends TypedClientError {
-  constructor(
-    public readonly signalName: string,
-    public readonly issues: ReadonlyArray<StandardSchemaV1.Issue>,
-  ) {
-    super(`Validation failed for signal "${signalName}": ${summarizeIssues(issues)}`);
+export class SignalValidationError extends TaggedError("SignalValidationError")<{
+  signalName: string;
+  issues: ReadonlyArray<StandardSchemaV1.Issue>;
+  message: string;
+}> {
+  constructor(signalName: string, issues: ReadonlyArray<StandardSchemaV1.Issue>) {
+    super({
+      signalName,
+      issues,
+      message: `Validation failed for signal "${signalName}": ${summarizeIssues(issues)}`,
+    });
   }
 }
 
 /**
  * Thrown when update input or output validation fails
  */
-export class UpdateValidationError extends TypedClientError {
+export class UpdateValidationError extends TaggedError("UpdateValidationError")<{
+  updateName: string;
+  direction: "input" | "output";
+  issues: ReadonlyArray<StandardSchemaV1.Issue>;
+  message: string;
+}> {
   constructor(
-    public readonly updateName: string,
-    public readonly direction: "input" | "output",
-    public readonly issues: ReadonlyArray<StandardSchemaV1.Issue>,
+    updateName: string,
+    direction: "input" | "output",
+    issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) {
-    super(`Validation failed for update "${updateName}" ${direction}: ${summarizeIssues(issues)}`);
+    super({
+      updateName,
+      direction,
+      issues,
+      message: `Validation failed for update "${updateName}" ${direction}: ${summarizeIssues(issues)}`,
+    });
   }
 }
