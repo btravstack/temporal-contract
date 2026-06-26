@@ -5,7 +5,6 @@
  * Closes #181.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { isOk, isErr } from "unthrown";
 import { z } from "zod";
 import type { Client } from "@temporalio/client";
 import { TypedSearchAttributes } from "@temporalio/common";
@@ -85,7 +84,7 @@ describe("TypedClient.schedule", () => {
       });
 
       expect(result).toBeOk();
-      if (isOk(result)) {
+      if (result.isOk()) {
         expect(result.value.scheduleId).toBe("daily-sweep");
       }
 
@@ -115,7 +114,7 @@ describe("TypedClient.schedule", () => {
       );
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(WorkflowNotFoundError);
       }
       expect(mockSchedule.create).not.toHaveBeenCalled();
@@ -130,7 +129,7 @@ describe("TypedClient.schedule", () => {
       });
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(WorkflowValidationError);
       }
       expect(mockSchedule.create).not.toHaveBeenCalled();
@@ -146,7 +145,7 @@ describe("TypedClient.schedule", () => {
       });
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(RuntimeClientError);
         expect((result.error as RuntimeClientError).operation).toBe("schedule.create");
       }
@@ -293,7 +292,7 @@ describe("TypedClient.schedule", () => {
       });
 
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(RuntimeClientError);
         expect((result.error as RuntimeClientError).operation).toBe("searchAttributes");
         expect((result.error as RuntimeClientError).message).toContain("unknownAttr");
@@ -331,7 +330,7 @@ describe("TypedClient.schedule", () => {
       const handle = client.schedule.getHandle("missing");
       const result = await handle.pause();
       expect(result).toBeErr();
-      if (isErr(result)) {
+      if (result.isErr()) {
         expect(result.error).toBeInstanceOf(RuntimeClientError);
         expect((result.error as RuntimeClientError).operation).toBe("schedule.pause");
       }
@@ -346,7 +345,7 @@ describe("TypedClient.schedule", () => {
       const result = await handle.describe();
 
       expect(result).toBeOk();
-      if (isOk(result)) {
+      if (result.isOk()) {
         expect((result.value as { scheduleId: string }).scheduleId).toBe("daily-sweep");
       }
     });

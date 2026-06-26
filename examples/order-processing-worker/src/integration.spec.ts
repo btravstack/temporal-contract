@@ -1,5 +1,4 @@
 import { describe, expect, vi, beforeEach } from "vitest";
-import { isOk, isErr } from "unthrown";
 import { Worker } from "@temporalio/worker";
 import { TypedClient, WorkflowValidationError } from "@temporal-contract/client";
 import { it as baseIt } from "@temporal-contract/testing/extension";
@@ -96,7 +95,7 @@ describe("Order Processing Workflow - Integration Tests", () => {
 
     // THEN
     expect(result).toBeOk();
-    if (isOk(result)) {
+    if (result.isOk()) {
       expect(result.value).toEqual({
         orderId: order.orderId,
         status: "completed",
@@ -129,13 +128,13 @@ describe("Order Processing Workflow - Integration Tests", () => {
 
     // THEN
     expect(handleResult).toBeOk();
-    if (!isOk(handleResult)) throw new Error("Expected Ok result");
+    if (!handleResult.isOk()) throw new Error("Expected Ok result");
     const handle = handleResult.value;
     expect(handle.workflowId).toBe(order.orderId);
 
     const result = await handle.result();
     expect(result).toBeOk();
-    if (isOk(result)) {
+    if (result.isOk()) {
       expect(result.value).toEqual({
         orderId: order.orderId,
         status: "completed",
@@ -170,13 +169,13 @@ describe("Order Processing Workflow - Integration Tests", () => {
     const handleResult = await client.getHandle("processOrder", order.orderId);
 
     expect(handleResult).toBeOk();
-    if (!isOk(handleResult)) throw new Error("Expected Ok result");
+    if (!handleResult.isOk()) throw new Error("Expected Ok result");
     const handle = handleResult.value;
     expect(handle.workflowId).toBe(order.orderId);
 
     const result = await handle.result();
     expect(result).toBeOk();
-    if (isOk(result)) {
+    if (result.isOk()) {
       expect(result.value).toEqual({
         orderId: order.orderId,
         status: "completed",
@@ -209,12 +208,12 @@ describe("Order Processing Workflow - Integration Tests", () => {
 
     // THEN
     expect(handleResult).toBeOk();
-    if (!isOk(handleResult)) throw new Error("Expected Ok result");
+    if (!handleResult.isOk()) throw new Error("Expected Ok result");
     const handle = handleResult.value;
 
     const describeResult = await handle.describe();
     expect(describeResult).toBeOk();
-    if (isOk(describeResult)) {
+    if (describeResult.isOk()) {
       expect(describeResult.value).toEqual(
         expect.objectContaining({ workflowId: order.orderId, type: "processOrder" }),
       );
@@ -246,7 +245,7 @@ describe("Order Processing Workflow - Integration Tests", () => {
 
     // THEN
     expect(execution).toBeErr();
-    if (isErr(execution)) {
+    if (execution.isErr()) {
       expect(execution.error).toBeInstanceOf(WorkflowValidationError);
       const validationError = execution.error as WorkflowValidationError;
       expect(validationError.workflowName).toBe("processOrder");
@@ -291,7 +290,7 @@ describe("Order Processing Workflow - Integration Tests", () => {
 
     // THEN - Should return failed status
     expect(result).toBeOk();
-    if (isOk(result)) {
+    if (result.isOk()) {
       expect(result.value).toEqual({
         status: "failed",
         errorCode: "PAYMENT_FAILED",

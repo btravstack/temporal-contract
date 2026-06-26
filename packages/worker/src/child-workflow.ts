@@ -10,7 +10,7 @@ import {
   executeChild,
   startChild,
 } from "@temporalio/workflow";
-import { type AsyncResult, type Result, ok, err, isErr } from "unthrown";
+import { type AsyncResult, type Result, ok, err } from "unthrown";
 import {
   ChildWorkflowCancelledError,
   ChildWorkflowError,
@@ -169,7 +169,7 @@ export function createStartChildWorkflow<
     // `getAndValidateChildWorkflow` only ever builds ok/err; assert away the
     // impossible defect so `.error` / `.value` narrow cleanly below.
     assertNoDefect(validationResult);
-    if (isErr(validationResult)) {
+    if (validationResult.isErr()) {
       return err(validationResult.error);
     }
 
@@ -215,7 +215,7 @@ export function createExecuteChildWorkflow<
     );
 
     assertNoDefect(validationResult);
-    if (isErr(validationResult)) {
+    if (validationResult.isErr()) {
       return err(validationResult.error);
     }
 
@@ -236,7 +236,7 @@ export function createExecuteChildWorkflow<
       );
 
       assertNoDefect(outputValidationResult);
-      if (isErr(outputValidationResult)) {
+      if (outputValidationResult.isErr()) {
         return err(outputValidationResult.error);
       }
 

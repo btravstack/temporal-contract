@@ -10,7 +10,7 @@
  * and `worker/src/internal.ts`.
  */
 import { describe, expect, it } from "vitest";
-import { ok, err, isErr, isDefect } from "unthrown";
+import { ok, err } from "unthrown";
 import { _internal_makeAsyncResult } from "./result-async.js";
 
 class TestError extends Error {
@@ -30,7 +30,7 @@ describe("_internal_makeAsyncResult", () => {
     const domainError = new TestError("domain");
     const result = await _internal_makeAsyncResult<number, TestError>(async () => err(domainError));
     expect(result).toBeErr();
-    if (isErr(result)) {
+    if (result.isErr()) {
       // Identity preserved — the domain `err(...)` flows through untouched.
       expect(result.error).toBe(domainError);
     }
@@ -47,7 +47,7 @@ describe("_internal_makeAsyncResult", () => {
       throw thrown;
     });
     expect(result).toBeDefect();
-    if (isDefect(result)) {
+    if (result.isDefect()) {
       expect(result.cause).toBe(thrown);
     }
   });
@@ -61,7 +61,7 @@ describe("_internal_makeAsyncResult", () => {
       throw thrown;
     });
     expect(result).toBeDefect();
-    if (isDefect(result)) {
+    if (result.isDefect()) {
       expect(result.cause).toBe(thrown);
     }
   });
@@ -75,7 +75,7 @@ describe("_internal_makeAsyncResult", () => {
       throw thrown;
     });
     expect(result).toBeDefect();
-    if (isDefect(result)) {
+    if (result.isDefect()) {
       expect(result.cause).toBe(thrown);
     }
   });

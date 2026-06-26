@@ -612,14 +612,13 @@ type WorkflowContext<
    *
    * @example
    * ```ts
-   * import { isErr } from "unthrown";
    *
    * implementation: async (context, args) => {
    *   const result = await context.cancellableScope(async () => {
    *     return context.activities.processStep(args);
    *   });
    *
-   *   if (isErr(result) && result.error instanceof WorkflowCancelledError) {
+   *   if (result.isErr() && result.error instanceof WorkflowCancelledError) {
    *     // workflow was cancelled — perform cleanup that must not be cancelled:
    *     await context.nonCancellableScope(async () => {
    *       await context.activities.releaseResources(args);
