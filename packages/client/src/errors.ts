@@ -33,7 +33,7 @@ export type TemporalFailure =
 /**
  * Generic runtime failure wrapper when no specific error type applies
  */
-export class RuntimeClientError extends TaggedError("RuntimeClientError")<{
+export class RuntimeClientError extends TaggedError("@temporal-contract/RuntimeClientError")<{
   operation: string;
   cause?: unknown;
   message: string;
@@ -46,13 +46,16 @@ export class RuntimeClientError extends TaggedError("RuntimeClientError")<{
         cause instanceof Error ? cause.message : String(cause ?? "unknown error")
       }`,
     });
+    // Keep the conventional class name in logs; the package namespace lives
+    // only on `_tag`.
+    this.name = "RuntimeClientError";
   }
 }
 
 /**
  * Thrown when a workflow is not found in the contract
  */
-export class WorkflowNotFoundError extends TaggedError("WorkflowNotFoundError")<{
+export class WorkflowNotFoundError extends TaggedError("@temporal-contract/WorkflowNotFoundError")<{
   workflowName: string;
   availableWorkflows: string[];
   message: string;
@@ -63,6 +66,7 @@ export class WorkflowNotFoundError extends TaggedError("WorkflowNotFoundError")<
       availableWorkflows,
       message: `Workflow "${workflowName}" not found in contract. Available workflows: ${availableWorkflows.join(", ")}`,
     });
+    this.name = "WorkflowNotFoundError";
   }
 }
 
@@ -77,7 +81,9 @@ export class WorkflowNotFoundError extends TaggedError("WorkflowNotFoundError")<
  * branch on it explicitly (e.g. fetch the existing handle and continue)
  * without inspecting `error.cause` against a Temporal SDK class.
  */
-export class WorkflowAlreadyStartedError extends TaggedError("WorkflowAlreadyStartedError")<{
+export class WorkflowAlreadyStartedError extends TaggedError(
+  "@temporal-contract/WorkflowAlreadyStartedError",
+)<{
   workflowType: string;
   workflowId: string;
   cause?: unknown;
@@ -90,6 +96,7 @@ export class WorkflowAlreadyStartedError extends TaggedError("WorkflowAlreadySta
       cause,
       message: `Workflow "${workflowType}" with ID "${workflowId}" is already started or in retention.`,
     });
+    this.name = "WorkflowAlreadyStartedError";
   }
 }
 
@@ -105,7 +112,9 @@ export class WorkflowAlreadyStartedError extends TaggedError("WorkflowAlreadySta
  * - `executeWorkflow` (when the underlying execute call hits a missing
  *   execution mid-flight)
  */
-export class WorkflowExecutionNotFoundError extends TaggedError("WorkflowExecutionNotFoundError")<{
+export class WorkflowExecutionNotFoundError extends TaggedError(
+  "@temporal-contract/WorkflowExecutionNotFoundError",
+)<{
   workflowId: string;
   runId?: string | undefined;
   cause?: unknown;
@@ -118,6 +127,7 @@ export class WorkflowExecutionNotFoundError extends TaggedError("WorkflowExecuti
       cause,
       message: `Workflow execution "${workflowId}"${runId ? ` (run "${runId}")` : ""} not found in namespace.`,
     });
+    this.name = "WorkflowExecutionNotFoundError";
   }
 }
 
@@ -140,7 +150,7 @@ export class WorkflowExecutionNotFoundError extends TaggedError("WorkflowExecuti
  *
  * Returned from `executeWorkflow` and `handle.result()`.
  */
-export class WorkflowFailedError extends TaggedError("WorkflowFailedError")<{
+export class WorkflowFailedError extends TaggedError("@temporal-contract/WorkflowFailedError")<{
   workflowId: string;
   cause?: TemporalFailure | undefined;
   message: string;
@@ -153,6 +163,7 @@ export class WorkflowFailedError extends TaggedError("WorkflowFailedError")<{
       cause,
       message: `Workflow "${workflowId}" completed with failure: ${causeMessage}`,
     });
+    this.name = "WorkflowFailedError";
   }
 }
 
@@ -164,7 +175,9 @@ export class WorkflowFailedError extends TaggedError("WorkflowFailedError")<{
 /**
  * Thrown when workflow input or output validation fails
  */
-export class WorkflowValidationError extends TaggedError("WorkflowValidationError")<{
+export class WorkflowValidationError extends TaggedError(
+  "@temporal-contract/WorkflowValidationError",
+)<{
   workflowName: string;
   direction: "input" | "output";
   issues: ReadonlyArray<StandardSchemaV1.Issue>;
@@ -181,13 +194,14 @@ export class WorkflowValidationError extends TaggedError("WorkflowValidationErro
       issues,
       message: `Validation failed for workflow "${workflowName}" ${direction}: ${summarizeIssues(issues)}`,
     });
+    this.name = "WorkflowValidationError";
   }
 }
 
 /**
  * Thrown when query input or output validation fails
  */
-export class QueryValidationError extends TaggedError("QueryValidationError")<{
+export class QueryValidationError extends TaggedError("@temporal-contract/QueryValidationError")<{
   queryName: string;
   direction: "input" | "output";
   issues: ReadonlyArray<StandardSchemaV1.Issue>;
@@ -204,13 +218,14 @@ export class QueryValidationError extends TaggedError("QueryValidationError")<{
       issues,
       message: `Validation failed for query "${queryName}" ${direction}: ${summarizeIssues(issues)}`,
     });
+    this.name = "QueryValidationError";
   }
 }
 
 /**
  * Thrown when signal input validation fails
  */
-export class SignalValidationError extends TaggedError("SignalValidationError")<{
+export class SignalValidationError extends TaggedError("@temporal-contract/SignalValidationError")<{
   signalName: string;
   issues: ReadonlyArray<StandardSchemaV1.Issue>;
   message: string;
@@ -221,13 +236,14 @@ export class SignalValidationError extends TaggedError("SignalValidationError")<
       issues,
       message: `Validation failed for signal "${signalName}": ${summarizeIssues(issues)}`,
     });
+    this.name = "SignalValidationError";
   }
 }
 
 /**
  * Thrown when update input or output validation fails
  */
-export class UpdateValidationError extends TaggedError("UpdateValidationError")<{
+export class UpdateValidationError extends TaggedError("@temporal-contract/UpdateValidationError")<{
   updateName: string;
   direction: "input" | "output";
   issues: ReadonlyArray<StandardSchemaV1.Issue>;
@@ -244,5 +260,6 @@ export class UpdateValidationError extends TaggedError("UpdateValidationError")<
       issues,
       message: `Validation failed for update "${updateName}" ${direction}: ${summarizeIssues(issues)}`,
     });
+    this.name = "UpdateValidationError";
   }
 }

@@ -594,6 +594,14 @@ class GatewayTimeout extends TaggedError("GatewayTimeout")<{
 > The worker's `ValidationError` subclasses are the exception — they still
 > extend Temporal's `ApplicationFailure` rather than `TaggedError`.
 
+> [!NOTE]
+> temporal-contract's own error classes namespace their tag with the package
+> scope — e.g. `_tag === "@temporal-contract/WorkflowExecutionNotFoundError"` —
+> so they never collide with a `_tag` from your own code or another library.
+> Their `.name` stays the bare class name (e.g. `"WorkflowExecutionNotFoundError"`)
+> for readable logs. When folding library errors, the `matchTags` keys carry the
+> prefix: `matchTags(result, { "@temporal-contract/WorkflowExecutionNotFoundError": ... })`.
+
 Because every tagged error carries a `_tag`, unthrown's `matchTags` folds a
 `Result` exhaustively by tag, with dedicated `Ok` and `Defect` channels:
 
