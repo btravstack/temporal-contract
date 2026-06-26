@@ -10,7 +10,7 @@ import {
   executeChild,
   startChild,
 } from "@temporalio/workflow";
-import { ResultAsync, type Result, ok, err } from "neverthrow";
+import { type AsyncResult, type Result, ok, err, isOk, isErr } from "unthrown";
 import {
   ChildWorkflowCancelledError,
   ChildWorkflowError,
@@ -36,13 +36,13 @@ export type TypedChildWorkflowOptions<
 };
 
 /**
- * Typed handle for a child workflow with neverthrow `ResultAsync` pattern.
+ * Typed handle for a child workflow with unthrown `AsyncResult` pattern.
  */
 export type TypedChildWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
   /**
-   * Get child workflow result with `ResultAsync` pattern.
+   * Get child workflow result with `AsyncResult` pattern.
    */
-  result: () => ResultAsync<
+  result: () => AsyncResult<
     ClientInferOutput<TWorkflow>,
     ChildWorkflowError | ChildWorkflowCancelledError
   >;
@@ -83,7 +83,7 @@ async function getAndValidateChildWorkflow<
       validatedInput: WorkerInferInput<TChildContract["workflows"][TChildWorkflowName]>;
       taskQueue: string;
     },
-    ChildWorkflowError
+    ChildWorkflowError | ChildWorkflowNotFoundError
   >
 > {
   const childDefinition = childContract.workflows[childWorkflowName];
@@ -125,7 +125,7 @@ function createTypedChildHandle<TChildWorkflow extends AnyWorkflowDefinition>(
 ): TypedChildWorkflowHandle<TChildWorkflow> {
   return {
     workflowId: handle.workflowId,
-    result: (): ResultAsync<
+    result: (): AsyncResult<
       ClientInferOutput<TChildWorkflow>,
       ChildWorkflowError | ChildWorkflowCancelledError
     > => {
@@ -139,14 +139,7 @@ function createTypedChildHandle<TChildWorkflow extends AnyWorkflowDefinition>(
           return err(classifyChildWorkflowError("result", error, childWorkflowName));
         }
       };
-      return makeResultAsync(
-        work,
-        (error) =>
-          new ChildWorkflowError(
-            `Child workflow execution failed: ${error instanceof Error ? error.message : String(error)}`,
-            error,
-          ),
-      );
+      return makeResultAsync(work);
     },
   };
 }
@@ -158,7 +151,7 @@ export function createStartChildWorkflow<
   childContract: TChildContract,
   childWorkflowName: TChildWorkflowName,
   options: TypedChildWorkflowOptions<TChildContract, TChildWorkflowName>,
-): ResultAsync<
+): AsyncResult<
   TypedChildWorkflowHandle<TChildContract["workflows"][TChildWorkflowName]>,
   ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError
 > {
@@ -172,8 +165,13 @@ export function createStartChildWorkflow<
       options.args,
     );
 
-    if (validationResult.isErr()) {
+    if (isErr(validationResult)) {
       return err(validationResult.error);
+    }
+    // `getAndValidateChildWorkflow` only ever builds ok/err; a defect would be
+    // a genuine bug — re-throw so it rides the defect channel.
+    if (!isOk(validationResult)) {
+      throw validationResult.cause;
     }
 
     const { definition: childDefinition, validatedInput, taskQueue } = validationResult.value;
@@ -193,14 +191,7 @@ export function createStartChildWorkflow<
       return err(classifyChildWorkflowError("startChild", error, String(childWorkflowName)));
     }
   };
-  return makeResultAsync(
-    work,
-    (error) =>
-      new ChildWorkflowError(
-        `Failed to start child workflow: ${error instanceof Error ? error.message : String(error)}`,
-        error,
-      ),
-  );
+  return makeResultAsync(work);
 }
 
 export function createExecuteChildWorkflow<
@@ -210,7 +201,7 @@ export function createExecuteChildWorkflow<
   childContract: TChildContract,
   childWorkflowName: TChildWorkflowName,
   options: TypedChildWorkflowOptions<TChildContract, TChildWorkflowName>,
-): ResultAsync<
+): AsyncResult<
   ClientInferOutput<TChildContract["workflows"][TChildWorkflowName]>,
   ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError
 > {
@@ -224,8 +215,11 @@ export function createExecuteChildWorkflow<
       options.args,
     );
 
-    if (validationResult.isErr()) {
+    if (isErr(validationResult)) {
       return err(validationResult.error);
+    }
+    if (!isOk(validationResult)) {
+      throw validationResult.cause;
     }
 
     const { definition: childDefinition, validatedInput, taskQueue } = validationResult.value;
@@ -244,8 +238,11 @@ export function createExecuteChildWorkflow<
         childWorkflowName,
       );
 
-      if (outputValidationResult.isErr()) {
+      if (isErr(outputValidationResult)) {
         return err(outputValidationResult.error);
+      }
+      if (!isOk(outputValidationResult)) {
+        throw outputValidationResult.cause;
       }
 
       return ok(outputValidationResult.value as Ok);
@@ -253,12 +250,5 @@ export function createExecuteChildWorkflow<
       return err(classifyChildWorkflowError("executeChild", error, String(childWorkflowName)));
     }
   };
-  return makeResultAsync(
-    work,
-    (error) =>
-      new ChildWorkflowError(
-        `Failed to execute child workflow: ${error instanceof Error ? error.message : String(error)}`,
-        error,
-      ),
-  );
+  return makeResultAsync(work);
 }

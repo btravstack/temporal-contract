@@ -58,7 +58,6 @@ catalog:
   arktype: 2.2.1
   knip: 6.16.1
   lefthook: 2.1.9
-  neverthrow: 8.2.0
   oxfmt: 0.54.0
   oxlint: 1.69.0
   pino: 10.3.1
@@ -71,6 +70,7 @@ catalog:
   typedoc: 0.28.19
   typedoc-plugin-markdown: 4.12.0
   typescript: 6.0.3
+  unthrown: 0.1.0
   valibot: 1.4.1
   vitest: 4.1.8
   zod: 4.4.3
@@ -84,3 +84,7 @@ allowBuilds:
   ssh2: true
 
 minimumReleaseAgeStrict: true
+# First-party btravstack package — the maturity delay guards against
+# third-party supply-chain risk, which does not apply to our own org's library.
+minimumReleaseAgeExclude:
+  - "unthrown"

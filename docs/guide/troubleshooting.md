@@ -174,7 +174,7 @@ Property 'transactionId' does not exist on type 'never'.
      processOrder: {
        processPayment: ({ customerId, amount }) => {
          console.log(customerId);  // Type-safe!
-         return okAsync({ transactionId: "tx-123" });
+         return ok({ transactionId: "tx-123" }).toAsync();
        },
      },
    }
@@ -366,7 +366,7 @@ Error: Activity task failed: ApplicationFailure
    ```typescript
    // ✅ Return proper error result
    processPayment: ({ customerId, amount }) =>
-     ResultAsync.fromPromise(paymentService.charge(customerId, amount), (e) =>
+     fromPromise(paymentService.charge(customerId, amount), (e) =>
        ApplicationFailure.create({
          type: "PAYMENT_FAILED",
          message: e instanceof Error ? e.message : "Payment failed",
@@ -429,7 +429,7 @@ Error: Cannot find module './workflows'
    - Ensure TypeScript compiles workflows
    - Check that output directory contains workflow files
 
-## Result / ResultAsync Pattern Issues
+## Result / AsyncResult Pattern Issues
 
 ### "Cannot read property 'match' of undefined"
 
@@ -439,9 +439,9 @@ Error: Cannot find module './workflows'
 TypeError: Cannot read property 'match' of undefined
 ```
 
-**Cause:** Activity returned `undefined` instead of a `ResultAsync`.
+**Cause:** Activity returned `undefined` instead of a `AsyncResult`.
 
-**Solution:** Always return a `ResultAsync` from activities:
+**Solution:** Always return a `AsyncResult` from activities:
 
 ```typescript
 // ❌ Returns undefined
@@ -450,9 +450,9 @@ processPayment: () => {
   // No return!
 };
 
-// ✅ Returns ResultAsync<T, E>
+// ✅ Returns AsyncResult<T, E>
 processPayment: ({ customerId, amount }) =>
-  ResultAsync.fromPromise(paymentService.charge(customerId, amount), (e) =>
+  fromPromise(paymentService.charge(customerId, amount), (e) =>
     ApplicationFailure.create({
       type: "PAYMENT_FAILED",
       message: e instanceof Error ? e.message : "Payment failed",
@@ -469,18 +469,24 @@ TypeError: Result.Ok is not a function
 ```
 
 **Cause:** Code is still using the old `@swan-io/boxed` API
-(`Result.Ok` / `Result.Error`) or importing from a package that no longer
-exists. The previous `@temporal-contract/boxed` package was removed in the
-neverthrow migration.
+(`Result.Ok` / `Result.Error`), the `neverthrow` API (`okAsync` /
+`errAsync` / `ResultAsync`), or importing from a package that no longer
+exists. The previous `@temporal-contract/boxed` package was removed when the
+library moved to `neverthrow`, and `neverthrow` was later replaced by
+`unthrown`.
 
-**Solution:** Use `neverthrow`:
+**Solution:** Use `unthrown` (note: there is no `okAsync` / `errAsync` —
+lift a sync `Result` with `.toAsync()`):
 
 ```typescript
 // ✅ For activities, workflows, and clients
-import { ResultAsync, ok, err, okAsync, errAsync } from "neverthrow";
+import { fromPromise, ok, err, isOk, isErr, isDefect, type AsyncResult } from "unthrown";
+
+// okAsync(value)  -> ok(value).toAsync()
+// errAsync(error) -> err(error).toAsync()
 ```
 
-See [Migrating to neverthrow](/guide/migrating-to-neverthrow) for the full
+See [Migrating from neverthrow](/guide/migrating-to-unthrown) for the full
 mapping.
 
 ## Performance Issues
@@ -499,12 +505,11 @@ mapping.
 
    ```typescript
    // ❌ Blocking operation
-   processOrder: ({ payload }) =>
-     ResultAsync.fromPromise(fetch("http://slow-api.com/process"), (e) => e);
+   processOrder: ({ payload }) => fromPromise(fetch("http://slow-api.com/process"), (e) => e);
 
    // ✅ Add timeouts and handle slow operations
    processOrder: ({ payload }) =>
-     ResultAsync.fromPromise(
+     fromPromise(
        Promise.race([
          fetch("http://api.com/process"),
          new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000)),

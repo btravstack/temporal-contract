@@ -1,13 +1,13 @@
 {
   "name": "@temporal-contract/worker",
   "version": "2.4.0",
-  "description": "Worker utilities with neverthrow Result/ResultAsync for implementing temporal-contract workflows and activities",
+  "description": "Worker utilities with unthrown Result/AsyncResult for implementing temporal-contract workflows and activities",
   "keywords": [
     "contract",
-    "neverthrow",
     "result",
     "temporal",
     "typescript",
+    "unthrown",
     "worker"
   ],
   "homepage": "https://github.com/btravstack/temporal-contract#readme",
@@ -82,11 +82,11 @@
     "@temporalio/workflow": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "neverthrow": "catalog:",
     "tsdown": "catalog:",
     "typedoc": "catalog:",
     "typedoc-plugin-markdown": "catalog:",
     "typescript": "catalog:",
+    "unthrown": "catalog:",
     "vitest": "catalog:",
     "zod": "catalog:"
   },
@@ -94,7 +94,7 @@
     "@temporalio/common": "^1",
     "@temporalio/worker": "^1",
     "@temporalio/workflow": "^1",
-    "neverthrow": "^8"
+    "unthrown": "^0.1"
   },
   "engines": {
     "node": ">=22.19.0"

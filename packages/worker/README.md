@@ -15,13 +15,13 @@ pnpm add @temporal-contract/worker @temporal-contract/contract @temporalio/workf
 ```typescript
 // activities.ts
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 
 export const activities = declareActivitiesHandler({
   contract: myContract,
   activities: {
     sendEmail: ({ to, body }) =>
-      ResultAsync.fromPromise(emailService.send({ to, body }), (error) =>
+      fromPromise(emailService.send({ to, body }), (error) =>
         ApplicationFailure.create({
           type: "EMAIL_FAILED",
           message: error instanceof Error ? error.message : "Failed to send email",
@@ -65,7 +65,7 @@ run().catch(console.error);
 
 ### Child Workflows
 
-Execute child workflows with type-safe `ResultAsync`. Supports both same-contract and cross-contract child workflows:
+Execute child workflows with type-safe `AsyncResult`. Supports both same-contract and cross-contract child workflows:
 
 ```typescript
 // workflows.ts

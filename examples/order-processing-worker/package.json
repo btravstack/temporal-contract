@@ -13,9 +13,9 @@
     "@temporal-contract/worker": "workspace:*",
     "@temporalio/worker": "catalog:",
     "@temporalio/workflow": "catalog:",
-    "neverthrow": "catalog:",
     "pino": "catalog:",
     "pino-pretty": "catalog:",
+    "unthrown": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {

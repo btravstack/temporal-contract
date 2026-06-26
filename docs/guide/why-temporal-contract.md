@@ -165,8 +165,9 @@ const result = await client.executeWorkflow("processOrder", {
 });
 
 result.match({
-  Ok: (output) => console.log("Success:", output),
-  Error: (error) => console.error("Validation failed:", error),
+  ok: (output) => console.log("Success:", output),
+  err: (error) => console.error("Validation failed:", error),
+  defect: (cause) => console.error("Unexpected failure:", cause),
 });
 ```
 

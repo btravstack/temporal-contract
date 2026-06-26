@@ -122,6 +122,6 @@ If the new package introduces a public concept agents should know about (a new e
 ## What NOT to do
 
 - **Don't add a root `.` entry to `exports`** unless the package is single-entry. Subpath-only is intentional for multi-entry packages.
-- **Don't put `neverthrow` (or any other type-bearing dep) in `dependencies`** — peer-dep, see [dependencies.md](./dependencies.md).
+- **Don't put `unthrown` (or any other type-bearing dep) in `dependencies`** — peer-dep, see [dependencies.md](./dependencies.md).
 - **Don't import from `@temporal-contract/<other>` via relative path.** Use the workspace-resolved package name even for sibling packages.
 - **Don't skip the changeset.** CI will pass without one, but the release will skip the package silently. Changesets are the only release mechanism.

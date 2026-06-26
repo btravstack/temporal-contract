@@ -1,13 +1,13 @@
 # Order Processing Example
 
-A complete e-commerce order processing workflow example using `Result` / `ResultAsync` from neverthrow.
+A complete e-commerce order processing workflow example using `Result` / `AsyncResult` from unthrown.
 
 ## Overview
 
 This example demonstrates:
 
 - **Separated contract package**: Contract is in its own package that can be shared
-- **Result / ResultAsync pattern**: Explicit error handling with type-safe errors
+- **Result / AsyncResult pattern**: Explicit error handling with type-safe errors
 - Order validation
 - Payment processing
 - Inventory management
@@ -50,7 +50,7 @@ examples/
 └── order-processing-worker/             # Worker/Client implementation
     ├── src/
     │   ├── application/
-    │   │   ├── activities.ts           # Activity implementations (ResultAsync)
+    │   │   ├── activities.ts           # Activity implementations (AsyncResult)
     │   │   ├── workflows.ts            # Workflow implementations
     │   │   ├── worker.ts               # Worker setup
     │   │   └── client.ts               # Client example
@@ -70,22 +70,22 @@ The contract is separated into its own package (`order-processing-contract`) whi
 - Provides full TypeScript type safety across all boundaries
 - Can be versioned and published independently
 
-### Result / ResultAsync Pattern
+### Result / AsyncResult Pattern
 
-This example demonstrates the neverthrow-based pattern:
+This example demonstrates the unthrown-based pattern:
 
-- **neverthrow** is used in activities, workflows, and clients — one library
+- **unthrown** is used in activities, workflows, and clients — one library
   covers every context
-- Activities return `ResultAsync<T, ApplicationFailure>` instead of throwing
+- Activities return `AsyncResult<T, ApplicationFailure>` instead of throwing
 - Child workflow calls return `Result<T, E>` for explicit error handling
 - Errors are part of the type signature
-- Enables railway-oriented programming via `.andThen` / `.map` / `.mapErr`
+- Enables railway-oriented programming via `.flatMap` / `.map` / `.mapErr`
 
 ### Worker Application
 
 The worker application imports the contract package and implements:
 
-- Activities that match the contract signatures with `ResultAsync`
+- Activities that match the contract signatures with `AsyncResult`
 - Workflows that use the contract's type definitions
 - Worker setup that registers the implementations
 
@@ -124,7 +124,7 @@ pnpm dev  # Terminal 2 - Run client
 ## Benefits of This Architecture
 
 1. **Contract Reusability**: The contract can be imported by multiple applications
-2. **Type Safety**: Full TypeScript support with `Result` / `ResultAsync` types
+2. **Type Safety**: Full TypeScript support with `Result` / `AsyncResult` types
 3. **Explicit Error Handling**: Errors are part of the type system
 4. **Independent Deployment**: Client and worker can be in different repositories
 5. **Clear Separation**: Contract definition is separate from implementation

@@ -1,20 +1,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { summarizeIssues } from "@temporal-contract/contract";
 import { ApplicationFailure } from "@temporalio/common";
-
-/**
- * Base error class for worker errors
- */
-abstract class WorkerError extends Error {
-  protected constructor(message: string, cause?: unknown) {
-    super(message, { cause });
-    this.name = "WorkerError";
-    // Maintains proper stack trace for where our error was thrown (only available on V8)
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, this.constructor);
-    }
-  }
-}
+import { TaggedError } from "unthrown";
 
 /**
  * Base class for the contract's runtime validation failures — workflow and
@@ -74,16 +61,20 @@ export abstract class ValidationError extends ApplicationFailure {
 /**
  * Error thrown when an activity definition is not found in the contract
  */
-export class ActivityDefinitionNotFoundError extends WorkerError {
-  constructor(
-    public readonly activityName: string,
-    public readonly availableDefinitions: readonly string[] = [],
-  ) {
+export class ActivityDefinitionNotFoundError extends TaggedError(
+  "ActivityDefinitionNotFoundError",
+)<{
+  activityName: string;
+  availableDefinitions: readonly string[];
+  message: string;
+}> {
+  constructor(activityName: string, availableDefinitions: readonly string[] = []) {
     const available = availableDefinitions.length > 0 ? availableDefinitions.join(", ") : "none";
-    super(
-      `Activity definition not found for: "${activityName}". Available activities: ${available}`,
-    );
-    this.name = "ActivityDefinitionNotFoundError";
+    super({
+      activityName,
+      availableDefinitions,
+      message: `Activity definition not found for: "${activityName}". Available activities: ${available}`,
+    });
   }
 }
 
@@ -243,14 +234,18 @@ export class UpdateOutputValidationError extends ValidationError {
 /**
  * Error thrown when a child workflow is not found in the contract
  */
-export class ChildWorkflowNotFoundError extends WorkerError {
-  constructor(
-    public readonly workflowName: string,
-    public readonly availableWorkflows: readonly string[] = [],
-  ) {
+export class ChildWorkflowNotFoundError extends TaggedError("ChildWorkflowNotFoundError")<{
+  workflowName: string;
+  availableWorkflows: readonly string[];
+  message: string;
+}> {
+  constructor(workflowName: string, availableWorkflows: readonly string[] = []) {
     const available = availableWorkflows.length > 0 ? availableWorkflows.join(", ") : "none";
-    super(`Child workflow not found: "${workflowName}". Available workflows: ${available}`);
-    this.name = "ChildWorkflowNotFoundError";
+    super({
+      workflowName,
+      availableWorkflows,
+      message: `Child workflow not found: "${workflowName}". Available workflows: ${available}`,
+    });
   }
 }
 
@@ -263,92 +258,57 @@ export class ChildWorkflowNotFoundError extends WorkerError {
  * mirroring the client-side `WorkflowFailedError.cause` behavior, so callers
  * can branch on the failure category in one step instead of unwrapping twice.
  */
-export class ChildWorkflowError extends WorkerError {
+export class ChildWorkflowError extends TaggedError("ChildWorkflowError")<{
+  message: string;
+  cause?: unknown;
+}> {
   constructor(message: string, cause?: unknown) {
-    super(message, cause);
-    this.name = "ChildWorkflowError";
+    super({ message, cause });
   }
 }
 
 /**
- * Discriminated variant of {@link ChildWorkflowError} surfaced when a child
- * workflow operation (start, execute, or wait-for-result) was cancelled —
- * either because the parent workflow itself was cancelled, the child was
- * explicitly cancelled, or its enclosing cancellation scope was. Detected via
- * `@temporalio/workflow`'s `isCancellation(...)`, which sees through nested
- * `ChildWorkflowFailure` / `CancelledFailure` chains.
+ * Discriminated variant surfaced when a child workflow operation (start,
+ * execute, or wait-for-result) was cancelled — either because the parent
+ * workflow itself was cancelled, the child was explicitly cancelled, or its
+ * enclosing cancellation scope was. Detected via `@temporalio/workflow`'s
+ * `isCancellation(...)`, which sees through nested `ChildWorkflowFailure` /
+ * `CancelledFailure` chains.
  *
- * Extends {@link ChildWorkflowError} so existing `instanceof ChildWorkflowError`
- * checks still match cancellation, while `instanceof ChildWorkflowCancelledError`
- * lets call sites narrow further when they need to branch on cancellation
- * explicitly without inspecting `error.cause` against a Temporal SDK class —
- * the worker-side analogue of the client-side cause-forwarding pattern.
+ * A sibling of {@link ChildWorkflowError} rather than a subclass: both are
+ * distinct {@link TaggedError}s, so call sites discriminate on the `_tag`
+ * (or `instanceof ChildWorkflowCancelledError`) instead of relying on an
+ * `instanceof ChildWorkflowError` that also matches cancellation. `matchTags`
+ * folds the `ChildWorkflowError | ChildWorkflowCancelledError` union
+ * exhaustively.
  */
-export class ChildWorkflowCancelledError extends ChildWorkflowError {
-  constructor(
-    public readonly workflowName: string,
-    cause?: unknown,
-  ) {
-    super(`Child workflow "${workflowName}" was cancelled`, cause);
-    this.name = "ChildWorkflowCancelledError";
+export class ChildWorkflowCancelledError extends TaggedError("ChildWorkflowCancelledError")<{
+  workflowName: string;
+  cause?: unknown;
+  message: string;
+}> {
+  constructor(workflowName: string, cause?: unknown) {
+    super({ workflowName, cause, message: `Child workflow "${workflowName}" was cancelled` });
   }
 }
 
 /**
- * Error surfaced in the `err(...)` branch of a `ResultAsync` when a typed
+ * Error surfaced in the `err(...)` branch of an `AsyncResult` when a typed
  * cancellation scope is cancelled via Temporal's cancellation propagation.
  * Returned by both `context.cancellableScope` (when the workflow or an
  * ancestor scope cancels) and `context.nonCancellableScope` (when
  * cancellation is raised from inside the scope). Distinct from arbitrary
  * thrown errors so call sites can branch on cancellation explicitly.
  *
- * Non-cancellation errors thrown inside a scope surface as a sibling
- * {@link WorkflowScopeError} on the same `err(...)` channel, so callers can
- * use `instanceof` to discriminate without falling back to `try/catch`.
+ * Non-cancellation errors thrown inside a scope are *unmodeled* failures: they
+ * surface on the scope's `defect` channel (re-thrown at the edge / inspectable
+ * via `result.isDefect()` and `result.cause`), not as a typed `err(...)`.
  */
-export class WorkflowCancelledError extends WorkerError {
+export class WorkflowCancelledError extends TaggedError("WorkflowCancelledError")<{
+  cause?: unknown;
+  message: string;
+}> {
   constructor(cause?: unknown) {
-    super("Workflow cancellation scope was cancelled", cause);
-    this.name = "WorkflowCancelledError";
-  }
-}
-
-/**
- * Error surfaced in the `err(...)` branch of a `ResultAsync` when the
- * function passed to `cancellableScope` / `nonCancellableScope` throws a
- * non-cancellation error.
- *
- * The original error is preserved on `cause` so call sites can introspect
- * it without losing identity:
- *
- * @example
- * ```ts
- * const result = await context.cancellableScope(async () => {
- *   return await context.activities.processStep(args);
- * });
- *
- * if (result.isErr()) {
- *   if (result.error instanceof WorkflowCancelledError) {
- *     // graceful cancellation
- *   } else if (result.error instanceof WorkflowScopeError) {
- *     // domain error — `result.error.cause` is the original throwable
- *   }
- * }
- * ```
- *
- * Introduced so the scope helpers route every failure through neverthrow's
- * railway. Previously, non-cancellation errors were re-thrown out of the
- * helper, which became a `ResultAsync` rejection (`new ResultAsync(promise)`
- * does not catch) — they leaked as unhandled rejections rather than
- * surfacing on the typed error channel callers actually inspect.
- */
-export class WorkflowScopeError extends WorkerError {
-  constructor(cause: unknown) {
-    const message =
-      cause instanceof Error
-        ? `Workflow cancellation scope caught a non-cancellation error: ${cause.message}`
-        : "Workflow cancellation scope caught a non-cancellation error";
-    super(message, cause);
-    this.name = "WorkflowScopeError";
+    super({ cause, message: "Workflow cancellation scope was cancelled" });
   }
 }

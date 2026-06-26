@@ -120,14 +120,14 @@ Create a single activities handler in your worker application:
 ```typescript
 // worker-application/src/activities/index.ts
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 import { orderContract } from "contract-package";
 
 export const activities = declareActivitiesHandler({
   contract: orderContract,
   activities: {
     sendEmail: ({ to, body }) =>
-      ResultAsync.fromPromise(emailService.send({ to, body }), (error) =>
+      fromPromise(emailService.send({ to, body }), (error) =>
         ApplicationFailure.create({
           type: "EMAIL_FAILED",
           message: error instanceof Error ? error.message : "Failed to send email",
@@ -135,7 +135,7 @@ export const activities = declareActivitiesHandler({
         }),
       ).map(() => ({ sent: true })),
     processPayment: ({ amount }) =>
-      ResultAsync.fromPromise(paymentGateway.charge(amount), (error) =>
+      fromPromise(paymentGateway.charge(amount), (error) =>
         ApplicationFailure.create({
           type: "PAYMENT_FAILED",
           message: error instanceof Error ? error.message : "Payment failed",
@@ -217,23 +217,25 @@ const connection = await Connection.connect({
 const temporalClient = new Client({ connection, namespace: "default" });
 const client = TypedClient.create(orderContract, temporalClient);
 
-// Start workflow with full type safety (returns ResultAsync<TypedWorkflowHandle, ...>)
+// Start workflow with full type safety (returns AsyncResult<TypedWorkflowHandle, ...>)
 const handleResult = await client.startWorkflow("processOrder", {
   workflowId: "order-123",
   args: { orderId: "ORD-123" }, // ✅ Type-checked!
 });
 
 // Unwrap the Result and wait for the workflow result
-handleResult.match(
-  async (handle) => {
+handleResult.match({
+  ok: async (handle) => {
     const result = await handle.result();
-    result.match(
-      (output) => console.log(output.success), // ✅ TypeScript knows the shape
-      (error) => console.error("Workflow failed:", error),
-    );
+    result.match({
+      ok: (output) => console.log(output.success), // ✅ TypeScript knows the shape
+      err: (error) => console.error("Workflow failed:", error),
+      defect: (cause) => console.error("Unexpected failure:", cause),
+    });
   },
-  (error) => console.error("Failed to start workflow:", error),
-);
+  err: (error) => console.error("Failed to start workflow:", error),
+  defect: (cause) => console.error("Unexpected failure:", cause),
+});
 ```
 
 ## Multiple Workflows
@@ -273,14 +275,14 @@ const contract = defineContract({
   },
 });
 
-// Activities handler must match — must return ResultAsync<T, ApplicationFailure>
+// Activities handler must match — must return AsyncResult<T, ApplicationFailure>
 declareActivitiesHandler({
   contract,
   activities: {
     processPayment: ({ amount }) => {
       // ✅ amount is number
-      return okAsync({ transactionId: "TXN-123" });
-      // ✅ Must return ResultAsync<{ transactionId: string }, ApplicationFailure>
+      return ok({ transactionId: "TXN-123" }).toAsync();
+      // ✅ Must return AsyncResult<{ transactionId: string }, ApplicationFailure>
     },
   },
 });
@@ -368,22 +370,22 @@ Clear separation of concerns:
 
 ```typescript
 // activities/shared.ts
-import { okAsync } from "neverthrow";
+import { ok } from "unthrown";
 
 export const sharedActivities = {
-  sendEmail: ({ to, body }) => okAsync({ sent: true }),
-  logEvent: ({ event }) => okAsync({ logged: true }),
+  sendEmail: ({ to, body }) => ok({ sent: true }).toAsync(),
+  logEvent: ({ event }) => ok({ logged: true }).toAsync(),
 };
 
 // activities/order.ts
-import { okAsync } from "neverthrow";
+import { ok } from "unthrown";
 import { sharedActivities } from "./shared";
 
 export const orderActivities = declareActivitiesHandler({
   contract: orderContract,
   activities: {
     ...sharedActivities,
-    processPayment: ({ amount }) => okAsync({ transactionId: "TXN" }),
+    processPayment: ({ amount }) => ok({ transactionId: "TXN" }).toAsync(),
   },
 });
 ```
@@ -392,14 +394,14 @@ export const orderActivities = declareActivitiesHandler({
 
 ```typescript
 // activities/index.ts
-import { okAsync } from "neverthrow";
+import { ok } from "unthrown";
 
 const baseActivities = {
-  validateInput: ({ data }) => okAsync({ valid: true }),
+  validateInput: ({ data }) => ok({ valid: true }).toAsync(),
 };
 
 const paymentActivities = {
-  processPayment: ({ amount }) => okAsync({ transactionId: "TXN" }),
+  processPayment: ({ amount }) => ok({ transactionId: "TXN" }).toAsync(),
 };
 
 export const activities = declareActivitiesHandler({

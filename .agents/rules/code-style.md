@@ -32,9 +32,11 @@ ApplicationFailure.create({
 
 ## Error Handling
 
-- Use neverthrow's `Result<T, E>` / `ResultAsync<T, E>` instead of throwing exceptions
-- Activities return `ResultAsync<T, ApplicationFailure>`
-- Client methods return `ResultAsync<T, E>` with specific error types
+- Use unthrown's `Result<T, E>` / `AsyncResult<T, E>` instead of throwing exceptions
+- Activities return `AsyncResult<T, ApplicationFailure>`
+- Client methods return `AsyncResult<T, E>` with specific error types
+- Narrow results with the **free functions** `isOk(r)` / `isErr(r)` / `isDefect(r)` — the `r.isOk()` methods return plain `boolean` and do not narrow `.value` / `.error` / `.cause`
+- An unanticipated throw surfaces on unthrown's third **`defect`** channel, not as a typed `err`; build error classes with `TaggedError("Name")<{ ...payload }>`
 - Wrap technical exceptions in `ApplicationFailure` (re-exported from `@temporal-contract/worker/activity`) with a `type` field; set `nonRetryable: true` for permanent failures
 
 ## Module System

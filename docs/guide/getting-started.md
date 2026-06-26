@@ -33,17 +33,17 @@ Install the required packages:
 ::: code-group
 
 ```bash [pnpm]
-pnpm add @temporal-contract/contract @temporal-contract/worker @temporal-contract/client neverthrow
+pnpm add @temporal-contract/contract @temporal-contract/worker @temporal-contract/client unthrown
 pnpm add zod @temporalio/client @temporalio/worker @temporalio/workflow
 ```
 
 ```bash [npm]
-npm install @temporal-contract/contract @temporal-contract/worker @temporal-contract/client neverthrow
+npm install @temporal-contract/contract @temporal-contract/worker @temporal-contract/client unthrown
 npm install zod @temporalio/client @temporalio/worker @temporalio/workflow
 ```
 
 ```bash [yarn]
-yarn add @temporal-contract/contract @temporal-contract/worker @temporal-contract/client neverthrow
+yarn add @temporal-contract/contract @temporal-contract/worker @temporal-contract/client unthrown
 yarn add zod @temporalio/client @temporalio/worker @temporalio/workflow
 ```
 
@@ -123,7 +123,7 @@ Implement your activities and workflows with full type safety:
 ```typescript
 // activities.ts
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { ResultAsync } from "neverthrow";
+import { fromPromise } from "unthrown";
 import { orderContract } from "./contract";
 
 export const activities = declareActivitiesHandler({
@@ -131,7 +131,7 @@ export const activities = declareActivitiesHandler({
   activities: {
     sendEmail: ({ to, subject, body }) =>
       // Full type safety - parameters are automatically typed!
-      ResultAsync.fromPromise(emailService.send({ to, subject, body }), (error) =>
+      fromPromise(emailService.send({ to, subject, body }), (error) =>
         ApplicationFailure.create({
           type: "EMAIL_FAILED",
           message: error instanceof Error ? error.message : "Failed to send email",
@@ -140,7 +140,7 @@ export const activities = declareActivitiesHandler({
       ).map(() => ({ sent: true })),
     processPayment: ({ customerId, amount }) =>
       // TypeScript knows the exact types
-      ResultAsync.fromPromise(paymentGateway.charge(customerId, amount), (error) =>
+      fromPromise(paymentGateway.charge(customerId, amount), (error) =>
         ApplicationFailure.create({
           type: "PAYMENT_FAILED",
           message: error instanceof Error ? error.message : "Payment failed",
@@ -214,7 +214,7 @@ const connection = await Connection.connect({
 const temporalClient = new Client({ connection });
 const client = TypedClient.create(orderContract, temporalClient);
 
-// Fully typed workflow execution with Result/ResultAsync pattern
+// Fully typed workflow execution with Result/AsyncResult pattern
 const resultAsync = client.executeWorkflow("processOrder", {
   workflowId: "order-123",
   args: { orderId: "ORD-123", customerId: "CUST-456" },
@@ -222,14 +222,17 @@ const resultAsync = client.executeWorkflow("processOrder", {
 
 const result = await resultAsync;
 
-result.match(
-  (output) => {
+result.match({
+  ok: (output) => {
     console.log(output.status); // 'success' | 'failed' — fully typed!
   },
-  (error) => {
+  err: (error) => {
     console.error("Workflow failed:", error);
   },
-);
+  defect: (cause) => {
+    console.error("Unexpected failure:", cause);
+  },
+});
 ```
 
 ## What's Next?

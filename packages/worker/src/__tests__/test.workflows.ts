@@ -1,3 +1,4 @@
+import { isOk, isErr } from "unthrown";
 import { testContract } from "./test.contract.js";
 import { declareWorkflow } from "../workflow.js";
 import { sleep } from "@temporalio/workflow";
@@ -114,10 +115,12 @@ export const parentWorkflow = declareWorkflow({
         args: { id: i },
       });
 
-      if (childResult.isOk()) {
+      if (isOk(childResult)) {
         results.push(childResult.value.message);
-      } else {
+      } else if (isErr(childResult)) {
         results.push(`Error: ${childResult.error.message}`);
+      } else {
+        results.push(`Defect: ${String(childResult.cause)}`);
       }
     }
 

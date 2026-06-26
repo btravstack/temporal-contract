@@ -104,6 +104,7 @@ export default withMermaid(
             items: [
               { text: "Result Pattern", link: "/guide/result-pattern" },
               { text: "Migrating from @swan-io/boxed", link: "/guide/migrating-to-neverthrow" },
+              { text: "Migrating from neverthrow", link: "/guide/migrating-to-unthrown" },
               { text: "Worker Implementation", link: "/guide/worker-implementation" },
               { text: "Entry Points Architecture", link: "/guide/entry-points" },
               { text: "Activity Handler Types", link: "/guide/activity-handlers" },

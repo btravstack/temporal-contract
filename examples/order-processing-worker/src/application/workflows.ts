@@ -5,7 +5,7 @@ import { orderProcessingContract } from "@temporal-contract/sample-order-process
 /**
  * Process Order Workflow Implementation
  *
- * - Activities use neverthrow's `ResultAsync` in their implementation
+ * - Activities use unthrown's `AsyncResult` in their implementation
  *   (domain + infrastructure).
  * - Workflow checks activity results and returns appropriate status.
  * - No exceptions thrown — pure functional style with explicit return values.
