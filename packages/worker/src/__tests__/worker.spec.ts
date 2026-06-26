@@ -135,7 +135,7 @@ describe("Worker Package - Integration Tests", () => {
       });
 
       // THEN
-      expect(isOk(result)).toBe(true);
+      expect(result).toBeOk();
       if (isOk(result)) {
         expect(result.value).toEqual({
           result: "Processed: test-data",
@@ -156,14 +156,14 @@ describe("Worker Package - Integration Tests", () => {
       });
 
       // THEN
-      expect(isOk(handleResult)).toBe(true);
+      expect(handleResult).toBeOk();
       if (!isOk(handleResult)) throw new Error("Expected Ok result");
 
       const handle = handleResult.value;
       expect(handle.workflowId).toBe(workflowId);
 
       const result = await handle.result();
-      expect(isOk(result)).toBe(true);
+      expect(result).toBeOk();
       if (isOk(result)) {
         expect(result.value).toEqual({
           result: "Processed: async-test",
@@ -185,12 +185,12 @@ describe("Worker Package - Integration Tests", () => {
       const handleResult = await client.getHandle("simpleWorkflow", workflowId);
 
       // THEN
-      expect(isOk(handleResult)).toBe(true);
+      expect(handleResult).toBeOk();
       if (!isOk(handleResult)) throw new Error("Expected Ok result");
 
       const handle = handleResult.value;
       const result = await handle.result();
-      expect(isOk(result)).toBe(true);
+      expect(result).toBeOk();
       if (isOk(result)) {
         expect(result.value).toEqual({
           result: "Processed: get-handle-test",
@@ -214,7 +214,7 @@ describe("Worker Package - Integration Tests", () => {
       });
 
       // THEN
-      expect(isOk(result)).toBe(true);
+      expect(result).toBeOk();
       if (isOk(result)) {
         expect(result.value).toEqual({
           orderId: "ORD-123",
@@ -243,7 +243,7 @@ describe("Worker Package - Integration Tests", () => {
       });
 
       // THEN
-      expect(isOk(result)).toBe(true);
+      expect(result).toBeOk();
       if (isOk(result)) {
         expect(result.value).toEqual({
           orderId: "INVALID-123",
@@ -267,7 +267,7 @@ describe("Worker Package - Integration Tests", () => {
       });
 
       // THEN
-      expect(isOk(result)).toBe(true);
+      expect(result).toBeOk();
       if (isOk(result)) {
         expect(result.value).toEqual({
           orderId: "ORD-456",
@@ -292,7 +292,7 @@ describe("Worker Package - Integration Tests", () => {
         args: invalidInput,
       });
 
-      expect(isErr(execution)).toBe(true);
+      expect(execution).toBeErr();
       if (isErr(execution)) {
         expect(execution.error).toBeInstanceOf(WorkflowValidationError);
       }
@@ -315,7 +315,7 @@ describe("Worker Package - Integration Tests", () => {
       });
 
       // THEN - Should succeed with proper validation
-      expect(isOk(result)).toBe(true);
+      expect(result).toBeOk();
     });
   });
 
@@ -371,7 +371,7 @@ describe("Worker Package - Integration Tests", () => {
       });
 
       // THEN
-      expect(isOk(result)).toBe(true);
+      expect(result).toBeOk();
       if (isOk(result)) {
         expect(result.value).toEqual({
           results: ["Child 0 completed", "Child 1 completed", "Child 2 completed"],
@@ -398,7 +398,7 @@ describe("Worker Package - Integration Tests", () => {
         args: { initialValue: 10 },
       });
 
-      expect(isOk(handleResult)).toBe(true);
+      expect(handleResult).toBeOk();
       if (!isOk(handleResult)) throw new Error("Expected Ok result");
       const handle = handleResult.value;
 
@@ -408,7 +408,7 @@ describe("Worker Package - Integration Tests", () => {
 
       // THEN - Workflow should complete with updated value
       const result = await handle.result();
-      expect(isOk(result)).toBe(true);
+      expect(result).toBeOk();
       if (isOk(result)) {
         expect(result.value).toEqual({
           finalValue: 18, // 10 + 5 + 3
@@ -424,7 +424,7 @@ describe("Worker Package - Integration Tests", () => {
         args: { initialValue: 42 },
       });
 
-      expect(isOk(handleResult)).toBe(true);
+      expect(handleResult).toBeOk();
       if (!isOk(handleResult)) throw new Error("Expected Ok result");
       const handle = handleResult.value;
 
@@ -432,7 +432,7 @@ describe("Worker Package - Integration Tests", () => {
       const queryResult = await handle.queries.getCurrentValue({});
 
       // THEN - Should return current value
-      expect(isOk(queryResult)).toBe(true);
+      expect(queryResult).toBeOk();
       if (isOk(queryResult)) {
         expect(queryResult.value).toEqual({
           value: 42,
@@ -451,7 +451,7 @@ describe("Worker Package - Integration Tests", () => {
         args: { initialValue: 5 },
       });
 
-      expect(isOk(handleResult)).toBe(true);
+      expect(handleResult).toBeOk();
       if (!isOk(handleResult)) throw new Error("Expected Ok result");
       const handle = handleResult.value;
 
@@ -459,7 +459,7 @@ describe("Worker Package - Integration Tests", () => {
       const updateResult = await handle.updates.multiply({ factor: 3 });
 
       // THEN - Update should return the new value
-      expect(isOk(updateResult)).toBe(true);
+      expect(updateResult).toBeOk();
       if (isOk(updateResult)) {
         expect(updateResult.value).toEqual({
           newValue: 15, // 5 * 3
@@ -468,7 +468,7 @@ describe("Worker Package - Integration Tests", () => {
 
       // Workflow should complete with the multiplied value
       const result = await handle.result();
-      expect(isOk(result)).toBe(true);
+      expect(result).toBeOk();
       if (isOk(result)) {
         expect(result.value).toEqual({
           finalValue: 15,
@@ -486,7 +486,7 @@ describe("Worker Package - Integration Tests", () => {
         args: { value: "describe-me" },
       });
 
-      expect(isOk(handleResult)).toBe(true);
+      expect(handleResult).toBeOk();
       if (!isOk(handleResult)) throw new Error("Expected Ok result");
       const handle = handleResult.value;
 
@@ -494,7 +494,7 @@ describe("Worker Package - Integration Tests", () => {
       const describeResult = await handle.describe();
 
       // THEN
-      expect(isOk(describeResult)).toBe(true);
+      expect(describeResult).toBeOk();
       if (isOk(describeResult)) {
         expect(describeResult.value).toEqual(
           expect.objectContaining({
@@ -523,7 +523,7 @@ describe("Worker Package - Integration Tests", () => {
       // THEN — at the workflow boundary Temporal wraps the activity's
       // ApplicationFailure in an ActivityFailure (cause is the original
       // ApplicationFailure with the type/message/details preserved).
-      expect(isErr(result)).toBe(true);
+      expect(result).toBeErr();
       if (!isErr(result)) throw new Error("Expected error result");
       const error = result.error;
       expect(error.message).toMatch(/failableActivity failed/);

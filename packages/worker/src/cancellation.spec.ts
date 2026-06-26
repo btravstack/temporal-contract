@@ -45,7 +45,7 @@ const { WorkflowCancelledError } = await import("./errors.js");
 describe("cancellableScope", () => {
   it("returns Result.Ok with the resolved value on success", async () => {
     const result = await cancellableScope(async () => 42);
-    expect(isOk(result)).toBe(true);
+    expect(result).toBeOk();
     if (isOk(result)) {
       expect(result.value).toBe(42);
     }
@@ -61,7 +61,7 @@ describe("cancellableScope", () => {
     const result = await cancellableScope(async () => {
       throw new Error(CANCEL_MARKER);
     });
-    expect(isErr(result)).toBe(true);
+    expect(result).toBeErr();
     if (isErr(result)) {
       expect(result.error).toBeInstanceOf(WorkflowCancelledError);
       // Cause is preserved so debug tooling can see the underlying failure.
@@ -77,7 +77,7 @@ describe("cancellableScope", () => {
     const result = await cancellableScope(async () => {
       throw original;
     });
-    expect(isDefect(result)).toBe(true);
+    expect(result).toBeDefect();
     if (isDefect(result)) {
       expect(result.cause).toBe(original);
     }
@@ -91,7 +91,7 @@ describe("cancellableScope", () => {
     const result = await cancellableScope(() => {
       throw original;
     });
-    expect(isDefect(result)).toBe(true);
+    expect(result).toBeDefect();
     if (isDefect(result)) {
       expect(result.cause).toBe(original);
     }
@@ -101,7 +101,7 @@ describe("cancellableScope", () => {
 describe("nonCancellableScope", () => {
   it("returns Result.Ok with the resolved value on success", async () => {
     const result = await nonCancellableScope(async () => "released");
-    expect(isOk(result)).toBe(true);
+    expect(result).toBeOk();
     if (isOk(result)) {
       expect(result.value).toBe("released");
     }
@@ -120,7 +120,7 @@ describe("nonCancellableScope", () => {
     const result = await nonCancellableScope(async () => {
       throw new Error(CANCEL_MARKER);
     });
-    expect(isErr(result)).toBe(true);
+    expect(result).toBeErr();
     if (isErr(result)) {
       expect(result.error).toBeInstanceOf(WorkflowCancelledError);
     }
@@ -131,7 +131,7 @@ describe("nonCancellableScope", () => {
     const result = await nonCancellableScope(async () => {
       throw original;
     });
-    expect(isDefect(result)).toBe(true);
+    expect(result).toBeDefect();
     if (isDefect(result)) {
       expect(result.cause).toBe(original);
     }
@@ -142,7 +142,7 @@ describe("nonCancellableScope", () => {
     const result = await nonCancellableScope(() => {
       throw original;
     });
-    expect(isDefect(result)).toBe(true);
+    expect(result).toBeDefect();
     if (isDefect(result)) {
       expect(result.cause).toBe(original);
     }
@@ -155,7 +155,7 @@ describe("scope helpers accept synchronous callbacks", () => {
   // so workflows mutating purely-local state don't have to write `async () =>`.
   it("cancellableScope wraps a sync return as Result.Ok", async () => {
     const result = await cancellableScope(() => "sync-ok");
-    expect(isOk(result)).toBe(true);
+    expect(result).toBeOk();
     if (isOk(result)) {
       expect(result.value).toBe("sync-ok");
     }
@@ -163,7 +163,7 @@ describe("scope helpers accept synchronous callbacks", () => {
 
   it("nonCancellableScope wraps a sync return as Result.Ok", async () => {
     const result = await nonCancellableScope(() => 7);
-    expect(isOk(result)).toBe(true);
+    expect(result).toBeOk();
     if (isOk(result)) {
       expect(result.value).toBe(7);
     }

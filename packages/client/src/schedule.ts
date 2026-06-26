@@ -8,11 +8,11 @@ import type {
   ScheduleSpec,
 } from "@temporalio/client";
 import type { ContractDefinition } from "@temporal-contract/contract";
-import { type AsyncResult, type Result, ok, err, isOk, isErr, fromPromise } from "unthrown";
+import { type AsyncResult, type Result, ok, err, isErr, fromPromise } from "unthrown";
 import type { TypedSearchAttributeMap } from "./client.js";
 import type { ClientInferInput } from "./types.js";
 import { RuntimeClientError, WorkflowNotFoundError, WorkflowValidationError } from "./errors.js";
-import { makeAsyncResult, toTypedSearchAttributes } from "./internal.js";
+import { assertNoDefect, makeAsyncResult, toTypedSearchAttributes } from "./internal.js";
 
 /**
  * Workflow-action–level overrides forwarded to Temporal's
@@ -151,10 +151,10 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
         workflowName,
         options.searchAttributes as Record<string, unknown> | undefined,
       );
+      // `toTypedSearchAttributes` only ever builds ok/err; assert away the
+      // impossible defect so `.error` / `.value` narrow cleanly.
+      assertNoDefect(searchAttributesResult);
       if (isErr(searchAttributesResult)) return err(searchAttributesResult.error);
-      // `toTypedSearchAttributes` only ever builds ok/err; a defect would be a
-      // genuine bug — re-throw so it rides the defect channel.
-      if (!isOk(searchAttributesResult)) throw searchAttributesResult.cause;
       const typedSearchAttributes = searchAttributesResult.value;
 
       try {

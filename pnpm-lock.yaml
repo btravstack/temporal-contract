@@ -33,6 +33,9 @@ catalogs:
     '@types/node':
       specifier: 24.13.2
       version: 24.13.2
+    '@unthrown/vitest':
+      specifier: 0.1.0
+      version: 0.1.0
     '@vitest/coverage-v8':
       specifier: 4.1.8
       version: 4.1.8
@@ -60,9 +63,6 @@ catalogs:
     testcontainers:
       specifier: 12.0.3
       version: 12.0.3
-    ts-pattern:
-      specifier: 5.9.0
-      version: 5.9.0
     tsdown:
       specifier: 0.22.3
       version: 0.22.3
@@ -179,9 +179,6 @@ importers:
       pino-pretty:
         specifier: 'catalog:'
         version: 13.1.3
-      ts-pattern:
-        specifier: 'catalog:'
-        version: 5.9.0
       unthrown:
         specifier: 'catalog:'
         version: 0.1.0
@@ -266,6 +263,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.2
+      '@unthrown/vitest':
+        specifier: 'catalog:'
+        version: 0.1.0(vitest@4.1.8)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.8(vitest@4.1.8)
@@ -312,6 +312,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.2
+      '@unthrown/vitest':
+        specifier: 'catalog:'
+        version: 0.1.0(vitest@4.1.8)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.8(vitest@4.1.8)
@@ -352,6 +355,9 @@ importers:
       '@temporal-contract/typedoc':
         specifier: workspace:*
         version: link:../../tools/typedoc
+      '@unthrown/vitest':
+        specifier: 'catalog:'
+        version: 0.1.0(vitest@4.1.8)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.8(vitest@4.1.8)
@@ -453,6 +459,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.2
+      '@unthrown/vitest':
+        specifier: 'catalog:'
+        version: 0.1.0(vitest@4.1.8)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.8(vitest@4.1.8)
@@ -2543,6 +2552,12 @@ packages:
 
   '@ungap/structured-clone@1.3.1':
     resolution: {integrity: sha512-mUFwbeTqrVgDQxFveS+df2yfap6iuP20NAKAsBt5jDEoOTDew+zwLAOilHCeQJOVSvmgCX4ogqIrA0mnyr08yQ==}
+
+  '@unthrown/vitest@0.1.0':
+    resolution: {integrity: sha512-RaNWnzdNaxrxKqlH4culj46fqrmSxZC+YltxwLnFM4aUbIM1AcE/F2ed19kd39BLu2bq7mBHDdJb/X3+/40ASw==}
+    engines: {node: '>=22.19'}
+    peerDependencies:
+      vitest: ^4
 
   '@upsetjs/venn.js@2.0.0':
     resolution: {integrity: sha512-WbBhLrooyePuQ1VZxrJjtLvTc4NVfpOyKx0sKqioq9bX1C1m7Jgykkn8gLrtwumBioXIqam8DLxp88Adbue6Hw==}
@@ -4702,9 +4717,6 @@ packages:
     resolution: {integrity: sha512-q5W7tVM71e2xjHZTlgfTDoPF/SmqKG5hddq9SzR49CH2hayqRKJtQ4mtRlSxKaJlR/+9rEM+mnBHf7I2/BQcpQ==}
     engines: {node: '>=6.10'}
 
-  ts-pattern@5.9.0:
-    resolution: {integrity: sha512-6s5V71mX8qBUmlgbrfL33xDUwO0fq48rxAu2LBE11WBeGdpCPOsXksQbZJHvHwhrd3QjUusd3mAOM5Gg0mFBLg==}
-
   tsdown@0.22.3:
     resolution: {integrity: sha512-louqbfA8Qf//B9jTTL0FPtXTNpjCWv1VPkbcmQMph2pTpzs+LnB1tbe4tDDRVpo2BjF5SgUXaTZe45SxB8pWHg==}
     engines: {node: ^22.18.0 || >=24.11.0}
@@ -6857,6 +6869,11 @@ snapshots:
   '@types/web-bluetooth@0.0.21': {}
 
   '@ungap/structured-clone@1.3.1': {}
+
+  '@unthrown/vitest@0.1.0(vitest@4.1.8)':
+    dependencies:
+      unthrown: 0.1.0
+      vitest: 4.1.8(@types/node@24.13.2)(@vitest/coverage-v8@4.1.8)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0)
 
   '@upsetjs/venn.js@2.0.0':
     optionalDependencies:
@@ -9178,8 +9195,6 @@ snapshots:
   trim-lines@3.0.1: {}
 
   ts-dedent@2.2.0: {}
-
-  ts-pattern@5.9.0: {}
 
   tsdown@0.22.3(oxc-resolver@11.20.0)(tsx@4.22.4)(typescript@6.0.3):
     dependencies:

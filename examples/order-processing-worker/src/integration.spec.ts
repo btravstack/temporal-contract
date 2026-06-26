@@ -95,7 +95,7 @@ describe("Order Processing Workflow - Integration Tests", () => {
     });
 
     // THEN
-    expect(isOk(result)).toBe(true);
+    expect(result).toBeOk();
     if (isOk(result)) {
       expect(result.value).toEqual({
         orderId: order.orderId,
@@ -128,13 +128,13 @@ describe("Order Processing Workflow - Integration Tests", () => {
     });
 
     // THEN
-    expect(isOk(handleResult)).toBe(true);
+    expect(handleResult).toBeOk();
     if (!isOk(handleResult)) throw new Error("Expected Ok result");
     const handle = handleResult.value;
     expect(handle.workflowId).toBe(order.orderId);
 
     const result = await handle.result();
-    expect(isOk(result)).toBe(true);
+    expect(result).toBeOk();
     if (isOk(result)) {
       expect(result.value).toEqual({
         orderId: order.orderId,
@@ -169,13 +169,13 @@ describe("Order Processing Workflow - Integration Tests", () => {
     // THEN
     const handleResult = await client.getHandle("processOrder", order.orderId);
 
-    expect(isOk(handleResult)).toBe(true);
+    expect(handleResult).toBeOk();
     if (!isOk(handleResult)) throw new Error("Expected Ok result");
     const handle = handleResult.value;
     expect(handle.workflowId).toBe(order.orderId);
 
     const result = await handle.result();
-    expect(isOk(result)).toBe(true);
+    expect(result).toBeOk();
     if (isOk(result)) {
       expect(result.value).toEqual({
         orderId: order.orderId,
@@ -208,12 +208,12 @@ describe("Order Processing Workflow - Integration Tests", () => {
     });
 
     // THEN
-    expect(isOk(handleResult)).toBe(true);
+    expect(handleResult).toBeOk();
     if (!isOk(handleResult)) throw new Error("Expected Ok result");
     const handle = handleResult.value;
 
     const describeResult = await handle.describe();
-    expect(isOk(describeResult)).toBe(true);
+    expect(describeResult).toBeOk();
     if (isOk(describeResult)) {
       expect(describeResult.value).toEqual(
         expect.objectContaining({ workflowId: order.orderId, type: "processOrder" }),
@@ -245,7 +245,7 @@ describe("Order Processing Workflow - Integration Tests", () => {
     });
 
     // THEN
-    expect(isErr(execution)).toBe(true);
+    expect(execution).toBeErr();
     if (isErr(execution)) {
       expect(execution.error).toBeInstanceOf(WorkflowValidationError);
       const validationError = execution.error as WorkflowValidationError;
@@ -290,7 +290,7 @@ describe("Order Processing Workflow - Integration Tests", () => {
     });
 
     // THEN - Should return failed status
-    expect(isOk(result)).toBe(true);
+    expect(result).toBeOk();
     if (isOk(result)) {
       expect(result.value).toEqual({
         status: "failed",

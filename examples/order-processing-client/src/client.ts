@@ -1,20 +1,11 @@
 import { Client, Connection } from "@temporalio/client";
-import {
-  RuntimeClientError,
-  TypedClient,
-  WorkflowAlreadyStartedError,
-  WorkflowExecutionNotFoundError,
-  WorkflowFailedError,
-  WorkflowNotFoundError,
-  WorkflowValidationError,
-} from "@temporal-contract/client";
+import { TypedClient } from "@temporal-contract/client";
 import {
   orderProcessingContract,
   OrderSchema,
 } from "@temporal-contract/sample-order-processing-contract";
 import type { z } from "zod";
-import { match, P } from "ts-pattern";
-import { isOk, isErr, isDefect } from "unthrown";
+import { matchTags } from "unthrown";
 import { logger } from "./logger.js";
 
 type Order = z.infer<typeof OrderSchema>;
@@ -84,111 +75,70 @@ async function run() {
   for (const order of orders) {
     logger.info({ order }, `📦 Creating order: ${order.orderId}`);
 
-    // Start workflow and get handle
-    const handleResult = await contractClient.startWorkflow("processOrder", {
-      workflowId: order.orderId,
-      args: order,
+    // Chain start → result on the AsyncResult railway: `tap` logs the started
+    // handle without leaving the railway, `flatMap` sequences the dependent
+    // `handle.result()` call, and its error union widens to cover both phases.
+    // A single `matchTags` then folds the combined result exhaustively — every
+    // modeled error tag (package-namespaced `@temporal-contract/...`) plus `Ok`
+    // and `Defect` must be handled, or it is a compile error.
+    const result = await contractClient
+      .startWorkflow("processOrder", { workflowId: order.orderId, args: order })
+      .tap((handle) => {
+        logger.info({ workflowId: handle.workflowId }, `✅ Workflow started: ${handle.workflowId}`);
+        logger.info("⌛ Waiting for workflow result...");
+      })
+      .flatMap((handle) => handle.result());
+
+    matchTags(result, {
+      Ok: (output) => {
+        if (output.status === "completed") {
+          logger.info(
+            {
+              orderId: output.orderId,
+              transactionId: output.transactionId,
+              trackingNumber: output.trackingNumber,
+            },
+            `🎉 Order ${output.orderId} completed successfully!`,
+          );
+        } else {
+          logger.error(
+            {
+              orderId: output.orderId,
+              failureReason: output.failureReason,
+              errorCode: output.errorCode,
+            },
+            `❌ Order ${output.orderId} failed`,
+          );
+        }
+      },
+      "@temporal-contract/WorkflowNotFoundError": (err) =>
+        logger.error({ error: err, orderId: order.orderId }, "❌ Workflow not found"),
+      "@temporal-contract/WorkflowValidationError": (err) =>
+        logger.error({ error: err, orderId: order.orderId }, "❌ Workflow validation failed"),
+      // Idempotent fast-path: a workflow with this ID is already running (or in
+      // retention). Production callers can re-fetch the existing handle; here we
+      // just log and move on.
+      "@temporal-contract/WorkflowAlreadyStartedError": (err) =>
+        logger.warn(
+          { error: err, orderId: order.orderId },
+          "⏭️  Workflow already started — skipping",
+        ),
+      "@temporal-contract/WorkflowFailedError": (err) =>
+        logger.error(
+          { error: err, orderId: order.orderId, cause: err.cause },
+          "❌ Workflow completed with failure",
+        ),
+      "@temporal-contract/WorkflowExecutionNotFoundError": (err) =>
+        logger.error(
+          { error: err, orderId: order.orderId },
+          "❌ Workflow execution not found in namespace",
+        ),
+      "@temporal-contract/RuntimeClientError": (err) =>
+        logger.error({ error: err, orderId: order.orderId }, "❌ Workflow execution failed"),
+      // A defect is an unmodeled failure (a bug), not an anticipated outcome.
+      Defect: (cause) =>
+        logger.error({ cause, orderId: order.orderId }, "❌ Unexpected failure processing order"),
     });
-
-    // Handle workflow start errors
-    if (isErr(handleResult)) {
-      const error = handleResult.error;
-      match(error)
-        .with(P.instanceOf(WorkflowNotFoundError), (err) => {
-          logger.error({ error: err, orderId: order.orderId }, "❌ Workflow not found");
-        })
-        .with(P.instanceOf(WorkflowValidationError), (err) => {
-          logger.error({ error: err, orderId: order.orderId }, "❌ Workflow validation failed");
-        })
-        .with(P.instanceOf(WorkflowAlreadyStartedError), (err) => {
-          // Idempotent fast-path: a workflow with this ID is already running
-          // (or in retention). Production callers can re-fetch the existing
-          // handle and continue; here we just log and move on.
-          logger.warn(
-            { error: err, orderId: order.orderId },
-            "⏭️  Workflow already started — skipping",
-          );
-        })
-        .with(P.instanceOf(RuntimeClientError), (err) => {
-          logger.error({ error: err, orderId: order.orderId }, "❌ Failed to start workflow");
-        })
-        .exhaustive();
-      continue;
-    }
-    // A defect is an unmodeled failure (a bug) — surfaced on its own channel
-    // rather than as a typed domain error.
-    if (isDefect(handleResult)) {
-      logger.error(
-        { cause: handleResult.cause, orderId: order.orderId },
-        "❌ Unexpected failure starting workflow",
-      );
-      continue;
-    }
-
-    const handle = handleResult.value;
-    logger.info({ workflowId: handle.workflowId }, `✅ Workflow started: ${handle.workflowId}`);
-    logger.info("⌛ Waiting for workflow result...");
-
-    // Get workflow result
-    const result = await handle.result();
-
-    // Handle workflow execution result
-    if (isErr(result)) {
-      const error = result.error;
-      match(error)
-        .with(P.instanceOf(WorkflowValidationError), (err) => {
-          logger.error(
-            { error: err, orderId: order.orderId },
-            "❌ Workflow result validation failed",
-          );
-        })
-        .with(P.instanceOf(WorkflowFailedError), (err) => {
-          logger.error(
-            { error: err, orderId: order.orderId, cause: err.cause },
-            "❌ Workflow completed with failure",
-          );
-        })
-        .with(P.instanceOf(WorkflowExecutionNotFoundError), (err) => {
-          logger.error(
-            { error: err, orderId: order.orderId },
-            "❌ Workflow execution not found in namespace",
-          );
-        })
-        .with(P.instanceOf(RuntimeClientError), (err) => {
-          logger.error({ error: err, orderId: order.orderId }, "❌ Workflow execution failed");
-        })
-        .exhaustive();
-      continue;
-    }
-    if (isDefect(result)) {
-      logger.error(
-        { cause: result.cause, orderId: order.orderId },
-        "❌ Unexpected failure waiting for workflow result",
-      );
-      continue;
-    }
-
-    const output = result.value;
-    // Handle successful result
-    if (output.status === "completed") {
-      logger.info(
-        {
-          orderId: output.orderId,
-          transactionId: output.transactionId,
-          trackingNumber: output.trackingNumber,
-        },
-        `🎉 Order ${output.orderId} completed successfully!`,
-      );
-    } else {
-      logger.error(
-        {
-          orderId: output.orderId,
-          failureReason: output.failureReason,
-          errorCode: output.errorCode,
-        },
-        `❌ Order ${output.orderId} failed`,
-      );
-    }
   }
 
   // Example using executeWorkflow with AsyncResult pattern
@@ -213,44 +163,35 @@ async function run() {
     args: exampleOrder,
   });
 
-  // Handle result with pattern matching
-  if (isOk(result)) {
-    const output = result.value;
-    const summary = {
-      id: output.orderId,
-      success: output.status === "completed",
-      message:
-        output.status === "completed"
-          ? `Order completed with tracking: ${output.trackingNumber}`
-          : `Order failed: ${output.failureReason}`,
-    };
-    logger.info({ data: summary }, `📊 Order summary: ${summary.message}`);
-  } else if (isErr(result)) {
-    // Handle modeled errors
-    match(result.error)
-      .with(P.instanceOf(WorkflowNotFoundError), (err) => {
-        logger.error({ error: err }, "❌ Workflow not found");
-      })
-      .with(P.instanceOf(WorkflowValidationError), (err) => {
-        logger.error({ error: err }, "❌ Validation failed");
-      })
-      .with(P.instanceOf(WorkflowAlreadyStartedError), (err) => {
-        logger.warn({ error: err }, "⏭️  Workflow already started");
-      })
-      .with(P.instanceOf(WorkflowFailedError), (err) => {
-        logger.error({ error: err, cause: err.cause }, "❌ Workflow completed with failure");
-      })
-      .with(P.instanceOf(WorkflowExecutionNotFoundError), (err) => {
-        logger.error({ error: err }, "❌ Workflow execution not found in namespace");
-      })
-      .with(P.instanceOf(RuntimeClientError), (err) => {
-        logger.error({ error: err }, "❌ Workflow execution failed");
-      })
-      .exhaustive();
-  } else {
+  // Handle the result by tag — `executeWorkflow` can surface both start-phase
+  // and result-phase errors, so its union is the widest.
+  matchTags(result, {
+    Ok: (output) => {
+      const summary = {
+        id: output.orderId,
+        success: output.status === "completed",
+        message:
+          output.status === "completed"
+            ? `Order completed with tracking: ${output.trackingNumber}`
+            : `Order failed: ${output.failureReason}`,
+      };
+      logger.info({ data: summary }, `📊 Order summary: ${summary.message}`);
+    },
+    "@temporal-contract/WorkflowNotFoundError": (err) =>
+      logger.error({ error: err }, "❌ Workflow not found"),
+    "@temporal-contract/WorkflowValidationError": (err) =>
+      logger.error({ error: err }, "❌ Validation failed"),
+    "@temporal-contract/WorkflowAlreadyStartedError": (err) =>
+      logger.warn({ error: err }, "⏭️  Workflow already started"),
+    "@temporal-contract/WorkflowFailedError": (err) =>
+      logger.error({ error: err, cause: err.cause }, "❌ Workflow completed with failure"),
+    "@temporal-contract/WorkflowExecutionNotFoundError": (err) =>
+      logger.error({ error: err }, "❌ Workflow execution not found in namespace"),
+    "@temporal-contract/RuntimeClientError": (err) =>
+      logger.error({ error: err }, "❌ Workflow execution failed"),
     // A defect is an unmodeled failure (a bug), not an anticipated outcome.
-    logger.error({ cause: result.cause }, "❌ Unexpected failure executing workflow");
-  }
+    Defect: (cause) => logger.error({ cause }, "❌ Unexpected failure executing workflow"),
+  });
 
   logger.info("\n✨ Done!");
   logger.info("");
@@ -259,7 +200,7 @@ async function run() {
   logger.info("   - Type-safe error values");
   logger.info("   - Functional composition with flatMap, map, mapErr, orElse");
   logger.info("   - Railway-oriented programming");
-  logger.info("   - Exhaustive error matching with ts-pattern");
+  logger.info("   - Exhaustive error matching with unthrown matchTags");
 
   process.exit(0);
 }

@@ -242,6 +242,16 @@ export function declareActivitiesHandler<TContract extends ContractDefinition>(
         err: (error) => {
           throw error;
         },
+        // A defect is an *unanticipated* throw inside the activity. Re-throw the
+        // original cause unwrapped: Temporal wraps a non-`ApplicationFailure`
+        // error as `ApplicationFailure(type: "Error")` and applies the default
+        // (retryable) policy — preserving the pre-unthrown behaviour where an
+        // uncaught activity throw was simply retried. We deliberately do NOT
+        // coerce it to `nonRetryable`: not every unexpected throw is permanent
+        // (a transient I/O fault is also "unmodeled"), and forcing fail-fast
+        // here would silently change retry semantics. An activity that wants a
+        // permanent failure should return `err(ApplicationFailure.create({
+        // nonRetryable: true }))` explicitly.
         defect: (cause) => {
           throw cause;
         },

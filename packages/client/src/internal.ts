@@ -16,6 +16,11 @@ import {
 import type { AnyWorkflowDefinition, SearchAttributeDefinition } from "@temporal-contract/contract";
 import { _internal_makeAsyncResult } from "@temporal-contract/contract/result-async";
 import { ok, err, type AsyncResult, type Result } from "unthrown";
+
+// `assertNoDefect` narrows an internally-built `Result` (known to carry only
+// ok/err) to `Ok | Err`, re-throwing a stray defect's cause — so call sites
+// reach `.value` / `.error` without a manual "impossible defect" guard.
+export { _internal_assertNoDefect as assertNoDefect } from "@temporal-contract/contract/result-async";
 import {
   RuntimeClientError,
   type TemporalFailure,

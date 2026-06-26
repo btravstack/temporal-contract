@@ -10,7 +10,7 @@
  * and `worker/src/internal.ts`.
  */
 import { describe, expect, it } from "vitest";
-import { ok, err, isOk, isErr, isDefect } from "unthrown";
+import { ok, err, isErr, isDefect } from "unthrown";
 import { _internal_makeAsyncResult } from "./result-async.js";
 
 class TestError extends Error {
@@ -23,16 +23,13 @@ class TestError extends Error {
 describe("_internal_makeAsyncResult", () => {
   it("returns ok(...) when the work function resolves with ok(...)", async () => {
     const result = await _internal_makeAsyncResult<number, TestError>(async () => ok(42));
-    expect(isOk(result)).toBe(true);
-    if (isOk(result)) {
-      expect(result.value).toBe(42);
-    }
+    expect(result).toBeOkWith(42);
   });
 
   it("returns err(...) unchanged when the work function resolves with err(...)", async () => {
     const domainError = new TestError("domain");
     const result = await _internal_makeAsyncResult<number, TestError>(async () => err(domainError));
-    expect(isErr(result)).toBe(true);
+    expect(result).toBeErr();
     if (isErr(result)) {
       // Identity preserved — the domain `err(...)` flows through untouched.
       expect(result.error).toBe(domainError);
@@ -49,7 +46,7 @@ describe("_internal_makeAsyncResult", () => {
       await Promise.resolve();
       throw thrown;
     });
-    expect(isDefect(result)).toBe(true);
+    expect(result).toBeDefect();
     if (isDefect(result)) {
       expect(result.cause).toBe(thrown);
     }
@@ -63,7 +60,7 @@ describe("_internal_makeAsyncResult", () => {
     const result = await _internal_makeAsyncResult<number, TestError>(() => {
       throw thrown;
     });
-    expect(isDefect(result)).toBe(true);
+    expect(result).toBeDefect();
     if (isDefect(result)) {
       expect(result.cause).toBe(thrown);
     }
@@ -77,7 +74,7 @@ describe("_internal_makeAsyncResult", () => {
       await Promise.resolve();
       throw thrown;
     });
-    expect(isDefect(result)).toBe(true);
+    expect(result).toBeDefect();
     if (isDefect(result)) {
       expect(result.cause).toBe(thrown);
     }

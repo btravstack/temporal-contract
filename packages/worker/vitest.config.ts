@@ -14,6 +14,7 @@ export default defineConfig({
           name: "unit",
           include: ["src/**/*.spec.ts"],
           exclude: ["src/**/__tests__/*.spec.ts"],
+          setupFiles: ["./src/vitest.setup.ts"],
         },
       },
       {
@@ -22,6 +23,7 @@ export default defineConfig({
           globalSetup: "@temporal-contract/testing/global-setup",
           include: ["src/**/__tests__/*.spec.ts"],
           testTimeout: 10_000,
+          setupFiles: ["./src/vitest.setup.ts"],
         },
       },
     ],

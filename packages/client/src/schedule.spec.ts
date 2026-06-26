@@ -84,7 +84,7 @@ describe("TypedClient.schedule", () => {
         args: { orderId: "sweep" },
       });
 
-      expect(isOk(result)).toBe(true);
+      expect(result).toBeOk();
       if (isOk(result)) {
         expect(result.value.scheduleId).toBe("daily-sweep");
       }
@@ -114,7 +114,7 @@ describe("TypedClient.schedule", () => {
         },
       );
 
-      expect(isErr(result)).toBe(true);
+      expect(result).toBeErr();
       if (isErr(result)) {
         expect(result.error).toBeInstanceOf(WorkflowNotFoundError);
       }
@@ -129,7 +129,7 @@ describe("TypedClient.schedule", () => {
         args: { orderId: 123 },
       });
 
-      expect(isErr(result)).toBe(true);
+      expect(result).toBeErr();
       if (isErr(result)) {
         expect(result.error).toBeInstanceOf(WorkflowValidationError);
       }
@@ -145,7 +145,7 @@ describe("TypedClient.schedule", () => {
         args: { orderId: "sweep" },
       });
 
-      expect(isErr(result)).toBe(true);
+      expect(result).toBeErr();
       if (isErr(result)) {
         expect(result.error).toBeInstanceOf(RuntimeClientError);
         expect((result.error as RuntimeClientError).operation).toBe("schedule.create");
@@ -292,7 +292,7 @@ describe("TypedClient.schedule", () => {
         },
       });
 
-      expect(isErr(result)).toBe(true);
+      expect(result).toBeErr();
       if (isErr(result)) {
         expect(result.error).toBeInstanceOf(RuntimeClientError);
         expect((result.error as RuntimeClientError).operation).toBe("searchAttributes");
@@ -310,16 +310,16 @@ describe("TypedClient.schedule", () => {
       const handle = client.schedule.getHandle("daily-sweep");
       expect(handle.scheduleId).toBe("daily-sweep");
 
-      expect((await handle.pause("test")).isOk()).toBe(true);
+      expect(await handle.pause("test")).toBeOk();
       expect(tempHandle.pause).toHaveBeenCalledWith("test");
 
-      expect((await handle.unpause()).isOk()).toBe(true);
+      expect(await handle.unpause()).toBeOk();
       expect(tempHandle.unpause).toHaveBeenCalled();
 
-      expect((await handle.trigger()).isOk()).toBe(true);
+      expect(await handle.trigger()).toBeOk();
       expect(tempHandle.trigger).toHaveBeenCalled();
 
-      expect((await handle.delete()).isOk()).toBe(true);
+      expect(await handle.delete()).toBeOk();
       expect(tempHandle.delete).toHaveBeenCalled();
     });
 
@@ -330,7 +330,7 @@ describe("TypedClient.schedule", () => {
 
       const handle = client.schedule.getHandle("missing");
       const result = await handle.pause();
-      expect(isErr(result)).toBe(true);
+      expect(result).toBeErr();
       if (isErr(result)) {
         expect(result.error).toBeInstanceOf(RuntimeClientError);
         expect((result.error as RuntimeClientError).operation).toBe("schedule.pause");
@@ -345,7 +345,7 @@ describe("TypedClient.schedule", () => {
       const handle = client.schedule.getHandle("daily-sweep");
       const result = await handle.describe();
 
-      expect(isOk(result)).toBe(true);
+      expect(result).toBeOk();
       if (isOk(result)) {
         expect((result.value as { scheduleId: string }).scheduleId).toBe("daily-sweep");
       }

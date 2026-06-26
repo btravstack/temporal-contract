@@ -63,6 +63,7 @@
   "devDependencies": {
     "@temporal-contract/tsconfig": "workspace:*",
     "@temporal-contract/typedoc": "workspace:*",
+    "@unthrown/vitest": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "arktype": "catalog:",
     "tsdown": "catalog:",

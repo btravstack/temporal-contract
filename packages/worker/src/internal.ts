@@ -39,7 +39,13 @@ export function formatChildWorkflowValidationMessage(
 // work functions identically to the client side. Unanticipated rejections
 // (a synchronous throw or a rejected promise from `work()`) are routed through
 // unthrown's `defect` channel rather than escaping as an unhandled rejection.
-export { _internal_makeAsyncResult as makeAsyncResult } from "@temporal-contract/contract/result-async";
+// `assertNoDefect` narrows an internally-built `Result` (known to carry only
+// ok/err) to `Ok | Err`, re-throwing a stray defect's cause — so call sites
+// reach `.value` / `.error` without a manual "impossible defect" guard.
+export {
+  _internal_makeAsyncResult as makeAsyncResult,
+  _internal_assertNoDefect as assertNoDefect,
+} from "@temporal-contract/contract/result-async";
 
 /**
  * Extract the single payload from a Temporal handler's `...args` array.

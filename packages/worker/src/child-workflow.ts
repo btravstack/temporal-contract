@@ -10,13 +10,14 @@ import {
   executeChild,
   startChild,
 } from "@temporalio/workflow";
-import { type AsyncResult, type Result, ok, err, isOk, isErr } from "unthrown";
+import { type AsyncResult, type Result, ok, err, isErr } from "unthrown";
 import {
   ChildWorkflowCancelledError,
   ChildWorkflowError,
   ChildWorkflowNotFoundError,
 } from "./errors.js";
 import {
+  assertNoDefect,
   classifyChildWorkflowError,
   formatChildWorkflowValidationMessage,
   makeAsyncResult,
@@ -165,13 +166,11 @@ export function createStartChildWorkflow<
       options.args,
     );
 
+    // `getAndValidateChildWorkflow` only ever builds ok/err; assert away the
+    // impossible defect so `.error` / `.value` narrow cleanly below.
+    assertNoDefect(validationResult);
     if (isErr(validationResult)) {
       return err(validationResult.error);
-    }
-    // `getAndValidateChildWorkflow` only ever builds ok/err; a defect would be
-    // a genuine bug — re-throw so it rides the defect channel.
-    if (!isOk(validationResult)) {
-      throw validationResult.cause;
     }
 
     const { definition: childDefinition, validatedInput, taskQueue } = validationResult.value;
@@ -215,11 +214,9 @@ export function createExecuteChildWorkflow<
       options.args,
     );
 
+    assertNoDefect(validationResult);
     if (isErr(validationResult)) {
       return err(validationResult.error);
-    }
-    if (!isOk(validationResult)) {
-      throw validationResult.cause;
     }
 
     const { definition: childDefinition, validatedInput, taskQueue } = validationResult.value;
@@ -238,11 +235,9 @@ export function createExecuteChildWorkflow<
         childWorkflowName,
       );
 
+      assertNoDefect(outputValidationResult);
       if (isErr(outputValidationResult)) {
         return err(outputValidationResult.error);
-      }
-      if (!isOk(outputValidationResult)) {
-        throw outputValidationResult.cause;
       }
 
       return ok(outputValidationResult.value as Ok);

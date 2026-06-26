@@ -24,6 +24,7 @@
     "@temporal-contract/tsconfig": "workspace:*",
     "@temporalio/client": "catalog:",
     "@types/node": "catalog:",
+    "@unthrown/vitest": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",

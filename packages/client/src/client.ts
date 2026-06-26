@@ -17,7 +17,7 @@ import type {
   ClientInferWorkflowSignals,
   ClientInferWorkflowUpdates,
 } from "./types.js";
-import { type AsyncResult, type Result, ok, err, isOk, isErr, fromPromise } from "unthrown";
+import { type AsyncResult, type Result, ok, err, isErr, fromPromise } from "unthrown";
 import {
   type TemporalFailure,
   WorkflowAlreadyStartedError,
@@ -32,6 +32,7 @@ import {
 } from "./errors.js";
 import { TypedScheduleClient } from "./schedule.js";
 import {
+  assertNoDefect,
   classifyHandleError,
   classifyResultError,
   classifyStartError,
@@ -326,9 +327,10 @@ async function resolveDefinitionAndValidateInput<
     workflowName,
     searchAttributes,
   );
+  // `toTypedSearchAttributes` only ever builds ok/err; assert away the
+  // impossible defect so `.error` / `.value` narrow cleanly.
+  assertNoDefect(searchAttributesResult);
   if (isErr(searchAttributesResult)) return err(searchAttributesResult.error);
-  // `toTypedSearchAttributes` only ever builds ok/err; a defect would be a bug.
-  if (!isOk(searchAttributesResult)) throw searchAttributesResult.cause;
   const typedSearchAttributes = searchAttributesResult.value;
 
   return ok({
@@ -469,9 +471,9 @@ export class TypedClient<TContract extends ContractDefinition> {
         args,
         searchAttributes as Record<string, unknown> | undefined,
       );
+      // The resolver only ever builds ok/err; assert away the impossible defect.
+      assertNoDefect(resolved);
       if (isErr(resolved)) return err(resolved.error);
-      // The resolver only ever builds ok/err; a defect would be a genuine bug.
-      if (!isOk(resolved)) throw resolved.cause;
       const { definition, validatedInput, typedSearchAttributes } = resolved.value;
 
       try {
@@ -551,9 +553,9 @@ export class TypedClient<TContract extends ContractDefinition> {
         args,
         searchAttributes as Record<string, unknown> | undefined,
       );
+      // The resolver only ever builds ok/err; assert away the impossible defect.
+      assertNoDefect(resolved);
       if (isErr(resolved)) return err(resolved.error);
-      // The resolver only ever builds ok/err; a defect would be a genuine bug.
-      if (!isOk(resolved)) throw resolved.cause;
       const { definition, validatedInput, typedSearchAttributes } = resolved.value;
 
       // Validate signal input — call-site-specific, kept inline.
@@ -646,9 +648,9 @@ export class TypedClient<TContract extends ContractDefinition> {
         args,
         searchAttributes as Record<string, unknown> | undefined,
       );
+      // The resolver only ever builds ok/err; assert away the impossible defect.
+      assertNoDefect(resolved);
       if (isErr(resolved)) return err(resolved.error);
-      // The resolver only ever builds ok/err; a defect would be a genuine bug.
-      if (!isOk(resolved)) throw resolved.cause;
       const { definition, validatedInput, typedSearchAttributes } = resolved.value;
 
       try {

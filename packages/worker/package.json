@@ -81,6 +81,7 @@
     "@temporalio/worker": "catalog:",
     "@temporalio/workflow": "catalog:",
     "@types/node": "catalog:",
+    "@unthrown/vitest": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "tsdown": "catalog:",
     "typedoc": "catalog:",
