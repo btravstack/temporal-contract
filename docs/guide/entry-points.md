@@ -370,7 +370,7 @@ Clear separation of concerns:
 
 ```typescript
 // activities/shared.ts
-import { ok } from "unthrown";
+import { Ok } from "unthrown";
 
 export const sharedActivities = {
   sendEmail: ({ to, body }) => Ok({ sent: true }).toAsync(),
@@ -378,7 +378,7 @@ export const sharedActivities = {
 };
 
 // activities/order.ts
-import { ok } from "unthrown";
+import { Ok } from "unthrown";
 import { sharedActivities } from "./shared";
 
 export const orderActivities = declareActivitiesHandler({
@@ -394,7 +394,7 @@ export const orderActivities = declareActivitiesHandler({
 
 ```typescript
 // activities/index.ts
-import { ok } from "unthrown";
+import { Ok } from "unthrown";
 
 const baseActivities = {
   validateInput: ({ data }) => Ok({ valid: true }).toAsync(),

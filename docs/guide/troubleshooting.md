@@ -480,7 +480,7 @@ lift a sync `Result` with `.toAsync()`):
 
 ```typescript
 // ✅ For activities, workflows, and clients
-import { fromPromise, ok, err, isOk, isErr, isDefect, type AsyncResult } from "unthrown";
+import { fromPromise, Ok, Err, isOk, isErr, isDefect, type AsyncResult } from "unthrown";
 
 // okAsync(value)  -> Ok(value).toAsync()
 // errAsync(error) -> Err(error).toAsync()

@@ -18,7 +18,7 @@ Activities use `unthrown` for explicit error handling:
 
 ```typescript
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { fromPromise, ok } from "unthrown";
+import { fromPromise, Ok } from "unthrown";
 import { myContract } from "./contract";
 
 export const activities = declareActivitiesHandler({

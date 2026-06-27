@@ -340,7 +340,7 @@ Mock the client for testing:
 
 ```typescript
 import { describe, it, expect, vi } from "vitest";
-import { ok } from "unthrown";
+import { Ok } from "unthrown";
 
 describe("OrderService", () => {
   it("should process order", async () => {
