@@ -46,8 +46,8 @@ packages:
 
 catalog:
   "@changesets/cli": 2.31.0
-  "@commitlint/cli": 21.0.2
-  "@commitlint/config-conventional": 21.0.2
+  "@commitlint/cli": 21.1.0
+  "@commitlint/config-conventional": 21.1.0
   "@standard-schema/spec": 1.1.0
   "@temporalio/client": 1.18.1
   "@temporalio/common": 1.18.1
