@@ -193,7 +193,7 @@ Mock activities with correct types:
 
 ```typescript
 import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
-import { ok } from "unthrown";
+import { Ok } from "unthrown";
 
 type Handlers = ActivitiesHandler<typeof orderContract>;
 
