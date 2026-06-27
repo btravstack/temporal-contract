@@ -10,7 +10,7 @@ import {
   executeChild,
   startChild,
 } from "@temporalio/workflow";
-import { type AsyncResult, type Result, ok, err } from "unthrown";
+import { type AsyncResult, type Result, Ok, Err } from "unthrown";
 import {
   ChildWorkflowCancelledError,
   ChildWorkflowError,
@@ -61,13 +61,13 @@ async function validateChildWorkflowOutput<TChildWorkflow extends AnyWorkflowDef
 ): Promise<Result<ClientInferOutput<TChildWorkflow>, ChildWorkflowError>> {
   const outputResult = await childDefinition.output["~standard"].validate(result);
   if (outputResult.issues) {
-    return err(
+    return Err(
       new ChildWorkflowError(
         formatChildWorkflowValidationMessage(childWorkflowName, "output", outputResult.issues),
       ),
     );
   }
-  return ok(outputResult.value as ClientInferOutput<TChildWorkflow>);
+  return Ok(outputResult.value as ClientInferOutput<TChildWorkflow>);
 }
 
 async function getAndValidateChildWorkflow<
@@ -90,7 +90,7 @@ async function getAndValidateChildWorkflow<
   const childDefinition = childContract.workflows[childWorkflowName];
 
   if (!childDefinition) {
-    return err(
+    return Err(
       new ChildWorkflowNotFoundError(
         childWorkflowName,
         Object.keys(childContract.workflows) as string[],
@@ -100,7 +100,7 @@ async function getAndValidateChildWorkflow<
 
   const inputResult = await childDefinition.input["~standard"].validate(args);
   if (inputResult.issues) {
-    return err(
+    return Err(
       new ChildWorkflowError(
         formatChildWorkflowValidationMessage(childWorkflowName, "input", inputResult.issues),
       ),
@@ -111,7 +111,7 @@ async function getAndValidateChildWorkflow<
     TChildContract["workflows"][TChildWorkflowName]
   >;
 
-  return ok({
+  return Ok({
     definition: childDefinition as TChildContract["workflows"][TChildWorkflowName],
     validatedInput,
     taskQueue: childContract.taskQueue,
@@ -137,7 +137,7 @@ function createTypedChildHandle<TChildWorkflow extends AnyWorkflowDefinition>(
           const result = await handle.result();
           return validateChildWorkflowOutput(childDefinition, result, childWorkflowName);
         } catch (error) {
-          return err(classifyChildWorkflowError("result", error, childWorkflowName));
+          return Err(classifyChildWorkflowError("result", error, childWorkflowName));
         }
       };
       return makeAsyncResult(work);
@@ -170,7 +170,7 @@ export function createStartChildWorkflow<
     // impossible defect so `.error` / `.value` narrow cleanly below.
     assertNoDefect(validationResult);
     if (validationResult.isErr()) {
-      return err(validationResult.error);
+      return Err(validationResult.error);
     }
 
     const { definition: childDefinition, validatedInput, taskQueue } = validationResult.value;
@@ -185,9 +185,9 @@ export function createStartChildWorkflow<
 
       const typedHandle = createTypedChildHandle(handle, childDefinition, childWorkflowName) as Ok;
 
-      return ok(typedHandle);
+      return Ok(typedHandle);
     } catch (error) {
-      return err(classifyChildWorkflowError("startChild", error, String(childWorkflowName)));
+      return Err(classifyChildWorkflowError("startChild", error, String(childWorkflowName)));
     }
   };
   return makeAsyncResult(work);
@@ -216,7 +216,7 @@ export function createExecuteChildWorkflow<
 
     assertNoDefect(validationResult);
     if (validationResult.isErr()) {
-      return err(validationResult.error);
+      return Err(validationResult.error);
     }
 
     const { definition: childDefinition, validatedInput, taskQueue } = validationResult.value;
@@ -237,12 +237,12 @@ export function createExecuteChildWorkflow<
 
       assertNoDefect(outputValidationResult);
       if (outputValidationResult.isErr()) {
-        return err(outputValidationResult.error);
+        return Err(outputValidationResult.error);
       }
 
-      return ok(outputValidationResult.value as Ok);
+      return Ok(outputValidationResult.value as Ok);
     } catch (error) {
-      return err(classifyChildWorkflowError("executeChild", error, String(childWorkflowName)));
+      return Err(classifyChildWorkflowError("executeChild", error, String(childWorkflowName)));
     }
   };
   return makeAsyncResult(work);

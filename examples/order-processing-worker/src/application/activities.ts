@@ -13,7 +13,7 @@ import {
 /**
  * Translate an arbitrary thrown value into a Temporal `ApplicationFailure`.
  * Used by every activity below to wrap use-case rejections in the
- * `err(...)` slot without each site repeating the boilerplate.
+ * `Err(...)` slot without each site repeating the boilerplate.
  */
 const toApplicationFailure = (type: string, fallback: string, error: unknown): ApplicationFailure =>
   ApplicationFailure.create({
@@ -26,8 +26,8 @@ const toApplicationFailure = (type: string, fallback: string, error: unknown): A
  * Activity implementations using unthrown's `AsyncResult` pattern.
  *
  * Instead of throwing exceptions, activities return:
- *   - ok(value).toAsync() for success
- *   - err(ApplicationFailure).toAsync() for failures (or a `fromPromise`
+ *   - Ok(value).toAsync() for success
+ *   - Err(ApplicationFailure).toAsync() for failures (or a `fromPromise`
  *     chain that qualifies a rejection into an `ApplicationFailure`).
  *
  * All technical exceptions MUST be caught and wrapped in `ApplicationFailure`

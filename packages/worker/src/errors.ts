@@ -302,7 +302,7 @@ export class ChildWorkflowCancelledError extends TaggedError(
 }
 
 /**
- * Error surfaced in the `err(...)` branch of an `AsyncResult` when a typed
+ * Error surfaced in the `Err(...)` branch of an `AsyncResult` when a typed
  * cancellation scope is cancelled via Temporal's cancellation propagation.
  * Returned by both `context.cancellableScope` (when the workflow or an
  * ancestor scope cancels) and `context.nonCancellableScope` (when
@@ -311,7 +311,7 @@ export class ChildWorkflowCancelledError extends TaggedError(
  *
  * Non-cancellation errors thrown inside a scope are *unmodeled* failures: they
  * surface on the scope's `defect` channel (re-thrown at the edge / inspectable
- * via `result.isDefect()` and `result.cause`), not as a typed `err(...)`.
+ * via `result.isDefect()` and `result.cause`), not as a typed `Err(...)`.
  */
 export class WorkflowCancelledError extends TaggedError(
   "@temporal-contract/WorkflowCancelledError",

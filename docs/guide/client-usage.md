@@ -347,7 +347,7 @@ describe("OrderService", () => {
     const mockClient = {
       executeWorkflow: vi
         .fn()
-        .mockResolvedValue(ok({ status: "success", transactionId: "tx-123" })),
+        .mockResolvedValue(Ok({ status: "success", transactionId: "tx-123" })),
     };
 
     const service = new OrderService(mockClient);

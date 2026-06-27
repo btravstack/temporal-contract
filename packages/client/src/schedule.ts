@@ -8,7 +8,7 @@ import type {
   ScheduleSpec,
 } from "@temporalio/client";
 import type { ContractDefinition } from "@temporal-contract/contract";
-import { type AsyncResult, type Result, ok, err, fromPromise } from "unthrown";
+import { type AsyncResult, type Result, Ok, Err, fromPromise } from "unthrown";
 import type { TypedSearchAttributeMap } from "./client.js";
 import type { ClientInferInput } from "./types.js";
 import { RuntimeClientError, WorkflowNotFoundError, WorkflowValidationError } from "./errors.js";
@@ -133,12 +133,12 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
     const work = async (): Promise<Result<Ok, Err>> => {
       const definition = this.contract.workflows[workflowName];
       if (!definition) {
-        return err(new WorkflowNotFoundError(workflowName, Object.keys(this.contract.workflows)));
+        return Err(new WorkflowNotFoundError(workflowName, Object.keys(this.contract.workflows)));
       }
 
       const inputResult = await definition.input["~standard"].validate(options.args);
       if (inputResult.issues) {
-        return err(new WorkflowValidationError(workflowName, "input", inputResult.issues));
+        return Err(new WorkflowValidationError(workflowName, "input", inputResult.issues));
       }
 
       // Translate typed search attributes for the spawned workflow runs.
@@ -154,7 +154,7 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
       // `toTypedSearchAttributes` only ever builds ok/err; assert away the
       // impossible defect so `.error` / `.value` narrow cleanly.
       assertNoDefect(searchAttributesResult);
-      if (searchAttributesResult.isErr()) return err(searchAttributesResult.error);
+      if (searchAttributesResult.isErr()) return Err(searchAttributesResult.error);
       const typedSearchAttributes = searchAttributesResult.value;
 
       try {
@@ -193,9 +193,9 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
           ...(options.state !== undefined ? { state: options.state } : {}),
           ...(options.memo !== undefined ? { memo: options.memo } : {}),
         });
-        return ok(wrapScheduleHandle(handle));
+        return Ok(wrapScheduleHandle(handle));
       } catch (error) {
-        return err(new RuntimeClientError("schedule.create", error));
+        return Err(new RuntimeClientError("schedule.create", error));
       }
     };
     return makeAsyncResult(work);

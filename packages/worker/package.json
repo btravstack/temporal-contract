@@ -95,7 +95,7 @@
     "@temporalio/common": "^1",
     "@temporalio/worker": "^1",
     "@temporalio/workflow": "^1",
-    "unthrown": "^0.2"
+    "unthrown": "^1"
   },
   "engines": {
     "node": ">=22.19.0"

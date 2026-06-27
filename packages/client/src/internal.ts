@@ -15,7 +15,7 @@ import {
 } from "@temporalio/common";
 import type { AnyWorkflowDefinition, SearchAttributeDefinition } from "@temporal-contract/contract";
 import { _internal_makeAsyncResult } from "@temporal-contract/contract/result-async";
-import { ok, err, type AsyncResult, type Result } from "unthrown";
+import { Ok, Err, type AsyncResult, type Result } from "unthrown";
 
 // `assertNoDefect` narrows an internally-built `Result` (known to carry only
 // ok/err) to `Ok | Err`, re-throwing a stray defect's cause — so call sites
@@ -35,10 +35,10 @@ import {
  * Temporal client honours indexing when starting the workflow.
  *
  * Workflows without a `searchAttributes` block (or callers passing no
- * values) resolve to `ok(undefined)`, matching the Temporal SDK's
+ * values) resolve to `Ok(undefined)`, matching the Temporal SDK's
  * "absent ≠ empty" semantics.
  *
- * Returns `err(RuntimeClientError)` on unknown keys. The TypeScript
+ * Returns `Err(RuntimeClientError)` on unknown keys. The TypeScript
  * surface already gates the happy path; the runtime check catches typed
  * escape hatches (`as never`, `as any`, raw-call interop) where a typo
  * would otherwise silently drop the attribute, leaving the workflow
@@ -49,7 +49,7 @@ export function toTypedSearchAttributes(
   workflowName: string,
   values: Record<string, unknown> | undefined,
 ): Result<TypedSearchAttributes | undefined, RuntimeClientError> {
-  if (!values) return ok(undefined);
+  if (!values) return Ok(undefined);
   // Workflows that omit the `searchAttributes` block declare none. Treat
   // that as an empty declared map so a caller passing values still hits
   // the per-key "undeclared" check below — silently dropping them would
@@ -63,7 +63,7 @@ export function toTypedSearchAttributes(
     if (value === undefined) continue;
     const def = declared[name];
     if (!def) {
-      return err(
+      return Err(
         new RuntimeClientError(
           "searchAttributes",
           new Error(
@@ -76,7 +76,7 @@ export function toTypedSearchAttributes(
     const key = defineSearchAttributeKey(name, def.kind);
     pairs.push({ key, value } as SearchAttributePair);
   }
-  return ok(pairs.length > 0 ? new TypedSearchAttributes(pairs) : undefined);
+  return Ok(pairs.length > 0 ? new TypedSearchAttributes(pairs) : undefined);
 }
 
 /**
@@ -84,7 +84,7 @@ export function toTypedSearchAttributes(
  * unanticipated rejection through unthrown's `defect` channel.
  *
  * The work function is expected to handle its own domain errors and return
- * an `err(...)` for them; a thrown exception the work didn't anticipate is an
+ * an `Err(...)` for them; a thrown exception the work didn't anticipate is an
  * *unmodeled* failure and surfaces as a defect (inspectable via
  * `result.isDefect()` / `result.cause`, re-thrown at the edge) rather than a
  * manufactured `RuntimeClientError`.

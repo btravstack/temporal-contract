@@ -27,7 +27,7 @@ export const activities = declareActivitiesHandler({
     // Global activities
     log: ({ level, message }) => {
       console.log(`[${level}] ${message}`);
-      return ok(undefined).toAsync();
+      return Ok(undefined).toAsync();
     },
 
     // Workflow-specific activities
@@ -293,9 +293,9 @@ processPayment: ({ amount }) =>
     (async () => {
       try {
         const tx = await paymentService.charge(amount);
-        return ok({ transactionId: tx.id });
+        return Ok({ transactionId: tx.id });
       } catch (err) {
-        return err(/* ... */);
+        return Err(/* ... */);
       }
     })(),
     (e) => e,
@@ -338,7 +338,7 @@ implementation: async (context, args) => {
 // ❌ Avoid - returning Result (will lose instance over network)
 implementation: async (context, args) => {
   const payment = await context.activities.processPayment({ amount: 100 });
-  return ok({ transactionId: payment.transactionId }); // Won't work!
+  return Ok({ transactionId: payment.transactionId }); // Won't work!
 };
 ```
 

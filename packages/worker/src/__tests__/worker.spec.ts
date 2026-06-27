@@ -2,7 +2,7 @@ import { describe, expect, vi, beforeEach } from "vitest";
 import { Worker } from "@temporalio/worker";
 import { TypedClient, WorkflowValidationError } from "@temporal-contract/client";
 import { it as baseIt } from "@temporal-contract/testing/extension";
-import { ok, err, type AsyncResult } from "unthrown";
+import { Ok, Err, type AsyncResult } from "unthrown";
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { testContract } from "./test.contract.js";
@@ -11,8 +11,8 @@ import { ApplicationFailure, declareActivitiesHandler } from "../activity.js";
 import { createWorker } from "../worker.js";
 
 // unthrown has no `okAsync`/`errAsync`; lift a sync `Result` with `.toAsync()`.
-const okAsync = <T>(value: T): AsyncResult<T, never> => ok(value).toAsync();
-const errAsync = <E>(error: E): AsyncResult<never, E> => err(error).toAsync();
+const okAsync = <T>(value: T): AsyncResult<T, never> => Ok(value).toAsync();
+const errAsync = <E>(error: E): AsyncResult<never, E> => Err(error).toAsync();
 
 // ============================================================================
 // Test Setup

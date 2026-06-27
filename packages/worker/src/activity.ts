@@ -36,7 +36,7 @@ export { ApplicationFailure } from "@temporalio/common";
  * Activity implementation using unthrown's `AsyncResult`.
  *
  * Returns `AsyncResult<Output, ApplicationFailure>` for explicit error
- * handling instead of throwing. The wrapper rethrows `err()` payloads at
+ * handling instead of throwing. The wrapper rethrows `Err()` payloads at
  * the activity boundary; Temporal recognizes `ApplicationFailure` natively
  * and applies the configured retry policy (with `nonRetryable: true`
  * opting an instance out per-call). An unexpected throw surfaces as a
@@ -187,8 +187,8 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  * @remarks
  * The wrapper accepts implementations in the
  * `AsyncResult<T, ApplicationFailure>` shape and produces ordinary
- * Promise-returning Temporal handlers (`err(...)` → thrown
- * `ApplicationFailure`; `ok(...)` → output validated against the
+ * Promise-returning Temporal handlers (`Err(...)` → thrown
+ * `ApplicationFailure`; `Ok(...)` → output validated against the
  * contract and resolved; `defect` → original cause re-thrown). It does
  * **not** hide Temporal's
  * `@temporalio/activity` runtime: inside the body you can still call
@@ -236,7 +236,7 @@ export function declareActivitiesHandler<TContract extends ContractDefinition>(
           }
           return outputResult.value;
         },
-        // Convert err(...) payload to thrown ApplicationFailure for Temporal.
+        // Convert Err(...) payload to thrown ApplicationFailure for Temporal.
         // Temporal recognizes this class natively and applies the configured
         // retry policy (honoring `nonRetryable: true`).
         err: (error) => {
@@ -250,7 +250,7 @@ export function declareActivitiesHandler<TContract extends ContractDefinition>(
         // coerce it to `nonRetryable`: not every unexpected throw is permanent
         // (a transient I/O fault is also "unmodeled"), and forcing fail-fast
         // here would silently change retry semantics. An activity that wants a
-        // permanent failure should return `err(ApplicationFailure.create({
+        // permanent failure should return `Err(ApplicationFailure.create({
         // nonRetryable: true }))` explicitly.
         defect: (cause) => {
           throw cause;

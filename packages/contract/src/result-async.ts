@@ -23,13 +23,13 @@ import {
  * `AsyncResult<T, E>`, catching synchronous throws and rejected promises and
  * routing them through unthrown's `defect` channel — so an *unanticipated*
  * failure surfaces as a defect (a bug, re-thrown at the edge) rather than an
- * unhandled rejection, while the work function's own domain `err(...)` flows
+ * unhandled rejection, while the work function's own domain `Err(...)` flows
  * through untouched.
  *
  * `fromSafePromise(thunk)` invokes the thunk, capturing both a synchronous
  * throw before the promise is produced and an eventual rejection as a `defect`
  * (its error channel is `never`) — the work function is expected to model its
- * own domain errors as `err(...)`, so any *thrown* failure is by definition
+ * own domain errors as `Err(...)`, so any *thrown* failure is by definition
  * unmodeled. The `.flatMap((inner) => inner)` flattens the nested
  * `Result<T, E>` the thunk resolves with, surfacing its modeled error channel.
  *
@@ -48,7 +48,7 @@ export function _internal_makeAsyncResult<T, E>(
  * unthrown's `Result<T, E>` type always includes the out-of-band `Defect`
  * variant, so `if (r.isErr()) … else r.value` does not type-check — the `else`
  * branch is still `Ok | Defect`. For an internally-produced result that is
- * *known* to be built only from `ok(...)` / `err(...)`, this collapses the
+ * *known* to be built only from `Ok(...)` / `Err(...)`, this collapses the
  * "impossible defect" case in one call: it re-throws a present defect's cause
  * (so a genuine bug still rides the defect channel at the boundary) and
  * narrows the result to `Ok | Err` for the caller, which can then branch on
