@@ -26,7 +26,7 @@ That's also why activity inputs/outputs must be serializable (validated through 
 
 ## Cancellation primitives are deterministic
 
-Use `context.cancellableScope` / `context.nonCancellableScope` (`packages/worker/src/cancellation.ts:38`, `:75`) — they wrap Temporal's `CancellationScope` and surface cancellation as `err(WorkflowCancelledError)` in an `AsyncResult`. Don't `try/catch` `CancelledFailure` directly; that bypasses the project's `Result` discipline.
+Use `context.cancellableScope` / `context.nonCancellableScope` (`packages/worker/src/cancellation.ts:38`, `:75`) — they wrap Temporal's `CancellationScope` and surface cancellation as `Err(WorkflowCancelledError)` in an `AsyncResult`. Don't `try/catch` `CancelledFailure` directly; that bypasses the project's `Result` discipline.
 
 ## Side-effect escape hatch
 

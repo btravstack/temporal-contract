@@ -3,29 +3,29 @@
  * opt into cancellation control without reaching for
  * `@temporalio/workflow` directly. The wrappers fold cancellation into
  * the same `AsyncResult<...>` shape used elsewhere in the worker
- * context — callers branch on `err(WorkflowCancelledError)` instead of
+ * context — callers branch on `Err(WorkflowCancelledError)` instead of
  * catching `CancelledFailure`.
  *
  * Non-cancellation errors thrown inside the scope are *unmodeled* failures:
  * they ride unthrown's `defect` channel (re-thrown at the edge / inspectable
- * via `result.isDefect()` and `result.cause`) rather than a typed `err(...)`,
+ * via `result.isDefect()` and `result.cause`) rather than a typed `Err(...)`,
  * keeping the modeled error channel to the single anticipated outcome —
  * cancellation.
  */
 import { CancellationScope, isCancellation } from "@temporalio/workflow";
-import { type AsyncResult, type Result, ok, err } from "unthrown";
+import { type AsyncResult, type Result, Ok, Err } from "unthrown";
 import { WorkflowCancelledError } from "./errors.js";
 import { makeAsyncResult } from "./internal.js";
 
 /**
  * Run `fn` inside a cancellable Temporal scope. If the workflow (or an
  * ancestor scope) is cancelled while the function is in flight, the
- * resulting AsyncResult resolves to `err(WorkflowCancelledError)`,
+ * resulting AsyncResult resolves to `Err(WorkflowCancelledError)`,
  * letting callers handle cancellation explicitly — typically to perform
  * a graceful exit from the current step.
  *
  * Non-cancellation errors thrown by `fn` are unmodeled failures: they surface
- * on the `defect` channel rather than as a typed `err(...)`, so a genuine bug
+ * on the `defect` channel rather than as a typed `Err(...)`, so a genuine bug
  * is not silently treated as an anticipated domain outcome.
  *
  * @example
@@ -54,10 +54,10 @@ export function cancellableScope<T>(
       // `() => Promise<T>` signature without forcing every caller to write
       // `async () => ...` for purely synchronous bodies.
       const value = await CancellationScope.cancellable(async () => fn());
-      return ok(value);
+      return Ok(value);
     } catch (error) {
       if (isCancellation(error)) {
-        return err(new WorkflowCancelledError(error));
+        return Err(new WorkflowCancelledError(error));
       }
       // Non-cancellation throw → re-throw so `makeAsyncResult`'s boundary
       // routes it through the `defect` channel as an unmodeled failure.
@@ -74,7 +74,7 @@ export function cancellableScope<T>(
  * resource after a graceful shutdown).
  *
  * Mirrors `cancellableScope`'s `AsyncResult<...>` shape for symmetry; the
- * `err(WorkflowCancelledError)` branch only triggers when cancellation is
+ * `Err(WorkflowCancelledError)` branch only triggers when cancellation is
  * raised from inside the scope (rare). Non-cancellation errors surface on the
  * `defect` channel.
  *
@@ -91,10 +91,10 @@ export function nonCancellableScope<T>(
   const work = async (): Promise<Result<T, WorkflowCancelledError>> => {
     try {
       const value = await CancellationScope.nonCancellable(async () => fn());
-      return ok(value);
+      return Ok(value);
     } catch (error) {
       if (isCancellation(error)) {
-        return err(new WorkflowCancelledError(error));
+        return Err(new WorkflowCancelledError(error));
       }
       throw error;
     }

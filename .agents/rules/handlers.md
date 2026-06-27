@@ -25,7 +25,7 @@ export const activities = declareActivitiesHandler({
 
 `fromPromise(promise, qualify)` forces every rejection through `qualify`, which
 returns the modeled error `E` (here an `ApplicationFailure`). For a value you
-already have, lift a sync result with `ok(value).toAsync()` / `err(failure).toAsync()`
+already have, lift a sync result with `Ok(value).toAsync()` / `Err(failure).toAsync()`
 — unthrown has no `okAsync`/`errAsync`.
 
 Canonical example: `examples/order-processing-worker/src/application/activities.ts`.
@@ -73,7 +73,7 @@ await worker.run();
 
 ## Cancellation
 
-Workflows opt into cancellation control via `context.cancellableScope` / `context.nonCancellableScope`. They fold cancellation into the project's `AsyncResult` shape — callers branch on `err(WorkflowCancelledError)` instead of catching `CancelledFailure`.
+Workflows opt into cancellation control via `context.cancellableScope` / `context.nonCancellableScope`. They fold cancellation into the project's `AsyncResult` shape — callers branch on `Err(WorkflowCancelledError)` instead of catching `CancelledFailure`.
 
 ```typescript
 import { isErr } from "unthrown";
@@ -97,14 +97,14 @@ implementation: async (context, args) => {
 ```
 
 - `cancellableScope<T>(fn)` — returns `AsyncResult<T, WorkflowCancelledError>`. Cancels propagate from outside.
-- `nonCancellableScope<T>(fn)` — same shape; _outside_ cancels are ignored. Cancels raised _inside_ still surface as `err(...)`. Use for graceful-shutdown cleanup.
+- `nonCancellableScope<T>(fn)` — same shape; _outside_ cancels are ignored. Cancels raised _inside_ still surface as `Err(...)`. Use for graceful-shutdown cleanup.
 - Non-cancellation errors thrown by `fn` are _unmodeled_ failures: they ride unthrown's **`defect`** channel (inspectable via `isDefect(result)` / `result.cause`, re-thrown at the edge), not the modeled `err` channel.
 
 Canonical implementation: `packages/worker/src/cancellation.ts:38` (`cancellableScope`), `:75` (`nonCancellableScope`). Error class: `packages/worker/src/errors.ts:193`.
 
 ## ApplicationFailure semantics
 
-`ApplicationFailure` (re-exported from `@temporal-contract/worker/activity`) is Temporal's first-class failure type. The wrapper at `packages/worker/src/activity.ts:8-15` rethrows the `err(...)` payload at the activity boundary, where Temporal recognizes it natively and applies the configured retry policy.
+`ApplicationFailure` (re-exported from `@temporal-contract/worker/activity`) is Temporal's first-class failure type. The wrapper at `packages/worker/src/activity.ts:8-15` rethrows the `Err(...)` payload at the activity boundary, where Temporal recognizes it natively and applies the configured retry policy.
 
 Fields that matter:
 
@@ -129,7 +129,7 @@ ApplicationFailure.create({
 
 ## Anti-patterns
 
-- **Never throw** from activities — Temporal sees thrown errors as `ApplicationFailure(type: "Error", retryable: true)` by default, which masks the real failure type and triggers unwanted retries. Use `err(ApplicationFailure.create({ type, message, nonRetryable })).toAsync()` (or a `fromPromise(promise, qualify)` chain whose `qualify` returns the `ApplicationFailure`) instead.
+- **Never throw** from activities — Temporal sees thrown errors as `ApplicationFailure(type: "Error", retryable: true)` by default, which masks the real failure type and triggers unwanted retries. Use `Err(ApplicationFailure.create({ type, message, nonRetryable })).toAsync()` (or a `fromPromise(promise, qualify)` chain whose `qualify` returns the `ApplicationFailure`) instead.
 - **Never use `any`** — use `unknown` and validate with schemas. Enforced by oxlint.
 - **Always use `.js` extensions** in imports (even for TypeScript files) — required by ESM module resolution.
 - **Don't `try/catch` `CancelledFailure` in workflows** — use `cancellableScope` so cancellation flows through the same `AsyncResult` discipline as everything else.

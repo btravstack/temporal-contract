@@ -74,7 +74,7 @@ type ProcessPaymentHandler = ActivitiesHandler<typeof contract>["processPayment"
 
 const sendEmail: SendEmailHandler = ({ to, body }) => {
   // Implementation — must return AsyncResult<T, ApplicationFailure>
-  return ok({ sent: true }).toAsync();
+  return Ok({ sent: true }).toAsync();
 };
 ```
 
@@ -199,8 +199,8 @@ type Handlers = ActivitiesHandler<typeof orderContract>;
 
 // Create mock activities for testing
 const mockActivities: Handlers = {
-  sendEmail: ({ to, body }) => ok({ sent: true }).toAsync(),
-  processPayment: ({ amount }) => ok({ transactionId: "TEST-TXN" }).toAsync(),
+  sendEmail: ({ to, body }) => Ok({ sent: true }).toAsync(),
+  processPayment: ({ amount }) => Ok({ transactionId: "TEST-TXN" }).toAsync(),
 };
 
 // Use in tests
@@ -316,10 +316,10 @@ Always extract types for better maintainability:
 ```typescript
 // ✅ Good
 type Handlers = ActivitiesHandler<typeof contract>;
-const sendEmail: Handlers["sendEmail"] = ({ to, body }) => ok({ sent: true }).toAsync();
+const sendEmail: Handlers["sendEmail"] = ({ to, body }) => Ok({ sent: true }).toAsync();
 
 // ❌ Avoid inline typing
-const sendEmail = ({ to, body }: { to: string; body: string }) => ok({ sent: true }).toAsync();
+const sendEmail = ({ to, body }: { to: string; body: string }) => Ok({ sent: true }).toAsync();
 ```
 
 ### 2. Organize by Domain

@@ -20,8 +20,9 @@ This page is an end-to-end mapping for upgrading existing code.
   on `await`/unwrap instead of being silently swallowed.
 - **Tagged errors**: error classes built with `TaggedError(...)` carry a
   `_tag` discriminant, enabling exhaustive `matchTags(...)` folds.
-- **Sound narrowing**: free functions `isOk` / `isErr` / `isDefect` narrow
-  the type correctly, instead of relying on method-based type guards.
+- **Active maintenance**: a first-party, actively-maintained library
+  (neverthrow's releases have stalled, see
+  [supermacro/neverthrow#670](https://github.com/supermacro/neverthrow/issues/670)).
 
 ## Drop the dep, add the new one
 
@@ -29,13 +30,13 @@ This page is an end-to-end mapping for upgrading existing code.
   // package.json
   "dependencies": {
 -   "neverthrow": "^8"
-+   "unthrown": "^0.1.0"
++   "unthrown": "^1"
   }
 ```
 
 ```diff
 - import { ResultAsync, ok, err, okAsync, errAsync } from "neverthrow";
-+ import { fromPromise, ok, err, isOk, isErr, isDefect } from "unthrown";
++ import { fromPromise, Ok, Err } from "unthrown";
 ```
 
 ## Type signatures
@@ -50,21 +51,21 @@ the same name but is now imported from `"unthrown"`.
 
 ## API mapping
 
-| neverthrow                                   | unthrown                                                               |
-| -------------------------------------------- | ---------------------------------------------------------------------- |
-| `import { ResultAsync } from "neverthrow"`   | `import { fromPromise } from "unthrown"`                               |
-| type `ResultAsync<T, E>`                     | type `AsyncResult<T, E>`                                               |
-| type `Result<T, E>`                          | `Result<T, E>` (now from `"unthrown"`)                                 |
-| `ok(v)` / `err(e)`                           | `ok(v)` / `err(e)` (from `"unthrown"`)                                 |
-| `okAsync(v)`                                 | `ok(v).toAsync()` (no `okAsync`)                                       |
-| `errAsync(e)`                                | `err(e).toAsync()` (no `errAsync`)                                     |
-| `ResultAsync.fromPromise(promise, errFn)`    | `fromPromise(promise, errFn)`                                          |
-| `ResultAsync.fromSafePromise(promise)`       | `fromSafePromise(promise)`                                             |
-| `.andThen(fn)`                               | `.flatMap(fn)`                                                         |
-| `.map(fn)` / `.mapErr(fn)` / `.orElse(fn)`   | `.map(fn)` / `.mapErr(fn)` / `.orElse(fn)`                             |
-| `Result.combine([...])`                      | `all([...])`                                                           |
-| `result.match(okFn, errFn)` (positional)     | `result.match({ ok, err, defect })` (object, 3 channels)               |
-| `result.isOk()` / `result.isErr()` to narrow | `isOk(result)` / `isErr(result)` / `isDefect(result)` (free functions) |
+| neverthrow                                   | unthrown                                                                                                            |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `import { ResultAsync } from "neverthrow"`   | `import { fromPromise } from "unthrown"`                                                                            |
+| type `ResultAsync<T, E>`                     | type `AsyncResult<T, E>`                                                                                            |
+| type `Result<T, E>`                          | `Result<T, E>` (now from `"unthrown"`)                                                                              |
+| `ok(v)` / `err(e)`                           | `Ok(v)` / `Err(e)` (from `"unthrown"`)                                                                              |
+| `okAsync(v)`                                 | `Ok(v).toAsync()` (no `okAsync`)                                                                                    |
+| `errAsync(e)`                                | `Err(e).toAsync()` (no `errAsync`)                                                                                  |
+| `ResultAsync.fromPromise(promise, errFn)`    | `fromPromise(promise, errFn)`                                                                                       |
+| `ResultAsync.fromSafePromise(promise)`       | `fromSafePromise(promise)`                                                                                          |
+| `.andThen(fn)`                               | `.flatMap(fn)`                                                                                                      |
+| `.map(fn)` / `.mapErr(fn)` / `.orElse(fn)`   | `.map(fn)` / `.mapErr(fn)` / `.orElse(fn)`                                                                          |
+| `Result.combine([...])`                      | `all([...])`                                                                                                        |
+| `result.match(okFn, errFn)` (positional)     | `result.match({ ok, err, defect })` (object, 3 channels)                                                            |
+| `result.isOk()` / `result.isErr()` to narrow | `result.isOk()` / `result.isErr()` / `result.isDefect()` (methods narrow; `isOk(result)` free functions also exist) |
 
 ## `okAsync` / `errAsync` are gone
 
@@ -73,13 +74,13 @@ it to an `AsyncResult` with `.toAsync()`:
 
 ```diff
 - import { okAsync, errAsync } from "neverthrow";
-+ import { ok, err } from "unthrown";
++ import { Ok, Err } from "unthrown";
 
 - return okAsync({ sent: true });
-+ return ok({ sent: true }).toAsync();
++ return Ok({ sent: true }).toAsync();
 
 - return errAsync(new MyError());
-+ return err(new MyError()).toAsync();
++ return Err(new MyError()).toAsync();
 ```
 
 ## Narrowing: methods or free functions
@@ -108,7 +109,7 @@ unthrown models **three** outcomes, not two:
 
 - **`ok`** — success.
 - **`err`** — a deliberate, anticipated failure that is part of your type
-  signature (returned with `err(...)` / `err(...).toAsync()`, or produced by
+  signature (returned with `Err(...)` / `Err(...).toAsync()`, or produced by
   mapping a rejection through `fromPromise(promise, errFn)`).
 - **`defect`** — an _unanticipated_ failure (a bug): an unexpected throw that
   was never modeled. It carries the raw failure on `result.cause` and
@@ -120,15 +121,13 @@ becomes a `defect` instead, distinct from your modeled `err` values. Inspect
 it with `isDefect(result)` / `result.cause`, or handle all three at once:
 
 ```ts
-import { isOk, isErr, isDefect } from "unthrown";
-
 const result = await client.executeWorkflow("processOrder", { workflowId, args });
 
-if (isOk(result)) {
+if (result.isOk()) {
   console.log(result.value);
-} else if (isErr(result)) {
+} else if (result.isErr()) {
   console.error("Modeled failure:", result.error);
-} else if (isDefect(result)) {
+} else if (result.isDefect()) {
   console.error("Unexpected failure (bug):", result.cause);
 }
 ```
@@ -281,7 +280,7 @@ result.match({
 `context.cancellableScope` and `context.nonCancellableScope` previously
 returned `ResultAsync<T, WorkflowCancelledError>`. They now return
 `AsyncResult<T, WorkflowCancelledError>` — narrow the resolved `Result` with
-`isErr(result)` (free function) instead of `result.isErr()`.
+`result.isErr()` (or the `isErr(result)` free function).
 
 ## See Also
 

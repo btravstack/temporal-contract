@@ -4,13 +4,13 @@
  * The helper routes a synchronous throw or a rejected promise from `work()`
  * through unthrown's `defect` channel — an *unanticipated* failure becomes a
  * defect (a bug, re-thrown at the edge) rather than an unhandled rejection,
- * while the work function's own domain `err(...)` flows through untouched.
+ * while the work function's own domain `Err(...)` flows through untouched.
  * Both consuming packages (`@temporal-contract/client` and
  * `@temporal-contract/worker`) rely on this — see `client/src/internal.ts`
  * and `worker/src/internal.ts`.
  */
 import { describe, expect, it } from "vitest";
-import { ok, err } from "unthrown";
+import { Ok, Err } from "unthrown";
 import { _internal_makeAsyncResult } from "./result-async.js";
 
 class TestError extends Error {
@@ -21,17 +21,17 @@ class TestError extends Error {
 }
 
 describe("_internal_makeAsyncResult", () => {
-  it("returns ok(...) when the work function resolves with ok(...)", async () => {
-    const result = await _internal_makeAsyncResult<number, TestError>(async () => ok(42));
+  it("returns Ok(...) when the work function resolves with Ok(...)", async () => {
+    const result = await _internal_makeAsyncResult<number, TestError>(async () => Ok(42));
     expect(result).toBeOkWith(42);
   });
 
-  it("returns err(...) unchanged when the work function resolves with err(...)", async () => {
+  it("returns Err(...) unchanged when the work function resolves with Err(...)", async () => {
     const domainError = new TestError("domain");
-    const result = await _internal_makeAsyncResult<number, TestError>(async () => err(domainError));
+    const result = await _internal_makeAsyncResult<number, TestError>(async () => Err(domainError));
     expect(result).toBeErr();
     if (result.isErr()) {
-      // Identity preserved — the domain `err(...)` flows through untouched.
+      // Identity preserved — the domain `Err(...)` flows through untouched.
       expect(result.error).toBe(domainError);
     }
   });

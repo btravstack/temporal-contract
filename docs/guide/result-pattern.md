@@ -538,8 +538,8 @@ unthrown models **three** outcomes, not two. Besides `ok` (success) and
 `defect` — for **unanticipated** failures: bugs, programmer errors, or any
 exception you never modeled.
 
-- An `err` is a value you returned on purpose (`err(...)` /
-  `errAsync` → `err(...).toAsync()`, or a rejection mapped through
+- An `err` is a value you returned on purpose (`Err(...)` /
+  `errAsync` → `Err(...).toAsync()`, or a rejection mapped through
   `fromPromise(promise, errFn)`). It is part of your type signature.
 - A `defect` is captured when an unexpected throw escapes — for example a
   `fromSafePromise(...)` thunk that throws, or an unhandled exception inside

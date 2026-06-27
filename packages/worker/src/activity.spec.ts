@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ok, err, fromSafePromise, type AsyncResult } from "unthrown";
+import { Ok, Err, fromSafePromise, type AsyncResult } from "unthrown";
 import { z } from "zod";
 import {
   ActivityDefinitionNotFoundError,
@@ -10,8 +10,8 @@ import type { ContractDefinition } from "@temporal-contract/contract";
 import { ApplicationFailure, declareActivitiesHandler } from "./activity.js";
 
 // unthrown has no `okAsync`/`errAsync`; lift a sync `Result` with `.toAsync()`.
-const okAsync = <T>(value: T): AsyncResult<T, never> => ok(value).toAsync();
-const errAsync = <E>(error: E): AsyncResult<never, E> => err(error).toAsync();
+const okAsync = <T>(value: T): AsyncResult<T, never> => Ok(value).toAsync();
+const errAsync = <E>(error: E): AsyncResult<never, E> => Err(error).toAsync();
 
 describe("Worker unthrown Package", () => {
   describe("declareActivitiesHandler", () => {
@@ -126,7 +126,7 @@ describe("Worker unthrown Package", () => {
       await expect(badActivities["fetchData"]({ id: "abc" })).rejects.toThrow();
     });
 
-    it("should handle ok() by returning value", async () => {
+    it("should handle Ok() by returning value", async () => {
       // GIVEN
       const contract = {
         taskQueue: "test-queue",
@@ -153,7 +153,7 @@ describe("Worker unthrown Package", () => {
       expect(result).toEqual(expect.objectContaining({ result: "success-test" }));
     });
 
-    it("should handle err() by throwing exception", async () => {
+    it("should handle Err() by throwing exception", async () => {
       // GIVEN
       const contract = {
         taskQueue: "test-queue",
@@ -194,7 +194,7 @@ describe("Worker unthrown Package", () => {
       expect((rejected as ApplicationFailure).details).toEqual([{ info: "additional details" }]);
     });
 
-    it("preserves `nonRetryable: true` when unwrapping err() and rethrowing the ApplicationFailure", async () => {
+    it("preserves `nonRetryable: true` when unwrapping Err() and rethrowing the ApplicationFailure", async () => {
       const contract = {
         taskQueue: "test-queue",
         workflows: {},

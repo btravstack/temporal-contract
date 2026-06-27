@@ -174,7 +174,7 @@ Property 'transactionId' does not exist on type 'never'.
      processOrder: {
        processPayment: ({ customerId, amount }) => {
          console.log(customerId);  // Type-safe!
-         return ok({ transactionId: "tx-123" }).toAsync();
+         return Ok({ transactionId: "tx-123" }).toAsync();
        },
      },
    }
@@ -482,8 +482,8 @@ lift a sync `Result` with `.toAsync()`):
 // ✅ For activities, workflows, and clients
 import { fromPromise, ok, err, isOk, isErr, isDefect, type AsyncResult } from "unthrown";
 
-// okAsync(value)  -> ok(value).toAsync()
-// errAsync(error) -> err(error).toAsync()
+// okAsync(value)  -> Ok(value).toAsync()
+// errAsync(error) -> Err(error).toAsync()
 ```
 
 See [Migrating from neverthrow](/guide/migrating-to-unthrown) for the full

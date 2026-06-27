@@ -5,7 +5,7 @@
  * Mocks `@temporalio/workflow` so the helpers can be exercised outside a
  * real workflow context. Asserts that:
  * - successful resolution surfaces as `ok`,
- * - cancellation surfaces as `err(WorkflowCancelledError)`
+ * - cancellation surfaces as `Err(WorkflowCancelledError)`
  *   (matched via the mocked `isCancellation` predicate),
  * - non-cancellation errors are *unmodeled* failures and surface on the
  *   `defect` channel with the original error on `cause` — they no longer ride
@@ -71,7 +71,7 @@ describe("cancellableScope", () => {
   it("routes a non-cancellation error to the defect channel", async () => {
     // A thrown non-cancellation error is an *unmodeled* failure: the helper
     // re-throws it so the `makeAsyncResult` boundary captures it as a defect,
-    // with the original error on `cause`, rather than a typed err(...).
+    // with the original error on `cause`, rather than a typed Err(...).
     const original = new Error("activity exploded");
     const result = await cancellableScope(async () => {
       throw original;

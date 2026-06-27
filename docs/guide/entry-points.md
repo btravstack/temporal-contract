@@ -281,7 +281,7 @@ declareActivitiesHandler({
   activities: {
     processPayment: ({ amount }) => {
       // ✅ amount is number
-      return ok({ transactionId: "TXN-123" }).toAsync();
+      return Ok({ transactionId: "TXN-123" }).toAsync();
       // ✅ Must return AsyncResult<{ transactionId: string }, ApplicationFailure>
     },
   },
@@ -373,8 +373,8 @@ Clear separation of concerns:
 import { ok } from "unthrown";
 
 export const sharedActivities = {
-  sendEmail: ({ to, body }) => ok({ sent: true }).toAsync(),
-  logEvent: ({ event }) => ok({ logged: true }).toAsync(),
+  sendEmail: ({ to, body }) => Ok({ sent: true }).toAsync(),
+  logEvent: ({ event }) => Ok({ logged: true }).toAsync(),
 };
 
 // activities/order.ts
@@ -385,7 +385,7 @@ export const orderActivities = declareActivitiesHandler({
   contract: orderContract,
   activities: {
     ...sharedActivities,
-    processPayment: ({ amount }) => ok({ transactionId: "TXN" }).toAsync(),
+    processPayment: ({ amount }) => Ok({ transactionId: "TXN" }).toAsync(),
   },
 });
 ```
@@ -397,11 +397,11 @@ export const orderActivities = declareActivitiesHandler({
 import { ok } from "unthrown";
 
 const baseActivities = {
-  validateInput: ({ data }) => ok({ valid: true }).toAsync(),
+  validateInput: ({ data }) => Ok({ valid: true }).toAsync(),
 };
 
 const paymentActivities = {
-  processPayment: ({ amount }) => ok({ transactionId: "TXN" }).toAsync(),
+  processPayment: ({ amount }) => Ok({ transactionId: "TXN" }).toAsync(),
 };
 
 export const activities = declareActivitiesHandler({

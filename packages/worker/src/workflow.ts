@@ -601,7 +601,7 @@ type WorkflowContext<
   /**
    * Run `fn` inside a cancellable Temporal scope. If the workflow (or an
    * ancestor scope) is cancelled while `fn` is in flight, the resulting
-   * AsyncResult resolves to `err(WorkflowCancelledError)` instead of
+   * AsyncResult resolves to `Err(WorkflowCancelledError)` instead of
    * rejecting — letting callers handle cancellation explicitly, typically
    * to perform a graceful exit from the current step.
    *
@@ -639,7 +639,7 @@ type WorkflowContext<
    *
    * Returns the same `AsyncResult<...>` shape as
    * {@link WorkflowContext.cancellableScope} for symmetry; the
-   * `err(WorkflowCancelledError)` branch only triggers when cancellation is
+   * `Err(WorkflowCancelledError)` branch only triggers when cancellation is
    * raised from *inside* the scope, which is rare. Non-cancellation errors
    * surface on the `defect` channel.
    */

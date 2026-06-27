@@ -17,7 +17,7 @@ import type {
   ClientInferWorkflowSignals,
   ClientInferWorkflowUpdates,
 } from "./types.js";
-import { type AsyncResult, type Result, ok, err, fromPromise } from "unthrown";
+import { type AsyncResult, type Result, Ok, Err, fromPromise } from "unthrown";
 import {
   type TemporalFailure,
   WorkflowAlreadyStartedError,
@@ -314,12 +314,12 @@ async function resolveDefinitionAndValidateInput<
 > {
   const definition = contract.workflows[workflowName];
   if (!definition) {
-    return err(createWorkflowNotFoundError(workflowName, contract));
+    return Err(createWorkflowNotFoundError(workflowName, contract));
   }
 
   const inputResult = await definition.input["~standard"].validate(args);
   if (inputResult.issues) {
-    return err(createWorkflowValidationError(workflowName, "input", inputResult.issues));
+    return Err(createWorkflowValidationError(workflowName, "input", inputResult.issues));
   }
 
   const searchAttributesResult = toTypedSearchAttributes(
@@ -330,10 +330,10 @@ async function resolveDefinitionAndValidateInput<
   // `toTypedSearchAttributes` only ever builds ok/err; assert away the
   // impossible defect so `.error` / `.value` narrow cleanly.
   assertNoDefect(searchAttributesResult);
-  if (searchAttributesResult.isErr()) return err(searchAttributesResult.error);
+  if (searchAttributesResult.isErr()) return Err(searchAttributesResult.error);
   const typedSearchAttributes = searchAttributesResult.value;
 
-  return ok({
+  return Ok({
     definition: definition as TContract["workflows"][TWorkflowName],
     validatedInput: inputResult.value,
     typedSearchAttributes,
@@ -473,7 +473,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       );
       // The resolver only ever builds ok/err; assert away the impossible defect.
       assertNoDefect(resolved);
-      if (resolved.isErr()) return err(resolved.error);
+      if (resolved.isErr()) return Err(resolved.error);
       const { definition, validatedInput, typedSearchAttributes } = resolved.value;
 
       try {
@@ -483,9 +483,9 @@ export class TypedClient<TContract extends ContractDefinition> {
           args: [validatedInput],
           ...(typedSearchAttributes ? { typedSearchAttributes } : {}),
         });
-        return ok(this.createTypedHandle(handle, definition) as Ok);
+        return Ok(this.createTypedHandle(handle, definition) as Ok);
       } catch (error) {
-        return err(classifyStartError("startWorkflow", error));
+        return Err(classifyStartError("startWorkflow", error));
       }
     };
     return makeAsyncResult(work);
@@ -555,7 +555,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       );
       // The resolver only ever builds ok/err; assert away the impossible defect.
       assertNoDefect(resolved);
-      if (resolved.isErr()) return err(resolved.error);
+      if (resolved.isErr()) return Err(resolved.error);
       const { definition, validatedInput, typedSearchAttributes } = resolved.value;
 
       // Validate signal input — call-site-specific, kept inline.
@@ -565,7 +565,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       if (!signalDef) {
         // Type-level constraint should already prevent this; defensive for
         // raw-call / union-typed-name corner cases.
-        return err(
+        return Err(
           new SignalValidationError(signalName, [
             {
               message: `Signal "${signalName}" is not declared on workflow "${workflowName}".`,
@@ -575,7 +575,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       }
       const signalInputResult = await signalDef.input["~standard"].validate(signalArgs);
       if (signalInputResult.issues) {
-        return err(new SignalValidationError(signalName, signalInputResult.issues));
+        return Err(new SignalValidationError(signalName, signalInputResult.issues));
       }
 
       try {
@@ -590,9 +590,9 @@ export class TypedClient<TContract extends ContractDefinition> {
         const typed = this.createTypedHandle(handle, definition) as TypedWorkflowHandle<
           TContract["workflows"][TWorkflowName]
         >;
-        return ok({ ...typed, signaledRunId: handle.signaledRunId } as Ok);
+        return Ok({ ...typed, signaledRunId: handle.signaledRunId } as Ok);
       } catch (error) {
-        return err(classifyStartError("signalWithStart", error));
+        return Err(classifyStartError("signalWithStart", error));
       }
     };
     return makeAsyncResult(work);
@@ -650,7 +650,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       );
       // The resolver only ever builds ok/err; assert away the impossible defect.
       assertNoDefect(resolved);
-      if (resolved.isErr()) return err(resolved.error);
+      if (resolved.isErr()) return Err(resolved.error);
       const { definition, validatedInput, typedSearchAttributes } = resolved.value;
 
       try {
@@ -666,17 +666,17 @@ export class TypedClient<TContract extends ContractDefinition> {
         // shape; the helper only handles pre-call concerns.
         const outputResult = await definition.output["~standard"].validate(result);
         if (outputResult.issues) {
-          return err(createWorkflowValidationError(workflowName, "output", outputResult.issues));
+          return Err(createWorkflowValidationError(workflowName, "output", outputResult.issues));
         }
 
-        return ok(outputResult.value as Ok);
+        return Ok(outputResult.value as Ok);
       } catch (error) {
         // executeWorkflow combines start + result, so it can surface any of
         // the discriminated kinds. Inline the three checks rather than
         // routing through a dedicated helper — this is the only call site
         // that needs the full union.
         if (error instanceof WorkflowExecutionAlreadyStartedError) {
-          return err(new WorkflowAlreadyStartedError(error.workflowType, error.workflowId, error));
+          return Err(new WorkflowAlreadyStartedError(error.workflowType, error.workflowId, error));
         }
         if (error instanceof TemporalWorkflowFailedError) {
           // Forward Temporal's nested cause directly — see
@@ -687,7 +687,7 @@ export class TypedClient<TContract extends ContractDefinition> {
           // ever populates it with a `TemporalFailure` subclass here; narrow
           // with the public union so the typed `cause` lines up with the
           // surfaced `WorkflowFailedError`.
-          return err(
+          return Err(
             new WorkflowFailedError(
               temporalOptions.workflowId,
               error.cause as TemporalFailure | undefined,
@@ -695,7 +695,7 @@ export class TypedClient<TContract extends ContractDefinition> {
           );
         }
         if (error instanceof TemporalWorkflowNotFoundError) {
-          return err(
+          return Err(
             new WorkflowExecutionNotFoundError(
               error.workflowId || temporalOptions.workflowId,
               error.runId,
@@ -703,7 +703,7 @@ export class TypedClient<TContract extends ContractDefinition> {
             ),
           );
         }
-        return err(createRuntimeClientError("executeWorkflow", error));
+        return Err(createRuntimeClientError("executeWorkflow", error));
       }
     };
     return makeAsyncResult(work);
@@ -736,14 +736,14 @@ export class TypedClient<TContract extends ContractDefinition> {
     const work = async (): Promise<Result<Ok, Err>> => {
       const definition = this.contract.workflows[workflowName];
       if (!definition) {
-        return err(createWorkflowNotFoundError(workflowName, this.contract));
+        return Err(createWorkflowNotFoundError(workflowName, this.contract));
       }
 
       try {
         const handle = this.client.workflow.getHandle(workflowId);
-        return ok(this.createTypedHandle(handle, definition) as Ok);
+        return Ok(this.createTypedHandle(handle, definition) as Ok);
       } catch (error) {
-        return err(createRuntimeClientError("getHandle", error));
+        return Err(createRuntimeClientError("getHandle", error));
       }
     };
     return makeAsyncResult(work);
@@ -808,7 +808,7 @@ export class TypedClient<TContract extends ContractDefinition> {
             const result = await workflowHandle.result();
             const outputResult = await definition.output["~standard"].validate(result);
             if (outputResult.issues) {
-              return err(
+              return Err(
                 new WorkflowValidationError(
                   workflowHandle.workflowId,
                   "output",
@@ -816,9 +816,9 @@ export class TypedClient<TContract extends ContractDefinition> {
                 ),
               );
             }
-            return ok(outputResult.value as Ok);
+            return Ok(outputResult.value as Ok);
           } catch (error) {
-            return err(classifyResultError("result", error, workflowHandle.workflowId));
+            return Err(classifyResultError("result", error, workflowHandle.workflowId));
           }
         };
         return makeAsyncResult(work);
@@ -933,22 +933,22 @@ function buildValidatedProxy<TDef extends DefWithInput, TValidationError extends
       > => {
         const inputResult = await def.input["~standard"].validate(args);
         if (inputResult.issues) {
-          return err(makeValidationError(name, "input", inputResult.issues));
+          return Err(makeValidationError(name, "input", inputResult.issues));
         }
 
         try {
           const result = await invoke(name, inputResult.value);
           const outputSchema = validateOutput(def);
           if (!outputSchema) {
-            return ok(result);
+            return Ok(result);
           }
           const outputResult = await outputSchema["~standard"].validate(result);
           if (outputResult.issues) {
-            return err(makeValidationError(name, "output", outputResult.issues));
+            return Err(makeValidationError(name, "output", outputResult.issues));
           }
-          return ok(outputResult.value);
+          return Ok(outputResult.value);
         } catch (error) {
-          return err(classifyHandleError(operation, error, workflowId));
+          return Err(classifyHandleError(operation, error, workflowId));
         }
       };
       return makeAsyncResult(work);
