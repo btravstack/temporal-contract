@@ -45,7 +45,7 @@ packages:
   - docs
 
 catalog:
-  "@btravstack/theme": 1.2.0
+  "@btravstack/theme": 1.2.1
   "@changesets/cli": 2.31.0
   "@commitlint/cli": 21.0.2
   "@commitlint/config-conventional": 21.0.2
