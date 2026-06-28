@@ -143,6 +143,9 @@ importers:
         specifier: workspace:*
         version: link:../packages/worker
     devDependencies:
+      '@btravstack/theme':
+        specifier: ^1.2.0
+        version: 1.2.0(vitepress@1.6.4(@algolia/client-search@5.53.0)(@types/node@24.13.2)(lightningcss@1.32.0)(postcss@8.5.15)(terser@5.48.0)(typescript@6.0.3))
       '@temporal-contract/tsconfig':
         specifier: workspace:*
         version: link:../tools/tsconfig
@@ -643,6 +646,11 @@ packages:
 
   '@braintree/sanitize-url@7.1.2':
     resolution: {integrity: sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA==}
+
+  '@btravstack/theme@1.2.0':
+    resolution: {integrity: sha512-T6zN2V8xPY3ohlbjILbP01AMO1xbGl39HuPeVoY2qlJYTRVBRW3RBvuXJVeQAuRdLFcl0xTgFjzHsl9B8RLlkA==}
+    peerDependencies:
+      vitepress: ^1.6.0
 
   '@changesets/apply-release-plan@7.1.1':
     resolution: {integrity: sha512-9qPCm/rLx/xoOFXIHGB229+4GOL76S4MC+7tyOuTsR6+1jYlfFDQORdvwR5hDA6y4FL2BPt3qpbcQIS+dW85LA==}
@@ -5259,6 +5267,10 @@ snapshots:
 
   '@braintree/sanitize-url@7.1.2': {}
 
+  '@btravstack/theme@1.2.0(vitepress@1.6.4(@algolia/client-search@5.53.0)(@types/node@24.13.2)(lightningcss@1.32.0)(postcss@8.5.15)(terser@5.48.0)(typescript@6.0.3))':
+    dependencies:
+      vitepress: 1.6.4(@algolia/client-search@5.53.0)(@types/node@24.13.2)(lightningcss@1.32.0)(postcss@8.5.15)(terser@5.48.0)(typescript@6.0.3)
+
   '@changesets/apply-release-plan@7.1.1':
     dependencies:
       '@changesets/config': 3.1.4
@@ -6873,7 +6885,7 @@ snapshots:
   '@unthrown/vitest@1.0.0(vitest@4.1.8)':
     dependencies:
       unthrown: 1.0.0
-      vitest: 4.1.8(@types/node@24.13.2)(@vitest/coverage-v8@4.1.8)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0)
+      vitest: 4.1.8(@types/node@24.13.1)(@vitest/coverage-v8@4.1.8)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0)
 
   '@upsetjs/venn.js@2.0.0':
     optionalDependencies:
@@ -6897,7 +6909,7 @@ snapshots:
       obug: 2.1.2
       std-env: 4.1.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.8(@types/node@24.13.2)(@vitest/coverage-v8@4.1.8)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0)
+      vitest: 4.1.8(@types/node@24.13.1)(@vitest/coverage-v8@4.1.8)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0)
 
   '@vitest/expect@4.1.8':
     dependencies:

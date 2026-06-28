@@ -88,5 +88,6 @@ minimumReleaseAgeStrict: true
 # First-party btravstack packages — the maturity delay guards against
 # third-party supply-chain risk, which does not apply to our own org's libraries.
 minimumReleaseAgeExclude:
+  - "@btravstack/theme"
   - "unthrown"
   - "@unthrown/vitest"

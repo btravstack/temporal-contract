@@ -18,6 +18,7 @@
     "@temporal-contract/worker": "workspace:*"
   },
   "devDependencies": {
+    "@btravstack/theme": "^1.2.0",
     "@temporal-contract/tsconfig": "workspace:*",
     "@types/node": "catalog:",
     "mermaid": "11.15.0",
