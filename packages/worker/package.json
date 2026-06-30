@@ -1,6 +1,6 @@
 {
   "name": "@temporal-contract/worker",
-  "version": "5.0.0",
+  "version": "6.0.0",
   "description": "Worker utilities with unthrown Result/AsyncResult for implementing temporal-contract workflows and activities",
   "keywords": [
     "contract",
