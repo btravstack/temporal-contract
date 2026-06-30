@@ -30,7 +30,7 @@ This page is an end-to-end mapping for upgrading existing code.
   // package.json
   "dependencies": {
 -   "neverthrow": "^8"
-+   "unthrown": "^2"
++   "unthrown": "^3"
   }
 ```
 
