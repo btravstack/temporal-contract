@@ -76,7 +76,7 @@
   "peerDependencies": {
     "@temporalio/client": "^1",
     "@temporalio/common": "^1",
-    "unthrown": "^1"
+    "unthrown": "^2"
   },
   "engines": {
     "node": ">=22.19.0"
