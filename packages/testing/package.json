@@ -1,6 +1,6 @@
 {
   "name": "@temporal-contract/testing",
-  "version": "4.0.0",
+  "version": "5.0.0",
   "description": "Temporal testing utilities",
   "homepage": "https://github.com/btravstack/temporal-contract#readme",
   "bugs": {

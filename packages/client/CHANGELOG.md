@@ -1,5 +1,20 @@
 # @temporal-contract/client
 
+## 5.0.0
+
+### Major Changes
+
+- 224e1ae: Upgrade to [`unthrown`](https://github.com/btravstack/unthrown) 2.0.0.
+
+  The published packages' `unthrown` peer-dependency range moves to `^2`. unthrown 2.0.0 is API-compatible for everything temporal-contract uses — the `Ok` / `Err` / `Defect` constructors, `TaggedError`, `matchTags`, `fromPromise` / `fromSafePromise`, `result.match({ ok, err, defect })`, `.toAsync()`, and `result.isOk()` / `isErr()` / `isDefect()` narrowing are all unchanged — so no source changes were required.
+
+  **Breaking for consumers**: bump your own `unthrown` install to `^2`. There are no other code changes.
+
+### Patch Changes
+
+- Updated dependencies [224e1ae]
+  - @temporal-contract/contract@5.0.0
+
 ## 4.0.0
 
 ### Major Changes
@@ -24,6 +39,7 @@
 - 8d0750f: Replace `neverthrow` with [`unthrown`](https://github.com/btravstack/unthrown) for the Result/error-handling spine across all packages. This is a breaking change to the public API.
 
   **What changed**
+
   - **`ResultAsync<T, E>` → `AsyncResult<T, E>`.** Every activity, workflow-context, child-workflow, schedule, and typed-client method that returned a `ResultAsync` now returns an `AsyncResult`. The `unthrown` peer dependency replaces `neverthrow`.
   - **No `okAsync` / `errAsync`.** Lift a synchronous `Result` with `.toAsync()` instead: `ok(value).toAsync()`, `err(failure).toAsync()`. Promise boundaries use `fromPromise(promise, qualify)` / `fromSafePromise(promise)`.
   - **Narrow before accessing the payload.** Both the `result.isOk()` / `isErr()` / `isDefect()` methods and the matching free functions `isOk(result)` / `isErr(result)` / `isDefect(result)` (imported from `unthrown`) are type guards; the codebase uses the methods. Narrow before touching `.value` / `.error` / `.cause`.
@@ -57,6 +73,7 @@
 - 9c865cc: Loosen the `@temporalio/client` peer dependency range from `^1.16.0` back to `^1`.
 
   The `^1.16.0` floor was set because `client.schedule` (the Schedule API) only exists in `@temporalio/client` 1.16+. But `TypedClient`'s constructor already fails fast with a clear ">= 1.16" error if a consumer reaches for the Schedule API on an older version, so the stricter install-time range was redundant. Widening it back to `^1` keeps the package permissive about the installed Temporal version — consumers on 1.0–1.15 who never touch schedules no longer get a spurious peer-dependency warning — while the runtime guard still protects anyone who does. This also realigns the client peer range with `@temporalio/common` (`^1`) and the worker package.
+
   - @temporal-contract/contract@2.3.1
 
 ## 2.3.0
@@ -77,6 +94,7 @@
 - a24a2e4: Round-trip typed search attributes; reject undeclared keys; surface a typed reader.
 
   **Three improvements to the search-attribute story:**
+
   1. **Schedules now accept typed `searchAttributes`** on `client.schedule.create(...)`. They translate through the same helper as `client.startWorkflow` / `executeWorkflow` and attach to the schedule's `startWorkflow` action so spawned runs are indexed identically to direct starts. Closes a real production gotcha where schedule-spawned workflows silently lost typed indexing.
 
   2. **Undeclared attribute keys are now rejected with `RuntimeClientError`** instead of being silently dropped. The TypeScript surface already gates the happy path; the runtime check catches typed-escape-hatch cases (`as never`, `as any`, raw-call interop) where a typo would otherwise leave the workflow unindexed without any signal to the caller. The error's `operation` is `"searchAttributes"` so callers can branch on it.
@@ -120,11 +138,13 @@
 - 4401951: Make the worker-side child-workflow error model coherent with the client-side parent-workflow error model, and tighten `WorkflowFailedError.cause` typing.
 
   **Worker (`@temporal-contract/worker`):**
+
   - New `ChildWorkflowCancelledError` discriminant — `extends ChildWorkflowError`, so existing `instanceof ChildWorkflowError` checks keep matching cancellations while `instanceof ChildWorkflowCancelledError` lets callers narrow further. Re-exported from `@temporal-contract/worker/workflow`.
   - New `classifyChildWorkflowError` internal helper mirrors the client-side `classifyResultError` pattern: cancellation (via `isCancellation`) takes priority, then `ChildWorkflowFailure → cause` unwrapping, then a generic fallback.
   - `startChildWorkflow` / `executeChildWorkflow` now correctly forward Temporal's nested `ApplicationFailure` / `TimeoutFailure` / `TerminatedFailure` cause through `ChildWorkflowError.cause` instead of wrapping the raw `ChildWorkflowFailure`. Consumers can now match `err.cause instanceof ApplicationFailure` in one step. `ChildWorkflowNotFoundError` is now part of the return-type union.
 
   **Client (`@temporal-contract/client`):**
+
   - New public `TemporalFailure` union type re-exported from `@temporalio/common`: `ApplicationFailure | CancelledFailure | TerminatedFailure | TimeoutFailure | ChildWorkflowFailure | ServerFailure | ActivityFailure`.
   - `WorkflowFailedError.cause` re-typed from `unknown` to `TemporalFailure | undefined`. `classifyResultError` already produced this shape at runtime; the type now matches. Consumers can `instanceof`-match the cause directly without a manual narrow.
 
@@ -137,11 +157,13 @@
 - 4401951: Fix two TypeScript soundness bugs and add public name-helper types to `@temporal-contract/contract`.
 
   **Soundness fixes** (previously made `args: unknown` and accepted any string as a signal name):
+
   - `WorkflowDefinition` is now parameterized over `<TInput, TOutput, ...>`. Schema literal types flow through `defineWorkflow` so `client.startWorkflow("processOrder", { args: ??? })` infers `args` as the schema's inferred input type instead of `unknown`.
   - Empty-collection generics default to `Record<string, never>` instead of `Record<string, ...Definition>`, so `keyof` of the default is genuinely empty. Typos in `signalName` / `queryName` / `updateName` on workflows that declare no signals/queries/updates are now compile-time errors.
   - `& string` added to every `TWorkflowName extends keyof TContract["workflows"]` constraint; the compensating `as string` casts at the Temporal-API call sites are gone.
 
   **New public exports from `@temporal-contract/contract`:**
+
   - `AnyWorkflowDefinition` — widened-constraint alias used in `Record<string, …>` constraint positions and `T extends WorkflowDefinition` constraints. Lets the narrow `WorkflowDefinition` defaults stay narrow without breaking constraint-position usage.
   - `SignalNamesOf<W>` / `QueryNamesOf<W>` / `UpdateNamesOf<W>` — distributive name-helper types that return `never` when the corresponding field is absent or `undefined` (handles `exactOptionalPropertyTypes`) and distribute correctly over union workflow types.
 
@@ -166,6 +188,7 @@
   This is a **breaking change** for every downstream consumer. See
   [Migrating to neverthrow](https://btravstack.github.io/temporal-contract/guide/migrating-to-neverthrow)
   for the full mapping. Highlights:
+
   - Add `neverthrow` to your dependencies; remove `@swan-io/boxed` and
     `@temporal-contract/boxed`.
   - `Result.Ok(v)` → `ok(v)`, `Result.Error(e)` → `err(e)`.
@@ -253,11 +276,13 @@
 - ad1e1da: Round-2 review-driven cleanup. Several small breaking removals, a typed-error overload on `Future.fromPromise`, and a deduplication of the client's typed-handle proxies.
 
   **Breaking changes (`@temporal-contract/boxed`)**
+
   - Removed `getWithDefault` from `Result`. It was a literal duplicate of `getOr`. Migrate by using `getOr(...)` everywhere.
   - Removed the half-implemented `Option` type and the `Result#toOption()` method. They had no constructors, no methods, and no consumer in the codebase. If you need optionality, use `T | undefined`.
   - `Result.fromExecution` and `Result.fromAsyncExecution` now return `Result<T, unknown>` (the second `E` generic is gone). The previous signature accepted an `E` generic but cast `error as E` without any runtime guard, which was unsound. Narrow at the call site: `Result.fromExecution(...).mapError((e) => mapToYourError(e))`.
 
   **Breaking changes (`@temporal-contract/worker`)**
+
   - Removed the `getWorkflowActivities`, `getWorkflowActivityNames`, `isWorkflowActivity`, and `getWorkflowNames` helpers from `@temporal-contract/worker/activity`. They had no internal usage, no example usage, and `isWorkflowActivity` was misnamed (returned true for global activities). If you depended on them, derive equivalents directly from the contract — but **remember the merge with global activities**:
 
     ```ts
@@ -280,15 +305,18 @@
     `contract.workflows[name].activities` alone only contains workflow-local activities; you must merge `contract.activities` to match the old helper's behavior.
 
   **Breaking changes (`@temporal-contract/client`)**
+
   - The internal proxy generation was deduplicated. The shape and types of `TypedWorkflowHandle.queries`/`signals`/`updates` are unchanged.
   - `RuntimeClientError` is now exported. Match against it with `instanceof RuntimeClientError` or ts-pattern's `P.instanceOf(RuntimeClientError)`.
 
   **Additions**
+
   - `Future.fromPromise` (`@temporal-contract/boxed`) accepts an optional `mapError` argument that lifts the error type at the boundary instead of stripping to `unknown`. Existing call sites without the second argument are unchanged.
   - `defineQuery`'s JSDoc now calls out the synchronous-validator constraint (Temporal queries must complete synchronously, so async refinements aren't supported).
   - New tests: typed-error `Future.fromPromise` overload coverage, swan-boxed round-trip preservation, deterministic-replay assertions for `Future` chains, negative type-level assertion for the worker/client `InferInput`/`InferOutput` duality.
 
   **Internal**
+
   - Hoisted the `args.length === 1 ? args[0] : args` heuristic into a single `extractHandlerInput` helper used across activity, workflow, signal, query, and update handlers.
   - Dropped runtime defensive checks in `defineSignal`/`defineQuery`/`defineUpdate` that the type system already prevents.
   - Activity and workflow entry points now carry a top-of-file comment explaining the swan-vs-local Result/Future split.
@@ -482,6 +510,7 @@
 ### Patch Changes
 
 - db7ea8b: Review-driven cleanup across packages.
+
   - **`@temporal-contract/worker`**: remove `main`/`module`/`types` fields from `package.json` that pointed to non-existent `dist/index.*` files; the package is consumed via the `./activity`, `./worker`, `./workflow` subpath exports only.
   - **`@temporal-contract/contract`**: `defineContract` now also rejects two workflows declaring activities with the same name. Activities live in a single flat namespace at runtime, so duplicates were silently clobbering each other before.
   - **`@temporal-contract/client`**: validation error messages (`WorkflowValidationError`, `QueryValidationError`, `SignalValidationError`, `UpdateValidationError`) now join issue messages with `; ` instead of `JSON.stringify`-ing the entire issue array. The `issues` array remains accessible as a typed property.
