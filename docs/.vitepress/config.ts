@@ -207,20 +207,35 @@ export default withMermaid(
         "meta",
         {
           property: "og:image",
-          content: "https://btravstack.github.io/temporal-contract/logo.svg",
+          content: "https://btravstack.github.io/temporal-contract/og-temporal-contract.png",
         },
       ],
-      ["meta", { property: "og:image:alt", content: "temporal-contract logo" }],
+      ["meta", { property: "og:image:type", content: "image/png" }],
+      ["meta", { property: "og:image:width", content: "1200" }],
+      ["meta", { property: "og:image:height", content: "630" }],
+      [
+        "meta",
+        {
+          property: "og:image:alt",
+          content: "temporal-contract — type-safe contracts for Temporal.io",
+        },
+      ],
       // Twitter Card meta tags
-      ["meta", { name: "twitter:card", content: "summary" }],
+      ["meta", { name: "twitter:card", content: "summary_large_image" }],
       [
         "meta",
         {
           name: "twitter:image",
-          content: "https://btravstack.github.io/temporal-contract/logo.svg",
+          content: "https://btravstack.github.io/temporal-contract/og-temporal-contract.png",
         },
       ],
-      ["meta", { name: "twitter:image:alt", content: "temporal-contract logo" }],
+      [
+        "meta",
+        {
+          name: "twitter:image:alt",
+          content: "temporal-contract — type-safe contracts for Temporal.io",
+        },
+      ],
       // Additional SEO meta tags
       ["meta", { name: "author", content: "Benoit TRAVERS" }],
       ["meta", { name: "robots", content: "index, follow" }],
