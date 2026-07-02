@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/public/logo.svg" alt="temporal-contract" width="128" height="128" />
+
 # temporal-contract
 
 **Type-safe contracts for Temporal.io**
