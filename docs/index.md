@@ -22,15 +22,15 @@ hero:
       link: https://github.com/btravstack/temporal-contract
 
 features:
-  - icon: 🔒
+  - icon: { src: /icons/shield-check.svg }
     title: Type Safety & Validation
     details: End-to-end TypeScript inference with automatic runtime validation using Zod, Valibot, or ArkType.
 
-  - icon: 🎯
+  - icon: { src: /icons/target.svg }
     title: Explicit Error Handling
     details: Result/AsyncResult pattern from unthrown for workflows that need explicit error handling without exceptions.
 
-  - icon: 📝
+  - icon: { src: /icons/contract.svg }
     title: Contract-First Design
     details: Define your workflow interface once — types and validation flow from contract to client and worker.
 ---

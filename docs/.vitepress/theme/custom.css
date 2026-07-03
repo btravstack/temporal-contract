@@ -1,0 +1,5 @@
+/* temporal-contract accent — indigo.
+ * @btravstack/theme 1.4.0 derives every accent shade from this one token. */
+:root:root {
+  --accent: #6B76F2;
+}
