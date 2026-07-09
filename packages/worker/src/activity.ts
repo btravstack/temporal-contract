@@ -33,6 +33,64 @@ export {
 export { ApplicationFailure } from "@temporalio/common";
 
 /**
+ * Build a qualifier for `fromPromise` that wraps a rejection in an
+ * {@link ApplicationFailure} of the given `type`.
+ *
+ * Replaces the hand-written wrapping every activity otherwise repeats:
+ * an `Error` rejection keeps its own message and is preserved as `cause`
+ * (so stack traces survive the activity → workflow boundary); anything
+ * else falls back to `options.message` (or `String(error)`).
+ *
+ * @example
+ * ```ts
+ * import { declareActivitiesHandler, qualify } from '@temporal-contract/worker/activity';
+ * import { fromPromise } from 'unthrown';
+ *
+ * export const activities = declareActivitiesHandler({
+ *   contract: myContract,
+ *   activities: {
+ *     sendEmail: (args) =>
+ *       fromPromise(emailService.send(args), qualify('EMAIL_SEND_FAILED'))
+ *         .map(() => ({ sent: true })),
+ *     chargeCard: (args) =>
+ *       fromPromise(
+ *         paymentGateway.charge(args),
+ *         // Permanent failure: opt out of the configured retry policy.
+ *         qualify('CARD_DECLINED', { nonRetryable: true }),
+ *       ),
+ *   },
+ * });
+ * ```
+ *
+ * @remarks
+ * The qualifier **always** wraps — even when the rejection is already an
+ * `ApplicationFailure` — so the resulting failure's `type` is guaranteed
+ * to be the declared one (retry policies keyed on
+ * `retry.nonRetryableErrorTypes` can rely on it). The original failure is
+ * preserved as `cause`. Write a custom qualifier if you need pass-through.
+ */
+export function qualify(
+  type: string,
+  options?: {
+    /** Fallback message when the rejection is not an `Error` (default: `String(error)`). */
+    message?: string;
+    /** Mark the failure non-retryable — Temporal stops retrying immediately. */
+    nonRetryable?: boolean;
+    /** Structured payload forwarded to the workflow (avoids parsing `message`). */
+    details?: unknown[];
+  },
+): (error: unknown) => ApplicationFailure {
+  return (error) =>
+    ApplicationFailure.create({
+      type,
+      message: error instanceof Error ? error.message : (options?.message ?? String(error)),
+      ...(error instanceof Error ? { cause: error } : {}),
+      ...(options?.nonRetryable !== undefined ? { nonRetryable: options.nonRetryable } : {}),
+      ...(options?.details !== undefined ? { details: options.details } : {}),
+    });
+}
+
+/**
  * Activity implementation using unthrown's `AsyncResult`.
  *
  * Returns `AsyncResult<Output, ApplicationFailure>` for explicit error
@@ -151,7 +209,7 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  * ```ts
  * import { declareActivitiesHandler, ApplicationFailure } from '@temporal-contract/worker/activity';
  * import { fromPromise } from 'unthrown';
- * import myContract from './contract';
+ * import myContract from './contract.js';
  *
  * export const activities = declareActivitiesHandler({
  *   contract: myContract,
@@ -176,9 +234,10 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  *
  * // Use with Temporal Worker
  * import { Worker } from '@temporalio/worker';
+ * import { workflowsPathFromURL } from '@temporal-contract/worker/worker';
  *
  * const worker = await Worker.create({
- *   workflowsPath: require.resolve('./workflows'),
+ *   workflowsPath: workflowsPathFromURL(import.meta.url, './workflows.js'),
  *   activities: activities,
  *   taskQueue: contract.taskQueue,
  * });

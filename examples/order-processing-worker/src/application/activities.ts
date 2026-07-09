@@ -1,5 +1,5 @@
 import { fromPromise } from "unthrown";
-import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
+import { declareActivitiesHandler, qualify } from "@temporal-contract/worker/activity";
 import { orderProcessingContract } from "@temporal-contract/sample-order-processing-contract";
 import {
   sendNotificationUseCase,
@@ -9,18 +9,6 @@ import {
   createShipmentUseCase,
   refundPaymentUseCase,
 } from "../dependencies.js";
-
-/**
- * Translate an arbitrary thrown value into a Temporal `ApplicationFailure`.
- * Used by every activity below to wrap use-case rejections in the
- * `Err(...)` slot without each site repeating the boilerplate.
- */
-const toApplicationFailure = (type: string, fallback: string, error: unknown): ApplicationFailure =>
-  ApplicationFailure.create({
-    type,
-    message: error instanceof Error ? error.message : fallback,
-    ...(error instanceof Error ? { cause: error } : {}),
-  });
 
 /**
  * Activity implementations using unthrown's `AsyncResult` pattern.
@@ -60,38 +48,40 @@ export const activities = declareActivitiesHandler({
   contract: orderProcessingContract,
   activities: {
     sendNotification: ({ customerId, subject, message }) =>
-      fromPromise(sendNotificationUseCase.execute(customerId, subject, message), (error) =>
-        toApplicationFailure("NOTIFICATION_FAILED", "Failed to send notification", error),
+      fromPromise(
+        sendNotificationUseCase.execute(customerId, subject, message),
+        qualify("NOTIFICATION_FAILED", { message: "Failed to send notification" }),
       ),
 
     processOrder: {
       processPayment: ({ customerId, amount }) =>
-        fromPromise(processPaymentUseCase.execute(customerId, amount), (error) =>
-          toApplicationFailure("PAYMENT_FAILED", "Payment processing failed", error),
+        fromPromise(
+          processPaymentUseCase.execute(customerId, amount),
+          qualify("PAYMENT_FAILED", { message: "Payment processing failed" }),
         ),
 
       reserveInventory: (items) =>
-        fromPromise(reserveInventoryUseCase.execute(items), (error) =>
-          toApplicationFailure(
-            "INVENTORY_RESERVATION_FAILED",
-            "Inventory reservation failed",
-            error,
-          ),
+        fromPromise(
+          reserveInventoryUseCase.execute(items),
+          qualify("INVENTORY_RESERVATION_FAILED", { message: "Inventory reservation failed" }),
         ),
 
       releaseInventory: (reservationId) =>
-        fromPromise(releaseInventoryUseCase.execute(reservationId), (error) =>
-          toApplicationFailure("INVENTORY_RELEASE_FAILED", "Inventory release failed", error),
+        fromPromise(
+          releaseInventoryUseCase.execute(reservationId),
+          qualify("INVENTORY_RELEASE_FAILED", { message: "Inventory release failed" }),
         ),
 
       createShipment: ({ orderId, customerId }) =>
-        fromPromise(createShipmentUseCase.execute(orderId, customerId), (error) =>
-          toApplicationFailure("SHIPMENT_CREATION_FAILED", "Shipment creation failed", error),
+        fromPromise(
+          createShipmentUseCase.execute(orderId, customerId),
+          qualify("SHIPMENT_CREATION_FAILED", { message: "Shipment creation failed" }),
         ),
 
       refundPayment: (transactionId) =>
-        fromPromise(refundPaymentUseCase.execute(transactionId), (error) =>
-          toApplicationFailure("REFUND_FAILED", "Refund failed", error),
+        fromPromise(
+          refundPaymentUseCase.execute(transactionId),
+          qualify("REFUND_FAILED", { message: "Refund failed" }),
         ),
     },
   },
