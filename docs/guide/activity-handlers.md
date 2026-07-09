@@ -14,7 +14,7 @@ Instead of defining activity implementations inline, you can extract types for r
 import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
 import { fromPromise } from "unthrown";
-import { orderContract } from "./contract";
+import { orderContract } from "./contract.js";
 
 // Extract all activity handler types from contract
 type OrderActivitiesHandler = ActivitiesHandler<typeof orderContract>;
@@ -47,6 +47,25 @@ export const activities = declareActivitiesHandler({
   },
 });
 ```
+
+::: tip Less boilerplate with `qualify`
+The hand-written `ApplicationFailure.create` wrapping above is what the
+`qualify` helper does for you — an `Error` rejection keeps its message and is
+preserved as `cause`:
+
+```typescript
+import { qualify } from "@temporal-contract/worker/activity";
+
+const sendEmail: OrderActivitiesHandler["sendEmail"] = ({ to, body }) =>
+  fromPromise(emailService.send({ to, body }), qualify("EMAIL_FAILED")).map(() => ({
+    sent: true,
+  }));
+```
+
+Pass `{ nonRetryable: true }` for permanent failures, `{ message: "..." }` as
+a fallback for non-`Error` rejections, and `{ details: [...] }` for a
+structured payload. The examples below use it throughout.
+:::
 
 ## Type Utilities
 
@@ -87,47 +106,39 @@ Implement activities in separate files:
 ```typescript
 // activities/email.ts
 import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
-import { ApplicationFailure } from "@temporal-contract/worker/activity";
+import { qualify } from "@temporal-contract/worker/activity";
 import { fromPromise } from "unthrown";
-import { orderContract } from "../contracts/order.contract";
+import { orderContract } from "../contracts/order.contract.js";
 
 type Handlers = ActivitiesHandler<typeof orderContract>;
 
 export const sendEmail: Handlers["sendEmail"] = ({ to, body }) =>
-  fromPromise(emailService.send({ to, body }), (error) =>
-    ApplicationFailure.create({
-      type: "EMAIL_FAILED",
-      message: error instanceof Error ? error.message : "Failed to send email",
-      ...(error instanceof Error ? { cause: error } : {}),
-    }),
-  ).map(() => ({ sent: true }));
+  fromPromise(emailService.send({ to, body }), qualify("EMAIL_FAILED")).map(() => ({
+    sent: true,
+  }));
 ```
 
 ```typescript
 // activities/payment.ts
 import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
-import { ApplicationFailure } from "@temporal-contract/worker/activity";
+import { qualify } from "@temporal-contract/worker/activity";
 import { fromPromise } from "unthrown";
-import { orderContract } from "../contracts/order.contract";
+import { orderContract } from "../contracts/order.contract.js";
 
 type Handlers = ActivitiesHandler<typeof orderContract>;
 
 export const processPayment: Handlers["processPayment"] = ({ amount }) =>
-  fromPromise(paymentGateway.charge(amount), (error) =>
-    ApplicationFailure.create({
-      type: "PAYMENT_FAILED",
-      message: error instanceof Error ? error.message : "Payment failed",
-      ...(error instanceof Error ? { cause: error } : {}),
-    }),
-  ).map((txId) => ({ transactionId: txId }));
+  fromPromise(paymentGateway.charge(amount), qualify("PAYMENT_FAILED")).map((txId) => ({
+    transactionId: txId,
+  }));
 ```
 
 ```typescript
 // activities/index.ts
 import { declareActivitiesHandler } from "@temporal-contract/worker/activity";
-import { orderContract } from "../contracts/order.contract";
-import { sendEmail } from "./email";
-import { processPayment } from "./payment";
+import { orderContract } from "../contracts/order.contract.js";
+import { sendEmail } from "./email.js";
+import { processPayment } from "./payment.js";
 
 export const activities = declareActivitiesHandler({
   contract: orderContract,
@@ -144,7 +155,7 @@ Create factory functions with typed activities:
 
 ```typescript
 import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
-import { ApplicationFailure } from "@temporal-contract/worker/activity";
+import { qualify } from "@temporal-contract/worker/activity";
 import { fromPromise } from "unthrown";
 
 type Handlers = ActivitiesHandler<typeof orderContract>;
@@ -152,24 +163,16 @@ type Handlers = ActivitiesHandler<typeof orderContract>;
 export const createEmailActivity =
   (emailService: EmailService): Handlers["sendEmail"] =>
   ({ to, body }) =>
-    fromPromise(emailService.send({ to, body }), (error) =>
-      ApplicationFailure.create({
-        type: "EMAIL_FAILED",
-        message: error instanceof Error ? error.message : "Failed",
-        ...(error instanceof Error ? { cause: error } : {}),
-      }),
-    ).map(() => ({ sent: true }));
+    fromPromise(emailService.send({ to, body }), qualify("EMAIL_FAILED")).map(() => ({
+      sent: true,
+    }));
 
 export const createPaymentActivity =
   (paymentGateway: PaymentGateway): Handlers["processPayment"] =>
   ({ amount }) =>
-    fromPromise(paymentGateway.charge(amount), (error) =>
-      ApplicationFailure.create({
-        type: "PAYMENT_FAILED",
-        message: error instanceof Error ? error.message : "Failed",
-        ...(error instanceof Error ? { cause: error } : {}),
-      }),
-    ).map((txId) => ({ transactionId: txId }));
+    fromPromise(paymentGateway.charge(amount), qualify("PAYMENT_FAILED")).map((txId) => ({
+      transactionId: txId,
+    }));
 ```
 
 Usage:
@@ -343,13 +346,9 @@ Make activities testable and configurable:
 ```typescript
 export const createActivities = (services: Services) => {
   const sendEmail: Handlers["sendEmail"] = ({ to, body }) =>
-    fromPromise(services.email.send({ to, body }), (error) =>
-      ApplicationFailure.create({
-        type: "EMAIL_FAILED",
-        message: error instanceof Error ? error.message : "Failed",
-        ...(error instanceof Error ? { cause: error } : {}),
-      }),
-    ).map(() => ({ sent: true }));
+    fromPromise(services.email.send({ to, body }), qualify("EMAIL_FAILED")).map(() => ({
+      sent: true,
+    }));
 
   return { sendEmail };
 };

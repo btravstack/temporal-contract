@@ -181,12 +181,13 @@ Wire everything together in your worker application:
 ```typescript
 // worker-application/src/worker.ts
 import { Worker } from "@temporalio/worker";
+import { workflowsPathFromURL } from "@temporal-contract/worker/worker";
 import { orderContract } from "contract-package";
-import { activities } from "./activities";
+import { activities } from "./activities.js";
 
 const worker = await Worker.create({
   // Workflows loaded from path (Temporal requirement)
-  workflowsPath: require.resolve("./workflows/order.workflow"),
+  workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows/order.workflow.js"),
 
   // Activities loaded directly (handler is a flat object)
   activities,
@@ -244,15 +245,15 @@ For multiple workflows, export them all from a single file:
 
 ```typescript
 // workflows/index.ts
-export * from "./order.workflow";
-export * from "./shipment.workflow";
-export * from "./refund.workflow";
+export * from "./order.workflow.js";
+export * from "./shipment.workflow.js";
+export * from "./refund.workflow.js";
 ```
 
 ```typescript
 // worker.ts
 const worker = await Worker.create({
-  workflowsPath: require.resolve("./workflows"),
+  workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
   activities,
   taskQueue: orderContract.taskQueue,
 });
@@ -379,7 +380,7 @@ export const sharedActivities = {
 
 // activities/order.ts
 import { Ok } from "unthrown";
-import { sharedActivities } from "./shared";
+import { sharedActivities } from "./shared.js";
 
 export const orderActivities = declareActivitiesHandler({
   contract: orderContract,

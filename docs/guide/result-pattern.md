@@ -60,7 +60,7 @@ is `fromPromise(promise, mapError)`:
 ```typescript
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
 import { fromPromise } from "unthrown";
-import { orderContract } from "./contract";
+import { orderContract } from "./contract.js";
 
 export const activities = declareActivitiesHandler({
   contract: orderContract,
@@ -95,7 +95,7 @@ success vs. failure without throwing:
 
 ```typescript
 import { declareWorkflow } from "@temporal-contract/worker/workflow";
-import { orderContract } from "./contract";
+import { orderContract } from "./contract.js";
 
 export const processOrder = declareWorkflow({
   workflowName: "processOrder",
@@ -127,7 +127,7 @@ Clients receive an `AsyncResult<T, E>` from `executeWorkflow` /
 ```typescript
 import { TypedClient } from "@temporal-contract/client";
 import { Client } from "@temporalio/client";
-import { orderContract } from "./contract";
+import { orderContract } from "./contract.js";
 
 const temporalClient = new Client({ connection });
 
@@ -498,7 +498,7 @@ export const parentWorkflow = declareWorkflow({
 Invoke workflows from different contracts/workers:
 
 ```typescript
-import { orderContract, notificationContract } from "./contracts";
+import { orderContract, notificationContract } from "./contracts.js";
 
 export const orderWorkflow = declareWorkflow({
   workflowName: "processOrder",

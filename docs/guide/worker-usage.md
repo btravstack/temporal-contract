@@ -19,7 +19,7 @@ Activities use `unthrown` for explicit error handling:
 ```typescript
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
 import { fromPromise, Ok } from "unthrown";
-import { myContract } from "./contract";
+import { myContract } from "./contract.js";
 
 export const activities = declareActivitiesHandler({
   contract: myContract,
@@ -51,7 +51,7 @@ Workflows return plain objects (not `Result`) due to network serialization. Acti
 
 ```typescript
 import { declareWorkflow } from "@temporal-contract/worker/workflow";
-import { myContract } from "./contract";
+import { myContract } from "./contract.js";
 
 export const processOrder = declareWorkflow({
   workflowName: "processOrder",
@@ -82,12 +82,13 @@ export const processOrder = declareWorkflow({
 
 ```typescript
 import { Worker } from "@temporalio/worker";
-import { myContract } from "./contract";
-import { activities } from "./activities";
+import { workflowsPathFromURL } from "@temporal-contract/worker/worker";
+import { myContract } from "./contract.js";
+import { activities } from "./activities.js";
 
 async function main() {
   const worker = await Worker.create({
-    workflowsPath: require.resolve("./workflows"),
+    workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
     activities,
     taskQueue: myContract.taskQueue,
   });
@@ -202,7 +203,7 @@ Handle shutdown signals properly:
 ```typescript
 async function main() {
   const worker = await Worker.create({
-    workflowsPath: require.resolve("./workflows"),
+    workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
     activities,
     taskQueue: myContract.taskQueue,
   });
@@ -228,13 +229,13 @@ Run multiple workers with different contracts:
 
 ```typescript
 const orderWorker = await Worker.create({
-  workflowsPath: require.resolve("./order-workflows"),
+  workflowsPath: workflowsPathFromURL(import.meta.url, "./order-workflows.js"),
   activities: orderActivities,
   taskQueue: orderContract.taskQueue,
 });
 
 const paymentWorker = await Worker.create({
-  workflowsPath: require.resolve("./payment-workflows"),
+  workflowsPath: workflowsPathFromURL(import.meta.url, "./payment-workflows.js"),
   activities: paymentActivities,
   taskQueue: paymentContract.taskQueue,
 });
@@ -250,7 +251,7 @@ Test activities and workflows in isolation:
 ```typescript
 import { describe, it, expect } from "vitest";
 import { isOk } from "unthrown";
-import { activities } from "./activities";
+import { activities } from "./activities.js";
 
 describe("Activities", () => {
   it("should process payment successfully", async () => {

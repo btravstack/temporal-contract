@@ -4,8 +4,8 @@
 
 Before installing temporal-contract, ensure you have:
 
-- **Node.js** 18.x or later
-- **TypeScript** 5.0 or later
+- **Node.js** 22.19 or later (the `engines` floor declared by every published package)
+- **TypeScript** 6.0 or later (the version the project is developed and tested with)
 - **Temporal Server** running (or Temporal Cloud access)
 
 ## Package Installation
@@ -76,6 +76,13 @@ npm install --save-dev @temporal-contract/testing
 yarn add -D @temporal-contract/testing
 ```
 
+:::
+
+::: warning Testing package requirements
+`@temporal-contract/testing` is **ESM-only**, requires **Vitest 4+** (peer
+dependency) and **Docker** (its `globalSetup` starts a real Temporal server
+via [testcontainers](https://testcontainers.com/)). See the
+[Testing guide](/guide/testing) for the Vitest wiring.
 :::
 
 ## Temporal Server Setup
@@ -214,7 +221,7 @@ Or use `.mts` file extensions.
 
 ### TypeScript Version
 
-Ensure TypeScript 5.0+:
+Ensure TypeScript 6.0+:
 
 ```bash
 npx tsc --version
