@@ -37,8 +37,8 @@ catalogs:
       specifier: 24.13.2
       version: 24.13.2
     '@unthrown/vitest':
-      specifier: 3.0.0
-      version: 3.0.0
+      specifier: 4.0.0
+      version: 4.0.0
     '@vitest/coverage-v8':
       specifier: 4.1.8
       version: 4.1.8
@@ -85,8 +85,8 @@ catalogs:
       specifier: 6.0.3
       version: 6.0.3
     unthrown:
-      specifier: 3.0.0
-      version: 3.0.0
+      specifier: 4.0.0
+      version: 4.0.0
     valibot:
       specifier: 1.4.2
       version: 1.4.2
@@ -187,7 +187,7 @@ importers:
         version: 13.1.3
       unthrown:
         specifier: 'catalog:'
-        version: 3.0.0
+        version: 4.0.0
       zod:
         specifier: 'catalog:'
         version: 4.4.3
@@ -249,7 +249,7 @@ importers:
         version: 13.1.3
       unthrown:
         specifier: 'catalog:'
-        version: 3.0.0
+        version: 4.0.0
       zod:
         specifier: 'catalog:'
         version: 4.4.3
@@ -271,7 +271,7 @@ importers:
         version: 24.13.2
       '@unthrown/vitest':
         specifier: 'catalog:'
-        version: 3.0.0(vitest@4.1.8)
+        version: 4.0.0(unthrown@4.0.0)(vitest@4.1.8)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.8(vitest@4.1.8)
@@ -320,7 +320,7 @@ importers:
         version: 24.13.2
       '@unthrown/vitest':
         specifier: 'catalog:'
-        version: 3.0.0(vitest@4.1.8)
+        version: 4.0.0(unthrown@4.0.0)(vitest@4.1.8)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.8(vitest@4.1.8)
@@ -338,7 +338,7 @@ importers:
         version: 6.0.3
       unthrown:
         specifier: 'catalog:'
-        version: 3.0.0
+        version: 4.0.0
       vitest:
         specifier: 'catalog:'
         version: 4.1.8(@types/node@24.13.2)(@vitest/coverage-v8@4.1.8)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0)
@@ -363,7 +363,7 @@ importers:
         version: link:../../tools/typedoc
       '@unthrown/vitest':
         specifier: 'catalog:'
-        version: 3.0.0(vitest@4.1.8)
+        version: 4.0.0(unthrown@4.0.0)(vitest@4.1.8)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.8(vitest@4.1.8)
@@ -384,7 +384,7 @@ importers:
         version: 6.0.3
       unthrown:
         specifier: 'catalog:'
-        version: 3.0.0
+        version: 4.0.0
       valibot:
         specifier: 'catalog:'
         version: 1.4.2(typescript@6.0.3)
@@ -470,7 +470,7 @@ importers:
         version: 24.13.2
       '@unthrown/vitest':
         specifier: 'catalog:'
-        version: 3.0.0(vitest@4.1.8)
+        version: 4.0.0(unthrown@4.0.0)(vitest@4.1.8)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.8(vitest@4.1.8)
@@ -488,7 +488,7 @@ importers:
         version: 6.0.3
       unthrown:
         specifier: 'catalog:'
-        version: 3.0.0
+        version: 4.0.0
       vitest:
         specifier: 'catalog:'
         version: 4.1.8(@types/node@24.13.2)(@vitest/coverage-v8@4.1.8)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0)
@@ -2573,10 +2573,11 @@ packages:
   '@ungap/structured-clone@1.3.1':
     resolution: {integrity: sha512-mUFwbeTqrVgDQxFveS+df2yfap6iuP20NAKAsBt5jDEoOTDew+zwLAOilHCeQJOVSvmgCX4ogqIrA0mnyr08yQ==}
 
-  '@unthrown/vitest@3.0.0':
-    resolution: {integrity: sha512-imKT5Wo8Kd+DwDa4XcPYzxTc4gXd+7wkPmObIVy5X9pJ67i5SYeS5IHfdRiT/k7Rs6B7K2c/siRRYE+ckfgH9g==}
-    engines: {node: '>=22.19'}
+  '@unthrown/vitest@4.0.0':
+    resolution: {integrity: sha512-KhH1YHj/5DHbW/w/bGzhlIWXyRTUFJRUGlJeATN7XqModTMDhfOSijaV9c0wAcG6UPFnSn9g2OnOIytfS72FLA==}
+    engines: {node: '>=20'}
     peerDependencies:
+      unthrown: ^4.0.0
       vitest: ^4
 
   '@upsetjs/venn.js@2.0.0':
@@ -4849,9 +4850,9 @@ packages:
     resolution: {integrity: sha512-rBJeI5CXAlmy1pV+617WB9J63U6XcazHHF2f2dbJix4XzpUF0RS3Zbj0FGIOCAva5P/d/GBOYaACQ1w+0azUkg==}
     engines: {node: '>= 4.0.0'}
 
-  unthrown@3.0.0:
-    resolution: {integrity: sha512-UXIjZTRgbq3ANGYoH1s1jgK85XDmO2HICllG0wtCSBLBPl+Y+prx36Nk17r2JWdnSeTh8pB1fnzDzNpKTgiPzw==}
-    engines: {node: '>=22.19'}
+  unthrown@4.0.0:
+    resolution: {integrity: sha512-nToVgnaBR4pDjjGebOV1BUJs40dUU9VfBeonyVxveJVqQAFsvcxsjYRQo1KMEkuCseUmuxrltAzsi389MnXtSQ==}
+    engines: {node: '>=20'}
 
   update-browserslist-db@1.2.3:
     resolution: {integrity: sha512-Js0m9cx+qOgDxo0eMiFGEueWztz+d4+M3rGlmKPT+T4IS/jP4ylw3Nwpu6cpTTP8R1MAC1kF4VbdLt3ARf209w==}
@@ -6909,9 +6910,9 @@ snapshots:
 
   '@ungap/structured-clone@1.3.1': {}
 
-  '@unthrown/vitest@3.0.0(vitest@4.1.8)':
+  '@unthrown/vitest@4.0.0(unthrown@4.0.0)(vitest@4.1.8)':
     dependencies:
-      unthrown: 3.0.0
+      unthrown: 4.0.0
       vitest: 4.1.8(@types/node@24.13.2)(@vitest/coverage-v8@4.1.8)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0)
 
   '@upsetjs/venn.js@2.0.0':
@@ -9345,7 +9346,7 @@ snapshots:
 
   universalify@0.1.2: {}
 
-  unthrown@3.0.0: {}
+  unthrown@4.0.0: {}
 
   update-browserslist-db@1.2.3(browserslist@4.28.2):
     dependencies:

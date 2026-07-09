@@ -67,15 +67,11 @@ export class ActivityDefinitionNotFoundError extends TaggedError(
 )<{
   activityName: string;
   availableDefinitions: readonly string[];
-  message: string;
 }> {
   constructor(activityName: string, availableDefinitions: readonly string[] = []) {
     const available = availableDefinitions.length > 0 ? availableDefinitions.join(", ") : "none";
-    super({
-      activityName,
-      availableDefinitions,
-      message: `Activity definition not found for: "${activityName}". Available activities: ${available}`,
-    });
+    super({ activityName, availableDefinitions });
+    this.message = `Activity definition not found for: "${activityName}". Available activities: ${available}`;
   }
 }
 
@@ -241,15 +237,11 @@ export class ChildWorkflowNotFoundError extends TaggedError(
 )<{
   workflowName: string;
   availableWorkflows: readonly string[];
-  message: string;
 }> {
   constructor(workflowName: string, availableWorkflows: readonly string[] = []) {
     const available = availableWorkflows.length > 0 ? availableWorkflows.join(", ") : "none";
-    super({
-      workflowName,
-      availableWorkflows,
-      message: `Child workflow not found: "${workflowName}". Available workflows: ${available}`,
-    });
+    super({ workflowName, availableWorkflows });
+    this.message = `Child workflow not found: "${workflowName}". Available workflows: ${available}`;
   }
 }
 
@@ -265,11 +257,11 @@ export class ChildWorkflowNotFoundError extends TaggedError(
 export class ChildWorkflowError extends TaggedError("@temporal-contract/ChildWorkflowError", {
   name: "ChildWorkflowError",
 })<{
-  message: string;
   cause?: unknown;
 }> {
   constructor(message: string, cause?: unknown) {
-    super({ message, cause });
+    super({ cause });
+    this.message = message;
   }
 }
 
@@ -294,10 +286,10 @@ export class ChildWorkflowCancelledError extends TaggedError(
 )<{
   workflowName: string;
   cause?: unknown;
-  message: string;
 }> {
   constructor(workflowName: string, cause?: unknown) {
-    super({ workflowName, cause, message: `Child workflow "${workflowName}" was cancelled` });
+    super({ workflowName, cause });
+    this.message = `Child workflow "${workflowName}" was cancelled`;
   }
 }
 
@@ -318,9 +310,9 @@ export class WorkflowCancelledError extends TaggedError(
   { name: "WorkflowCancelledError" },
 )<{
   cause?: unknown;
-  message: string;
 }> {
   constructor(cause?: unknown) {
-    super({ cause, message: "Workflow cancellation scope was cancelled" });
+    super({ cause });
+    this.message = "Workflow cancellation scope was cancelled";
   }
 }
