@@ -17,6 +17,7 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     permissions:
       contents: write
@@ -25,7 +26,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           # Use the PAT here too so the git remote is configured with PAT
           # credentials. The bare GITHUB_TOKEN-authenticated push that
@@ -37,12 +38,11 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
 
-      - name: Build
-        run: pnpm build
-
+      # No standalone build step: the publish path (`pnpm run release`)
+      # already runs `pnpm build`, and the version path doesn't need one.
       - name: Create Release Pull Request or Publish to npm
         id: changesets
-        uses: changesets/action@v1
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1
         with:
           # Use `pnpm run …` so we invoke the package.json scripts. Bare
           # `pnpm version` collides with pnpm's built-in `version` command and
