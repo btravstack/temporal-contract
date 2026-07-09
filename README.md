@@ -76,14 +76,16 @@ const result = await client.executeWorkflow("processOrder", {
 # Core packages
 pnpm add @temporal-contract/contract @temporal-contract/worker @temporal-contract/client
 
-# Peer dependencies — the Temporal SDK, unthrown (Result/AsyncResult used by
-# the worker/client APIs), and a Standard Schema library (zod shown here)
-pnpm add @temporalio/client @temporalio/common @temporalio/worker @temporalio/workflow unthrown zod
+# Required peer dependencies — install these too. `unthrown` (^4) supplies the
+# Result/AsyncResult types you use directly; plus the Temporal SDK and a
+# Standard Schema library (zod shown here).
+pnpm add unthrown @temporalio/client @temporalio/common @temporalio/worker @temporalio/workflow zod
 ```
 
-> Requires **Node.js ≥ 22.19** and is developed against **TypeScript 6.0**.
-> Package managers that auto-install peers (npm 7+, pnpm) only need the first
-> line; yarn users need both. See
+> Install `unthrown` explicitly even if your package manager auto-installs peers:
+> your own code imports its `Result` / `AsyncResult` types, so it belongs in your
+> `package.json`, and it must resolve to **v4** (v4 is not compatible with v3).
+> Requires **Node.js ≥ 22.19** and is developed against **TypeScript 6.0**. See
 > [Installation](https://btravstack.github.io/temporal-contract/guide/installation)
 > for details.
 

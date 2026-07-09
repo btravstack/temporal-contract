@@ -229,11 +229,21 @@ npx tsc --version
 
 ### Peer Dependency Warnings
 
-Install all peer dependencies:
+`@temporal-contract/worker` and `@temporal-contract/client` declare `unthrown`
+as a **required** peer dependency — its `Result` / `AsyncResult` types appear
+directly in their public API — so it must be installed in your project, not
+just pulled in transitively. `@temporalio/*` and your Standard Schema library
+(e.g. `zod`) are peers for the same reason. Install them all explicitly:
 
 ```bash
-pnpm add zod @temporalio/client @temporalio/worker @temporalio/workflow
+pnpm add unthrown zod @temporalio/client @temporalio/worker @temporalio/workflow
 ```
+
+::: warning unthrown major version
+The `unthrown` peer range is `^4`. unthrown 4 is **not** compatible with
+unthrown 3, so if you have an existing install make sure it resolves to
+version 4.
+:::
 
 ## Next Steps
 
