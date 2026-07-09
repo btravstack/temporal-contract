@@ -7,7 +7,7 @@ import {
   ActivityOutputValidationError,
 } from "./errors.js";
 import type { ContractDefinition } from "@temporal-contract/contract";
-import { ApplicationFailure, declareActivitiesHandler } from "./activity.js";
+import { ApplicationFailure, declareActivitiesHandler, qualify } from "./activity.js";
 
 // unthrown has no `okAsync`/`errAsync`; lift a sync `Result` with `.toAsync()`.
 const okAsync = <T>(value: T): AsyncResult<T, never> => Ok(value).toAsync();
@@ -391,6 +391,76 @@ describe("Worker unthrown Package", () => {
         activityName: "strictOutputActivity",
         message: expect.stringContaining("strictOutputActivity"),
       });
+    });
+  });
+
+  describe("qualify", () => {
+    it("wraps an Error rejection in an ApplicationFailure with the given type", () => {
+      // GIVEN
+      const cause = new Error("connection refused");
+
+      // WHEN
+      const failure = qualify("EMAIL_SEND_FAILED")(cause);
+
+      // THEN
+      expect(failure).toBeInstanceOf(ApplicationFailure);
+      expect(failure.type).toBe("EMAIL_SEND_FAILED");
+      expect(failure.message).toBe("connection refused");
+      expect(failure.cause).toBe(cause);
+      expect(failure.nonRetryable).toBeFalsy();
+    });
+
+    it("uses the fallback message for a non-Error rejection", () => {
+      // WHEN
+      const failure = qualify("PAYMENT_FAILED", { message: "Failed to charge card" })("boom");
+
+      // THEN
+      expect(failure.type).toBe("PAYMENT_FAILED");
+      expect(failure.message).toBe("Failed to charge card");
+      expect(failure.cause).toBeUndefined();
+    });
+
+    it("stringifies a non-Error rejection when no fallback message is given", () => {
+      // WHEN
+      const failure = qualify("PAYMENT_FAILED")({ code: 42 });
+
+      // THEN
+      expect(failure.message).toBe("[object Object]");
+      expect(failure.cause).toBeUndefined();
+    });
+
+    it("prefers the rejection's own message over the fallback for Error rejections", () => {
+      // WHEN
+      const failure = qualify("PAYMENT_FAILED", { message: "fallback" })(new Error("declined"));
+
+      // THEN
+      expect(failure.message).toBe("declined");
+    });
+
+    it("forwards nonRetryable and details to the failure", () => {
+      // WHEN
+      const failure = qualify("INSUFFICIENT_FUNDS", {
+        nonRetryable: true,
+        details: [{ balance: 0 }],
+      })(new Error("declined"));
+
+      // THEN
+      expect(failure.nonRetryable).toBe(true);
+      expect(failure.details).toEqual([{ balance: 0 }]);
+    });
+
+    it("always wraps — even an ApplicationFailure rejection — so the declared type is guaranteed", () => {
+      // GIVEN
+      const inner = ApplicationFailure.create({ type: "INNER", message: "already modeled" });
+
+      // WHEN
+      const failure = qualify("OUTER")(inner);
+
+      // THEN — callers can rely on `type` for retry policies; the original
+      // failure is preserved as `cause`.
+      expect(failure.type).toBe("OUTER");
+      expect(failure.message).toBe("already modeled");
+      expect(failure.cause).toBe(inner);
     });
   });
 });

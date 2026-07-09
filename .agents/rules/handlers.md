@@ -24,9 +24,13 @@ export const activities = declareActivitiesHandler({
 ```
 
 `fromPromise(promise, qualify)` forces every rejection through `qualify`, which
-returns the modeled error `E` (here an `ApplicationFailure`). For a value you
-already have, lift a sync result with `Ok(value).toAsync()` / `Err(failure).toAsync()`
-— unthrown has no `okAsync`/`errAsync`.
+returns the modeled error `E` (here an `ApplicationFailure`). For the common
+case, the worker package exports a `qualify(type, options?)` helper that builds
+that function — `fromPromise(inventoryService.check(orderId), qualify("INVENTORY_CHECK_FAILED"))`
+preserves an `Error` rejection's message and `cause`, with `options.nonRetryable`
+/ `options.details` / `options.message` (non-`Error` fallback) available. For a
+value you already have, lift a sync result with `Ok(value).toAsync()` /
+`Err(failure).toAsync()` — unthrown has no `okAsync`/`errAsync`.
 
 Canonical example: `examples/order-processing-worker/src/application/activities.ts`.
 
