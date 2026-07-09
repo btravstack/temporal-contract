@@ -110,14 +110,13 @@ export default withMermaid(
               { text: "Defining Contracts", link: "/guide/defining-contracts" },
               { text: "Client Usage", link: "/guide/client-usage" },
               { text: "Worker Usage", link: "/guide/worker-usage" },
+              { text: "Testing", link: "/guide/testing" },
             ],
           },
           {
             text: "Advanced",
             items: [
               { text: "Result Pattern", link: "/guide/result-pattern" },
-              { text: "Migrating from @swan-io/boxed", link: "/guide/migrating-to-neverthrow" },
-              { text: "Migrating from neverthrow", link: "/guide/migrating-to-unthrown" },
               { text: "Worker Implementation", link: "/guide/worker-implementation" },
               { text: "Entry Points Architecture", link: "/guide/entry-points" },
               { text: "Activity Handler Types", link: "/guide/activity-handlers" },
@@ -126,6 +125,14 @@ export default withMermaid(
           {
             text: "Help",
             items: [{ text: "Troubleshooting", link: "/guide/troubleshooting" }],
+          },
+          {
+            text: "Migrations",
+            collapsed: true,
+            items: [
+              { text: "From @swan-io/boxed", link: "/guide/migrating-to-neverthrow" },
+              { text: "From neverthrow", link: "/guide/migrating-to-unthrown" },
+            ],
           },
         ],
         "/api/": [

@@ -17,7 +17,7 @@ pnpm add @temporal-contract/client unthrown
 ```typescript
 import { Connection, Client } from "@temporalio/client";
 import { TypedClient } from "@temporal-contract/client";
-import { myContract } from "./contract";
+import { myContract } from "./contract.js";
 
 // Connect to Temporal
 const connection = await Connection.connect({
@@ -312,9 +312,9 @@ await connection.close();
 Different clients for different contracts:
 
 ```typescript
-import { orderContract } from "./contracts/order";
-import { paymentContract } from "./contracts/payment";
-import { inventoryContract } from "./contracts/inventory";
+import { orderContract } from "./contracts/order.js";
+import { paymentContract } from "./contracts/payment.js";
+import { inventoryContract } from "./contracts/inventory.js";
 
 const temporalClient = new Client({ connection });
 

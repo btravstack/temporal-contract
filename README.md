@@ -26,7 +26,7 @@ End-to-end type safety and automatic validation for workflows and activities
 - ✅ **Better DX** — Autocomplete, refactoring support, inline documentation
 - ✅ **Child workflows** — Type-safe child workflow execution with unthrown's `AsyncResult`
 - ✅ **Result pattern** — Explicit error handling without exceptions, powered by [unthrown](https://github.com/btravstack/unthrown)
-- 🚧 **Nexus support** — Cross-namespace operations (planned for v0.5.0)
+- 🚧 **Nexus support** — Cross-namespace operations (planned)
 
 ## Quick Example
 
@@ -49,20 +49,17 @@ const contract = defineContract({
 });
 
 // Implement activities with unthrown's AsyncResult
-import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
+import { declareActivitiesHandler, qualify } from "@temporal-contract/worker/activity";
 import { fromPromise } from "unthrown";
 
 const activities = declareActivitiesHandler({
   contract,
   activities: {
     processPayment: ({ orderId }) =>
-      fromPromise(paymentService.process(orderId), (error) =>
-        ApplicationFailure.create({
-          type: "PAYMENT_FAILED",
-          message: error instanceof Error ? error.message : "Payment failed",
-          ...(error instanceof Error ? { cause: error } : {}),
-        }),
-      ).map((txId) => ({ transactionId: txId })),
+      // `qualify` wraps a rejection in an ApplicationFailure of that type
+      fromPromise(paymentService.process(orderId), qualify("PAYMENT_FAILED")).map((txId) => ({
+        transactionId: txId,
+      })),
   },
 });
 
@@ -79,9 +76,16 @@ const result = await client.executeWorkflow("processOrder", {
 # Core packages
 pnpm add @temporal-contract/contract @temporal-contract/worker @temporal-contract/client
 
-# Result/AsyncResult — peer dep used by worker/client APIs
-pnpm add unthrown
+# Peer dependencies — the Temporal SDK, unthrown (Result/AsyncResult used by
+# the worker/client APIs), and a Standard Schema library (zod shown here)
+pnpm add @temporalio/client @temporalio/common @temporalio/worker @temporalio/workflow unthrown zod
 ```
+
+> Requires **Node.js ≥ 22.19** and is developed against **TypeScript 6.0**.
+> Package managers that auto-install peers (npm 7+, pnpm) only need the first
+> line; yarn users need both. See
+> [Installation](https://btravstack.github.io/temporal-contract/guide/installation)
+> for details.
 
 ## Documentation
 
@@ -104,6 +108,14 @@ pnpm add unthrown
 ## Usage Patterns
 
 temporal-contract uses **[unthrown](https://github.com/btravstack/unthrown)** end-to-end (workflows, activities, and the typed client) for explicit error handling via `Result` and `AsyncResult`, with a separate `defect` channel for unanticipated failures. Migrating from a previous release that used `neverthrow`? See [Migrating to unthrown](https://btravstack.github.io/temporal-contract/guide/migrating-to-unthrown).
+
+## Stability & Versioning
+
+The contract API (`defineContract`, `declareWorkflow`, `declareActivitiesHandler`, `TypedClient`) has been stable across recent majors — the 3.x → 6.x version jumps were migrations of the underlying Result library, now settled on `unthrown`. Going forward:
+
+- **The unthrown v3 line is the committed foundation.** No further Result-library migrations are planned; a future unthrown major would only be adopted in a temporal-contract major, with a migration guide.
+- **Strict semver.** Breaking changes to any published type or runtime behavior always land in a major, with changelog notes per package.
+- All four packages version together (a fixed release group), so a single version number describes a compatible set.
 
 ## Contributing
 

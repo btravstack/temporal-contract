@@ -36,7 +36,7 @@ Create a handler for all activities using `AsyncResult`:
 ```typescript
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
 import { fromPromise } from "unthrown";
-import { myContract } from "./contract";
+import { myContract } from "./contract.js";
 
 export const activities = declareActivitiesHandler({
   contract: myContract,
@@ -98,7 +98,7 @@ extra annotation is needed.
 import { Context } from "@temporalio/activity";
 import { fromPromise } from "unthrown";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { reportContract } from "./contract";
+import { reportContract } from "./contract.js";
 
 export const activities = declareActivitiesHandler({
   contract: reportContract,
@@ -136,7 +136,7 @@ attempt already completed:
 import { Context } from "@temporalio/activity";
 import { fromPromise } from "unthrown";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { reportContract } from "./contract";
+import { reportContract } from "./contract.js";
 
 export const activities = declareActivitiesHandler({
   contract: reportContract,
@@ -172,7 +172,7 @@ behavior:
 import { Context } from "@temporalio/activity";
 import { fromPromise } from "unthrown";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { paymentContract } from "./contract";
+import { paymentContract } from "./contract.js";
 
 export const activities = declareActivitiesHandler({
   contract: paymentContract,
@@ -226,7 +226,7 @@ caller, so the assertion is safe.
 import { Context, CompleteAsyncError } from "@temporalio/activity";
 import { fromPromise } from "unthrown";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { approvalContract } from "./contract";
+import { approvalContract } from "./contract.js";
 
 export const activities = declareActivitiesHandler({
   contract: approvalContract,
@@ -285,7 +285,7 @@ Implement workflows with typed context. Activities called from workflows return 
 
 ```typescript
 import { declareWorkflow } from "@temporal-contract/worker/workflow";
-import { myContract } from "./contract";
+import { myContract } from "./contract.js";
 
 export const processOrder = declareWorkflow({
   workflowName: "processOrder",
@@ -357,10 +357,11 @@ Set up the Temporal worker:
 
 ```typescript
 import { Worker } from "@temporalio/worker";
-import { activities } from "./activities";
+import { workflowsPathFromURL } from "@temporal-contract/worker/worker";
+import { activities } from "./activities.js";
 
 const worker = await Worker.create({
-  workflowsPath: require.resolve("./workflows"),
+  workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
   activities,
   taskQueue: "my-task-queue", // or myContract.taskQueue
 });
@@ -449,7 +450,7 @@ graph TB
 
 ```typescript
 import { declareWorkflow } from "@temporal-contract/worker/workflow";
-import { myContract, notificationContract } from "./contracts";
+import { myContract, notificationContract } from "./contracts.js";
 
 export const parentWorkflow = declareWorkflow({
   workflowName: "parentWorkflow",
@@ -626,8 +627,8 @@ export const emailActivities = {
 
 // activities/index.ts
 import { declareActivitiesHandler } from "@temporal-contract/worker/activity";
-import { paymentActivities } from "./payment";
-import { emailActivities } from "./email";
+import { paymentActivities } from "./payment.js";
+import { emailActivities } from "./email.js";
 
 export const activities = declareActivitiesHandler({
   contract: myContract,

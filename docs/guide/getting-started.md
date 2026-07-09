@@ -122,31 +122,24 @@ Implement your activities and workflows with full type safety:
 
 ```typescript
 // activities.ts
-import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
+import { declareActivitiesHandler, qualify } from "@temporal-contract/worker/activity";
 import { fromPromise } from "unthrown";
-import { orderContract } from "./contract";
+import { orderContract } from "./contract.js";
 
 export const activities = declareActivitiesHandler({
   contract: orderContract,
   activities: {
     sendEmail: ({ to, subject, body }) =>
       // Full type safety - parameters are automatically typed!
-      fromPromise(emailService.send({ to, subject, body }), (error) =>
-        ApplicationFailure.create({
-          type: "EMAIL_FAILED",
-          message: error instanceof Error ? error.message : "Failed to send email",
-          cause: error instanceof Error ? error : undefined,
-        }),
-      ).map(() => ({ sent: true })),
+      // `qualify` wraps a rejection in an ApplicationFailure of that type.
+      fromPromise(emailService.send({ to, subject, body }), qualify("EMAIL_FAILED")).map(() => ({
+        sent: true,
+      })),
     processPayment: ({ customerId, amount }) =>
       // TypeScript knows the exact types
-      fromPromise(paymentGateway.charge(customerId, amount), (error) =>
-        ApplicationFailure.create({
-          type: "PAYMENT_FAILED",
-          message: error instanceof Error ? error.message : "Payment failed",
-          cause: error instanceof Error ? error : undefined,
-        }),
-      ).map((txId) => ({ transactionId: txId, success: true })),
+      fromPromise(paymentGateway.charge(customerId, amount), qualify("PAYMENT_FAILED")).map(
+        (txId) => ({ transactionId: txId, success: true }),
+      ),
   },
 });
 ```
@@ -154,7 +147,7 @@ export const activities = declareActivitiesHandler({
 ```typescript
 // workflows.ts
 import { declareWorkflow } from "@temporal-contract/worker/workflow";
-import { orderContract } from "./contract";
+import { orderContract } from "./contract.js";
 
 export const processOrder = declareWorkflow({
   workflowName: "processOrder",
@@ -189,13 +182,21 @@ Set up your worker and client:
 
 ```typescript
 // worker.ts
-import { Worker } from "@temporalio/worker";
-import { activities } from "./activities";
+import { NativeConnection } from "@temporalio/worker";
+import { createWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
+import { orderContract } from "./contract.js";
+import { activities } from "./activities.js";
 
-const worker = await Worker.create({
-  workflowsPath: require.resolve("./workflows"),
+const connection = await NativeConnection.connect({
+  address: "localhost:7233",
+});
+
+const worker = await createWorker({
+  contract: orderContract, // the task queue comes from the contract
+  connection,
+  // ESM-safe path resolution (there is no `require.resolve` in ESM)
+  workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
   activities,
-  taskQueue: "orders", // or activities.contract.taskQueue
 });
 
 await worker.run();
@@ -205,7 +206,7 @@ await worker.run();
 // client.ts
 import { TypedClient } from "@temporal-contract/client";
 import { Connection, Client } from "@temporalio/client";
-import { orderContract } from "./contract";
+import { orderContract } from "./contract.js";
 
 const connection = await Connection.connect({
   address: "localhost:7233",

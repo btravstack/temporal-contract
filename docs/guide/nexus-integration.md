@@ -73,12 +73,13 @@ export const paymentService = {
 ```typescript
 // payment-service/worker.ts
 import { Worker } from "@temporalio/worker";
-import { paymentService } from "./nexus";
+import { workflowsPathFromURL } from "@temporal-contract/worker/worker";
+import { paymentService } from "./nexus.js";
 
 const worker = await Worker.create({
   taskQueue: "payments",
   nexusServices: [paymentService],
-  workflowsPath: require.resolve("./workflows"),
+  workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
   activities,
 });
 ```

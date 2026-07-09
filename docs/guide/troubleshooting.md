@@ -320,7 +320,7 @@ Error: Validation failed: [
 
    ```typescript
    const worker = await Worker.create({
-     workflowsPath: require.resolve("./workflows"),
+     workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
      activities,
      taskQueue: contract.taskQueue,
    });
@@ -364,15 +364,12 @@ Error: Activity task failed: ApplicationFailure
 1. **Check activity implementation:**
 
    ```typescript
-   // ✅ Return proper error result
+   // ✅ Return proper error result (`qualify` wraps the rejection in an
+   // ApplicationFailure of that type)
    processPayment: ({ customerId, amount }) =>
-     fromPromise(paymentService.charge(customerId, amount), (e) =>
-       ApplicationFailure.create({
-         type: "PAYMENT_FAILED",
-         message: e instanceof Error ? e.message : "Payment failed",
-         cause: e instanceof Error ? e : undefined,
-       }),
-     ).map((tx) => ({ transactionId: tx.id }));
+     fromPromise(paymentService.charge(customerId, amount), qualify("PAYMENT_FAILED")).map(
+       (tx) => ({ transactionId: tx.id }),
+     );
    ```
 
 2. **Handle errors in workflow:**
@@ -410,9 +407,9 @@ Error: Cannot find module './workflows'
 1. **Use correct path:**
 
    ```typescript
-   // ✅ Use require.resolve for correct path
+   // ✅ ESM-safe path resolution (workflowsPathFromURL from @temporal-contract/worker/worker)
    const worker = await Worker.create({
-     workflowsPath: require.resolve("./workflows"),
+     workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
      // ...
    });
    ```
@@ -452,12 +449,9 @@ processPayment: () => {
 
 // ✅ Returns AsyncResult<T, E>
 processPayment: ({ customerId, amount }) =>
-  fromPromise(paymentService.charge(customerId, amount), (e) =>
-    ApplicationFailure.create({
-      type: "PAYMENT_FAILED",
-      message: e instanceof Error ? e.message : "Payment failed",
-    }),
-  ).map((tx) => ({ transactionId: tx.id }));
+  fromPromise(paymentService.charge(customerId, amount), qualify("PAYMENT_FAILED")).map((tx) => ({
+    transactionId: tx.id,
+  }));
 ```
 
 ### "ok is not a function" / "Result.Ok is not a function"
