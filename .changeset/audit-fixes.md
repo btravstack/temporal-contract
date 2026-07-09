@@ -1,5 +1,5 @@
 ---
-"@temporal-contract/testing": patch
+"@temporal-contract/testing": minor
 "@temporal-contract/client": patch
 "@temporal-contract/contract": patch
 "@temporal-contract/worker": patch
@@ -14,7 +14,9 @@ consumers must resolve them to a single instance to avoid disjoint nominal
 types. Package managers that auto-install peers (npm 7+, pnpm with
 `autoInstallPeers`) are unaffected; other setups must add the two packages
 explicitly — any project using this testing helper already depends on them in
-practice. The stale `config` entry was also dropped from `files`.
+practice. Because that install-shape change can require consumer action, this is
+released as a **minor** for `@temporal-contract/testing`. The stale `config`
+entry was also dropped from `files`.
 
 **All packages:** `sideEffects: false` is now declared, enabling bundler
 tree-shaking. The worker package's `createTypedChildHandle` no longer uses
