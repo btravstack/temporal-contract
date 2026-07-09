@@ -111,11 +111,10 @@ temporal-contract uses **[unthrown](https://github.com/btravstack/unthrown)** en
 
 ## Stability & Versioning
 
-The contract API (`defineContract`, `declareWorkflow`, `declareActivitiesHandler`, `TypedClient`) has been stable across recent majors — the 3.x → 6.x version jumps were migrations of the underlying Result library, now settled on `unthrown`. Going forward:
+The contract API (`defineContract`, `declareWorkflow`, `declareActivitiesHandler`, `TypedClient`) is stable — earlier major bumps were migrations of the underlying Result library, now settled on [unthrown](https://github.com/btravstack/unthrown). Going forward:
 
-- **The unthrown v3 line is the committed foundation.** No further Result-library migrations are planned; a future unthrown major would only be adopted in a temporal-contract major, with a migration guide.
-- **Strict semver.** Breaking changes to any published type or runtime behavior always land in a major, with changelog notes per package.
-- All four packages version together (a fixed release group), so a single version number describes a compatible set.
+- **unthrown is the committed error-handling foundation.** There are no plans to switch to a different Result library. The `unthrown` peer range tracks its latest major (currently `^4`); each bump is documented in the changelog with migration notes.
+- **All four packages version together** (a fixed release group), so a single version number describes a compatible set.
 
 ## Contributing
 

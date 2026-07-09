@@ -38,17 +38,12 @@ export class RuntimeClientError extends TaggedError("@temporal-contract/RuntimeC
 })<{
   operation: string;
   cause?: unknown;
-  message: string;
 }> {
   constructor(operation: string, cause?: unknown) {
-    super({
-      operation,
-      cause,
-      message: `Operation "${operation}" failed: ${
-        cause instanceof Error ? cause.message : String(cause ?? "unknown error")
-      }`,
-    });
-    // only on `_tag`.
+    super({ operation, cause });
+    this.message = `Operation "${operation}" failed: ${
+      cause instanceof Error ? cause.message : String(cause ?? "unknown error")
+    }`;
   }
 }
 
@@ -60,14 +55,10 @@ export class WorkflowNotFoundError extends TaggedError("@temporal-contract/Workf
 })<{
   workflowName: string;
   availableWorkflows: string[];
-  message: string;
 }> {
   constructor(workflowName: string, availableWorkflows: string[]) {
-    super({
-      workflowName,
-      availableWorkflows,
-      message: `Workflow "${workflowName}" not found in contract. Available workflows: ${availableWorkflows.join(", ")}`,
-    });
+    super({ workflowName, availableWorkflows });
+    this.message = `Workflow "${workflowName}" not found in contract. Available workflows: ${availableWorkflows.join(", ")}`;
   }
 }
 
@@ -89,15 +80,10 @@ export class WorkflowAlreadyStartedError extends TaggedError(
   workflowType: string;
   workflowId: string;
   cause?: unknown;
-  message: string;
 }> {
   constructor(workflowType: string, workflowId: string, cause?: unknown) {
-    super({
-      workflowType,
-      workflowId,
-      cause,
-      message: `Workflow "${workflowType}" with ID "${workflowId}" is already started or in retention.`,
-    });
+    super({ workflowType, workflowId, cause });
+    this.message = `Workflow "${workflowType}" with ID "${workflowId}" is already started or in retention.`;
   }
 }
 
@@ -120,15 +106,10 @@ export class WorkflowExecutionNotFoundError extends TaggedError(
   workflowId: string;
   runId?: string | undefined;
   cause?: unknown;
-  message: string;
 }> {
   constructor(workflowId: string, runId?: string, cause?: unknown) {
-    super({
-      workflowId,
-      runId,
-      cause,
-      message: `Workflow execution "${workflowId}"${runId ? ` (run "${runId}")` : ""} not found in namespace.`,
-    });
+    super({ workflowId, runId, cause });
+    this.message = `Workflow execution "${workflowId}"${runId ? ` (run "${runId}")` : ""} not found in namespace.`;
   }
 }
 
@@ -156,16 +137,12 @@ export class WorkflowFailedError extends TaggedError("@temporal-contract/Workflo
 })<{
   workflowId: string;
   cause?: TemporalFailure | undefined;
-  message: string;
 }> {
   constructor(workflowId: string, cause?: TemporalFailure) {
     const causeMessage =
       cause instanceof Error ? cause.message : String(cause ?? "unknown failure");
-    super({
-      workflowId,
-      cause,
-      message: `Workflow "${workflowId}" completed with failure: ${causeMessage}`,
-    });
+    super({ workflowId, cause });
+    this.message = `Workflow "${workflowId}" completed with failure: ${causeMessage}`;
   }
 }
 
@@ -184,19 +161,14 @@ export class WorkflowValidationError extends TaggedError(
   workflowName: string;
   direction: "input" | "output";
   issues: ReadonlyArray<StandardSchemaV1.Issue>;
-  message: string;
 }> {
   constructor(
     workflowName: string,
     direction: "input" | "output",
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) {
-    super({
-      workflowName,
-      direction,
-      issues,
-      message: `Validation failed for workflow "${workflowName}" ${direction}: ${summarizeIssues(issues)}`,
-    });
+    super({ workflowName, direction, issues });
+    this.message = `Validation failed for workflow "${workflowName}" ${direction}: ${summarizeIssues(issues)}`;
   }
 }
 
@@ -209,19 +181,14 @@ export class QueryValidationError extends TaggedError("@temporal-contract/QueryV
   queryName: string;
   direction: "input" | "output";
   issues: ReadonlyArray<StandardSchemaV1.Issue>;
-  message: string;
 }> {
   constructor(
     queryName: string,
     direction: "input" | "output",
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) {
-    super({
-      queryName,
-      direction,
-      issues,
-      message: `Validation failed for query "${queryName}" ${direction}: ${summarizeIssues(issues)}`,
-    });
+    super({ queryName, direction, issues });
+    this.message = `Validation failed for query "${queryName}" ${direction}: ${summarizeIssues(issues)}`;
   }
 }
 
@@ -233,14 +200,10 @@ export class SignalValidationError extends TaggedError("@temporal-contract/Signa
 })<{
   signalName: string;
   issues: ReadonlyArray<StandardSchemaV1.Issue>;
-  message: string;
 }> {
   constructor(signalName: string, issues: ReadonlyArray<StandardSchemaV1.Issue>) {
-    super({
-      signalName,
-      issues,
-      message: `Validation failed for signal "${signalName}": ${summarizeIssues(issues)}`,
-    });
+    super({ signalName, issues });
+    this.message = `Validation failed for signal "${signalName}": ${summarizeIssues(issues)}`;
   }
 }
 
@@ -253,18 +216,13 @@ export class UpdateValidationError extends TaggedError("@temporal-contract/Updat
   updateName: string;
   direction: "input" | "output";
   issues: ReadonlyArray<StandardSchemaV1.Issue>;
-  message: string;
 }> {
   constructor(
     updateName: string,
     direction: "input" | "output",
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) {
-    super({
-      updateName,
-      direction,
-      issues,
-      message: `Validation failed for update "${updateName}" ${direction}: ${summarizeIssues(issues)}`,
-    });
+    super({ updateName, direction, issues });
+    this.message = `Validation failed for update "${updateName}" ${direction}: ${summarizeIssues(issues)}`;
   }
 }

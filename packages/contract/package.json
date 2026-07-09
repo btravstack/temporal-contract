@@ -76,7 +76,7 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "unthrown": "^3"
+    "unthrown": "^4"
   },
   "peerDependenciesMeta": {
     "unthrown": {
