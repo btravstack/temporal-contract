@@ -67,7 +67,10 @@ export { ApplicationFailure } from "@temporalio/common";
  * `ApplicationFailure` — so the resulting failure's `type` is guaranteed
  * to be the declared one (retry policies keyed on
  * `retry.nonRetryableErrorTypes` can rely on it). The original failure is
- * preserved as `cause`. Write a custom qualifier if you need pass-through.
+ * preserved as `cause`. Note the flip side: because the wrapper's `type` and
+ * `nonRetryable` take precedence, an inner `ApplicationFailure`'s own
+ * `type`/`nonRetryable: true` is masked — pass `{ nonRetryable: true }` here (or
+ * write a custom qualifier) if that inner failure should stay non-retryable.
  */
 export function qualify(
   type: string,
