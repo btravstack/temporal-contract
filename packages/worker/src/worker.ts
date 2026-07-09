@@ -32,9 +32,9 @@ export type CreateWorkerOptions<TContract extends ContractDefinition> = Omit<
  * @example
  * ```ts
  * import { NativeConnection } from '@temporalio/worker';
- * import { createWorker } from '@temporal-contract/worker/worker';
- * import { activities } from './activities';
- * import myContract from './contract';
+ * import { createWorker, workflowsPathFromURL } from '@temporal-contract/worker/worker';
+ * import { activities } from './activities.js';
+ * import myContract from './contract.js';
  *
  * const connection = await NativeConnection.connect({
  *   address: 'localhost:7233',
@@ -43,7 +43,7 @@ export type CreateWorkerOptions<TContract extends ContractDefinition> = Omit<
  * const worker = await createWorker({
  *   contract: myContract,
  *   connection,
- *   workflowsPath: require.resolve('./workflows'),
+ *   workflowsPath: workflowsPathFromURL(import.meta.url, './workflows.js'),
  *   activities,
  * });
  *

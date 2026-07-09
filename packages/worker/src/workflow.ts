@@ -89,7 +89,7 @@ export {
  * ```ts
  * // workflows/processOrder.ts
  * import { declareWorkflow } from '@temporal-contract/worker/workflow';
- * import myContract from '../contract';
+ * import myContract from '../contract.js';
  *
  * export const processOrder = declareWorkflow({
  *   workflowName: 'processOrder',
@@ -140,8 +140,8 @@ export {
  * ```ts
  * // worker.ts
  * import { createWorker } from '@temporal-contract/worker/worker';
- * import { activities } from './activities';
- * import myContract from './contract';
+ * import { activities } from './activities.js';
+ * import myContract from './contract.js';
  *
  * const worker = await createWorker({
  *   contract: myContract,

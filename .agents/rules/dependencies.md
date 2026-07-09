@@ -37,18 +37,18 @@ All dependency versions are centralized in `pnpm-workspace.yaml` under the `cata
 
 Anything that appears in a published package's **public type signatures** must be a peer dep, not a regular dep — otherwise downstream consumers can end up with two disjoint nominal types in their typechecker (theirs and ours), even though the runtime classes are compatible.
 
-| Package  | Peer dependencies                                                                            |
-| -------- | -------------------------------------------------------------------------------------------- |
-| client   | `@temporalio/client ^1.16.0`, `@temporalio/common ^1`, `unthrown ^0.1`                       |
-| worker   | `@temporalio/common ^1`, `@temporalio/worker ^1`, `@temporalio/workflow ^1`, `unthrown ^0.1` |
-| contract | none (pure type definitions)                                                                 |
-| testing  | `vitest ^4` (the `globalSetup` hook integrates with vitest's test runner)                    |
+| Package  | Peer dependencies                                                                                                                                                             |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| client   | `@temporalio/client ^1`, `@temporalio/common ^1`, `unthrown ^3`                                                                                                               |
+| worker   | `@temporalio/common ^1`, `@temporalio/worker ^1`, `@temporalio/workflow ^1`, `unthrown ^3`                                                                                    |
+| contract | `unthrown ^3` (optional — only needed when using `result-async`)                                                                                                              |
+| testing  | `vitest ^4` (the `globalSetup` hook integrates with vitest's test runner), `@temporalio/client ^1`, `@temporalio/worker ^1` (both exposed by the `it` fixture's public types) |
 
 When you add a peer dep, also add it to `devDependencies` (with the same `"catalog:"` reference) so the local workspace build still resolves it. The workspace has `autoInstallPeers: false`, so peers must be present somewhere on the install side.
 
-## `pnpm.overrides` (root `package.json`)
+## Security `overrides` (`pnpm-workspace.yaml`)
 
-The root `package.json` pins minimum versions for transitive dependencies via `pnpm.overrides` to close known CVEs (`lodash`, `lodash-es`, `picomatch`, `preact`, `protobufjs`, `rollup`, `serialize-javascript`, `vite`). When a security audit flags a new vulnerability, add the pin here rather than waiting for upstream to update.
+`pnpm-workspace.yaml` pins minimum versions for transitive dependencies via its `overrides:` block to close known CVEs (currently `fast-uri`, `protobufjs`, and `testcontainers>undici`). When a security audit flags a new vulnerability, add the pin there (with a comment citing the GHSA and the reachability reasoning) rather than waiting for upstream to update. Advisories that are unreachable in this repo are suppressed via `auditConfig.ignoreGhsas`, each with a documented justification.
 
 ## Monorepo Conventions
 
