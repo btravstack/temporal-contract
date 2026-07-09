@@ -2,6 +2,14 @@
   "name": "@temporal-contract/testing",
   "version": "6.0.0",
   "description": "Temporal testing utilities",
+  "keywords": [
+    "contract",
+    "temporal",
+    "testcontainers",
+    "testing",
+    "typescript",
+    "vitest"
+  ],
   "homepage": "https://github.com/btravstack/temporal-contract#readme",
   "bugs": {
     "url": "https://github.com/btravstack/temporal-contract/issues"
@@ -14,10 +22,10 @@
     "directory": "packages/testing"
   },
   "files": [
-    "config",
     "dist"
   ],
   "type": "module",
+  "sideEffects": false,
   "exports": {
     "./extension": {
       "types": "./dist/extension.d.mts",
@@ -31,17 +39,20 @@
   "scripts": {
     "build": "tsdown src/global-setup.ts src/extension.ts --format esm --dts --clean",
     "build:docs": "typedoc",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@temporalio/client": "catalog:",
-    "@temporalio/worker": "catalog:",
     "testcontainers": "catalog:"
   },
   "devDependencies": {
     "@temporal-contract/tsconfig": "workspace:*",
     "@temporal-contract/typedoc": "workspace:*",
+    "@temporalio/client": "catalog:",
+    "@temporalio/worker": "catalog:",
     "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "tsdown": "catalog:",
     "typedoc": "catalog:",
     "typedoc-plugin-markdown": "catalog:",
@@ -49,6 +60,8 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
+    "@temporalio/client": "^1",
+    "@temporalio/worker": "^1",
     "vitest": "^4"
   },
   "engines": {

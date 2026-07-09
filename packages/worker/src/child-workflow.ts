@@ -9,6 +9,7 @@ import {
   ChildWorkflowOptions,
   executeChild,
   startChild,
+  type Workflow,
 } from "@temporalio/workflow";
 import { type AsyncResult, type Result, Ok, Err } from "unthrown";
 import {
@@ -119,8 +120,7 @@ async function getAndValidateChildWorkflow<
 }
 
 function createTypedChildHandle<TChildWorkflow extends AnyWorkflowDefinition>(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  handle: ChildWorkflowHandle<any>,
+  handle: ChildWorkflowHandle<Workflow>,
   childDefinition: TChildWorkflow,
   childWorkflowName: string,
 ): TypedChildWorkflowHandle<TChildWorkflow> {

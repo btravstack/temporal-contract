@@ -1,5 +1,5 @@
 import { declareWorkflow } from "@temporal-contract/worker/workflow";
-import { log } from "@temporalio/workflow";
+import { isCancellation, log } from "@temporalio/workflow";
 import { orderProcessingContract } from "@temporal-contract/sample-order-processing-contract";
 
 /**
@@ -113,6 +113,11 @@ export const processOrder = declareWorkflow({
         message: `Your order ${order.orderId} has been confirmed and will be shipped. Tracking: ${shippingResult.trackingNumber}`,
       });
     } catch (error) {
+      // Cancellation must propagate — swallowing it here would leave the
+      // workflow running after a cancel request.
+      if (isCancellation(error)) {
+        throw error;
+      }
       // Non-critical: log but continue
       log.warn(`Failed to send confirmation notification: ${error}`);
     }

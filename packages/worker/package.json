@@ -25,6 +25,7 @@
     "dist"
   ],
   "type": "module",
+  "sideEffects": false,
   "exports": {
     "./activity": {
       "import": {
