@@ -8,7 +8,7 @@
  * after the test that used it completes (while the worker connection's
  * cleanup is deliberately left to the test framework).
  */
-import { describe, expect, vi } from "vitest";
+import { afterAll, describe, expect, vi } from "vitest";
 import { it } from "./extension.js";
 
 const mocks = vi.hoisted(() => {
@@ -36,8 +36,10 @@ describe("it.clientConnection", () => {
     expect(mocks.clientClose).not.toHaveBeenCalled();
   });
 
-  it("closes the client connection after the test that used it completes", () => {
-    // The previous test's fixture has been torn down by the time this runs.
+  // `afterAll` runs after every test in this block has finished, including
+  // the fixture teardown of the test above — so this asserts the fixture
+  // closed the connection without depending on test execution order.
+  afterAll(() => {
     expect(mocks.clientClose).toHaveBeenCalledTimes(1);
   });
 });
