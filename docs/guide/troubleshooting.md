@@ -319,6 +319,9 @@ Error: Validation failed: [
 1. **Start the worker:**
 
    ```typescript
+   import { Worker } from "@temporalio/worker";
+   import { workflowsPathFromURL } from "@temporal-contract/worker/worker";
+
    const worker = await Worker.create({
      workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
      activities,
@@ -407,7 +410,10 @@ Error: Cannot find module './workflows'
 1. **Use correct path:**
 
    ```typescript
-   // ✅ ESM-safe path resolution (workflowsPathFromURL from @temporal-contract/worker/worker)
+   import { Worker } from "@temporalio/worker";
+   // ✅ ESM-safe path resolution
+   import { workflowsPathFromURL } from "@temporal-contract/worker/worker";
+
    const worker = await Worker.create({
      workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
      // ...
