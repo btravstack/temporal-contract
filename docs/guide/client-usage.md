@@ -32,8 +32,9 @@ const clientResult = await TypedClient.create({
   contract: myContract,
   client: temporalClient,
 });
-if (clientResult.isErr()) {
-  throw clientResult.error;
+if (!clientResult.isOk()) {
+  // Err carries the modeled TechnicalError; a defect carries the raw cause.
+  throw clientResult.isErr() ? clientResult.error : clientResult.cause;
 }
 const client = clientResult.value;
 ```
