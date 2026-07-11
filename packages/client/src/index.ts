@@ -6,7 +6,16 @@ export {
   type TypedWorkflowHandle,
   type TypedWorkflowHandleWithSignaledRunId,
   type TypedWorkflowStartOptions,
+  type WorkflowContractErrorsOf,
 } from "./client.js";
+// Typed contract-error surface — a failed execution whose failure matches a
+// workflow's declared `errors` entry surfaces as a `ContractError` instead
+// of the generic `WorkflowFailedError`.
+export {
+  ContractError,
+  type AnyContractError,
+  type ContractErrorUnion,
+} from "@temporal-contract/contract/errors";
 export {
   TypedScheduleClient,
   type TypedScheduleActionOverrides,

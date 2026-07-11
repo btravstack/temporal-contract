@@ -8,14 +8,87 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 export type AnySchema = StandardSchemaV1;
 
 /**
+ * Definition of a typed domain error on an activity or workflow.
+ *
+ * Declared under the `errors` map of `defineActivity` / `defineWorkflow`,
+ * keyed by error name. The name becomes the `ApplicationFailure.type`
+ * discriminator on the wire, so callers (and Temporal retry policies via
+ * `retry.nonRetryableErrorTypes`) can branch on it.
+ *
+ * - `data` — optional Standard Schema for the structured payload carried in
+ *   `ApplicationFailure.details`. Validated on the producing side before the
+ *   failure crosses the network boundary, and again when it is rehydrated on
+ *   the consuming side.
+ * - `message` — default human-readable message when the producer doesn't
+ *   supply one at construction time.
+ * - `nonRetryable` — when `true`, Temporal stops retrying immediately. This
+ *   lives on the contract (not the call site) so retry semantics are part of
+ *   the shared source of truth. Defaults to `false` (retryable).
+ */
+export type ErrorDefinition<TData extends AnySchema = AnySchema> = {
+  readonly data?: TData;
+  readonly message?: string;
+  readonly nonRetryable?: boolean;
+};
+
+/**
+ * A Temporal duration: either a number of milliseconds or an `ms`-formatted
+ * string (`"30 seconds"`, `"5m"`, …). Kept as `string | number` rather than
+ * Temporal's template-literal `Duration` type so the contract package stays
+ * free of `@temporalio/*` dependencies; the worker forwards values to
+ * Temporal unchanged.
+ */
+export type DurationValue = string | number;
+
+/**
+ * Portable subset of Temporal's `RetryPolicy`, usable in contract-level
+ * activity defaults. Field names and semantics match
+ * `@temporalio/common`'s `RetryPolicy` one-to-one.
+ */
+export type ActivityRetryPolicy = {
+  readonly initialInterval?: DurationValue;
+  readonly maximumInterval?: DurationValue;
+  readonly backoffCoefficient?: number;
+  readonly maximumAttempts?: number;
+  readonly nonRetryableErrorTypes?: readonly string[];
+};
+
+/**
+ * Contract-level default `ActivityOptions` for a single activity.
+ *
+ * Declared on `defineActivity` so operational behavior (timeouts, retry
+ * policy) ships with the contract as a single source of truth shared by
+ * every worker, instead of being scattered per-`declareWorkflow` call.
+ *
+ * Merge precedence at the worker (least → most specific):
+ * `declareWorkflow`'s `activityOptions` (workflow-wide default)
+ * → this `defaultOptions` (activity-specific, from the contract author)
+ * → `activityOptionsByName` (explicit per-workflow, per-activity override).
+ *
+ * Deployment-specific concerns (`taskQueue` routing, cancellation type) are
+ * deliberately excluded — those belong to the worker's
+ * `activityOptionsByName`, not the portable contract.
+ */
+export type ActivityDefaultOptions = {
+  readonly startToCloseTimeout?: DurationValue;
+  readonly scheduleToCloseTimeout?: DurationValue;
+  readonly scheduleToStartTimeout?: DurationValue;
+  readonly heartbeatTimeout?: DurationValue;
+  readonly retry?: ActivityRetryPolicy;
+};
+
+/**
  * Definition of an activity
  */
 export type ActivityDefinition<
   TInput extends AnySchema = AnySchema,
   TOutput extends AnySchema = AnySchema,
+  TErrors extends Record<string, ErrorDefinition> = Record<string, ErrorDefinition>,
 > = {
   readonly input: TInput;
   readonly output: TOutput;
+  readonly errors?: TErrors;
+  readonly defaultOptions?: ActivityDefaultOptions;
 };
 
 /**
@@ -107,6 +180,7 @@ export type WorkflowDefinition<
   TQueries extends Record<string, QueryDefinition> = Record<string, never>,
   TUpdates extends Record<string, UpdateDefinition> = Record<string, never>,
   TSearchAttributes extends Record<string, SearchAttributeDefinition> = Record<string, never>,
+  TErrors extends Record<string, ErrorDefinition> = Record<string, never>,
 > = {
   readonly input: TInput;
   readonly output: TOutput;
@@ -115,6 +189,7 @@ export type WorkflowDefinition<
   readonly queries?: TQueries;
   readonly updates?: TUpdates;
   readonly searchAttributes?: TSearchAttributes;
+  readonly errors?: TErrors;
 };
 
 /**
@@ -136,8 +211,50 @@ export type AnyWorkflowDefinition = WorkflowDefinition<
   Record<string, SignalDefinition>,
   Record<string, QueryDefinition>,
   Record<string, UpdateDefinition>,
-  Record<string, SearchAttributeDefinition>
+  Record<string, SearchAttributeDefinition>,
+  Record<string, ErrorDefinition>
 >;
+
+/**
+ * Extract the declared `errors` map from an activity or workflow definition,
+ * or `never` when the definition declares none.
+ *
+ * The conditional is distributive and `infer`-based (rather than indexing
+ * `TDef["errors"]` directly) for the same reasons as {@link SignalNamesOf}:
+ * union definitions yield the union of their error maps, and the optional
+ * property is tolerated under `exactOptionalPropertyTypes`.
+ */
+export type DeclaredErrorsOf<TDef> = TDef extends {
+  errors: infer TErrors;
+}
+  ? TErrors extends Record<string, ErrorDefinition>
+    ? TErrors
+    : never
+  : never;
+
+/**
+ * Consumer-side data payload of a declared error: the `data` schema's
+ * *output* type (post-transform), or `undefined` when the error declares no
+ * `data` schema. This is the shape a workflow sees after an activity's
+ * failure is rehydrated, and a client sees after a workflow's failure is
+ * rehydrated.
+ */
+export type InferErrorData<TDef extends ErrorDefinition> = TDef extends {
+  data: infer TSchema extends AnySchema;
+}
+  ? StandardSchemaV1.InferOutput<TSchema>
+  : undefined;
+
+/**
+ * Producer-side data payload of a declared error: the `data` schema's
+ * *input* type (pre-transform) — what an implementation passes to the typed
+ * error constructor before boundary validation runs.
+ */
+export type InferErrorDataInput<TDef extends ErrorDefinition> = TDef extends {
+  data: infer TSchema extends AnySchema;
+}
+  ? StandardSchemaV1.InferInput<TSchema>
+  : undefined;
 
 /**
  * Extract signal names declared on a workflow as a string union, or `never`

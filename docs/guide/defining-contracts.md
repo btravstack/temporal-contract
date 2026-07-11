@@ -118,6 +118,75 @@ workflows: {
 }
 ```
 
+### Typed Errors
+
+Activities and workflows can declare their domain failures on the contract.
+The error name becomes the `ApplicationFailure.type` on the wire, `data` is a
+Standard Schema for the structured payload (validated on both sides of the
+boundary), and `nonRetryable` drives Temporal's retry policy from the
+contract — so retry semantics ship with the contract instead of being
+scattered across workers:
+
+```typescript
+workflows: {
+  processOrder: {
+    input: OrderSchema,
+    output: OrderResultSchema,
+    errors: {
+      EmptyOrder: {
+        data: z.object({ orderId: z.string() }),
+        nonRetryable: true,
+      },
+    },
+    activities: {
+      processPayment: {
+        input: z.object({ amount: z.number() }),
+        output: PaymentResultSchema,
+        errors: {
+          PaymentDeclined: {
+            data: z.object({ reason: z.string() }),
+            message: "The payment was declined",
+            nonRetryable: true, // permanent — Temporal stops retrying
+          },
+          GatewayUnavailable: {}, // data-less, retryable
+        },
+      },
+    },
+  },
+}
+```
+
+Declared errors surface as typed, schema-validated `ContractError` values:
+on the workflow side when calling the activity, and on the client side when
+awaiting the workflow result. See
+[Activity Handlers](/guide/activity-handlers) for producing them and
+[Client Usage](/guide/client-usage) for consuming them.
+
+### Default Activity Options
+
+An activity can carry its default `ActivityOptions` (timeouts, retry policy)
+on the contract, making operational behavior part of the shared source of
+truth:
+
+```typescript
+activities: {
+  sendNotification: {
+    input: NotificationSchema,
+    output: z.void(),
+    defaultOptions: {
+      startToCloseTimeout: "30 seconds",
+      retry: { maximumAttempts: 5 },
+    },
+  },
+}
+```
+
+Merge precedence at the worker, least → most specific:
+`declareWorkflow`'s `activityOptions` (workflow-wide default) → the
+activity's contract-level `defaultOptions` → `activityOptionsByName`
+(explicit per-workflow override). Deployment-specific routing (`taskQueue`)
+stays worker-side in `activityOptionsByName`.
+
 ## Schema Validation
 
 All inputs and outputs are validated using Standard Schema compatible libraries (e.g., Zod):

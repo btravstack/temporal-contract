@@ -19,6 +19,15 @@ export type {
   WorkflowDefinition,
   AnyWorkflowDefinition,
   ContractDefinition,
+  // Typed domain errors
+  ErrorDefinition,
+  DeclaredErrorsOf,
+  InferErrorData,
+  InferErrorDataInput,
+  // Contract-level activity option defaults
+  ActivityDefaultOptions,
+  ActivityRetryPolicy,
+  DurationValue,
   // Search attributes
   SearchAttributeKind,
   SearchAttributeKindToType,

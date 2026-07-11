@@ -10,7 +10,24 @@
 // don't wrap it in a custom class. `ApplicationFailure` exposes
 // `nonRetryable`, `type`, `details`, and `category` natively, and survives
 // the activity → workflow serialization boundary unchanged.
-import { ActivityDefinition, ContractDefinition } from "@temporal-contract/contract";
+//
+// Contract-declared typed errors (`defineActivity({ errors: {...} })`) ride
+// the same rails: implementations build them with the typed constructors in
+// the helpers argument, and the wrapper converts them to `ApplicationFailure`
+// (`type` = error name, `details[0]` = validated data, `nonRetryable` from
+// the contract) at the boundary.
+import {
+  ActivityDefinition,
+  ContractDefinition,
+  ErrorDefinition,
+} from "@temporal-contract/contract";
+import {
+  _internal_buildErrorConstructors,
+  ContractError,
+  type AnyContractError,
+  type ContractErrorConstructors,
+  type ContractErrorInputUnion,
+} from "@temporal-contract/contract/errors";
 import type { AsyncResult } from "unthrown";
 import { ApplicationFailure } from "@temporalio/common";
 import { WorkerInferInput, WorkerInferOutput } from "./types.js";
@@ -19,18 +36,30 @@ import {
   ActivityInputValidationError,
   ActivityOutputValidationError,
 } from "./errors.js";
+import { contractErrorToApplicationFailure } from "./contract-errors.js";
 import { extractHandlerInput } from "./internal.js";
 
 export {
   ActivityDefinitionNotFoundError,
   ActivityInputValidationError,
   ActivityOutputValidationError,
+  ContractErrorDataValidationError,
   ValidationError,
 } from "./errors.js";
 
 // Re-export the canonical activity-failure class so consumers don't need
 // a separate `@temporalio/common` import to construct one.
 export { ApplicationFailure } from "@temporalio/common";
+
+// Re-export the typed contract-error surface so implementations can
+// `instanceof`-check and type against it without a separate
+// `@temporal-contract/contract/errors` import.
+export {
+  ContractError,
+  type AnyContractError,
+  type ContractErrorConstructors,
+  type ContractErrorOptions,
+} from "@temporal-contract/contract/errors";
 
 /**
  * Build a qualifier for `fromPromise` that wraps a rejection in an
@@ -94,18 +123,64 @@ export function qualify(
 }
 
 /**
+ * Typed error constructors for an activity's declared `errors` map, or an
+ * empty object when the activity declares none.
+ */
+type ActivityErrorConstructorsOf<TActivity extends ActivityDefinition> = TActivity extends {
+  errors: infer TErrors extends Record<string, ErrorDefinition>;
+}
+  ? ContractErrorConstructors<TErrors>
+  : Record<string, never>;
+
+/**
+ * Error channel of an activity implementation: always `ApplicationFailure`
+ * (technical failures), plus the activity's declared contract errors when
+ * it has any.
+ */
+type ActivityImplementationErrorOf<TActivity extends ActivityDefinition> = TActivity extends {
+  errors: infer TErrors extends Record<string, ErrorDefinition>;
+}
+  ? ApplicationFailure | ContractErrorInputUnion<TErrors>
+  : ApplicationFailure;
+
+/**
+ * Second argument passed to every activity implementation.
+ *
+ * - `errors` — typed constructors for the errors declared on this activity's
+ *   contract entry. `Err(errors.PaymentDeclined({ reason }))` surfaces to the
+ *   calling workflow as a typed, schema-validated error.
+ * - `context` — the value produced by `declareActivitiesHandler`'s
+ *   `createContext` (or `undefined` when none is configured). Use it to
+ *   inject dependencies (service clients, repositories) instead of closing
+ *   over them at module scope.
+ */
+export type ActivityImplementationHelpers<
+  TActivity extends ActivityDefinition,
+  TContext = undefined,
+> = {
+  readonly errors: ActivityErrorConstructorsOf<TActivity>;
+  readonly context: TContext;
+};
+
+/**
  * Activity implementation using unthrown's `AsyncResult`.
  *
- * Returns `AsyncResult<Output, ApplicationFailure>` for explicit error
- * handling instead of throwing. The wrapper rethrows `Err()` payloads at
- * the activity boundary; Temporal recognizes `ApplicationFailure` natively
- * and applies the configured retry policy (with `nonRetryable: true`
- * opting an instance out per-call). An unexpected throw surfaces as a
- * `defect` and is re-thrown with its original cause.
+ * Returns `AsyncResult<Output, ApplicationFailure | declared errors>` for
+ * explicit error handling instead of throwing. The wrapper rethrows `Err()`
+ * payloads at the activity boundary (converting contract errors to
+ * `ApplicationFailure` first); Temporal recognizes `ApplicationFailure`
+ * natively and applies the configured retry policy (with
+ * `nonRetryable: true` opting an instance out per-call). An unexpected
+ * throw surfaces as a `defect` and is re-thrown with its original cause.
+ *
+ * The helpers argument is optional to consume — implementations that need
+ * neither typed errors nor injected context keep the plain `(args) => ...`
+ * shape.
  */
-type ResultActivityImplementation<TActivity extends ActivityDefinition> = (
+type ResultActivityImplementation<TActivity extends ActivityDefinition, TContext = undefined> = (
   args: WorkerInferInput<TActivity>,
-) => AsyncResult<WorkerInferOutput<TActivity>, ApplicationFailure>;
+  helpers: ActivityImplementationHelpers<TActivity, TContext>,
+) => AsyncResult<WorkerInferOutput<TActivity>, ActivityImplementationErrorOf<TActivity>>;
 
 /**
  * Map of all activity implementations for a contract (global + all workflow-specific).
@@ -130,10 +205,13 @@ type ResultActivityImplementation<TActivity extends ActivityDefinition> = (
  * In short: write nested (mirror the contract); the wrapper flattens
  * for Temporal.
  */
-type ContractResultActivitiesImplementations<TContract extends ContractDefinition> =
+type ContractResultActivitiesImplementations<
+  TContract extends ContractDefinition,
+  TContext = undefined,
+> =
   // Global activities
   (TContract["activities"] extends Record<string, ActivityDefinition>
-    ? ResultActivitiesImplementations<TContract["activities"]>
+    ? ResultActivitiesImplementations<TContract["activities"], TContext>
     : {}) &
     // All workflow-specific activities merged
     {
@@ -141,20 +219,87 @@ type ContractResultActivitiesImplementations<TContract extends ContractDefinitio
         string,
         ActivityDefinition
       >
-        ? ResultActivitiesImplementations<TContract["workflows"][TWorkflow]["activities"]>
+        ? ResultActivitiesImplementations<TContract["workflows"][TWorkflow]["activities"], TContext>
         : {};
     };
 
-type ResultActivitiesImplementations<TActivities extends Record<string, ActivityDefinition>> = {
-  [K in keyof TActivities]: ResultActivityImplementation<TActivities[K]>;
+type ResultActivitiesImplementations<
+  TActivities extends Record<string, ActivityDefinition>,
+  TContext = undefined,
+> = {
+  [K in keyof TActivities]: ResultActivityImplementation<TActivities[K], TContext>;
 };
+
+/**
+ * Per-invocation description handed to middleware and `createContext`.
+ */
+export type ActivityInvocationInfo = {
+  /** Flat runtime name of the activity (as Temporal sees it). */
+  readonly activityName: string;
+  /** Owning workflow for workflow-local activities; `undefined` for global ones. */
+  readonly workflowName: string | undefined;
+};
+
+/**
+ * Continuation invoked by an {@link ActivityMiddleware}. Call it with no
+ * argument to forward the current (validated) input unchanged, or pass a
+ * value to substitute the input seen by the next middleware / the
+ * implementation.
+ */
+export type ActivityMiddlewareNext = (
+  ...input: [unknown?]
+) => AsyncResult<unknown, ApplicationFailure | AnyContractError>;
+
+/**
+ * Contract-aware middleware wrapped around every activity implementation.
+ *
+ * Middleware runs *inside* the validation boundary — `invocation.input` is
+ * already validated against the contract's input schema, and whatever the
+ * chain returns on the `ok` channel is still validated against the output
+ * schema afterwards. Because it operates on the unthrown `AsyncResult`
+ * rather than thrown exceptions, a middleware observes modeled failures
+ * (`ApplicationFailure`, contract errors) on the `err` channel and can
+ * short-circuit by returning its own result without calling `next`.
+ *
+ * The `middleware` array composes outermost-first: `[a, b]` runs `a`, which
+ * calls `b`, which calls the implementation.
+ *
+ * @example Log every activity invocation and its outcome
+ * ```ts
+ * const logging: ActivityMiddleware = ({ activityName, workflowName }, next) =>
+ *   next().tapErr((error) => {
+ *     logger.warn({ activityName, workflowName, error }, "activity failed");
+ *   });
+ * ```
+ */
+export type ActivityMiddleware<TContext = undefined> = (
+  invocation: ActivityInvocationInfo & {
+    /** Schema-validated input for this invocation. */
+    readonly input: unknown;
+    /** Value produced by `createContext` (or `undefined`). */
+    readonly context: TContext;
+  },
+  next: ActivityMiddlewareNext,
+) => AsyncResult<unknown, ApplicationFailure | AnyContractError>;
 
 /**
  * Options for creating activities handler
  */
-type DeclareActivitiesHandlerOptions<TContract extends ContractDefinition> = {
+type DeclareActivitiesHandlerOptions<TContract extends ContractDefinition, TContext = undefined> = {
   contract: TContract;
-  activities: ContractResultActivitiesImplementations<TContract>;
+  activities: ContractResultActivitiesImplementations<TContract, TContext>;
+  /**
+   * Build the typed dependency context handed to every implementation (and
+   * middleware) as `helpers.context`. Invoked once per activity execution,
+   * so it can produce request-scoped values; close over singletons (DB
+   * pools, service clients) for per-worker dependencies.
+   */
+  createContext?: (info: ActivityInvocationInfo) => TContext | Promise<TContext>;
+  /**
+   * Contract-aware middleware chain wrapped around every activity
+   * implementation, outermost-first. See {@link ActivityMiddleware}.
+   */
+  middleware?: readonly ActivityMiddleware<TContext>[];
 };
 
 type ActivityImplementation<TActivity extends ActivityDefinition> = (
@@ -201,8 +346,13 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  *
  * This wraps all activity implementations with:
  * - Validation at network boundaries
- * - `AsyncResult<T, ApplicationFailure>` pattern for explicit error handling
+ * - `AsyncResult<T, ApplicationFailure | declared errors>` pattern for
+ *   explicit error handling
  * - Automatic conversion from Result to Promise (throwing on Error)
+ * - Typed constructors for contract-declared errors and an optional
+ *   dependency context (see {@link ActivityImplementationHelpers})
+ * - An optional contract-aware middleware chain (see
+ *   {@link ActivityMiddleware})
  *
  * TypeScript ensures ALL activities (global + workflow-specific) are implemented.
  *
@@ -211,16 +361,19 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  * @example
  * ```ts
  * import { declareActivitiesHandler, ApplicationFailure } from '@temporal-contract/worker/activity';
- * import { fromPromise } from 'unthrown';
+ * import { fromPromise, Ok, Err } from 'unthrown';
  * import myContract from './contract.js';
  *
  * export const activities = declareActivitiesHandler({
  *   contract: myContract,
+ *   // Typed dependency injection: implementations receive this via
+ *   // `helpers.context` instead of closing over module state.
+ *   createContext: () => ({ emailService }),
  *   activities: {
  *     // Activity returns AsyncResult instead of throwing.
- *     sendEmail: (args) =>
+ *     sendEmail: (args, { errors, context }) =>
  *       fromPromise(
- *         emailService.send(args),
+ *         context.emailService.send(args),
  *         (error) =>
  *           // Wrap technical errors in ApplicationFailure. `nonRetryable`
  *           // is per-instance: set it to true on permanent failures so
@@ -231,7 +384,13 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  *             nonRetryable: false,
  *             cause: error instanceof Error ? error : undefined,
  *           }),
- *       ).map(() => ({ sent: true })),
+ *       ).flatMap((outcome) =>
+ *         outcome.accepted
+ *           ? Ok({ sent: true })
+ *           : // Contract-declared error: typed on the caller's side, with
+ *             // `nonRetryable` taken from the contract declaration.
+ *             Err(errors.RecipientRejected({ reason: outcome.reason })),
+ *       ),
  *   },
  * });
  *
@@ -248,11 +407,13 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  *
  * @remarks
  * The wrapper accepts implementations in the
- * `AsyncResult<T, ApplicationFailure>` shape and produces ordinary
- * Promise-returning Temporal handlers (`Err(...)` → thrown
- * `ApplicationFailure`; `Ok(...)` → output validated against the
- * contract and resolved; `defect` → original cause re-thrown). It does
- * **not** hide Temporal's
+ * `AsyncResult<T, ApplicationFailure | declared errors>` shape and produces
+ * ordinary Promise-returning Temporal handlers (`Err(ApplicationFailure)` →
+ * thrown; `Err(ContractError)` → data validated against the declared schema
+ * and thrown as an `ApplicationFailure` with `type` = error name,
+ * `details[0]` = data, `nonRetryable` from the contract; `Ok(...)` → output
+ * validated against the contract and resolved; `defect` → original cause
+ * re-thrown). It does **not** hide Temporal's
  * `@temporalio/activity` runtime: inside the body you can still call
  * `Context.current()` from `@temporalio/activity` to access heartbeats
  * (`heartbeat(details)`, `heartbeatDetails`), activity info (attempt
@@ -260,48 +421,90 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  * "Working with the Activity Context" section of the worker
  * implementation guide for end-to-end examples.
  */
-export function declareActivitiesHandler<TContract extends ContractDefinition>(
-  options: DeclareActivitiesHandlerOptions<TContract>,
-): ActivitiesHandler<TContract> {
-  const { contract, activities } = options;
+export function declareActivitiesHandler<
+  TContract extends ContractDefinition,
+  TContext = undefined,
+>(options: DeclareActivitiesHandlerOptions<TContract, TContext>): ActivitiesHandler<TContract> {
+  const { contract, activities, createContext, middleware } = options;
+  const middlewareChain = middleware ?? [];
 
   // Prepare Temporal-compatible activities with validation and Result unwrapping
   const wrappedActivities = {} as ActivitiesHandler<TContract>;
 
-  // Helper to create a wrapped implementation from a definition and impl
+  // Helper to create a wrapped implementation from a definition and impl.
+  // `label` is the diagnostic name used in validation errors (workflow-local
+  // activities keep the historical `workflow.activity` format); `info` is the
+  // runtime identity handed to middleware and `createContext`.
   function makeWrapped(
-    activityName: string,
+    label: string,
+    info: ActivityInvocationInfo,
     activityDef: ActivityDefinition,
-    activityImpl: (args: unknown) => AsyncResult<unknown, ApplicationFailure>,
+    activityImpl: (
+      args: unknown,
+      helpers: { errors: unknown; context: unknown },
+    ) => AsyncResult<unknown, ApplicationFailure | AnyContractError>,
   ) {
+    // Constructors are stateless and derived from contract-time immutables,
+    // so build them once per activity at declaration time.
+    const errorConstructors = _internal_buildErrorConstructors(activityDef.errors);
+
     return async (...args: unknown[]) => {
       const input = extractHandlerInput(args);
 
       // Validate input
       const inputResult = await activityDef.input["~standard"].validate(input);
       if (inputResult.issues) {
-        throw new ActivityInputValidationError(activityName, inputResult.issues);
+        throw new ActivityInputValidationError(label, inputResult.issues);
       }
 
-      // Execute unthrown activity (returns AsyncResult<T, ApplicationFailure>);
-      // awaiting yields a Result<T, ApplicationFailure>.
-      const result = await activityImpl(inputResult.value);
+      const context = createContext ? await createContext(info) : undefined;
+      const helpers = { errors: errorConstructors, context };
+
+      // Compose the middleware chain around the implementation,
+      // outermost-first. Each middleware receives the input the previous
+      // stage forwarded and may substitute it via `next(newInput)`.
+      const invokeImplementation = (
+        stageInput: unknown,
+      ): AsyncResult<unknown, ApplicationFailure | AnyContractError> =>
+        activityImpl(stageInput, helpers);
+      const chain = middlewareChain.reduceRight<typeof invokeImplementation>(
+        (nextStage, mw) => (stageInput) =>
+          mw({ ...info, input: stageInput, context: context as TContext }, (...override) =>
+            nextStage(override.length > 0 ? override[0] : stageInput),
+          ),
+        invokeImplementation,
+      );
+
+      // Execute unthrown activity (returns AsyncResult); awaiting yields a
+      // Result.
+      const result = await chain(inputResult.value);
 
       // Fold the three channels: validate output on `ok`, surface the modeled
-      // `ApplicationFailure` on `err`, and re-throw a `defect`'s original cause
-      // (an unexpected throw inside the activity is a bug, not a domain error).
+      // error on `err` (converting a typed contract error to its
+      // `ApplicationFailure` wire shape first), and re-throw a `defect`'s
+      // original cause (an unexpected throw inside the activity is a bug,
+      // not a domain error).
       return result.match({
         ok: async (value) => {
           const outputResult = await activityDef.output["~standard"].validate(value);
           if (outputResult.issues) {
-            throw new ActivityOutputValidationError(activityName, outputResult.issues);
+            throw new ActivityOutputValidationError(label, outputResult.issues);
           }
           return outputResult.value;
         },
         // Convert Err(...) payload to thrown ApplicationFailure for Temporal.
         // Temporal recognizes this class natively and applies the configured
-        // retry policy (honoring `nonRetryable: true`).
-        err: (error) => {
+        // retry policy (honoring `nonRetryable: true`). Contract errors are
+        // validated against their declared data schema and serialized as
+        // ApplicationFailure(type = error name, details = [data]).
+        err: async (error) => {
+          if (error instanceof ContractError) {
+            throw await contractErrorToApplicationFailure(
+              error,
+              activityDef.errors,
+              `activity "${label}"`,
+            );
+          }
           throw error;
         },
         // A defect is an *unanticipated* throw inside the activity. Re-throw the
@@ -337,8 +540,12 @@ export function declareActivitiesHandler<TContract extends ContractDefinition>(
       // Assign wrapped global activity
       (wrappedActivities as Record<string, unknown>)[activityName] = makeWrapped(
         activityName,
+        { activityName, workflowName: undefined },
         activityDef,
-        impl as (args: unknown) => AsyncResult<unknown, ApplicationFailure>,
+        impl as (
+          args: unknown,
+          helpers: { errors: unknown; context: unknown },
+        ) => AsyncResult<unknown, ApplicationFailure | AnyContractError>,
       );
     }
   }
@@ -368,8 +575,12 @@ export function declareActivitiesHandler<TContract extends ContractDefinition>(
         // Assign workflow activity directly at root level (flat structure)
         (wrappedActivities as Record<string, unknown>)[activityName] = makeWrapped(
           `${workflowName}.${activityName}`,
+          { activityName, workflowName },
           activityDef,
-          impl as (args: unknown) => AsyncResult<unknown, ApplicationFailure>,
+          impl as (
+            args: unknown,
+            helpers: { errors: unknown; context: unknown },
+          ) => AsyncResult<unknown, ApplicationFailure | AnyContractError>,
         );
       }
     }

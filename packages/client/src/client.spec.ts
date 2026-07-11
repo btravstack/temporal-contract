@@ -19,10 +19,12 @@ import {
   WorkflowFailedError as TemporalWorkflowFailedError,
 } from "@temporalio/client";
 import {
+  ApplicationFailure,
   defineSearchAttributeKey,
   TypedSearchAttributes,
   WorkflowNotFoundError as TemporalWorkflowNotFoundError,
 } from "@temporalio/common";
+import { ContractError } from "@temporal-contract/contract/errors";
 
 // Create mock workflow object
 const createMockWorkflow = () => ({
@@ -1266,5 +1268,129 @@ describe("TypedClient", () => {
         expect(err.runId).toBe("run-xyz");
       }
     });
+  });
+});
+
+describe("TypedClient — workflow contract errors", () => {
+  const erroredContract = defineContract({
+    taskQueue: "test-queue",
+    workflows: {
+      processOrder: defineWorkflow({
+        input: z.object({ orderId: z.string() }),
+        output: z.object({ status: z.string() }),
+        errors: {
+          EmptyOrder: {
+            data: z.object({ orderId: z.string() }),
+            nonRetryable: true,
+          },
+        },
+      }),
+    },
+  });
+
+  const createClient = () =>
+    TypedClient.create(erroredContract, {
+      workflow: mockWorkflow,
+      schedule: mockSchedule,
+    } as unknown as Client);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("executeWorkflow rehydrates a declared failure into a typed ContractError", async () => {
+    const failure = ApplicationFailure.create({
+      type: "EmptyOrder",
+      message: "Order has no items",
+      nonRetryable: true,
+      details: [{ orderId: "ORD-1" }],
+    });
+    mockWorkflow.execute.mockRejectedValue(
+      new TemporalWorkflowFailedError("failed", failure, "NON_RETRYABLE_FAILURE"),
+    );
+
+    const result = await createClient().executeWorkflow("processOrder", {
+      workflowId: "order-1",
+      args: { orderId: "ORD-1" },
+    });
+
+    expect(result).toBeErr();
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(ContractError);
+      const error = result.error as InstanceType<typeof ContractError>;
+      expect(error.errorName).toBe("EmptyOrder");
+      expect(error.data).toEqual({ orderId: "ORD-1" });
+      expect(error.cause).toBe(failure);
+    }
+  });
+
+  it("executeWorkflow falls back to WorkflowFailedError for undeclared failure types", async () => {
+    const failure = ApplicationFailure.create({ type: "SOMETHING_ELSE", message: "boom" });
+    mockWorkflow.execute.mockRejectedValue(
+      new TemporalWorkflowFailedError("failed", failure, "NON_RETRYABLE_FAILURE"),
+    );
+
+    const result = await createClient().executeWorkflow("processOrder", {
+      workflowId: "order-1",
+      args: { orderId: "ORD-1" },
+    });
+
+    expect(result).toBeErr();
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(WorkflowFailedError);
+    }
+  });
+
+  it("executeWorkflow falls back when the declared payload no longer validates", async () => {
+    const failure = ApplicationFailure.create({
+      type: "EmptyOrder",
+      details: [{ orderId: 42 }],
+    });
+    mockWorkflow.execute.mockRejectedValue(
+      new TemporalWorkflowFailedError("failed", failure, "NON_RETRYABLE_FAILURE"),
+    );
+
+    const result = await createClient().executeWorkflow("processOrder", {
+      workflowId: "order-1",
+      args: { orderId: "ORD-1" },
+    });
+
+    expect(result).toBeErr();
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(WorkflowFailedError);
+    }
+  });
+
+  it("handle.result() rehydrates a declared failure into a typed ContractError", async () => {
+    const failure = ApplicationFailure.create({
+      type: "EmptyOrder",
+      message: "Order has no items",
+      details: [{ orderId: "ORD-2" }],
+    });
+    const rawHandle = {
+      workflowId: "order-2",
+      result: vi
+        .fn()
+        .mockRejectedValue(
+          new TemporalWorkflowFailedError("failed", failure, "NON_RETRYABLE_FAILURE"),
+        ),
+      query: vi.fn(),
+      signal: vi.fn(),
+      executeUpdate: vi.fn(),
+    };
+    mockWorkflow.getHandle.mockReturnValue(rawHandle);
+
+    const handleResult = await createClient().getHandle("processOrder", "order-2");
+    expect(handleResult).toBeOk();
+    if (!handleResult.isOk()) return;
+
+    const result = await handleResult.value.result();
+    expect(result).toBeErr();
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(ContractError);
+      const error = result.error as InstanceType<typeof ContractError>;
+      expect(error.errorName).toBe("EmptyOrder");
+      expect(error.data).toEqual({ orderId: "ORD-2" });
+    }
   });
 });

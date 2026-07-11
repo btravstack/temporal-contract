@@ -39,6 +39,22 @@ import type {
  *     messageId: z.string(),
  *     sentAt: z.date(),
  *   }),
+ *   // Typed domain errors — the error name becomes the
+ *   // `ApplicationFailure.type` on the wire, `data` its validated payload,
+ *   // and `nonRetryable` drives Temporal's retry policy from the contract.
+ *   errors: {
+ *     RecipientRejected: {
+ *       data: z.object({ reason: z.string() }),
+ *       nonRetryable: true,
+ *     },
+ *   },
+ *   // Contract-level ActivityOptions defaults shared by every worker.
+ *   // Merge precedence: declareWorkflow's activityOptions
+ *   // < defaultOptions < activityOptionsByName.
+ *   defaultOptions: {
+ *     startToCloseTimeout: "30 seconds",
+ *     retry: { maximumAttempts: 5 },
+ *   },
  * });
  * ```
  */
@@ -356,6 +372,48 @@ function getCleanErrorMessage(error: z.ZodError): string {
 }
 
 /**
+ * Schema for validating a single `errors` map entry. The `data` schema is
+ * optional; when present it must be Standard Schema compatible like every
+ * other schema slot on the contract.
+ */
+const errorDefinitionSchema = z.object({
+  data: z
+    .custom<StandardSchemaV1>((val) => isStandardSchema(val), {
+      message: "data must be a Standard Schema compatible schema (e.g., Zod, Valibot, ArkType)",
+    })
+    .optional(),
+  message: z.string().optional(),
+  nonRetryable: z.boolean().optional(),
+});
+
+/**
+ * Schema for a Temporal duration value (`ms`-formatted string or number of
+ * milliseconds).
+ */
+const durationValueSchema = z.union([z.string(), z.number()]);
+
+/**
+ * Schema for validating contract-level activity `defaultOptions`. Strict
+ * objects so a typo (`startToCloseTimeOut`) fails at `defineContract` time
+ * instead of being silently ignored when the worker merges options.
+ */
+const activityDefaultOptionsSchema = z.strictObject({
+  startToCloseTimeout: durationValueSchema.optional(),
+  scheduleToCloseTimeout: durationValueSchema.optional(),
+  scheduleToStartTimeout: durationValueSchema.optional(),
+  heartbeatTimeout: durationValueSchema.optional(),
+  retry: z
+    .strictObject({
+      initialInterval: durationValueSchema.optional(),
+      maximumInterval: durationValueSchema.optional(),
+      backoffCoefficient: z.number().optional(),
+      maximumAttempts: z.number().optional(),
+      nonRetryableErrorTypes: z.array(z.string()).optional(),
+    })
+    .optional(),
+});
+
+/**
  * Schema for validating activity definitions
  * Checks that input and output are Standard Schema compatible schemas
  */
@@ -366,6 +424,8 @@ const activityDefinitionSchema = z.object({
   output: z.custom<StandardSchemaV1>((val) => isStandardSchema(val), {
     message: "output must be a Standard Schema compatible schema (e.g., Zod, Valibot, ArkType)",
   }),
+  errors: z.record(identifierSchema, errorDefinitionSchema).optional(),
+  defaultOptions: activityDefaultOptionsSchema.optional(),
 });
 
 /**
@@ -433,6 +493,7 @@ const workflowDefinitionSchema = z.object({
   queries: z.record(identifierSchema, queryDefinitionSchema).optional(),
   updates: z.record(identifierSchema, updateDefinitionSchema).optional(),
   searchAttributes: z.record(identifierSchema, searchAttributeDefinitionSchema).optional(),
+  errors: z.record(identifierSchema, errorDefinitionSchema).optional(),
 });
 
 /**

@@ -902,3 +902,128 @@ describe("Contract Builder", () => {
     });
   });
 });
+
+describe("Contract Builder — typed errors and default options", () => {
+  it("accepts errors maps on activities and workflows", () => {
+    const contract = defineContract({
+      taskQueue: "test-queue",
+      workflows: {
+        processOrder: {
+          input: z.object({ orderId: z.string() }),
+          output: z.object({ status: z.string() }),
+          errors: {
+            EmptyOrder: { data: z.object({ orderId: z.string() }) },
+          },
+          activities: {
+            chargePayment: {
+              input: z.object({ amount: z.number() }),
+              output: z.object({ transactionId: z.string() }),
+              errors: {
+                PaymentDeclined: {
+                  data: z.object({ reason: z.string() }),
+                  message: "The payment was declined",
+                  nonRetryable: true,
+                },
+                GatewayUnavailable: {},
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(contract.workflows.processOrder.errors.EmptyOrder).toBeDefined();
+    expect(
+      contract.workflows.processOrder.activities.chargePayment.errors.PaymentDeclined.nonRetryable,
+    ).toBe(true);
+  });
+
+  it("rejects an error data schema that is not Standard Schema compatible", () => {
+    expect(() =>
+      defineContract({
+        taskQueue: "test-queue",
+        workflows: {
+          processOrder: {
+            input: z.object({}),
+            output: z.object({}),
+            activities: {
+              chargePayment: {
+                input: z.object({}),
+                output: z.object({}),
+                errors: {
+                  // @ts-expect-error — deliberately not a schema
+                  PaymentDeclined: { data: { not: "a schema" } },
+                },
+              },
+            },
+          },
+        },
+      }),
+    ).toThrow(/data must be a Standard Schema compatible schema/);
+  });
+
+  it("accepts contract-level activity defaultOptions", () => {
+    const contract = defineContract({
+      taskQueue: "test-queue",
+      workflows: {
+        processOrder: {
+          input: z.object({}),
+          output: z.object({}),
+        },
+      },
+      activities: {
+        sendEmail: {
+          input: z.object({ to: z.string() }),
+          output: z.void(),
+          defaultOptions: {
+            startToCloseTimeout: "30 seconds",
+            heartbeatTimeout: 5_000,
+            retry: { maximumAttempts: 5, nonRetryableErrorTypes: ["RecipientRejected"] },
+          },
+        },
+      },
+    });
+
+    expect(contract.activities.sendEmail.defaultOptions?.startToCloseTimeout).toBe("30 seconds");
+  });
+
+  it("rejects a typo'd defaultOptions key (strict object)", () => {
+    expect(() =>
+      defineContract({
+        taskQueue: "test-queue",
+        workflows: {
+          processOrder: { input: z.object({}), output: z.object({}) },
+        },
+        activities: {
+          sendEmail: {
+            input: z.object({}),
+            output: z.void(),
+            // @ts-expect-error — deliberate typo
+            defaultOptions: { startToCloseTimeOut: "30 seconds" },
+          },
+        },
+      }),
+    ).toThrow(/Contract validation failed/);
+  });
+
+  it("rejects a typo'd retry key inside defaultOptions (strict object)", () => {
+    expect(() =>
+      defineContract({
+        taskQueue: "test-queue",
+        workflows: {
+          processOrder: { input: z.object({}), output: z.object({}) },
+        },
+        activities: {
+          sendEmail: {
+            input: z.object({}),
+            output: z.void(),
+            defaultOptions: {
+              // @ts-expect-error — deliberate typo
+              retry: { maxAttempts: 3 },
+            },
+          },
+        },
+      }),
+    ).toThrow(/Contract validation failed/);
+  });
+});
