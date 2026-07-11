@@ -240,9 +240,9 @@ pnpm add unthrown zod @temporalio/client @temporalio/worker @temporalio/workflow
 ```
 
 ::: warning unthrown major version
-The `unthrown` peer range is `^4`. unthrown 4 is **not** compatible with
-unthrown 3, so if you have an existing install make sure it resolves to
-version 4.
+The `unthrown` peer range is `^4.1.0`. unthrown 4 is **not** compatible
+with unthrown 3, so if you have an existing install make sure it resolves to
+version 4.1 or later.
 :::
 
 ## Next Steps

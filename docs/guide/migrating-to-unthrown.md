@@ -62,7 +62,7 @@ the same name but is now imported from `"unthrown"`.
 | `ResultAsync.fromPromise(promise, errFn)`    | `fromPromise(promise, errFn)`                                                                                       |
 | `ResultAsync.fromSafePromise(promise)`       | `fromSafePromise(promise)`                                                                                          |
 | `.andThen(fn)`                               | `.flatMap(fn)`                                                                                                      |
-| `.map(fn)` / `.mapErr(fn)` / `.orElse(fn)`   | `.map(fn)` / `.mapErr(fn)` / `.orElse(fn)`                                                                          |
+| `.map(fn)` / `.mapErr(fn)` / `.orElse(fn)`   | `.map(fn)` / `.mapErr(fn)` / `.flatMapErr(fn)` (`orElse` was renamed in unthrown 4.1)                               |
 | `Result.combine([...])`                      | `all([...])`                                                                                                        |
 | `result.match(okFn, errFn)` (positional)     | `result.match({ ok, err, defect })` (object, 3 channels)                                                            |
 | `result.isOk()` / `result.isErr()` to narrow | `result.isOk()` / `result.isErr()` / `result.isDefect()` (methods narrow; `isOk(result)` free functions also exist) |

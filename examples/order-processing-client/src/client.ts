@@ -198,7 +198,7 @@ async function run() {
   logger.info("💡 Benefits of unthrown AsyncResult:");
   logger.info("   - Explicit error handling - no hidden exceptions");
   logger.info("   - Type-safe error values");
-  logger.info("   - Functional composition with flatMap, map, mapErr, orElse");
+  logger.info("   - Functional composition with flatMap, map, mapErr, flatMapErr");
   logger.info("   - Railway-oriented programming");
   logger.info("   - Exhaustive error matching with unthrown matchTags");
 
