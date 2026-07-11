@@ -34,8 +34,20 @@ async function run() {
     namespace: "default",
   });
 
-  // Create type-safe client with unthrown AsyncResult pattern
-  const contractClient = TypedClient.create(orderProcessingContract, rawClient);
+  // Create type-safe client with unthrown AsyncResult pattern — creation
+  // failures (bad connection, missing Schedule API) land on the Err channel.
+  const clientResult = await TypedClient.create({
+    contract: orderProcessingContract,
+    client: rawClient,
+  });
+  if (!clientResult.isOk()) {
+    logger.error(
+      { err: clientResult.isErr() ? clientResult.error : clientResult.cause },
+      "❌ Client creation failed",
+    );
+    process.exit(1);
+  }
+  const contractClient = clientResult.value;
 
   // Example orders to process
   const orders: Order[] = [

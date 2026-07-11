@@ -304,6 +304,49 @@ export type UpdateNamesOf<W extends AnyWorkflowDefinition> = W extends {
   : never;
 
 /**
+ * DIRECTION-AWARE SCHEMA INFERENCE PRIMITIVES
+ *
+ * A Standard Schema has two type faces: `InferInput` (what a producer hands
+ * to validation, pre-transform) and `InferOutput` (what validation yields,
+ * post-transform). Which face applies depends on which side of the network
+ * boundary you sit on, so the four primitives below encode the perspective
+ * once — the worker and client packages re-export them rather than each
+ * keeping a local copy.
+ */
+
+/**
+ * Infer input type from a definition (worker perspective)
+ * Worker receives the output type (after input schema parsing/transformation)
+ */
+export type WorkerInferInput<T extends { input: AnySchema }> = StandardSchemaV1.InferOutput<
+  T["input"]
+>;
+
+/**
+ * Infer output type from a definition (worker perspective)
+ * Worker returns the input type (before output schema parsing/transformation)
+ */
+export type WorkerInferOutput<T extends { output: AnySchema }> = StandardSchemaV1.InferInput<
+  T["output"]
+>;
+
+/**
+ * Infer input type from a definition (client perspective)
+ * Client sends the input type (before input schema parsing/transformation)
+ */
+export type ClientInferInput<T extends { input: AnySchema }> = StandardSchemaV1.InferInput<
+  T["input"]
+>;
+
+/**
+ * Infer output type from a definition (client perspective)
+ * Client receives the output type (after output schema parsing/transformation)
+ */
+export type ClientInferOutput<T extends { output: AnySchema }> = StandardSchemaV1.InferOutput<
+  T["output"]
+>;
+
+/**
  * Contract definition containing workflows and optional global activities
  */
 export type ContractDefinition<

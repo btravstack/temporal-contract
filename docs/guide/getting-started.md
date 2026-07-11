@@ -191,12 +191,18 @@ const connection = await NativeConnection.connect({
   address: "localhost:7233",
 });
 
-const worker = await createWorker({
-  contract: orderContract, // the task queue comes from the contract
-  connection,
-  // ESM-safe path resolution (there is no `require.resolve` in ESM)
-  workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
-  activities,
+// Creation returns AsyncResult<Worker, TechnicalError> — bundling and
+// connection failures land on the Err channel instead of throwing.
+const worker = (
+  await createWorker({
+    contract: orderContract, // the task queue comes from the contract
+    connection,
+    // ESM-safe path resolution (there is no `require.resolve` in ESM)
+    workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
+    activities,
+  })
+).getOrElse((error) => {
+  throw error;
 });
 
 await worker.run();
@@ -213,7 +219,11 @@ const connection = await Connection.connect({
 });
 
 const temporalClient = new Client({ connection });
-const client = TypedClient.create(orderContract, temporalClient);
+const client = (
+  await TypedClient.create({ contract: orderContract, client: temporalClient })
+).getOrElse((error) => {
+  throw error;
+});
 
 // Fully typed workflow execution with Result/AsyncResult pattern
 const resultAsync = client.executeWorkflow("processOrder", {

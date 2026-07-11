@@ -134,7 +134,11 @@ import { Client } from "@temporalio/client";
 import { TypedClient } from "@temporal-contract/client";
 
 const temporalClient = new Client({ connection });
-const client = TypedClient.create(contract, temporalClient);
+const client = (await TypedClient.create({ contract: contract, client: temporalClient })).getOrElse(
+  (error) => {
+    throw error;
+  },
+);
 
 // TypeScript knows the exact argument types
 const result = await client.executeWorkflow("processOrder", {

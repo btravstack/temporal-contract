@@ -64,7 +64,7 @@
     "build:docs": "typedoc",
     "dev": "tsdown src/activity.ts src/worker.ts src/workflow.ts --format cjs,esm --dts --watch",
     "test": "vitest run --project unit",
-    "test:integration": "vitest run --project integration",
+    "test:integration": "vitest run --project integration --project integration-inprocess",
     "test:watch": "vitest --project unit",
     "typecheck": "tsc --noEmit"
   },

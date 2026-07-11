@@ -1,7 +1,5 @@
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { AsyncResult } from "unthrown";
 import type {
-  AnySchema,
   ActivityDefinition,
   AnyWorkflowDefinition,
   SignalDefinition,
@@ -10,21 +8,12 @@ import type {
   ContractDefinition,
 } from "@temporal-contract/contract";
 
-/**
- * Infer input type from a definition (client perspective)
- * Client sends the input type (before input schema parsing/transformation)
- */
-export type ClientInferInput<T extends { input: AnySchema }> = StandardSchemaV1.InferInput<
-  T["input"]
->;
-
-/**
- * Infer output type from a definition (client perspective)
- * Client receives the output type (after output schema parsing/transformation)
- */
-export type ClientInferOutput<T extends { output: AnySchema }> = StandardSchemaV1.InferOutput<
-  T["output"]
->;
+// The direction-aware schema inference primitives live in
+// `@temporal-contract/contract` (single source of truth shared with the
+// worker package); re-exported so the client's public type surface is
+// unchanged.
+export type { ClientInferInput, ClientInferOutput } from "@temporal-contract/contract";
+import type { ClientInferInput, ClientInferOutput } from "@temporal-contract/contract";
 
 /**
  * CLIENT PERSPECTIVE

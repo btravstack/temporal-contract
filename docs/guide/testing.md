@@ -1,6 +1,60 @@
 # Testing
 
-`@temporal-contract/testing` gives you integration tests against a **real
+`@temporal-contract/testing` covers two complementary levels:
+
+| Level                        | Entry points                   | Needs Docker | Reach for it when                                                                                                                              |
+| ---------------------------- | ------------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Contract / handler tests** | `/time-skipping`               | No           | Validating the contract pipeline — validation on both sides, middleware, typed contract errors, rehydration — fast, with timers fast-forwarded |
+| **Real-server integration**  | `/global-setup` + `/extension` | Yes          | You need real-cluster semantics: visibility/search attributes, schedules, retention                                                            |
+
+## Contract / handler tests (no Docker)
+
+`@temporal-contract/testing/time-skipping` wraps Temporal's
+[`TestWorkflowEnvironment`](https://typescript.temporal.io/api/classes/testing.TestWorkflowEnvironment)
+in a Vitest fixture. The time-skipping server is a lightweight local binary
+(downloaded and cached by `@temporalio/testing` on first use) that
+fast-forwards timers — an hour-long `sleep` resolves immediately — so full
+contract-pipeline tests run in seconds. The environment is created once per
+Vitest worker process and torn down automatically.
+
+```typescript
+import { it } from "@temporal-contract/testing/time-skipping";
+import { TypedClient } from "@temporal-contract/client";
+import { createWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
+
+it("processes the order", async ({ testEnv }) => {
+  const worker = (
+    await createWorker({
+      contract: myContract,
+      connection: testEnv.nativeConnection,
+      workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
+      activities,
+    })
+  ).getOrElse((error) => {
+    throw error;
+  });
+  const client = (
+    await TypedClient.create({ contract: myContract, client: testEnv.client })
+  ).getOrElse((error) => {
+    throw error;
+  });
+
+  await worker.runUntil(async () => {
+    const result = await client.executeWorkflow("processOrder", {
+      workflowId: "order-1",
+      args: { orderId: "ORD-1" },
+    });
+    expect(result).toBeOk();
+  });
+});
+```
+
+`createTimeSkippingEnvironment()` is exported alongside for suites that
+prefer explicit `beforeAll`/`afterAll` management.
+
+## Real-server integration
+
+The testcontainers fixtures give you integration tests against a **real
 Temporal server** — no mocks — started automatically in Docker via
 [testcontainers](https://testcontainers.com/).
 
@@ -78,7 +132,11 @@ const it = baseIt.extend<{
   ],
   client: async ({ clientConnection }, use) => {
     const rawClient = new Client({ connection: clientConnection, namespace: "default" });
-    await use(TypedClient.create(myContract, rawClient));
+    await use(
+      (await TypedClient.create({ contract: myContract, client: rawClient })).getOrElse((error) => {
+        throw error;
+      }),
+    );
   },
 });
 

@@ -149,14 +149,15 @@ type ActivityImplementationErrorOf<TActivity extends ActivityDefinition> = TActi
  * - `errors` — typed constructors for the errors declared on this activity's
  *   contract entry. `Err(errors.PaymentDeclined({ reason }))` surfaces to the
  *   calling workflow as a typed, schema-validated error.
- * - `context` — the value produced by `declareActivitiesHandler`'s
- *   `createContext` (or `undefined` when none is configured). Use it to
- *   inject dependencies (service clients, repositories) instead of closing
- *   over them at module scope.
+ * - `context` — the accumulated typed context: the `createContext` seed
+ *   plus everything injected by the middleware chain via
+ *   `next({ context })` (an empty object when neither is configured). Use
+ *   it to inject dependencies (service clients, repositories) instead of
+ *   closing over them at module scope.
  */
 export type ActivityImplementationHelpers<
   TActivity extends ActivityDefinition,
-  TContext = undefined,
+  TContext extends Record<string, unknown> | EmptyContext = EmptyContext,
 > = {
   readonly errors: ActivityErrorConstructorsOf<TActivity>;
   readonly context: TContext;
@@ -177,7 +178,10 @@ export type ActivityImplementationHelpers<
  * neither typed errors nor injected context keep the plain `(args) => ...`
  * shape.
  */
-type ResultActivityImplementation<TActivity extends ActivityDefinition, TContext = undefined> = (
+type ResultActivityImplementation<
+  TActivity extends ActivityDefinition,
+  TContext extends Record<string, unknown> | EmptyContext = EmptyContext,
+> = (
   args: WorkerInferInput<TActivity>,
   helpers: ActivityImplementationHelpers<TActivity, TContext>,
 ) => AsyncResult<WorkerInferOutput<TActivity>, ActivityImplementationErrorOf<TActivity>>;
@@ -207,7 +211,7 @@ type ResultActivityImplementation<TActivity extends ActivityDefinition, TContext
  */
 type ContractResultActivitiesImplementations<
   TContract extends ContractDefinition,
-  TContext = undefined,
+  TContext extends Record<string, unknown> | EmptyContext = EmptyContext,
 > =
   // Global activities
   (TContract["activities"] extends Record<string, ActivityDefinition>
@@ -225,7 +229,7 @@ type ContractResultActivitiesImplementations<
 
 type ResultActivitiesImplementations<
   TActivities extends Record<string, ActivityDefinition>,
-  TContext = undefined,
+  TContext extends Record<string, unknown> | EmptyContext = EmptyContext,
 > = {
   [K in keyof TActivities]: ResultActivityImplementation<TActivities[K], TContext>;
 };
@@ -241,17 +245,31 @@ export type ActivityInvocationInfo = {
 };
 
 /**
- * Continuation invoked by an {@link ActivityMiddleware}. Call it with no
- * argument to forward the current (validated) input unchanged, or pass a
- * value to substitute the input seen by the next middleware / the
- * implementation. A substituted input is re-validated against the
- * activity's input schema before it flows downstream — an invalid
- * substitution fails terminally with `ActivityInputValidationError`, so
- * middleware cannot smuggle unvalidated data past the contract boundary.
+ * The empty middleware context. `Record<never, never>` rather than `{}` so
+ * an empty context is a real "no properties" type instead of the
+ * anything-goes empty-object type. (Mirrors amqp-contract's `EmptyContext`.)
  */
-export type ActivityMiddlewareNext = (
-  ...input: [unknown?]
-) => AsyncResult<unknown, ApplicationFailure | AnyContractError>;
+export type EmptyContext = Record<never, never>;
+
+/**
+ * Continuation invoked by an {@link ActivityMiddleware}.
+ *
+ * - `next()` — forward unchanged.
+ * - `next({ context: { ... } })` — extend the typed context flowing
+ *   downstream; the patch is shallow-merged over the current context, so
+ *   later middleware and the implementation see the accumulated value.
+ * - `next({ input: ... })` — substitute the input. A substituted input is
+ *   re-validated against the activity's input schema before it flows
+ *   downstream — an invalid substitution fails terminally with
+ *   `ActivityInputValidationError`, so middleware cannot smuggle
+ *   unvalidated data past the contract boundary.
+ */
+export type ActivityMiddlewareNext<
+  TContextOut extends Record<string, unknown> | EmptyContext = EmptyContext,
+> = (opts?: {
+  readonly input?: unknown;
+  readonly context?: TContextOut;
+}) => AsyncResult<unknown, ApplicationFailure | AnyContractError>;
 
 /**
  * Contract-aware middleware wrapped around every activity implementation.
@@ -264,45 +282,236 @@ export type ActivityMiddlewareNext = (
  * (`ApplicationFailure`, contract errors) on the `err` channel and can
  * short-circuit by returning its own result without calling `next`.
  *
- * The `middleware` array composes outermost-first: `[a, b]` runs `a`, which
- * calls `b`, which calls the implementation.
+ * Context accumulates through the chain: `TContextIn` is what this
+ * middleware receives (the `createContext` seed for the outermost one),
+ * `TContextOut extends TContextIn` is what it passes downstream via
+ * `next({ context })`. A middleware that only reads context leaves both
+ * parameters equal and stays valid unchanged. Compose typed chains with
+ * {@link composeActivityMiddleware}; pin a middleware's context types
+ * without a variable annotation via {@link defineActivityMiddleware}.
  *
- * @example Log every activity invocation and its outcome
+ * @example Log every activity invocation and its outcome (read-only)
  * ```ts
  * const logging: ActivityMiddleware = ({ activityName, workflowName }, next) =>
  *   next().tapErr((error) => {
  *     logger.warn({ activityName, workflowName, error }, "activity failed");
  *   });
  * ```
+ *
+ * @example Guard-and-narrow: inject a tenant id for everything downstream
+ * ```ts
+ * const auth = defineActivityMiddleware<EmptyContext, { tenantId: string }>(
+ *   (invocation, next) => {
+ *     const tenantId = readTenant(invocation.input);
+ *     if (!tenantId) {
+ *       return Err(ApplicationFailure.create({ type: "Unauthenticated", nonRetryable: true })).toAsync();
+ *     }
+ *     return next({ context: { tenantId } });
+ *   },
+ * );
+ * ```
  */
-export type ActivityMiddleware<TContext = undefined> = (
+export type ActivityMiddleware<
+  TContextIn extends Record<string, unknown> | EmptyContext = EmptyContext,
+  TContextOut extends TContextIn = TContextIn,
+> = (
   invocation: ActivityInvocationInfo & {
     /** Schema-validated input for this invocation. */
     readonly input: unknown;
-    /** Value produced by `createContext` (or `undefined`). */
-    readonly context: TContext;
+    /** Context accumulated so far (the `createContext` seed for the outermost middleware). */
+    readonly context: TContextIn;
   },
-  next: ActivityMiddlewareNext,
+  next: ActivityMiddlewareNext<TContextOut>,
 ) => AsyncResult<unknown, ApplicationFailure | AnyContractError>;
+
+/**
+ * Context-erased middleware shape used by the runtime chain.
+ */
+export type AnyActivityMiddleware = ActivityMiddleware<
+  Record<string, unknown>,
+  Record<string, unknown>
+>;
+
+/**
+ * Identity helper that pins a middleware's context types without a variable
+ * annotation. (Mirrors amqp-contract's `defineMiddleware`.)
+ */
+export function defineActivityMiddleware<
+  TContextIn extends Record<string, unknown> | EmptyContext = EmptyContext,
+  TContextOut extends TContextIn = TContextIn,
+>(
+  middleware: ActivityMiddleware<TContextIn, TContextOut>,
+): ActivityMiddleware<TContextIn, TContextOut> {
+  return middleware;
+}
+
+/**
+ * Compose middleware outermost-first into a single {@link ActivityMiddleware}
+ * whose context type accumulates across the chain — each middleware's
+ * `TContextOut` bounds the next one's `TContextIn`, so the composed result's
+ * out-context is the last middleware's. For chains longer than eight, nest:
+ * a composed chain is itself an `ActivityMiddleware` and can be the *first*
+ * argument of an outer `composeActivityMiddleware` call.
+ *
+ * (Mirrors amqp-contract's `composeMiddleware` overload approach.)
+ */
+export function composeActivityMiddleware<
+  TSeed extends Record<string, unknown> | EmptyContext,
+  TA extends TSeed,
+>(m1: ActivityMiddleware<TSeed, TA>): ActivityMiddleware<TSeed, TA>;
+export function composeActivityMiddleware<
+  TSeed extends Record<string, unknown> | EmptyContext,
+  TA extends TSeed,
+  TB extends TA,
+>(m1: ActivityMiddleware<TSeed, TA>, m2: ActivityMiddleware<TA, TB>): ActivityMiddleware<TSeed, TB>;
+export function composeActivityMiddleware<
+  TSeed extends Record<string, unknown> | EmptyContext,
+  TA extends TSeed,
+  TB extends TA,
+  TC extends TB,
+>(
+  m1: ActivityMiddleware<TSeed, TA>,
+  m2: ActivityMiddleware<TA, TB>,
+  m3: ActivityMiddleware<TB, TC>,
+): ActivityMiddleware<TSeed, TC>;
+export function composeActivityMiddleware<
+  TSeed extends Record<string, unknown> | EmptyContext,
+  TA extends TSeed,
+  TB extends TA,
+  TC extends TB,
+  TD extends TC,
+>(
+  m1: ActivityMiddleware<TSeed, TA>,
+  m2: ActivityMiddleware<TA, TB>,
+  m3: ActivityMiddleware<TB, TC>,
+  m4: ActivityMiddleware<TC, TD>,
+): ActivityMiddleware<TSeed, TD>;
+export function composeActivityMiddleware<
+  TSeed extends Record<string, unknown> | EmptyContext,
+  TA extends TSeed,
+  TB extends TA,
+  TC extends TB,
+  TD extends TC,
+  TE extends TD,
+>(
+  m1: ActivityMiddleware<TSeed, TA>,
+  m2: ActivityMiddleware<TA, TB>,
+  m3: ActivityMiddleware<TB, TC>,
+  m4: ActivityMiddleware<TC, TD>,
+  m5: ActivityMiddleware<TD, TE>,
+): ActivityMiddleware<TSeed, TE>;
+export function composeActivityMiddleware<
+  TSeed extends Record<string, unknown> | EmptyContext,
+  TA extends TSeed,
+  TB extends TA,
+  TC extends TB,
+  TD extends TC,
+  TE extends TD,
+  TF extends TE,
+>(
+  m1: ActivityMiddleware<TSeed, TA>,
+  m2: ActivityMiddleware<TA, TB>,
+  m3: ActivityMiddleware<TB, TC>,
+  m4: ActivityMiddleware<TC, TD>,
+  m5: ActivityMiddleware<TD, TE>,
+  m6: ActivityMiddleware<TE, TF>,
+): ActivityMiddleware<TSeed, TF>;
+export function composeActivityMiddleware<
+  TSeed extends Record<string, unknown> | EmptyContext,
+  TA extends TSeed,
+  TB extends TA,
+  TC extends TB,
+  TD extends TC,
+  TE extends TD,
+  TF extends TE,
+  TG extends TF,
+>(
+  m1: ActivityMiddleware<TSeed, TA>,
+  m2: ActivityMiddleware<TA, TB>,
+  m3: ActivityMiddleware<TB, TC>,
+  m4: ActivityMiddleware<TC, TD>,
+  m5: ActivityMiddleware<TD, TE>,
+  m6: ActivityMiddleware<TE, TF>,
+  m7: ActivityMiddleware<TF, TG>,
+): ActivityMiddleware<TSeed, TG>;
+export function composeActivityMiddleware<
+  TSeed extends Record<string, unknown> | EmptyContext,
+  TA extends TSeed,
+  TB extends TA,
+  TC extends TB,
+  TD extends TC,
+  TE extends TD,
+  TF extends TE,
+  TG extends TF,
+  TH extends TG,
+>(
+  m1: ActivityMiddleware<TSeed, TA>,
+  m2: ActivityMiddleware<TA, TB>,
+  m3: ActivityMiddleware<TB, TC>,
+  m4: ActivityMiddleware<TC, TD>,
+  m5: ActivityMiddleware<TD, TE>,
+  m6: ActivityMiddleware<TE, TF>,
+  m7: ActivityMiddleware<TF, TG>,
+  m8: ActivityMiddleware<TG, TH>,
+): ActivityMiddleware<TSeed, TH>;
+export function composeActivityMiddleware(
+  ...middlewares: readonly AnyActivityMiddleware[]
+): AnyActivityMiddleware {
+  return (invocation, next) => {
+    const run = (
+      index: number,
+      input: unknown,
+      inputPatched: boolean,
+      context: Record<string, unknown>,
+    ): ReturnType<AnyActivityMiddleware> =>
+      index >= middlewares.length
+        ? // Only surface `input` in the terminal patch when some stage
+          // actually substituted it — an untouched input must not trigger
+          // the wrapper's re-validation pass.
+          next(inputPatched ? { input, context } : { context })
+        : middlewares[index]!({ ...invocation, input, context }, (opts) =>
+            run(
+              index + 1,
+              opts && "input" in opts ? opts.input : input,
+              inputPatched || (opts !== undefined && "input" in opts),
+              { ...context, ...opts?.context },
+            ),
+          );
+    return run(0, invocation.input, false, invocation.context);
+  };
+}
 
 /**
  * Options for creating activities handler
  */
-type DeclareActivitiesHandlerOptions<TContract extends ContractDefinition, TContext = undefined> = {
+type DeclareActivitiesHandlerOptions<
+  TContract extends ContractDefinition,
+  TContext extends Record<string, unknown> | EmptyContext = EmptyContext,
+  TInjected extends TContext = TContext,
+> = {
   contract: TContract;
-  activities: ContractResultActivitiesImplementations<TContract, TContext>;
+  activities: ContractResultActivitiesImplementations<TContract, TInjected>;
   /**
-   * Build the typed dependency context handed to every implementation (and
-   * middleware) as `helpers.context`. Invoked once per activity execution,
-   * so it can produce request-scoped values; close over singletons (DB
-   * pools, service clients) for per-worker dependencies.
+   * Build the typed dependency context *seed* handed to the middleware
+   * chain and, accumulated, to every implementation as `helpers.context`.
+   * Invoked once per activity execution, so it can produce request-scoped
+   * values; close over singletons (DB pools, service clients) for
+   * per-worker dependencies. Omitted → the seed is an empty object.
+   *
+   * For scoped, resource-releasing contexts (per-invocation loggers,
+   * transactions), the recommended implementation is demesne's
+   * `Layer.forkScope` — see the "Dependency Injection" section of the
+   * activity-handlers guide.
    */
   createContext?: (info: ActivityInvocationInfo) => TContext | Promise<TContext>;
   /**
-   * Contract-aware middleware chain wrapped around every activity
-   * implementation, outermost-first. See {@link ActivityMiddleware}.
+   * Contract-aware middleware wrapped around every activity implementation.
+   * Pass a single middleware, or a typed chain built with
+   * {@link composeActivityMiddleware} — the chain's final context type
+   * (`TInjected`) is what implementations receive as `helpers.context`.
+   * See {@link ActivityMiddleware}.
    */
-  middleware?: readonly ActivityMiddleware<TContext>[];
+  middleware?: ActivityMiddleware<TContext, TInjected>;
 };
 
 type ActivityImplementation<TActivity extends ActivityDefinition> = (
@@ -426,10 +635,15 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  */
 export function declareActivitiesHandler<
   TContract extends ContractDefinition,
-  TContext = undefined,
->(options: DeclareActivitiesHandlerOptions<TContract, TContext>): ActivitiesHandler<TContract> {
-  const { contract, activities, createContext, middleware } = options;
-  const middlewareChain = middleware ?? [];
+  TContext extends Record<string, unknown> | EmptyContext = EmptyContext,
+  TInjected extends TContext = TContext,
+>(
+  options: DeclareActivitiesHandlerOptions<TContract, TContext, TInjected>,
+): ActivitiesHandler<TContract> {
+  const { contract, activities, createContext } = options;
+  // Context types are erased at the dispatch boundary: implementations
+  // receive whatever the (type-checked) middleware chain produced at runtime.
+  const middleware = options.middleware as AnyActivityMiddleware | undefined;
 
   // Prepare Temporal-compatible activities with validation and Result unwrapping
   const wrappedActivities = {} as ActivitiesHandler<TContract>;
@@ -460,36 +674,47 @@ export function declareActivitiesHandler<
         throw new ActivityInputValidationError(label, inputResult.issues);
       }
 
-      const context = createContext ? await createContext(info) : undefined;
-      const helpers = { errors: errorConstructors, context };
+      // The `createContext` seed; the middleware chain accumulates on top of
+      // it via `next({ context })` patches, and the implementation sees the
+      // final accumulated value.
+      const seedContext: Record<string, unknown> = createContext
+        ? ((await createContext(info)) as Record<string, unknown>)
+        : {};
 
-      // Compose the middleware chain around the implementation,
-      // outermost-first. Each middleware receives the input the previous
-      // stage forwarded and may substitute it via `next(newInput)` — a
-      // substituted input is re-validated against the contract's input
-      // schema so the validation boundary holds regardless of what the
-      // middleware injects (an invalid substitution is a deterministic bug
-      // and fails terminally, same as invalid caller input).
       const invokeImplementation = (
         stageInput: unknown,
+        stageContext: Record<string, unknown>,
       ): AsyncResult<unknown, ApplicationFailure | AnyContractError> =>
-        activityImpl(stageInput, helpers);
-      const chain = middlewareChain.reduceRight<typeof invokeImplementation>(
-        (nextStage, mw) => (stageInput) =>
-          mw({ ...info, input: stageInput, context: context as TContext }, (...override) => {
-            if (override.length === 0) {
-              return nextStage(stageInput);
-            }
+        activityImpl(stageInput, { errors: errorConstructors, context: stageContext });
+
+      // Run the (single, possibly composed) middleware around the
+      // implementation. `next({ input })` substitutions are re-validated
+      // against the contract's input schema so the validation boundary holds
+      // regardless of what the middleware injects (an invalid substitution
+      // is a deterministic bug and fails terminally, same as invalid caller
+      // input); `next({ context })` patches shallow-merge over the current
+      // context.
+      const chain = (
+        validatedInput: unknown,
+      ): AsyncResult<unknown, ApplicationFailure | AnyContractError> => {
+        if (!middleware) {
+          return invokeImplementation(validatedInput, seedContext);
+        }
+        return middleware({ ...info, input: validatedInput, context: seedContext }, (opts) => {
+          const nextContext = opts?.context ? { ...seedContext, ...opts.context } : seedContext;
+          if (opts && "input" in opts) {
+            const substituted = opts.input;
             return makeAsyncResult(async () => {
-              const revalidated = await activityDef.input["~standard"].validate(override[0]);
+              const revalidated = await activityDef.input["~standard"].validate(substituted);
               if (revalidated.issues) {
                 throw new ActivityInputValidationError(label, revalidated.issues);
               }
-              return await nextStage(revalidated.value);
+              return await invokeImplementation(revalidated.value, nextContext);
             });
-          }),
-        invokeImplementation,
-      );
+          }
+          return invokeImplementation(validatedInput, nextContext);
+        });
+      };
 
       // Execute unthrown activity (returns AsyncResult); awaiting yields a
       // Result.

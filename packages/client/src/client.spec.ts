@@ -25,6 +25,8 @@ import {
   WorkflowNotFoundError as TemporalWorkflowNotFoundError,
 } from "@temporalio/common";
 import { ContractError } from "@temporal-contract/contract/errors";
+import { Err } from "unthrown";
+import type { ClientInterceptor } from "./interceptors.js";
 
 // Create mock workflow object
 const createMockWorkflow = () => ({
@@ -138,12 +140,42 @@ describe("TypedClient", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     const rawClient = { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client;
-    typedClient = TypedClient.create(testContract, rawClient);
+    typedClient = TypedClient.createOrThrow(testContract, rawClient);
   });
 
   describe("TypedClient.create", () => {
-    it("should create a typed client instance", () => {
-      expect(typedClient).toBeInstanceOf(TypedClient);
+    it("returns Ok(TypedClient) for a capable client", async () => {
+      const rawClient = { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client;
+      const created = await TypedClient.create({ contract: testContract, client: rawClient });
+      expect(created).toBeOk();
+      if (created.isOk()) {
+        expect(created.value).toBeInstanceOf(TypedClient);
+      }
+    });
+
+    it("surfaces a missing Schedule API as Err(TechnicalError) instead of throwing", async () => {
+      const oldClient = { workflow: mockWorkflow } as unknown as Client;
+      const created = await TypedClient.create({ contract: testContract, client: oldClient });
+      expect(created).toBeErr();
+      if (created.isErr()) {
+        expect(created.error._tag).toBe("@temporal-contract/TechnicalError");
+        expect(created.error.message).toMatch(/requires @temporalio\/client >= 1\.16/);
+      }
+    });
+
+    it("surfaces an eager-connection failure as Err(TechnicalError)", async () => {
+      const failing = new Error("connection refused");
+      const rawClient = {
+        workflow: mockWorkflow,
+        schedule: mockSchedule,
+        connection: { ensureConnected: vi.fn().mockRejectedValue(failing) },
+      } as unknown as Client;
+      const created = await TypedClient.create({ contract: testContract, client: rawClient });
+      expect(created).toBeErr();
+      if (created.isErr()) {
+        expect(created.error._tag).toBe("@temporal-contract/TechnicalError");
+        expect(created.error.cause).toBe(failing);
+      }
     });
   });
 
@@ -812,7 +844,7 @@ describe("TypedClient", () => {
     beforeEach(() => {
       vi.clearAllMocks();
       const rawClient = { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client;
-      searchClient = TypedClient.create(searchContract, rawClient);
+      searchClient = TypedClient.createOrThrow(searchContract, rawClient);
     });
 
     it("translates declared searchAttributes into Temporal's typedSearchAttributes", async () => {
@@ -1289,7 +1321,7 @@ describe("TypedClient — workflow contract errors", () => {
   });
 
   const createClient = () =>
-    TypedClient.create(erroredContract, {
+    TypedClient.createOrThrow(erroredContract, {
       workflow: mockWorkflow,
       schedule: mockSchedule,
     } as unknown as Client);
@@ -1392,5 +1424,136 @@ describe("TypedClient — workflow contract errors", () => {
       expect(error.errorName).toBe("EmptyOrder");
       expect(error.data).toEqual({ orderId: "ORD-2" });
     }
+  });
+});
+
+describe("TypedClient — interceptors", () => {
+  const interceptedContract = defineContract({
+    taskQueue: "test-queue",
+    workflows: {
+      testWorkflow: defineWorkflow({
+        input: z.object({ name: z.string(), value: z.number() }),
+        output: z.object({ result: z.string() }),
+        queries: {
+          getStatus: { input: z.tuple([]), output: z.string() },
+        },
+      }),
+    },
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const clientWith = (interceptors: ClientInterceptor[]) =>
+    TypedClient.createOrThrow(
+      interceptedContract,
+      { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client,
+      interceptors,
+    );
+
+  it("runs outermost-first, observing the operation", async () => {
+    mockWorkflow.execute.mockResolvedValue({ result: "ok" });
+    const order: string[] = [];
+    const mk =
+      (label: string): ClientInterceptor =>
+      (args, next) => {
+        order.push(`${label}:${args.operation}:${args.workflowName}`);
+        return next();
+      };
+
+    const result = await clientWith([mk("outer"), mk("inner")]).executeWorkflow("testWorkflow", {
+      workflowId: "wf-1",
+      args: { name: "n", value: 1 },
+    });
+
+    expect(result).toBeOk();
+    expect(order).toEqual([
+      "outer:executeWorkflow:testWorkflow",
+      "inner:executeWorkflow:testWorkflow",
+    ]);
+  });
+
+  it("patched input flows through the normal validation pipeline", async () => {
+    mockWorkflow.execute.mockResolvedValue({ result: "ok" });
+    const patching: ClientInterceptor = (_args, next) =>
+      next({ input: { name: "patched", value: 42 } });
+
+    const result = await clientWith([patching]).executeWorkflow("testWorkflow", {
+      workflowId: "wf-2",
+      args: { name: "original", value: 1 },
+    });
+
+    expect(result).toBeOk();
+    expect(mockWorkflow.execute).toHaveBeenCalledWith(
+      "testWorkflow",
+      expect.objectContaining({ args: [{ name: "patched", value: 42 }] }),
+    );
+  });
+
+  it("an invalid patched input is rejected by validation (no bypass)", async () => {
+    const patching: ClientInterceptor = (_args, next) => next({ input: { name: 42 } });
+
+    const result = await clientWith([patching]).executeWorkflow("testWorkflow", {
+      workflowId: "wf-3",
+      args: { name: "original", value: 1 },
+    });
+
+    expect(result).toBeErr();
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(WorkflowValidationError);
+    }
+    expect(mockWorkflow.execute).not.toHaveBeenCalled();
+  });
+
+  it("can retry by calling next again", async () => {
+    mockWorkflow.execute
+      .mockRejectedValueOnce(new Error("transient"))
+      .mockResolvedValueOnce({ result: "ok" });
+    const retryOnce: ClientInterceptor = (_args, next) =>
+      next().flatMapErr(
+        (error): ReturnType<typeof next> =>
+          error instanceof RuntimeClientError ? next() : Err(error).toAsync(),
+      );
+
+    const result = await clientWith([retryOnce]).executeWorkflow("testWorkflow", {
+      workflowId: "wf-4",
+      args: { name: "n", value: 1 },
+    });
+
+    expect(result).toBeOk();
+    expect(mockWorkflow.execute).toHaveBeenCalledTimes(2);
+  });
+
+  it("wraps handle-level interactions (query)", async () => {
+    const rawHandle = {
+      workflowId: "wf-5",
+      result: vi.fn(),
+      query: vi.fn().mockResolvedValue("running"),
+      signal: vi.fn(),
+      executeUpdate: vi.fn(),
+    };
+    mockWorkflow.getHandle.mockReturnValue(rawHandle);
+    const seen: unknown[] = [];
+    const observing: ClientInterceptor = (args, next) => {
+      seen.push(args);
+      return next();
+    };
+
+    const handleResult = await clientWith([observing]).getHandle("testWorkflow", "wf-5");
+    expect(handleResult).toBeOk();
+    if (!handleResult.isOk()) return;
+    const query = await handleResult.value.queries.getStatus([]);
+
+    expect(query).toBeOk();
+    expect(seen).toEqual([
+      {
+        operation: "query",
+        workflowName: "testWorkflow",
+        workflowId: "wf-5",
+        name: "getStatus",
+        input: [],
+      },
+    ]);
   });
 });

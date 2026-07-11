@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { z } from "zod";
 import type { ContractDefinition } from "@temporal-contract/contract";
-import { createWorker, workflowsPathFromURL } from "./worker.js";
+import { createWorker, createWorkerOrThrow, workflowsPathFromURL } from "./worker.js";
 import { NativeConnection, Worker } from "@temporalio/worker";
 
 // Mock @temporalio/worker
@@ -38,7 +38,7 @@ describe("Worker Entry Point", () => {
       vi.mocked(Worker.create).mockResolvedValue(mockWorker);
 
       // WHEN
-      const worker = await createWorker({
+      const workerResult = await createWorker({
         contract,
         connection: mockConnection,
         workflowsPath: "/path/to/workflows",
@@ -52,7 +52,63 @@ describe("Worker Entry Point", () => {
         workflowsPath: "/path/to/workflows",
         activities: {},
       });
-      expect(worker).toBe(mockWorker);
+      expect(workerResult).toBeOkWith(mockWorker);
+    });
+
+    it("should surface Worker.create rejections as Err(TechnicalError)", async () => {
+      // GIVEN
+      const contract = {
+        taskQueue: "test-queue",
+        workflows: {
+          testWorkflow: {
+            input: z.object({ value: z.string() }),
+            output: z.object({ result: z.string() }),
+          },
+        },
+      } satisfies ContractDefinition;
+      const bundleError = new Error("failed to bundle workflows");
+      vi.mocked(Worker.create).mockRejectedValue(bundleError);
+
+      // WHEN
+      const workerResult = await createWorker({
+        contract,
+        connection: { close: vi.fn() } as unknown as NativeConnection,
+        workflowsPath: "/path/to/workflows",
+        activities: {},
+      });
+
+      // THEN — modeled on the Err channel, not thrown
+      expect(workerResult).toBeErr();
+      if (workerResult.isErr()) {
+        expect(workerResult.error._tag).toBe("@temporal-contract/TechnicalError");
+        expect(workerResult.error.message).toContain('task queue "test-queue"');
+        expect(workerResult.error.cause).toBe(bundleError);
+      }
+    });
+
+    it("createWorkerOrThrow keeps the throwing shape (deprecated alias)", async () => {
+      // GIVEN
+      const contract = {
+        taskQueue: "test-queue",
+        workflows: {
+          testWorkflow: {
+            input: z.object({ value: z.string() }),
+            output: z.object({ result: z.string() }),
+          },
+        },
+      } satisfies ContractDefinition;
+      const bundleError = new Error("failed to bundle workflows");
+      vi.mocked(Worker.create).mockRejectedValue(bundleError);
+
+      // WHEN / THEN — the original cause is rethrown, not the wrapper
+      await expect(
+        createWorkerOrThrow({
+          contract,
+          connection: { close: vi.fn() } as unknown as NativeConnection,
+          workflowsPath: "/path/to/workflows",
+          activities: {},
+        }),
+      ).rejects.toBe(bundleError);
     });
 
     it("should use provided connection", async () => {
@@ -73,7 +129,7 @@ describe("Worker Entry Point", () => {
       vi.mocked(Worker.create).mockResolvedValue(mockWorker);
 
       // WHEN
-      const worker = await createWorker({
+      const workerResult = await createWorker({
         contract,
         connection: existingConnection,
         workflowsPath: "/path/to/workflows",
@@ -87,7 +143,7 @@ describe("Worker Entry Point", () => {
         workflowsPath: "/path/to/workflows",
         activities: {},
       });
-      expect(worker).toBe(mockWorker);
+      expect(workerResult).toBeOkWith(mockWorker);
     });
 
     it("should pass through other worker options", async () => {

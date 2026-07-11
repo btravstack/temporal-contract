@@ -165,11 +165,15 @@ export {
  * import { activities } from './activities.js';
  * import myContract from './contract.js';
  *
- * const worker = await createWorker({
- *   contract: myContract,
- *   connection,
- *   workflowsPath: workflowsPathFromURL(import.meta.url, './workflows.js'),
- *   activities,
+ * const worker = (
+ *   await createWorker({
+ *     contract: myContract,
+ *     connection,
+ *     workflowsPath: workflowsPathFromURL(import.meta.url, './workflows.js'),
+ *     activities,
+ *   })
+ * ).getOrElse((error) => {
+ *   throw error;
  * });
  * ```
  */
@@ -396,8 +400,14 @@ type DeclareWorkflowOptions<
    *   retry: { maximumAttempts: 3 },
    * }
    * ```
+   *
+   * Optional when every reachable activity carries its own options — via
+   * contract-level `defaultOptions` or an {@link activityOptionsByName}
+   * entry. If it is omitted while some activity has neither,
+   * `declareWorkflow` throws at declaration time listing the uncovered
+   * activities.
    */
-  activityOptions: ActivityOptions;
+  activityOptions?: ActivityOptions;
   /**
    * Per-activity `ActivityOptions` overrides. Each entry shallow-merges over
    * {@link activityOptions} for that activity only — the override wins on

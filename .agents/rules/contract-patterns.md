@@ -2,7 +2,11 @@
 
 ## Defining a Contract
 
-Use `defineContract` from `@temporal-contract/contract`:
+**Composition-first (org rule, shared with amqp-contract): define resources
+individually with the `define*` helpers, then reference them in
+`defineContract` — never inline definitions in the contract literal.** Named
+resources are reusable across workflows and contracts, get precise
+hover/jump-to-definition, and keep the contract a readable table of contents.
 
 ```typescript
 import {
@@ -16,61 +20,62 @@ import {
 } from "@temporal-contract/contract";
 import { z } from "zod";
 
+// Define resources first...
+const validateInventory = defineActivity({
+  input: z.object({ orderId: z.string() }),
+  output: z.object({ available: z.boolean() }),
+  // Optional typed domain errors — name becomes ApplicationFailure.type,
+  // `data` is schema-validated, `nonRetryable` drives Temporal retries.
+  errors: {
+    InventoryUnavailable: {
+      data: z.object({ missing: z.array(z.string()) }),
+      nonRetryable: true,
+    },
+  },
+  // Optional contract-level ActivityOptions defaults. Merge order:
+  // declareWorkflow activityOptions < defaultOptions < activityOptionsByName.
+  defaultOptions: { startToCloseTimeout: "30 seconds" },
+});
+
+const sendEmail = defineActivity({
+  input: z.object({ to: z.string(), subject: z.string() }),
+  output: z.object({ sent: z.boolean() }),
+});
+
+const processOrder = defineWorkflow({
+  input: z.object({ orderId: z.string() }),
+  output: z.object({ status: z.string() }),
+  activities: { validateInventory },
+  signals: {
+    cancel: defineSignal({ input: z.object({ reason: z.string() }) }),
+  },
+  queries: {
+    getStatus: defineQuery({
+      input: z.object({}),
+      output: z.object({ status: z.string() }),
+    }),
+  },
+  updates: {
+    addItem: defineUpdate({
+      input: z.object({ productId: z.string(), quantity: z.number() }),
+      output: z.object({ totalItems: z.number() }),
+    }),
+  },
+  searchAttributes: {
+    customerId: defineSearchAttribute({ kind: "KEYWORD" }),
+    priority: defineSearchAttribute({ kind: "INT" }),
+  },
+});
+
+// ...then compose the contract from references.
 const contract = defineContract({
   taskQueue: "my-task-queue",
-  workflows: {
-    processOrder: defineWorkflow({
-      input: z.object({ orderId: z.string() }),
-      output: z.object({ status: z.string() }),
-      activities: {
-        validateInventory: defineActivity({
-          input: z.object({ orderId: z.string() }),
-          output: z.object({ available: z.boolean() }),
-          // Optional typed domain errors — name becomes ApplicationFailure.type,
-          // `data` is schema-validated, `nonRetryable` drives Temporal retries.
-          errors: {
-            InventoryUnavailable: {
-              data: z.object({ missing: z.array(z.string()) }),
-              nonRetryable: true,
-            },
-          },
-          // Optional contract-level ActivityOptions defaults. Merge order:
-          // declareWorkflow activityOptions < defaultOptions < activityOptionsByName.
-          defaultOptions: { startToCloseTimeout: "30 seconds" },
-        }),
-      },
-      signals: {
-        cancel: defineSignal({ input: z.object({ reason: z.string() }) }),
-      },
-      queries: {
-        getStatus: defineQuery({
-          input: z.object({}),
-          output: z.object({ status: z.string() }),
-        }),
-      },
-      updates: {
-        addItem: defineUpdate({
-          input: z.object({ productId: z.string(), quantity: z.number() }),
-          output: z.object({ totalItems: z.number() }),
-        }),
-      },
-      searchAttributes: {
-        customerId: defineSearchAttribute({ kind: "KEYWORD" }),
-        priority: defineSearchAttribute({ kind: "INT" }),
-      },
-    }),
-  },
-  activities: {
-    // Global activities shared across workflows
-    sendEmail: defineActivity({
-      input: z.object({ to: z.string(), subject: z.string() }),
-      output: z.object({ sent: z.boolean() }),
-    }),
-  },
+  workflows: { processOrder },
+  activities: { sendEmail }, // global activities shared across workflows
 });
 ```
 
-The `define*` helpers are pass-through identity functions whose only job is to give you better inference at the call site. Inline object literals also work, but the helpers make IDE hover/jump-to-definition more useful.
+The `define*` helpers are pass-through identity functions whose only job is to give you better inference at the call site.
 
 ## Schema Libraries
 

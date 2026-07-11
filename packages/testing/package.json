@@ -34,10 +34,14 @@
     "./global-setup": {
       "types": "./dist/global-setup.d.mts",
       "import": "./dist/global-setup.mjs"
+    },
+    "./time-skipping": {
+      "types": "./dist/time-skipping.d.mts",
+      "import": "./dist/time-skipping.mjs"
     }
   },
   "scripts": {
-    "build": "tsdown src/global-setup.ts src/extension.ts --format esm --dts --clean",
+    "build": "tsdown src/global-setup.ts src/extension.ts src/time-skipping.ts --format esm --dts --clean",
     "build:docs": "typedoc",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -50,6 +54,7 @@
     "@temporal-contract/tsconfig": "workspace:*",
     "@temporal-contract/typedoc": "workspace:*",
     "@temporalio/client": "catalog:",
+    "@temporalio/testing": "catalog:",
     "@temporalio/worker": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
@@ -61,6 +66,7 @@
   },
   "peerDependencies": {
     "@temporalio/client": "^1",
+    "@temporalio/testing": "^1",
     "@temporalio/worker": "^1",
     "vitest": "^4"
   },

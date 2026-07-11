@@ -36,6 +36,11 @@ export type {
   InferWorkflowNames,
   InferActivityNames,
   InferContractWorkflows,
+  // Direction-aware schema inference primitives (shared by worker + client)
+  WorkerInferInput,
+  WorkerInferOutput,
+  ClientInferInput,
+  ClientInferOutput,
   SignalNamesOf,
   QueryNamesOf,
   UpdateNamesOf,

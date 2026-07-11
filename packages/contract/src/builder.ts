@@ -262,32 +262,40 @@ export function defineWorkflow<TWorkflow extends AnyWorkflowDefinition>(
  * @returns The same definition with preserved types for type inference
  * @throws {Error} If the contract structure is invalid
  *
+ * **Composition-first.** Define resources individually with `defineActivity`
+ * / `defineWorkflow` (and friends), then reference them here — don't inline
+ * definitions in `defineContract`. Named resources are reusable across
+ * workflows and contracts, get precise hover/jump-to-definition, and keep
+ * the contract itself a readable table of contents.
+ *
  * @example
  * ```typescript
- * import { defineContract } from '@temporal-contract/contract';
+ * import { defineActivity, defineContract, defineWorkflow } from '@temporal-contract/contract';
  * import { z } from 'zod';
  *
+ * // Define resources first...
+ * const chargePayment = defineActivity({
+ *   input: z.object({ amount: z.number() }),
+ *   output: z.object({ transactionId: z.string() }),
+ * });
+ *
+ * const logEvent = defineActivity({
+ *   input: z.object({ message: z.string() }),
+ *   output: z.void(),
+ * });
+ *
+ * const processOrder = defineWorkflow({
+ *   input: z.object({ orderId: z.string() }),
+ *   output: z.object({ success: z.boolean() }),
+ *   activities: { chargePayment },
+ * });
+ *
+ * // ...then compose the contract from references.
  * export const myContract = defineContract({
  *   taskQueue: 'orders',
- *   workflows: {
- *     processOrder: {
- *       input: z.object({ orderId: z.string() }),
- *       output: z.object({ success: z.boolean() }),
- *       activities: {
- *         chargePayment: {
- *           input: z.object({ amount: z.number() }),
- *           output: z.object({ transactionId: z.string() }),
- *         },
- *       },
- *     },
- *   },
+ *   workflows: { processOrder },
  *   // Optional global activities shared across workflows
- *   activities: {
- *     logEvent: {
- *       input: z.object({ message: z.string() }),
- *       output: z.void(),
- *     },
- *   },
+ *   activities: { logEvent },
  * });
  * ```
  */

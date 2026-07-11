@@ -53,9 +53,7 @@ workflows, and clients. The same package works in every context — workflows
 use it directly without a Temporal-specific wrapper.
 
 If you are upgrading from a previous version that used `neverthrow`, see
-[Migrating from neverthrow](/guide/migrating-to-unthrown). If you are coming
-from the older `@swan-io/boxed` / `@temporal-contract/boxed` version, see
-[Migrating from @swan-io/boxed](/guide/migrating-to-neverthrow).
+[Migrating from neverthrow](/guide/migrating-to-unthrown).
 :::
 
 ### Optional Packages

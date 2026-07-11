@@ -26,7 +26,16 @@ const connection = await Connection.connect({
 
 // Create Temporal client and typed client
 const temporalClient = new Client({ connection });
-const client = TypedClient.create(myContract, temporalClient);
+// Creation returns AsyncResult<TypedClient, TechnicalError> — connection
+// and capability failures land on the Err channel instead of throwing.
+const clientResult = await TypedClient.create({
+  contract: myContract,
+  client: temporalClient,
+});
+if (clientResult.isErr()) {
+  throw clientResult.error;
+}
+const client = clientResult.value;
 ```
 
 ## Executing Workflows
@@ -298,6 +307,45 @@ longer validates) fall back to `WorkflowFailedError`, so a contract mismatch
 degrades to the untyped behavior rather than producing a wrong typed error.
 The same rehydration applies to `handle.result()`.
 
+## Interceptors
+
+`TypedClient.create` accepts client-side `interceptors` wrapping
+`startWorkflow` / `executeWorkflow` / `signalWithStart` and handle-level
+`signal` / `query` / `update`, outermost-first. Interceptors run _outside_
+the validation pipeline — a patched input is validated exactly like the
+caller's original — and are the seam for trace propagation, observability,
+and retries:
+
+```typescript
+import type { ClientInterceptor } from "@temporal-contract/client";
+
+// Observe every operation
+const logging: ClientInterceptor = (args, next) =>
+  next().tapErr((error) => {
+    logger.warn({ operation: args.operation, workflowId: args.workflowId, error });
+  });
+
+// Retry a transient failure once
+const retryOnce: ClientInterceptor = (args, next) =>
+  next().flatMapErr(
+    (error): ReturnType<typeof next> =>
+      error instanceof RuntimeClientError ? next() : Err(error).toAsync(),
+  );
+
+const client = (
+  await TypedClient.create({
+    contract: myContract,
+    client: temporalClient,
+    interceptors: [logging, retryOnce],
+  })
+).getOrElse((error) => {
+  throw error;
+});
+```
+
+An interceptor can also patch the invocation (`next({ input })`) or
+short-circuit by returning its own `AsyncResult` without calling `next`.
+
 ## Connection Management
 
 ### Single Connection
@@ -311,8 +359,16 @@ const connection = await Connection.connect({
 
 const temporalClient = new Client({ connection });
 
-const orderClient = TypedClient.create(orderContract, temporalClient);
-const inventoryClient = TypedClient.create(inventoryContract, temporalClient);
+const orderClient = (
+  await TypedClient.create({ contract: orderContract, client: temporalClient })
+).getOrElse((error) => {
+  throw error;
+});
+const inventoryClient = (
+  await TypedClient.create({ contract: inventoryContract, client: temporalClient })
+).getOrElse((error) => {
+  throw error;
+});
 
 // Both clients share the same connection and Temporal client instance
 ```
@@ -348,9 +404,21 @@ import { inventoryContract } from "./contracts/inventory.js";
 
 const temporalClient = new Client({ connection });
 
-const orderClient = TypedClient.create(orderContract, temporalClient);
-const paymentClient = TypedClient.create(paymentContract, temporalClient);
-const inventoryClient = TypedClient.create(inventoryContract, temporalClient);
+const orderClient = (
+  await TypedClient.create({ contract: orderContract, client: temporalClient })
+).getOrElse((error) => {
+  throw error;
+});
+const paymentClient = (
+  await TypedClient.create({ contract: paymentContract, client: temporalClient })
+).getOrElse((error) => {
+  throw error;
+});
+const inventoryClient = (
+  await TypedClient.create({ contract: inventoryContract, client: temporalClient })
+).getOrElse((error) => {
+  throw error;
+});
 
 // Each client is typed to its contract
 await orderClient.executeWorkflow("processOrder", {
@@ -404,13 +472,21 @@ describe("OrderService", () => {
 // ✅ Good - single connection
 const connection = await Connection.connect({ address: "localhost:7233" });
 const temporalClient = new Client({ connection });
-const client = TypedClient.create(contract, temporalClient);
+const client = (await TypedClient.create({ contract: contract, client: temporalClient })).getOrElse(
+  (error) => {
+    throw error;
+  },
+);
 
 // ❌ Avoid - creating connections repeatedly
 for (const order of orders) {
   const connection = await Connection.connect({ address: "localhost:7233" });
   const temporalClient = new Client({ connection });
-  const client = TypedClient.create(contract, temporalClient);
+  const client = (
+    await TypedClient.create({ contract: contract, client: temporalClient })
+  ).getOrElse((error) => {
+    throw error;
+  });
   await client.executeWorkflow(/* ... */);
 }
 ```

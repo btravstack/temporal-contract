@@ -1,8 +1,14 @@
 // Entry point for worker creation utilities
 import { ContractDefinition } from "@temporal-contract/contract";
+import { TechnicalError } from "@temporal-contract/contract/errors";
 import { Worker, WorkerOptions } from "@temporalio/worker";
 import { fileURLToPath } from "node:url";
+import { fromPromise, type AsyncResult } from "unthrown";
 import type { ActivitiesHandler } from "./activity.js";
+
+// Modeled creation failure — `createWorker` surfaces it on the Err channel
+// instead of throwing.
+export { TechnicalError } from "@temporal-contract/contract/errors";
 
 /**
  * Options for creating a Temporal worker
@@ -23,11 +29,16 @@ export type CreateWorkerOptions<TContract extends ContractDefinition> = Omit<
 };
 
 /**
- * Create a typed Temporal worker with contract-based configuration
+ * Create a typed Temporal worker with contract-based configuration.
  *
  * This helper simplifies worker creation by:
  * - Using the contract's task queue automatically
  * - Providing type-safe configuration
+ *
+ * Returns `AsyncResult<Worker, TechnicalError>` — worker bundling and
+ * connection failures are modeled on the `Err` channel instead of thrown,
+ * matching the org-wide `Typed*.create()` factory shape (amqp-contract's
+ * `TypedAmqpWorker.create`).
  *
  * @example
  * ```ts
@@ -40,26 +51,62 @@ export type CreateWorkerOptions<TContract extends ContractDefinition> = Omit<
  *   address: 'localhost:7233',
  * });
  *
- * const worker = await createWorker({
+ * const workerResult = await createWorker({
  *   contract: myContract,
  *   connection,
  *   workflowsPath: workflowsPathFromURL(import.meta.url, './workflows.js'),
  *   activities,
  * });
+ * if (workerResult.isErr()) {
+ *   console.error('worker setup failed', workerResult.error);
+ *   process.exit(1);
+ * }
  *
- * await worker.run();
+ * await workerResult.value.run();
  * ```
  */
-export async function createWorker<TContract extends ContractDefinition>(
+export function createWorker<TContract extends ContractDefinition>(
   options: CreateWorkerOptions<TContract>,
-): Promise<Worker> {
+): AsyncResult<Worker, TechnicalError> {
   const { contract, activities, ...workerOptions } = options;
 
-  // Create the worker with contract's task queue
-  return await Worker.create({
-    ...workerOptions,
-    activities,
-    taskQueue: contract.taskQueue,
+  // Create the worker with contract's task queue. `Worker.create` rejects on
+  // workflow-bundle compilation errors, bad connections, and invalid
+  // options — all technical failures, modeled rather than thrown.
+  return fromPromise(
+    Worker.create({
+      ...workerOptions,
+      activities,
+      taskQueue: contract.taskQueue,
+    }),
+    (cause) =>
+      new TechnicalError(
+        `Failed to create Temporal worker for task queue "${contract.taskQueue}"`,
+        cause,
+      ),
+  );
+}
+
+/**
+ * Create a typed Temporal worker, throwing on failure — the
+ * pre-AsyncResult behavior.
+ *
+ * @deprecated Use {@link createWorker}, which returns
+ * `AsyncResult<Worker, TechnicalError>`. This throwing alias exists to ease
+ * migration and will be removed in a future major.
+ */
+export async function createWorkerOrThrow<TContract extends ContractDefinition>(
+  options: CreateWorkerOptions<TContract>,
+): Promise<Worker> {
+  const result = await createWorker(options);
+  return result.match({
+    ok: (worker) => worker,
+    err: (error) => {
+      throw error.cause ?? error;
+    },
+    defect: (cause) => {
+      throw cause;
+    },
   });
 }
 
