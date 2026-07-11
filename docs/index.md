@@ -126,9 +126,10 @@ import { orderContract } from "./contract";
 
 const connection = await Connection.connect({ address: "localhost:7233" });
 const temporalClient = new Client({ connection });
-const client = (
-  await TypedClient.create({ contract: orderContract, client: temporalClient })
-).getOrElse((error) => {
+const client = await TypedClient.create({
+  contract: orderContract,
+  client: temporalClient,
+}).getOrElse((error) => {
   throw error;
 });
 

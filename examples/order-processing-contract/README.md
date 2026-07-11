@@ -58,12 +58,10 @@ import {
 import { TypedClient } from "@temporal-contract/client";
 
 // Create type-safe client — creation returns AsyncResult<_, TechnicalError>
-const client = (
-  await TypedClient.create({
-    contract: orderProcessingContract,
-    client: new Client({ connection, namespace: "default" }),
-  })
-).getOrElse((error) => {
+const client = await TypedClient.create({
+  contract: orderProcessingContract,
+  client: new Client({ connection, namespace: "default" }),
+}).getOrElse((error) => {
   throw error;
 });
 
