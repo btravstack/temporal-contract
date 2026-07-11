@@ -337,9 +337,7 @@ const client = await TypedClient.create({
   contract: myContract,
   client: temporalClient,
   interceptors: [logging, retryOnce],
-}).getOrElse((error) => {
-  throw error;
-});
+}).getOrThrow();
 ```
 
 An interceptor can also patch the invocation (`next({ input })`) or
@@ -361,15 +359,11 @@ const temporalClient = new Client({ connection });
 const orderClient = await TypedClient.create({
   contract: orderContract,
   client: temporalClient,
-}).getOrElse((error) => {
-  throw error;
-});
+}).getOrThrow();
 const inventoryClient = await TypedClient.create({
   contract: inventoryContract,
   client: temporalClient,
-}).getOrElse((error) => {
-  throw error;
-});
+}).getOrThrow();
 
 // Both clients share the same connection and Temporal client instance
 ```
@@ -408,21 +402,15 @@ const temporalClient = new Client({ connection });
 const orderClient = await TypedClient.create({
   contract: orderContract,
   client: temporalClient,
-}).getOrElse((error) => {
-  throw error;
-});
+}).getOrThrow();
 const paymentClient = await TypedClient.create({
   contract: paymentContract,
   client: temporalClient,
-}).getOrElse((error) => {
-  throw error;
-});
+}).getOrThrow();
 const inventoryClient = await TypedClient.create({
   contract: inventoryContract,
   client: temporalClient,
-}).getOrElse((error) => {
-  throw error;
-});
+}).getOrThrow();
 
 // Each client is typed to its contract
 await orderClient.executeWorkflow("processOrder", {
@@ -476,21 +464,19 @@ describe("OrderService", () => {
 // ✅ Good - single connection
 const connection = await Connection.connect({ address: "localhost:7233" });
 const temporalClient = new Client({ connection });
-const client = await TypedClient.create({ contract: contract, client: temporalClient }).getOrElse(
-  (error) => {
-    throw error;
-  },
-);
+const client = await TypedClient.create({
+  contract: contract,
+  client: temporalClient,
+}).getOrThrow();
 
 // ❌ Avoid - creating connections repeatedly
 for (const order of orders) {
   const connection = await Connection.connect({ address: "localhost:7233" });
   const temporalClient = new Client({ connection });
-  const client = await TypedClient.create({ contract: contract, client: temporalClient }).getOrElse(
-    (error) => {
-      throw error;
-    },
-  );
+  const client = await TypedClient.create({
+    contract: contract,
+    client: temporalClient,
+  }).getOrThrow();
   await client.executeWorkflow(/* ... */);
 }
 ```
