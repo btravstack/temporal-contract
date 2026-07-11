@@ -257,3 +257,77 @@ describe("declareWorkflow hoists proxyActivities to declaration time", () => {
     expect(proxyCalls).toHaveLength(0);
   });
 });
+
+describe("buildRawActivitiesProxy — contract-level defaultOptions", () => {
+  afterEach(() => {
+    proxyCalls.length = 0;
+  });
+
+  const tunedActivityDef = (defaultOptions: Record<string, unknown>): ActivityDefinition =>
+    ({
+      input: z.object({}),
+      output: z.object({}),
+      defaultOptions,
+    }) as unknown as ActivityDefinition;
+
+  it("merges contract defaultOptions over the workflow-wide default", () => {
+    const def: Record<string, ActivityDefinition> = {
+      plain: activityDef(z.object({}), z.object({})),
+      tuned: tunedActivityDef({
+        startToCloseTimeout: "10 minutes",
+        retry: { maximumAttempts: 7 },
+      }),
+    };
+    const defaults: ActivityOptions = {
+      startToCloseTimeout: "1 minute",
+      heartbeatTimeout: "10 seconds",
+    };
+
+    buildRawActivitiesProxy(def, undefined, defaults, undefined);
+
+    // One default proxy + one merged proxy for the customized activity.
+    expect(proxyCalls).toEqual([
+      defaults,
+      {
+        startToCloseTimeout: "10 minutes",
+        heartbeatTimeout: "10 seconds",
+        retry: { maximumAttempts: 7 },
+      },
+    ]);
+  });
+
+  it("gives activityOptionsByName precedence over contract defaultOptions", () => {
+    const def: Record<string, ActivityDefinition> = {
+      tuned: tunedActivityDef({
+        startToCloseTimeout: "10 minutes",
+        retry: { maximumAttempts: 7 },
+      }),
+    };
+    const defaults: ActivityOptions = { startToCloseTimeout: "1 minute" };
+
+    buildRawActivitiesProxy(def, undefined, defaults, {
+      tuned: { startToCloseTimeout: "30 minutes" },
+    });
+
+    expect(proxyCalls).toEqual([
+      defaults,
+      {
+        // Override wins on the property it specifies; contract default
+        // survives for the rest.
+        startToCloseTimeout: "30 minutes",
+        retry: { maximumAttempts: 7 },
+      },
+    ]);
+  });
+
+  it("applies defaultOptions declared on global contract activities", () => {
+    const globalDefs: Record<string, ActivityDefinition> = {
+      notify: tunedActivityDef({ startToCloseTimeout: "5 seconds" }),
+    };
+    const defaults: ActivityOptions = { startToCloseTimeout: "1 minute" };
+
+    buildRawActivitiesProxy(undefined, globalDefs, defaults, undefined);
+
+    expect(proxyCalls).toEqual([defaults, { startToCloseTimeout: "5 seconds" }]);
+  });
+});

@@ -26,6 +26,17 @@ const contract = defineContract({
         validateInventory: defineActivity({
           input: z.object({ orderId: z.string() }),
           output: z.object({ available: z.boolean() }),
+          // Optional typed domain errors — name becomes ApplicationFailure.type,
+          // `data` is schema-validated, `nonRetryable` drives Temporal retries.
+          errors: {
+            InventoryUnavailable: {
+              data: z.object({ missing: z.array(z.string()) }),
+              nonRetryable: true,
+            },
+          },
+          // Optional contract-level ActivityOptions defaults. Merge order:
+          // declareWorkflow activityOptions < defaultOptions < activityOptionsByName.
+          defaultOptions: { startToCloseTimeout: "30 seconds" },
         }),
       },
       signals: {
@@ -80,5 +91,9 @@ Any Standard Schema compatible library works:
   - `queries` — synchronous reads of workflow state (no side effects)
   - `updates` — synchronous request/response with optional validation, can mutate state
   - `searchAttributes` — typed indexed attributes for workflow visibility (kinds: `KEYWORD`, `KEYWORD_LIST`, `TEXT`, `INT`, `DOUBLE`, `BOOL`, `DATETIME`)
+  - `errors` — typed domain errors (`{ data?: schema, message?, nonRetryable? }` per name); thrown via `context.errors.X(data)` in the implementation and rehydrated as `ContractError` on the client
+- Each activity (global or workflow-local) can additionally declare:
+  - `errors` — same shape as workflow errors; produced via the `errors` constructors in the implementation's helpers argument, and rehydrated as a typed `AsyncResult` error union on the workflow side
+  - `defaultOptions` — contract-level `ActivityOptions` defaults (timeouts, retry). Merge precedence at the worker: `declareWorkflow` `activityOptions` < `defaultOptions` < `activityOptionsByName`
 
 `defineContract` rejects collisions between workflow-local and global activity names at runtime — `defineContract` runs a Zod validation pass and throws a descriptive error. Activities share a single flat namespace at the worker level, so two activities can't share a name even across workflows. See `packages/contract/src/builder.ts:441` for the validation schema.

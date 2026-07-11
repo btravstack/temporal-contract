@@ -34,6 +34,21 @@ value you already have, lift a sync result with `Ok(value).toAsync()` /
 
 Canonical example: `examples/order-processing-worker/src/application/activities.ts`.
 
+Implementations receive an optional second **helpers** argument:
+
+- `helpers.errors` — typed constructors for the activity's contract-declared
+  `errors` map. `Err(errors.PaymentDeclined({ reason }))` is converted at the
+  boundary to `ApplicationFailure(type = "PaymentDeclined", details = [validated data],
+nonRetryable from the contract)`, and rehydrated as a typed `ContractError` on the
+  workflow side.
+- `helpers.context` — the value built by `declareActivitiesHandler`'s optional
+  `createContext` factory (typed dependency injection; runs once per activity
+  execution with `{ activityName, workflowName }`).
+
+`declareActivitiesHandler` also accepts `middleware: ActivityMiddleware[]`
+(outermost-first, inside the validation boundary, operating on the
+`AsyncResult` — not thrown exceptions).
+
 ## Workflow Declaration
 
 Use `declareWorkflow` for type-safe workflow implementation:
@@ -59,6 +74,21 @@ export const processOrder = declareWorkflow({
 ```
 
 Workflow code is deterministic — see [workflow-determinism.md](./workflow-determinism.md) for the banned APIs and replacements.
+
+Typed-error semantics inside the workflow context:
+
+- Activities **without** a declared `errors` map keep the throwing
+  `Promise<Output>` shape above.
+- Activities **with** a declared `errors` map return
+  `AsyncResult<Output, ContractError union | ActivityError | ActivityCancelledError>`
+  (mirroring the child-workflow API): declared failures rehydrate into typed
+  `ContractError`s, anything else is `Err(ActivityError)` with the unwrapped
+  cause, cancellation is `Err(ActivityCancelledError)`.
+- `context.errors` holds typed constructors for the workflow's own declared
+  errors; `throw context.errors.X(data)` fails the execution as an
+  `ApplicationFailure` the typed client rehydrates. Never throw a bare
+  `ContractError` constructed by hand — only the context/helpers constructors
+  are validated against the declaring contract entry.
 
 ## Worker Setup
 

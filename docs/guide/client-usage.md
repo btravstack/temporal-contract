@@ -268,6 +268,36 @@ try {
 }
 ```
 
+### Typed Contract Errors
+
+When a workflow declares an `errors` map on the contract, a failed execution
+whose failure matches a declared error surfaces as a typed, schema-validated
+`ContractError` on the `err` channel — instead of the generic
+`WorkflowFailedError`:
+
+```typescript
+import { ContractError } from "@temporal-contract/client";
+
+const result = await client.executeWorkflow("processOrder", {
+  workflowId: "order-123",
+  args: { orderId: "ORD-123", customerId: "CUST-456" },
+});
+
+if (result.isErr() && result.error instanceof ContractError) {
+  switch (result.error.errorName) {
+    case "EmptyOrder":
+      // result.error.data is typed from the declared schema
+      console.warn("Nothing to process for", result.error.data.orderId);
+      break;
+  }
+}
+```
+
+Failures that don't match a declared error (unknown type, payload that no
+longer validates) fall back to `WorkflowFailedError`, so a contract mismatch
+degrades to the untyped behavior rather than producing a wrong typed error.
+The same rehydration applies to `handle.result()`.
+
 ## Connection Management
 
 ### Single Connection

@@ -8,6 +8,7 @@
 import type {
   ActivityDefinition,
   ContractDefinition,
+  ErrorDefinition,
   QueryDefinition,
   QueryNamesOf,
   SignalDefinition,
@@ -16,6 +17,11 @@ import type {
   UpdateNamesOf,
 } from "@temporal-contract/contract";
 import {
+  _internal_buildErrorConstructors,
+  ContractError,
+  type ContractErrorConstructors,
+} from "@temporal-contract/contract/errors";
+import {
   ChildWorkflowCancelledError,
   ChildWorkflowError,
   ChildWorkflowNotFoundError,
@@ -23,6 +29,7 @@ import {
   WorkflowInputValidationError,
   WorkflowOutputValidationError,
 } from "./errors.js";
+import { contractErrorToApplicationFailure } from "./contract-errors.js";
 import { cancellableScope, nonCancellableScope } from "./cancellation.js";
 import {
   bindQueryHandler,
@@ -58,11 +65,14 @@ import {
 import { ActivityOptions, WorkflowInfo, workflowInfo } from "@temporalio/workflow";
 
 export {
+  ActivityCancelledError,
+  ActivityError,
   ActivityInputValidationError,
   ActivityOutputValidationError,
   ChildWorkflowCancelledError,
   ChildWorkflowError,
   ChildWorkflowNotFoundError,
+  ContractErrorDataValidationError,
   QueryInputValidationError,
   QueryOutputValidationError,
   SignalInputValidationError,
@@ -73,6 +83,18 @@ export {
   WorkflowInputValidationError,
   WorkflowOutputValidationError,
 } from "./errors.js";
+
+// Re-export the typed contract-error surface so workflow code can
+// `instanceof`-check rehydrated activity errors and type against the
+// constructors without a separate `@temporal-contract/contract/errors`
+// import.
+export {
+  ContractError,
+  type AnyContractError,
+  type ContractErrorConstructors,
+  type ContractErrorOptions,
+  type ContractErrorUnion,
+} from "@temporal-contract/contract/errors";
 
 /**
  * Create a typed workflow implementation with automatic validation
@@ -221,6 +243,11 @@ export function declareWorkflow<
     Object.freeze(contextActivities);
   }
 
+  // Typed constructors for the workflow's declared contract errors —
+  // stateless and derived from contract-time immutables, so hoisted to
+  // declaration time alongside the activities proxy.
+  const workflowErrorConstructors = _internal_buildErrorConstructors(definition.errors);
+
   const workflowFn = async (...args: unknown[]) => {
     const input = extractHandlerInput(args);
 
@@ -281,10 +308,32 @@ export function declareWorkflow<
         TContract,
         TWorkflowName
       >["continueAsNew"],
+      errors: workflowErrorConstructors as WorkflowContext<TContract, TWorkflowName>["errors"],
     };
 
-    // Execute workflow (pass validated input as tuple)
-    const result = await implementation(context, validatedInput);
+    // Execute workflow (pass validated input as tuple).
+    //
+    // A thrown typed contract error (`throw context.errors.X(...)`) is
+    // converted to its `ApplicationFailure` wire shape here. This must
+    // happen inside the workflow function: a plain `Error` subclass thrown
+    // from workflow code is treated by Temporal as a Workflow Task failure
+    // and retried forever, while an `ApplicationFailure` fails the
+    // execution terminally with `type` = the declared error name and
+    // `details[0]` = the schema-validated data — which the typed client
+    // rehydrates back into a `ContractError`.
+    let result: unknown;
+    try {
+      result = await implementation(context, validatedInput);
+    } catch (error) {
+      if (error instanceof ContractError) {
+        throw await contractErrorToApplicationFailure(
+          error,
+          definition.errors,
+          `workflow "${workflowName}"`,
+        );
+      }
+      throw error;
+    }
 
     // Validate workflow output
     const outputResult = await definition.output["~standard"].validate(result);
@@ -329,9 +378,11 @@ type DeclareWorkflowOptions<
   implementation: WorkflowImplementation<TContract, TWorkflowName>;
   /**
    * Default activity options applied to every activity reachable from this
-   * workflow (workflow-local + global) unless overridden in
-   * {@link activityOptionsByName}. See Temporal's `ActivityOptions` for the
-   * full set of fields:
+   * workflow (workflow-local + global) unless overridden. Merge precedence
+   * per activity (least → most specific): this workflow-wide default → the
+   * activity's contract-level `defineActivity({ defaultOptions })` → the
+   * explicit {@link activityOptionsByName} entry. See Temporal's
+   * `ActivityOptions` for the full set of fields:
    * - `startToCloseTimeout`: Maximum time for a single attempt to run
    * - `scheduleToCloseTimeout`: End-to-end timeout including queuing and retries
    * - `scheduleToStartTimeout`: Maximum time the activity can wait in the queue
@@ -414,12 +465,40 @@ type WorkflowImplementation<
  * - Signal, query, and update handler registration
  * - Child workflow execution capabilities
  */
+/**
+ * Typed error constructors for a workflow's declared `errors` map, or an
+ * empty object when the workflow declares none.
+ */
+type WorkflowErrorConstructorsOf<TWorkflow> = TWorkflow extends {
+  errors: infer TErrors extends Record<string, ErrorDefinition>;
+}
+  ? ContractErrorConstructors<TErrors>
+  : Record<string, never>;
+
 type WorkflowContext<
   TContract extends ContractDefinition,
   TWorkflowName extends keyof TContract["workflows"] & string,
 > = {
   activities: Readonly<WorkflowInferWorkflowContextActivities<TContract, TWorkflowName>>;
   info: WorkflowInfo;
+
+  /**
+   * Typed constructors for the errors declared on this workflow's contract
+   * entry (`defineWorkflow({ errors: {...} })`). Throwing one fails the
+   * execution with a typed, schema-validated failure the client rehydrates
+   * into a `ContractError`:
+   *
+   * @example
+   * ```ts
+   * implementation: async (context, args) => {
+   *   if (!args.items.length) {
+   *     throw context.errors.EmptyOrder({ orderId: args.orderId });
+   *   }
+   *   // ...
+   * }
+   * ```
+   */
+  errors: WorkflowErrorConstructorsOf<TContract["workflows"][TWorkflowName]>;
 
   /**
    * Define a signal handler within the workflow implementation

@@ -351,6 +351,45 @@ Activity names in `activityOptionsByName` are constrained to the contract's
 declared activities (workflow-local + global), so typos surface at compile
 time rather than running silently with the default options.
 
+When an activity declares `defaultOptions` on the contract
+(`defineActivity({ defaultOptions })`), those sit between the two layers
+above. Merge precedence, least → most specific: `activityOptions`
+(workflow-wide default) → contract `defaultOptions` (activity-specific,
+shared by every worker) → `activityOptionsByName` (explicit per-workflow
+override).
+
+### Typed contract errors
+
+Activities that declare an `errors` map are surfaced to the workflow as
+`AsyncResult`-returning calls instead of throwing Promises. Declared
+failures are rehydrated into typed `ContractError`s (data validated against
+the declared schema); any other failure surfaces as `ActivityError` (with
+Temporal's `ActivityFailure` wrapper unwrapped) or `ActivityCancelledError`
+— mirroring the child-workflow API:
+
+```typescript
+implementation: async (context, args) => {
+  const payment = await context.activities.processPayment({ amount: args.total });
+
+  if (payment.isErr()) {
+    if (payment.error instanceof ContractError && payment.error.errorName === "PaymentDeclined") {
+      // Typed, schema-validated payload from the contract declaration
+      return { status: "declined", reason: payment.error.data.reason };
+    }
+    // Technical failure after retries, timeout, cancellation, ...
+    throw context.errors.OrderFailed({ orderId: args.orderId });
+  }
+
+  return { status: "confirmed", transactionId: payment.value.transactionId };
+};
+```
+
+Workflows can declare their own `errors` map too; `context.errors` holds
+typed constructors for them, and `throw context.errors.X(data)` fails the
+execution with a typed failure the client rehydrates (see
+[Client Usage](/guide/client-usage#typed-contract-errors)). Activities
+_without_ an `errors` map keep the historical throwing `Promise` shape.
+
 ## Worker Setup
 
 Set up the Temporal worker:

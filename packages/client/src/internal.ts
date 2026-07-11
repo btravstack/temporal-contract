@@ -8,12 +8,17 @@
 import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
 import { WorkflowFailedError as TemporalWorkflowFailedError } from "@temporalio/client";
 import {
+  ApplicationFailure,
   defineSearchAttributeKey,
   type SearchAttributePair,
   TypedSearchAttributes,
   WorkflowNotFoundError as TemporalWorkflowNotFoundError,
 } from "@temporalio/common";
 import type { AnyWorkflowDefinition, SearchAttributeDefinition } from "@temporal-contract/contract";
+import {
+  _internal_rehydrateContractError,
+  type AnyContractError,
+} from "@temporal-contract/contract/errors";
 import { _internal_makeAsyncResult } from "@temporal-contract/contract/result-async";
 import { Ok, Err, type AsyncResult, type Result } from "unthrown";
 
@@ -97,6 +102,21 @@ export function toTypedSearchAttributes(
  */
 export function makeAsyncResult<T, E>(work: () => Promise<Result<T, E>>): AsyncResult<T, E> {
   return _internal_makeAsyncResult(work);
+}
+
+/**
+ * Attempt to rehydrate a workflow failure's cause into a typed
+ * {@link ContractError} declared on the workflow's `errors` map. Returns
+ * `undefined` when the cause is not an `ApplicationFailure`, or when its
+ * `type` / `details` don't match a declared error — callers fall through to
+ * the generic {@link WorkflowFailedError} classification.
+ */
+export async function rehydrateWorkflowContractError(
+  workflowDef: AnyWorkflowDefinition,
+  cause: unknown,
+): Promise<AnyContractError | undefined> {
+  if (!(cause instanceof ApplicationFailure)) return undefined;
+  return _internal_rehydrateContractError(workflowDef.errors, cause);
 }
 
 /**

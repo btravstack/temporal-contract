@@ -229,6 +229,75 @@ export class UpdateOutputValidationError extends ValidationError {
 }
 
 /**
+ * Error thrown when a contract-declared error's `data` payload fails
+ * validation against its declared schema at the Temporal boundary, or when
+ * an implementation surfaces a `ContractError` whose name isn't declared on
+ * its activity/workflow. Both are deterministic contract-misuse bugs, so the
+ * failure is terminal (`nonRetryable`) like the other validation errors.
+ */
+export class ContractErrorDataValidationError extends ValidationError {
+  constructor(
+    public readonly errorName: string,
+    issues: ReadonlyArray<StandardSchemaV1.Issue>,
+  ) {
+    const message = summarizeIssues(issues);
+    super(
+      `Contract error "${errorName}" data validation failed: ${message}`,
+      "ContractErrorDataValidationError",
+      issues,
+    );
+  }
+}
+
+/**
+ * Generic error surfaced on the `Err(...)` branch when an activity that
+ * declares contract errors fails for a reason *other* than one of its
+ * declared errors — retries exhausted on a technical failure, a timeout, an
+ * undeclared `ApplicationFailure` type, or a validation failure at the
+ * workflow → activity boundary.
+ *
+ * Mirrors {@link ChildWorkflowError}: `cause` is the *unwrapped* actionable
+ * failure (Temporal's `ActivityFailure` wrapper is seen through), so callers
+ * can branch on the failure category in one step.
+ *
+ * Only activities that declare an `errors` map surface this — activities
+ * without declared errors keep Temporal's native throwing behavior.
+ */
+export class ActivityError extends TaggedError("@temporal-contract/ActivityError", {
+  name: "ActivityError",
+})<{
+  activityName: string;
+  cause?: unknown;
+}> {
+  constructor(activityName: string, message: string, cause?: unknown) {
+    super({ activityName, cause });
+    this.message = message;
+  }
+}
+
+/**
+ * Discriminated variant surfaced when a call to an errors-declaring activity
+ * was cancelled (the workflow itself, or an enclosing cancellation scope).
+ * Detected via `@temporalio/workflow`'s `isCancellation(...)`.
+ *
+ * A sibling of {@link ActivityError} rather than a subclass, for the same
+ * reason {@link ChildWorkflowCancelledError} is a sibling of
+ * {@link ChildWorkflowError}: call sites discriminate on the `_tag`.
+ */
+export class ActivityCancelledError extends TaggedError(
+  "@temporal-contract/ActivityCancelledError",
+  { name: "ActivityCancelledError" },
+)<{
+  activityName: string;
+  cause?: unknown;
+}> {
+  constructor(activityName: string, cause?: unknown) {
+    super({ activityName, cause });
+    this.message = `Activity "${activityName}" was cancelled`;
+  }
+}
+
+/**
  * Error thrown when a child workflow is not found in the contract
  */
 export class ChildWorkflowNotFoundError extends TaggedError(

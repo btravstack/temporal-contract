@@ -4,22 +4,59 @@
  * on `declareWorkflow` and its `WorkflowContext` type. Not part of the
  * worker package's public exports.
  */
+import { isCancellation } from "@temporalio/workflow";
+import { ActivityFailure, ApplicationFailure } from "@temporalio/common";
 import type {
   ActivityDefinition,
   AnyWorkflowDefinition,
   ContractDefinition,
+  ErrorDefinition,
 } from "@temporal-contract/contract";
-import { ActivityInputValidationError, ActivityOutputValidationError } from "./errors.js";
+import { summarizeIssues } from "@temporal-contract/contract";
+import {
+  _internal_rehydrateContractError,
+  type ContractErrorUnion,
+} from "@temporal-contract/contract/errors";
+import { Ok, Err, type AsyncResult } from "unthrown";
+import {
+  ActivityCancelledError,
+  ActivityError,
+  ActivityInputValidationError,
+  ActivityOutputValidationError,
+} from "./errors.js";
+import { makeAsyncResult } from "./internal.js";
 import type { ClientInferInput, ClientInferOutput } from "./types.js";
 
 /**
  * Activity function signature from workflow execution perspective.
  *
- * Workflows call activities with validated input (z.input parsed) and receive validated output (z.output).
+ * Workflows call activities with validated input (z.input parsed) and receive
+ * validated output (z.output).
+ *
+ * The shape depends on whether the activity declares contract errors:
+ *
+ * - **No `errors` map** — plain `Promise<Output>`, matching Temporal's native
+ *   behavior: a failure (retries exhausted, timeout, cancellation) throws and
+ *   propagates unless caught / scoped.
+ * - **With an `errors` map** — `AsyncResult<Output, declared union |
+ *   ActivityError | ActivityCancelledError>`. Declared failures are
+ *   rehydrated from the `ApplicationFailure` wire shape into typed
+ *   {@link ContractErrorUnion} members (data re-validated against the
+ *   declared schema); any other failure surfaces as
+ *   {@link ActivityError} (with Temporal's `ActivityFailure` wrapper
+ *   unwrapped to its actionable cause) or {@link ActivityCancelledError}
+ *   (mirroring the child-workflow API).
  */
-export type WorkflowInferActivity<TActivity extends ActivityDefinition> = (
-  args: ClientInferInput<TActivity>,
-) => Promise<ClientInferOutput<TActivity>>;
+export type WorkflowInferActivity<TActivity extends ActivityDefinition> = TActivity extends {
+  errors: infer TErrors extends Record<string, ErrorDefinition>;
+}
+  ? (
+      args: ClientInferInput<TActivity>,
+    ) => AsyncResult<
+      ClientInferOutput<TActivity>,
+      ContractErrorUnion<TErrors> | ActivityError | ActivityCancelledError
+    >
+  : (args: ClientInferInput<TActivity>) => Promise<ClientInferOutput<TActivity>>;
 
 /**
  * All global activities from a contract (workflow execution perspective).
@@ -57,6 +94,10 @@ export type WorkflowInferWorkflowContextActivities<
  * Standard Schema definitions on the contract. The wrapper enforces data
  * integrity at the workflow → activity boundary in addition to the
  * activity-side validation that `declareActivitiesHandler` already runs.
+ *
+ * Activities that declare contract errors additionally get failure
+ * classification: their wrapper returns an `AsyncResult` whose error channel
+ * carries the rehydrated typed errors (see {@link WorkflowInferActivity}).
  */
 export function createValidatedActivities<
   TContract extends ContractDefinition,
@@ -89,22 +130,131 @@ export function createValidatedActivities<
       );
     }
 
-    (validatedActivities as Record<string, unknown>)[activityName] = async (input: unknown) => {
-      const inputResult = await activityDef.input["~standard"].validate(input);
-      if (inputResult.issues) {
-        throw new ActivityInputValidationError(activityName, inputResult.issues);
-      }
-
-      const result = await rawActivity(inputResult.value);
-
-      const outputResult = await activityDef.output["~standard"].validate(result);
-      if (outputResult.issues) {
-        throw new ActivityOutputValidationError(activityName, outputResult.issues);
-      }
-
-      return outputResult.value;
-    };
+    (validatedActivities as Record<string, unknown>)[activityName] = activityDef.errors
+      ? makeResultShapedActivity(activityName, activityDef, rawActivity)
+      : makeThrowingActivity(activityName, activityDef, rawActivity);
   }
 
   return validatedActivities;
+}
+
+/**
+ * Validation-only wrapper for activities without declared errors — the
+ * historical shape: validate input, invoke, validate output, let failures
+ * throw through to Temporal's native handling.
+ */
+function makeThrowingActivity(
+  activityName: string,
+  activityDef: ActivityDefinition,
+  rawActivity: (...args: unknown[]) => Promise<unknown>,
+) {
+  return async (input: unknown) => {
+    const inputResult = await activityDef.input["~standard"].validate(input);
+    if (inputResult.issues) {
+      throw new ActivityInputValidationError(activityName, inputResult.issues);
+    }
+
+    const result = await rawActivity(inputResult.value);
+
+    const outputResult = await activityDef.output["~standard"].validate(result);
+    if (outputResult.issues) {
+      throw new ActivityOutputValidationError(activityName, outputResult.issues);
+    }
+
+    return outputResult.value;
+  };
+}
+
+/**
+ * Result-shaped wrapper for activities that declare contract errors.
+ * Classification mirrors the child-workflow API (`classifyChildWorkflowError`):
+ *
+ * - cancellation → `Err(ActivityCancelledError)` (checked first, so a
+ *   cancelled activity doesn't surface as a generic failure);
+ * - `ApplicationFailure` whose `type` matches a declared error name and
+ *   whose `details[0]` validates against the declared `data` schema →
+ *   `Err(ContractError)` — the typed rehydration path;
+ * - everything else (undeclared type, payload mismatch, timeout, validation
+ *   failure at this boundary) → `Err(ActivityError)` with the *unwrapped*
+ *   actionable cause;
+ * - a throw out of this wrapper itself is an unmodeled bug and rides
+ *   unthrown's `defect` channel via `makeAsyncResult`.
+ */
+function makeResultShapedActivity(
+  activityName: string,
+  activityDef: ActivityDefinition,
+  rawActivity: (...args: unknown[]) => Promise<unknown>,
+) {
+  return (input: unknown) =>
+    makeAsyncResult(async () => {
+      const inputResult = await activityDef.input["~standard"].validate(input);
+      if (inputResult.issues) {
+        return Err(
+          new ActivityError(
+            activityName,
+            `Activity "${activityName}" input validation failed: ${summarizeIssues(inputResult.issues)}`,
+            new ActivityInputValidationError(activityName, inputResult.issues),
+          ),
+        );
+      }
+
+      let rawOutput: unknown;
+      try {
+        rawOutput = await rawActivity(inputResult.value);
+      } catch (error) {
+        return Err(await classifyActivityError(activityName, activityDef, error));
+      }
+
+      const outputResult = await activityDef.output["~standard"].validate(rawOutput);
+      if (outputResult.issues) {
+        return Err(
+          new ActivityError(
+            activityName,
+            `Activity "${activityName}" output validation failed: ${summarizeIssues(outputResult.issues)}`,
+            new ActivityOutputValidationError(activityName, outputResult.issues),
+          ),
+        );
+      }
+
+      return Ok(outputResult.value);
+    });
+}
+
+/**
+ * Map a failure thrown by a workflow-side activity call into the typed error
+ * union of an errors-declaring activity.
+ */
+async function classifyActivityError(
+  activityName: string,
+  activityDef: ActivityDefinition,
+  error: unknown,
+): Promise<
+  ActivityCancelledError | ActivityError | ContractErrorUnion<Record<string, ErrorDefinition>>
+> {
+  // Cancellation takes priority: a cancelled activity surfaces as an
+  // `ActivityFailure` whose cause is a `CancelledFailure`, and we want the
+  // cancellation discriminant rather than the generic wrapper.
+  if (isCancellation(error)) {
+    return new ActivityCancelledError(activityName, error);
+  }
+
+  // Temporal wraps the actionable failure inside an `ActivityFailure`;
+  // unwrap it so both the rehydration check and the generic fallback see
+  // the leaf failure. Fall back to the wrapper if `cause` is missing so
+  // callers don't lose the error identity.
+  const inner = error instanceof ActivityFailure ? (error.cause ?? error) : error;
+
+  if (inner instanceof ApplicationFailure) {
+    const rehydrated = await _internal_rehydrateContractError(activityDef.errors, inner);
+    if (rehydrated) {
+      return rehydrated as ContractErrorUnion<Record<string, ErrorDefinition>>;
+    }
+  }
+
+  const innerMessage = inner instanceof Error ? inner.message : String(inner);
+  return new ActivityError(
+    activityName,
+    `Activity "${activityName}" failed: ${innerMessage}`,
+    inner,
+  );
 }

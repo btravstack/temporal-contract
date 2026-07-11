@@ -5,11 +5,13 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type {
   AnyWorkflowDefinition,
   ContractDefinition,
+  ErrorDefinition,
   SearchAttributeDefinition,
   SearchAttributeKindToType,
   SignalDefinition,
   SignalNamesOf,
 } from "@temporal-contract/contract";
+import type { ContractErrorUnion } from "@temporal-contract/contract/errors";
 import type {
   ClientInferInput,
   ClientInferOutput,
@@ -37,6 +39,7 @@ import {
   classifyResultError,
   classifyStartError,
   makeAsyncResult,
+  rehydrateWorkflowContractError,
   toTypedSearchAttributes,
 } from "./internal.js";
 import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
@@ -54,6 +57,21 @@ import { WorkflowNotFoundError as TemporalWorkflowNotFoundError } from "@tempora
  * meaning the `searchAttributes` field is effectively absent from the start
  * options for that workflow.
  */
+/**
+ * Union of typed {@link ContractError}s declared on a workflow's `errors`
+ * map, or `never` when the workflow declares none — in which case the member
+ * simply vanishes from the surfaced error union.
+ *
+ * Surfaced by `executeWorkflow` and `handle.result()` when the execution
+ * failed with a matching `ApplicationFailure` (`type` = declared error name,
+ * `details[0]` validating against the declared `data` schema).
+ */
+export type WorkflowContractErrorsOf<TWorkflow extends AnyWorkflowDefinition> = TWorkflow extends {
+  errors: infer TErrors extends Record<string, ErrorDefinition>;
+}
+  ? ContractErrorUnion<TErrors>
+  : never;
+
 export type TypedSearchAttributeMap<TWorkflow extends AnyWorkflowDefinition> =
   TWorkflow["searchAttributes"] extends Record<string, SearchAttributeDefinition>
     ? {
@@ -228,10 +246,14 @@ export type TypedWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
   };
 
   /**
-   * Get workflow result with Result pattern
+   * Get workflow result with Result pattern. When the workflow declares
+   * contract errors, a failed execution whose failure matches a declared
+   * error surfaces as that typed error instead of the generic
+   * {@link WorkflowFailedError}.
    */
   result: () => AsyncResult<
     ClientInferOutput<TWorkflow>,
+    | WorkflowContractErrorsOf<TWorkflow>
     | WorkflowValidationError
     | WorkflowFailedError
     | WorkflowExecutionNotFoundError
@@ -626,6 +648,7 @@ export class TypedClient<TContract extends ContractDefinition> {
     }: TypedWorkflowStartOptions<TContract, TWorkflowName>,
   ): AsyncResult<
     ClientInferOutput<TContract["workflows"][TWorkflowName]>,
+    | WorkflowContractErrorsOf<TContract["workflows"][TWorkflowName]>
     | WorkflowNotFoundError
     | WorkflowValidationError
     | WorkflowAlreadyStartedError
@@ -635,6 +658,7 @@ export class TypedClient<TContract extends ContractDefinition> {
   > {
     type Ok = ClientInferOutput<TContract["workflows"][TWorkflowName]>;
     type Err =
+      | WorkflowContractErrorsOf<TContract["workflows"][TWorkflowName]>
       | WorkflowNotFoundError
       | WorkflowValidationError
       | WorkflowAlreadyStartedError
@@ -679,6 +703,13 @@ export class TypedClient<TContract extends ContractDefinition> {
           return Err(new WorkflowAlreadyStartedError(error.workflowType, error.workflowId, error));
         }
         if (error instanceof TemporalWorkflowFailedError) {
+          // A failure matching one of the workflow's declared contract
+          // errors rehydrates into the typed error (data re-validated
+          // against the declared schema) instead of the generic wrapper.
+          const rehydrated = await rehydrateWorkflowContractError(definition, error.cause);
+          if (rehydrated) {
+            return Err(rehydrated as Err);
+          }
           // Forward Temporal's nested cause directly — see
           // {@link classifyResultError} for the same rationale: Temporal's
           // `WorkflowFailedError` is a wrapper, and the actionable failure
@@ -792,6 +823,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       updates,
       result: (): AsyncResult<
         ClientInferOutput<TWorkflow>,
+        | WorkflowContractErrorsOf<TWorkflow>
         | WorkflowValidationError
         | WorkflowFailedError
         | WorkflowExecutionNotFoundError
@@ -799,6 +831,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       > => {
         type Ok = ClientInferOutput<TWorkflow>;
         type Err =
+          | WorkflowContractErrorsOf<TWorkflow>
           | WorkflowValidationError
           | WorkflowFailedError
           | WorkflowExecutionNotFoundError
@@ -818,6 +851,15 @@ export class TypedClient<TContract extends ContractDefinition> {
             }
             return Ok(outputResult.value as Ok);
           } catch (error) {
+            // A failure matching one of the workflow's declared contract
+            // errors rehydrates into the typed error; everything else falls
+            // through to the generic classification.
+            if (error instanceof TemporalWorkflowFailedError) {
+              const rehydrated = await rehydrateWorkflowContractError(definition, error.cause);
+              if (rehydrated) {
+                return Err(rehydrated as Err);
+              }
+            }
             return Err(classifyResultError("result", error, workflowHandle.workflowId));
           }
         };

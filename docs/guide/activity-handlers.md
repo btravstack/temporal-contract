@@ -151,7 +151,37 @@ export const activities = declareActivitiesHandler({
 
 ### 2. Dependency Injection
 
-Create factory functions with typed activities:
+`declareActivitiesHandler` accepts a `createContext` factory whose result is
+handed to every implementation as `helpers.context` — dependencies become a
+typed, first-class part of the handler instead of module-scope closures:
+
+```typescript
+export const activities = declareActivitiesHandler({
+  contract: orderContract,
+  createContext: () => ({
+    emailService: new EmailService(),
+    paymentGateway: new PaymentGateway(),
+  }),
+  activities: {
+    sendEmail: ({ to, body }, { context }) =>
+      fromPromise(context.emailService.send({ to, body }), (error) =>
+        ApplicationFailure.create({
+          type: "EMAIL_FAILED",
+          message: error instanceof Error ? error.message : "Failed",
+          ...(error instanceof Error ? { cause: error } : {}),
+        }),
+      ).map(() => ({ sent: true })),
+  },
+});
+```
+
+`createContext` runs once per activity execution and receives
+`{ activityName, workflowName }`, so it can produce request-scoped values;
+close over singletons (connection pools, service clients) for per-worker
+dependencies.
+
+Factory functions remain a fine alternative when you prefer wiring each
+activity explicitly:
 
 ```typescript
 import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
@@ -218,38 +248,79 @@ describe("processOrder", () => {
 });
 ```
 
-## Advanced Patterns
+## Typed Contract Errors
 
-### Middleware Pattern
-
-Wrap activities with middleware:
+When an activity declares an `errors` map on the contract (see
+[Defining Contracts](/guide/defining-contracts)), the implementation receives
+typed constructors for them via the second (`helpers`) argument. Returning
+one on the `Err` channel serializes it as an `ApplicationFailure` whose
+`type` is the error name, whose `details[0]` is the schema-validated payload,
+and whose `nonRetryable` flag comes from the contract declaration:
 
 ```typescript
-import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
-
-type Handlers = ActivitiesHandler<typeof orderContract>;
-
-// Create logging middleware
-function withLogging<T extends (...args: any[]) => any>(name: string, fn: T): T {
-  return (async (...args: any[]) => {
-    console.log(`[${name}] Starting`, args);
-    try {
-      const result = await fn(...args);
-      console.log(`[${name}] Success`, result);
-      return result;
-    } catch (error) {
-      console.error(`[${name}] Error`, error);
-      throw error;
-    }
-  }) as T;
-}
-
-// Apply to activities
-const sendEmail: Handlers["sendEmail"] = withLogging("sendEmail", async ({ to, body }) => {
-  await emailService.send({ to, body });
-  return { sent: true };
+export const activities = declareActivitiesHandler({
+  contract: orderContract,
+  activities: {
+    processPayment: ({ amount }, { errors }) =>
+      fromPromise(paymentGateway.charge(amount), (error) =>
+        ApplicationFailure.create({
+          type: "PAYMENT_GATEWAY_FAILED", // technical failure → retried
+          message: "Gateway call failed",
+          ...(error instanceof Error ? { cause: error } : {}),
+        }),
+      ).flatMap((outcome) =>
+        outcome.approved
+          ? Ok({ transactionId: outcome.id })
+          : // Declared domain error → typed on the workflow side, and
+            // non-retryable if the contract says so.
+            Err(errors.PaymentDeclined({ reason: outcome.reason })),
+      ),
+  },
 });
 ```
+
+On the workflow side, calls to an errors-declaring activity return an
+`AsyncResult` whose error channel carries the rehydrated typed union —
+see [Worker Implementation](/guide/worker-implementation) for the consuming
+side.
+
+## Advanced Patterns
+
+### Middleware
+
+`declareActivitiesHandler` accepts a contract-aware `middleware` chain that
+wraps every activity, outermost-first. Middleware runs inside the validation
+boundary — it sees the schema-validated input, the activity's identity, and
+the `createContext` value — and operates on the unthrown `AsyncResult`, so
+modeled failures appear on the `err` channel instead of as thrown exceptions:
+
+```typescript
+import type { ActivityMiddleware } from "@temporal-contract/worker/activity";
+
+const logging: ActivityMiddleware = ({ activityName, workflowName }, next) =>
+  next().tapErr((error) => {
+    logger.warn({ activityName, workflowName, error }, "activity failed");
+  });
+
+const timing: ActivityMiddleware = async ({ activityName }, next) => {
+  const started = Date.now();
+  const result = await next();
+  metrics.timing(`activity.${activityName}`, Date.now() - started);
+  return result.toAsync();
+};
+
+export const activities = declareActivitiesHandler({
+  contract: orderContract,
+  middleware: [logging, timing], // logging wraps timing wraps the implementation
+  activities: {
+    /* ... */
+  },
+});
+```
+
+A middleware can short-circuit by returning its own result without calling
+`next` (the output is still validated against the contract), and can
+substitute the input seen by the next stage with `next(newInput)`.
 
 ### Retry Logic
 
