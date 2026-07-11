@@ -76,7 +76,7 @@ const result = await client.executeWorkflow("processOrder", {
 # Core packages
 pnpm add @temporal-contract/contract @temporal-contract/worker @temporal-contract/client
 
-# Required peer dependencies — install these too. `unthrown` (^4) supplies the
+# Required peer dependencies — install these too. `unthrown` (^4.1.0) supplies the
 # Result/AsyncResult types you use directly; plus the Temporal SDK and a
 # Standard Schema library (zod shown here).
 pnpm add unthrown @temporalio/client @temporalio/common @temporalio/worker @temporalio/workflow zod
@@ -115,7 +115,7 @@ temporal-contract uses **[unthrown](https://github.com/btravstack/unthrown)** en
 
 The contract API (`defineContract`, `declareWorkflow`, `declareActivitiesHandler`, `TypedClient`) is stable — earlier major bumps were migrations of the underlying Result library, now settled on [unthrown](https://github.com/btravstack/unthrown). Going forward:
 
-- **unthrown is the committed error-handling foundation.** There are no plans to switch to a different Result library. The `unthrown` peer range tracks its latest major (currently `^4`); each bump is documented in the changelog with migration notes.
+- **unthrown is the committed error-handling foundation.** There are no plans to switch to a different Result library. The `unthrown` peer range tracks its latest release (currently `^4.1.0`); each bump is documented in the changelog with migration notes.
 - **All four packages version together** (a fixed release group), so a single version number describes a compatible set.
 
 ## Contributing

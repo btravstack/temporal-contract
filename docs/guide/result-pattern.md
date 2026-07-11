@@ -155,7 +155,7 @@ result.match({
 
 `AsyncResult<T, E>` is a thin wrapper around a `Promise<Result<T, E>>`. You
 can `await` it once and then inspect synchronously, or chain with
-`.map`, `.mapErr`, `.flatMap`, `.orElse` before awaiting:
+`.map`, `.mapErr`, `.flatMap`, `.flatMapErr` before awaiting:
 
 ```typescript
 import { isErr } from "unthrown";
