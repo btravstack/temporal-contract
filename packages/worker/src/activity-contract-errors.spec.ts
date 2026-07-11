@@ -258,6 +258,23 @@ describe("declareActivitiesHandler — middleware", () => {
     });
   });
 
+  it("re-validates a substituted input — an invalid substitution fails terminally", async () => {
+    const implementation = vi.fn(() => okAsync({ transactionId: "tx" }));
+    const activities = declareActivitiesHandler({
+      contract,
+      middleware: [(_invocation, next) => next({ amount: "not-a-number" })],
+      activities: {
+        sendEmail: () => okAsync({ sent: true }),
+        processOrder: { chargePayment: implementation },
+      },
+    });
+
+    await expect(activities.chargePayment({ amount: 1 })).rejects.toMatchObject({
+      type: "ActivityInputValidationError",
+    });
+    expect(implementation).not.toHaveBeenCalled();
+  });
+
   it("can short-circuit with its own result — output still validated", async () => {
     const implementation = vi.fn(() => okAsync({ transactionId: "tx" }));
     const activities = declareActivitiesHandler({

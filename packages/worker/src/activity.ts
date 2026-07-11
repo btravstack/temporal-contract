@@ -37,7 +37,7 @@ import {
   ActivityOutputValidationError,
 } from "./errors.js";
 import { contractErrorToApplicationFailure } from "./contract-errors.js";
-import { extractHandlerInput } from "./internal.js";
+import { extractHandlerInput, makeAsyncResult } from "./internal.js";
 
 export {
   ActivityDefinitionNotFoundError,
@@ -244,7 +244,10 @@ export type ActivityInvocationInfo = {
  * Continuation invoked by an {@link ActivityMiddleware}. Call it with no
  * argument to forward the current (validated) input unchanged, or pass a
  * value to substitute the input seen by the next middleware / the
- * implementation.
+ * implementation. A substituted input is re-validated against the
+ * activity's input schema before it flows downstream — an invalid
+ * substitution fails terminally with `ActivityInputValidationError`, so
+ * middleware cannot smuggle unvalidated data past the contract boundary.
  */
 export type ActivityMiddlewareNext = (
   ...input: [unknown?]
@@ -462,16 +465,29 @@ export function declareActivitiesHandler<
 
       // Compose the middleware chain around the implementation,
       // outermost-first. Each middleware receives the input the previous
-      // stage forwarded and may substitute it via `next(newInput)`.
+      // stage forwarded and may substitute it via `next(newInput)` — a
+      // substituted input is re-validated against the contract's input
+      // schema so the validation boundary holds regardless of what the
+      // middleware injects (an invalid substitution is a deterministic bug
+      // and fails terminally, same as invalid caller input).
       const invokeImplementation = (
         stageInput: unknown,
       ): AsyncResult<unknown, ApplicationFailure | AnyContractError> =>
         activityImpl(stageInput, helpers);
       const chain = middlewareChain.reduceRight<typeof invokeImplementation>(
         (nextStage, mw) => (stageInput) =>
-          mw({ ...info, input: stageInput, context: context as TContext }, (...override) =>
-            nextStage(override.length > 0 ? override[0] : stageInput),
-          ),
+          mw({ ...info, input: stageInput, context: context as TContext }, (...override) => {
+            if (override.length === 0) {
+              return nextStage(stageInput);
+            }
+            return makeAsyncResult(async () => {
+              const revalidated = await activityDef.input["~standard"].validate(override[0]);
+              if (revalidated.issues) {
+                throw new ActivityInputValidationError(label, revalidated.issues);
+              }
+              return await nextStage(revalidated.value);
+            });
+          }),
         invokeImplementation,
       );
 
