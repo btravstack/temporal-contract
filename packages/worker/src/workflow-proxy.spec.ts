@@ -331,3 +331,37 @@ describe("buildRawActivitiesProxy — contract-level defaultOptions", () => {
     expect(proxyCalls).toEqual([defaults, { startToCloseTimeout: "5 seconds" }]);
   });
 });
+
+describe("buildRawActivitiesProxy — empty option bags stay on the fast path", () => {
+  afterEach(() => {
+    proxyCalls.length = 0;
+  });
+
+  it("treats an empty contract defaultOptions object as absent", () => {
+    const def: Record<string, ActivityDefinition> = {
+      a: {
+        input: z.object({}),
+        output: z.object({}),
+        defaultOptions: {},
+      } as unknown as ActivityDefinition,
+    };
+    const defaults: ActivityOptions = { startToCloseTimeout: "1 minute" };
+
+    const result = buildRawActivitiesProxy(def, undefined, defaults, undefined);
+
+    // No extra proxy — effective options are unchanged.
+    expect(proxyCalls).toEqual([defaults]);
+    expect(typeof result["a"]).toBe("function");
+  });
+
+  it("treats an empty per-activity override entry as absent", () => {
+    const def: Record<string, ActivityDefinition> = {
+      a: activityDef(z.object({}), z.object({})),
+    };
+    const defaults: ActivityOptions = { startToCloseTimeout: "1 minute" };
+
+    buildRawActivitiesProxy(def, undefined, defaults, { a: {} });
+
+    expect(proxyCalls).toEqual([defaults]);
+  });
+});

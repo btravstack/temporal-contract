@@ -131,7 +131,12 @@ export function buildRawActivitiesProxy(
   for (const [name, definition] of Object.entries(allDefinitions)) {
     const contractDefaults = definition.defaultOptions;
     const override = overrideByName[name];
-    if (!contractDefaults && !override) {
+    // An empty options bag can't change the effective options — treat it as
+    // absent so the "one extra proxy only when options differ" optimization
+    // holds for `defaultOptions: {}` / `activityOptionsByName: { x: {} }`.
+    const hasContractDefaults = contractDefaults && Object.keys(contractDefaults).length > 0;
+    const hasOverride = override && Object.keys(override).length > 0;
+    if (!hasContractDefaults && !hasOverride) {
       continue;
     }
     // The contract types durations as plain `string | number` (it carries no
