@@ -21,19 +21,15 @@
  * import { TypedClient } from "@temporal-contract/client";
  *
  * it("processes the order", async ({ testEnv }) => {
- *   const worker = (
- *     await createWorker({
- *       contract: myContract,
- *       connection: testEnv.nativeConnection,
- *       workflowsPath: workflowsPathFromURL(import.meta.url, "./test.workflows.js"),
- *       activities,
- *     })
- *   ).getOrElse((error) => {
+ *   const worker = await createWorker({
+ *     contract: myContract,
+ *     connection: testEnv.nativeConnection,
+ *     workflowsPath: workflowsPathFromURL(import.meta.url, "./test.workflows.js"),
+ *     activities,
+ *   }).getOrElse((error) => {
  *     throw error;
  *   });
- *   const client = (
- *     await TypedClient.create({ contract: myContract, client: testEnv.client })
- *   ).getOrElse((error) => {
+ *   const client = await TypedClient.create({ contract: myContract, client: testEnv.client }).getOrElse((error) => {
  *     throw error;
  *   });
  *

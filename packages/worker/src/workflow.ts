@@ -165,14 +165,12 @@ export {
  * import { activities } from './activities.js';
  * import myContract from './contract.js';
  *
- * const worker = (
- *   await createWorker({
- *     contract: myContract,
- *     connection,
- *     workflowsPath: workflowsPathFromURL(import.meta.url, './workflows.js'),
- *     activities,
- *   })
- * ).getOrElse((error) => {
+ * const worker = await createWorker({
+ *   contract: myContract,
+ *   connection,
+ *   workflowsPath: workflowsPathFromURL(import.meta.url, './workflows.js'),
+ *   activities,
+ * }).getOrElse((error) => {
  *   throw error;
  * });
  * ```

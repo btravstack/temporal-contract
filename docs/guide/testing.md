@@ -23,19 +23,18 @@ import { TypedClient } from "@temporal-contract/client";
 import { createWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
 
 it("processes the order", async ({ testEnv }) => {
-  const worker = (
-    await createWorker({
-      contract: myContract,
-      connection: testEnv.nativeConnection,
-      workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
-      activities,
-    })
-  ).getOrElse((error) => {
+  const worker = await createWorker({
+    contract: myContract,
+    connection: testEnv.nativeConnection,
+    workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
+    activities,
+  }).getOrElse((error) => {
     throw error;
   });
-  const client = (
-    await TypedClient.create({ contract: myContract, client: testEnv.client })
-  ).getOrElse((error) => {
+  const client = await TypedClient.create({
+    contract: myContract,
+    client: testEnv.client,
+  }).getOrElse((error) => {
     throw error;
   });
 
@@ -133,7 +132,7 @@ const it = baseIt.extend<{
   client: async ({ clientConnection }, use) => {
     const rawClient = new Client({ connection: clientConnection, namespace: "default" });
     await use(
-      (await TypedClient.create({ contract: myContract, client: rawClient })).getOrElse((error) => {
+      await TypedClient.create({ contract: myContract, client: rawClient }).getOrElse((error) => {
         throw error;
       }),
     );

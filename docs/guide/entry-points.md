@@ -216,9 +216,10 @@ const connection = await Connection.connect({
 
 // Create Temporal client and type-safe client from contract
 const temporalClient = new Client({ connection, namespace: "default" });
-const client = (
-  await TypedClient.create({ contract: orderContract, client: temporalClient })
-).getOrElse((error) => {
+const client = await TypedClient.create({
+  contract: orderContract,
+  client: temporalClient,
+}).getOrElse((error) => {
   throw error;
 });
 

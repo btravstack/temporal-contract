@@ -333,13 +333,11 @@ const retryOnce: ClientInterceptor = (args, next) =>
       error instanceof RuntimeClientError ? next() : Err(error).toAsync(),
   );
 
-const client = (
-  await TypedClient.create({
-    contract: myContract,
-    client: temporalClient,
-    interceptors: [logging, retryOnce],
-  })
-).getOrElse((error) => {
+const client = await TypedClient.create({
+  contract: myContract,
+  client: temporalClient,
+  interceptors: [logging, retryOnce],
+}).getOrElse((error) => {
   throw error;
 });
 ```
@@ -360,14 +358,16 @@ const connection = await Connection.connect({
 
 const temporalClient = new Client({ connection });
 
-const orderClient = (
-  await TypedClient.create({ contract: orderContract, client: temporalClient })
-).getOrElse((error) => {
+const orderClient = await TypedClient.create({
+  contract: orderContract,
+  client: temporalClient,
+}).getOrElse((error) => {
   throw error;
 });
-const inventoryClient = (
-  await TypedClient.create({ contract: inventoryContract, client: temporalClient })
-).getOrElse((error) => {
+const inventoryClient = await TypedClient.create({
+  contract: inventoryContract,
+  client: temporalClient,
+}).getOrElse((error) => {
   throw error;
 });
 
@@ -405,19 +405,22 @@ import { inventoryContract } from "./contracts/inventory.js";
 
 const temporalClient = new Client({ connection });
 
-const orderClient = (
-  await TypedClient.create({ contract: orderContract, client: temporalClient })
-).getOrElse((error) => {
+const orderClient = await TypedClient.create({
+  contract: orderContract,
+  client: temporalClient,
+}).getOrElse((error) => {
   throw error;
 });
-const paymentClient = (
-  await TypedClient.create({ contract: paymentContract, client: temporalClient })
-).getOrElse((error) => {
+const paymentClient = await TypedClient.create({
+  contract: paymentContract,
+  client: temporalClient,
+}).getOrElse((error) => {
   throw error;
 });
-const inventoryClient = (
-  await TypedClient.create({ contract: inventoryContract, client: temporalClient })
-).getOrElse((error) => {
+const inventoryClient = await TypedClient.create({
+  contract: inventoryContract,
+  client: temporalClient,
+}).getOrElse((error) => {
   throw error;
 });
 
@@ -473,7 +476,7 @@ describe("OrderService", () => {
 // ✅ Good - single connection
 const connection = await Connection.connect({ address: "localhost:7233" });
 const temporalClient = new Client({ connection });
-const client = (await TypedClient.create({ contract: contract, client: temporalClient })).getOrElse(
+const client = await TypedClient.create({ contract: contract, client: temporalClient }).getOrElse(
   (error) => {
     throw error;
   },
@@ -483,11 +486,11 @@ const client = (await TypedClient.create({ contract: contract, client: temporalC
 for (const order of orders) {
   const connection = await Connection.connect({ address: "localhost:7233" });
   const temporalClient = new Client({ connection });
-  const client = (
-    await TypedClient.create({ contract: contract, client: temporalClient })
-  ).getOrElse((error) => {
-    throw error;
-  });
+  const client = await TypedClient.create({ contract: contract, client: temporalClient }).getOrElse(
+    (error) => {
+      throw error;
+    },
+  );
   await client.executeWorkflow(/* ... */);
 }
 ```

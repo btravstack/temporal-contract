@@ -127,7 +127,7 @@ const contract = defineContract({
 });
 
 // 2. Client gets full type safety
-const client = (await TypedClient.create({ contract: contract, client: temporalClient })).getOrElse(
+const client = await TypedClient.create({ contract: contract, client: temporalClient }).getOrElse(
   (error) => {
     throw error;
   },
