@@ -8,50 +8,53 @@ Contracts are the foundation of temporal-contract. They define the interface for
 
 ## Basic Contract Structure
 
+**Composition-first: define resources individually, then compose them into
+the contract.** Named resources are reusable across workflows and contracts,
+get precise hover/jump-to-definition, and keep `defineContract` a readable
+table of contents instead of a wall of inline literals.
+
 ```typescript
-import { defineContract } from "@temporal-contract/contract";
+import { defineActivity, defineContract, defineWorkflow } from "@temporal-contract/contract";
 import { z } from "zod";
 
+// Define resources first...
+const log = defineActivity({
+  input: z.object({
+    level: z.enum(["info", "warn", "error"]),
+    message: z.string(),
+  }),
+  output: z.void(),
+});
+
+const processPayment = defineActivity({
+  input: z.object({
+    userId: z.string(),
+    amount: z.number(),
+  }),
+  output: z.object({
+    transactionId: z.string(),
+  }),
+});
+
+const myWorkflow = defineWorkflow({
+  input: z.object({
+    userId: z.string(),
+    amount: z.number().positive(),
+  }),
+  output: z.object({
+    success: z.boolean(),
+    transactionId: z.string().optional(),
+  }),
+  // Workflow-specific activities
+  activities: { processPayment },
+});
+
+// ...then compose the contract from references.
 export const myContract = defineContract({
   taskQueue: "my-task-queue",
-
   // Global activities available to all workflows
-  activities: {
-    log: {
-      input: z.object({
-        level: z.enum(["info", "warn", "error"]),
-        message: z.string(),
-      }),
-      output: z.void(),
-    },
-  },
-
-  // Workflow definitions
-  workflows: {
-    myWorkflow: {
-      input: z.object({
-        userId: z.string(),
-        amount: z.number().positive(),
-      }),
-      output: z.object({
-        success: z.boolean(),
-        transactionId: z.string().optional(),
-      }),
-
-      // Workflow-specific activities
-      activities: {
-        processPayment: {
-          input: z.object({
-            userId: z.string(),
-            amount: z.number(),
-          }),
-          output: z.object({
-            transactionId: z.string(),
-          }),
-        },
-      },
-    },
-  },
+  activities: { log },
+  workflows: { myWorkflow },
 });
 ```
 

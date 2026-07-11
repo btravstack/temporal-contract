@@ -26,14 +26,23 @@ async function run() {
     address: "localhost:7233",
   });
 
-  // Create and run the worker using createWorker
-  const worker = await createWorker({
+  // Create and run the worker using createWorker — creation failures are
+  // modeled on the Err channel (TechnicalError), not thrown.
+  const workerResult = await createWorker({
     contract: orderProcessingContract,
     connection,
     namespace: "default",
     workflowsPath: workflowPath("workflows"),
     activities,
   });
+  if (!workerResult.isOk()) {
+    logger.error(
+      { err: workerResult.isErr() ? workerResult.error : workerResult.cause },
+      "❌ Worker creation failed",
+    );
+    process.exit(1);
+  }
+  const worker = workerResult.value;
 
   logger.info("✅ Worker registered successfully");
 

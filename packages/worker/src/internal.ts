@@ -97,15 +97,45 @@ type ActivityFn = (...args: unknown[]) => Promise<unknown>;
 export function buildRawActivitiesProxy(
   workflowActivities: Record<string, ActivityDefinition> | undefined,
   contractActivities: Record<string, ActivityDefinition> | undefined,
-  defaultOptions: ActivityOptions,
+  defaultOptions: ActivityOptions | undefined,
   overrides: Partial<Record<string, ActivityOptions>> | undefined,
 ): Record<string, ActivityFn> {
-  const defaultProxy = proxyActivities<Record<string, ActivityFn>>(defaultOptions);
-
   const allDefinitions: Record<string, ActivityDefinition> = {
     ...contractActivities,
     ...workflowActivities,
   };
+
+  // `activityOptions` is optional on `declareWorkflow` — an activity covered
+  // by contract-level `defaultOptions` (or an explicit override) doesn't need
+  // the workflow-wide default. It is still required as soon as any reachable
+  // activity has no per-activity options of its own; fail at declaration time
+  // with the offending names rather than letting Temporal's generic
+  // "missing timeout" error surface without context.
+  if (!defaultOptions) {
+    const uncovered = Object.entries(allDefinitions)
+      .filter(([name, definition]) => {
+        const contractDefaults = definition.defaultOptions;
+        const override = overrides?.[name];
+        const hasContractDefaults = contractDefaults && Object.keys(contractDefaults).length > 0;
+        const hasOverride = override && Object.keys(override).length > 0;
+        return !hasContractDefaults && !hasOverride;
+      })
+      .map(([name]) => name);
+    if (uncovered.length > 0) {
+      throw new Error(
+        `declareWorkflow: \`activityOptions\` was omitted but the following activities declare ` +
+          `no contract-level \`defaultOptions\` and have no \`activityOptionsByName\` entry: ` +
+          `${uncovered.join(", ")}. Provide \`activityOptions\` or per-activity options.`,
+      );
+    }
+  }
+
+  // When every activity carries its own options (`defaultOptions` omitted),
+  // no workflow-wide default proxy exists — the get-trap below then serves
+  // only the per-activity proxies.
+  const defaultProxy = defaultOptions
+    ? proxyActivities<Record<string, ActivityFn>>(defaultOptions)
+    : undefined;
 
   // Validate every override key corresponds to a declared activity.
   // Without this, a typo at runtime (or a stale options bag from a renamed
@@ -157,15 +187,16 @@ export function buildRawActivitiesProxy(
 
   // Fast path: nothing customized → use the single default proxy directly.
   // (`createValidatedActivities` accesses by name, so the Proxy's get-trap
-  // suffices; we don't need an enumerable map.)
+  // suffices; we don't need an enumerable map.) The `?? {}` covers the
+  // degenerate no-activities + no-defaults case.
   if (Object.keys(customizedFns).length === 0) {
-    return defaultProxy;
+    return defaultProxy ?? {};
   }
 
   return new Proxy(customizedFns, {
     get(target, prop) {
       if (typeof prop !== "string") return undefined;
-      return target[prop] ?? defaultProxy[prop];
+      return target[prop] ?? defaultProxy?.[prop];
     },
   });
 }

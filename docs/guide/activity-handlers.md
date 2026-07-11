@@ -180,6 +180,44 @@ export const activities = declareActivitiesHandler({
 close over singletons (connection pools, service clients) for per-worker
 dependencies.
 
+#### Scoped contexts with demesne (recommended)
+
+For contexts that own _resources_ (a per-invocation logger with correlation
+ids, a transaction that must commit/rollback), the recommended
+`createContext` engine is [demesne](https://github.com/btravstack/demesne)'s
+`Layer.forkScope` — the org's request-scoped DI layer. Build the app graph
+once at worker startup with `Layer.scoped` (connections via
+`acquireRelease`, graceful shutdown via `onStop`), then fork a child scope
+per invocation: request-scoped services are built fresh in the fork and
+released LIFO after the handler, while the app singletons stay untouched.
+demesne shares unthrown's `Result` channels, so the fork's error union
+composes directly into the activity's `AsyncResult`:
+
+```typescript
+import { Layer } from "demesne";
+import { AppLive, InvocationScopeLive, RequestLogger } from "./layers.js";
+
+// App lifetime: singletons built once, released on shutdown.
+await Layer.scoped(AppLive, async (appCtx) => {
+  const activities = declareActivitiesHandler({
+    contract: orderContract,
+    activities: {
+      chargePayment: (args, _helpers) =>
+        // Per-invocation fork: request-scoped services (correlation-id
+        // logger, transaction) live in the fork, released after the handler.
+        Layer.forkScope(appCtx, InvocationScopeLive, (ctx) => {
+          ctx.get(RequestLogger).info("charging payment");
+          return chargeWith(ctx, args);
+        }),
+    },
+  });
+  // ... create and run the worker with `activities`
+});
+```
+
+demesne stays an **optional peer** — documented as the recommended context
+provider, never required.
+
 Factory functions remain a fine alternative when you prefer wiring each
 activity explicitly:
 
@@ -288,14 +326,19 @@ side.
 
 ### Middleware
 
-`declareActivitiesHandler` accepts a contract-aware `middleware` chain that
-wraps every activity, outermost-first. Middleware runs inside the validation
-boundary — it sees the schema-validated input, the activity's identity, and
-the `createContext` value — and operates on the unthrown `AsyncResult`, so
-modeled failures appear on the `err` channel instead of as thrown exceptions:
+`declareActivitiesHandler` accepts a contract-aware `middleware` — a single
+middleware, or a typed chain built with `composeActivityMiddleware`
+(outermost-first). Middleware runs inside the validation boundary — it sees
+the schema-validated input, the activity's identity, and the accumulated
+context — and operates on the unthrown `AsyncResult`, so modeled failures
+appear on the `err` channel instead of as thrown exceptions:
 
 ```typescript
-import type { ActivityMiddleware } from "@temporal-contract/worker/activity";
+import {
+  composeActivityMiddleware,
+  defineActivityMiddleware,
+  type ActivityMiddleware,
+} from "@temporal-contract/worker/activity";
 
 const logging: ActivityMiddleware = ({ activityName, workflowName }, next) =>
   next().tapErr((error) => {
@@ -311,7 +354,8 @@ const timing: ActivityMiddleware = async ({ activityName }, next) => {
 
 export const activities = declareActivitiesHandler({
   contract: orderContract,
-  middleware: [logging, timing], // logging wraps timing wraps the implementation
+  // logging wraps timing wraps the implementation
+  middleware: composeActivityMiddleware(logging, timing),
   activities: {
     /* ... */
   },
@@ -320,7 +364,50 @@ export const activities = declareActivitiesHandler({
 
 A middleware can short-circuit by returning its own result without calling
 `next` (the output is still validated against the contract), and can
-substitute the input seen by the next stage with `next(newInput)`.
+substitute the input seen by the next stage with `next({ input })` — a
+substituted input is re-validated against the contract's schema.
+
+### Accumulating context (guard-and-narrow)
+
+Middleware can _extend_ the typed context flowing downstream with
+`next({ context })`. Each middleware declares what it receives (`TContextIn`,
+the `createContext` seed for the outermost one) and what it passes on
+(`TContextOut extends TContextIn`); `composeActivityMiddleware` accumulates
+the types across the chain, and implementations receive the final context as
+`helpers.context`:
+
+```typescript
+import { defineActivityMiddleware, type EmptyContext } from "@temporal-contract/worker/activity";
+
+const auth = defineActivityMiddleware<EmptyContext, { tenantId: string }>((invocation, next) => {
+  const tenantId = readTenant(invocation.input);
+  if (!tenantId) {
+    return Err(
+      ApplicationFailure.create({ type: "Unauthenticated", nonRetryable: true }),
+    ).toAsync();
+  }
+  return next({ context: { tenantId } });
+});
+
+const tracing = defineActivityMiddleware<
+  { tenantId: string },
+  { tenantId: string; traceId: string }
+>((invocation, next) => next({ context: { ...invocation.context, traceId: newTraceId() } }));
+
+export const activities = declareActivitiesHandler({
+  contract: orderContract,
+  middleware: composeActivityMiddleware(auth, tracing),
+  activities: {
+    chargePayment: (args, { context }) => {
+      // context: { tenantId: string; traceId: string }
+      /* ... */
+    },
+  },
+});
+```
+
+A middleware that only _reads_ the context stays valid unchanged — read-only
+semantics need no type parameters.
 
 ### Retry Logic
 

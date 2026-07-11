@@ -25,13 +25,17 @@ const it = baseIt.extend<{
   worker: [
     async ({ workerConnection }, use) => {
       // Create and start worker using createWorker
-      const worker = await createWorker({
+      const workerResult = await createWorker({
         contract: testContract,
         connection: workerConnection,
         namespace: "default",
         workflowsPath: workflowPath("test.workflows"),
         activities,
       });
+      if (!workerResult.isOk()) {
+        throw workerResult.isErr() ? workerResult.error : workerResult.cause;
+      }
+      const worker = workerResult.value;
 
       // Start worker in background
       worker.run().catch((err) => {
@@ -54,9 +58,12 @@ const it = baseIt.extend<{
       connection: clientConnection,
       namespace: "default",
     });
-    const client = TypedClient.create(testContract, rawClient);
+    const clientResult = await TypedClient.create({ contract: testContract, client: rawClient });
+    if (!clientResult.isOk()) {
+      throw clientResult.isErr() ? clientResult.error : clientResult.cause;
+    }
 
-    await use(client);
+    await use(clientResult.value);
   },
 });
 

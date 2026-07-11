@@ -53,7 +53,7 @@ describe("TypedClient.schedule", () => {
       workflow: { start: vi.fn(), execute: vi.fn(), getHandle: vi.fn() },
       schedule: mockSchedule,
     } as unknown as Client;
-    client = TypedClient.create(contract, rawClient);
+    client = TypedClient.createOrThrow(contract, rawClient);
   });
 
   describe("@temporalio/client < 1.16 guard", () => {
@@ -67,7 +67,7 @@ describe("TypedClient.schedule", () => {
         // schedule intentionally absent
       } as unknown as Client;
 
-      expect(() => TypedClient.create(contract, oldClient)).toThrow(
+      expect(() => TypedClient.createOrThrow(contract, oldClient)).toThrow(
         /requires @temporalio\/client >= 1\.16/,
       );
     });
@@ -245,7 +245,7 @@ describe("TypedClient.schedule", () => {
         workflow: { start: vi.fn(), execute: vi.fn(), getHandle: vi.fn() },
         schedule: mockSchedule,
       } as unknown as Client;
-      searchClient = TypedClient.create(searchContract, rawClient);
+      searchClient = TypedClient.createOrThrow(searchContract, rawClient);
     });
 
     it("translates declared searchAttributes into the action's typedSearchAttributes", async () => {

@@ -13,7 +13,9 @@ import { ContractError } from "@temporal-contract/contract/errors";
 import { ContractErrorDataValidationError } from "./errors.js";
 import {
   ApplicationFailure,
+  composeActivityMiddleware,
   declareActivitiesHandler,
+  defineActivityMiddleware,
   type ActivityMiddleware,
 } from "./activity.js";
 
@@ -218,7 +220,7 @@ describe("declareActivitiesHandler — middleware", () => {
 
     const activities = declareActivitiesHandler({
       contract,
-      middleware: [mw("outer"), mw("inner")],
+      middleware: composeActivityMiddleware(mw("outer"), mw("inner")),
       activities: passthroughImplementations,
     });
 
@@ -232,7 +234,7 @@ describe("declareActivitiesHandler — middleware", () => {
     const middleware = vi.fn<ActivityMiddleware>((_invocation, next) => next());
     const activities = declareActivitiesHandler({
       contract,
-      middleware: [middleware],
+      middleware,
       activities: passthroughImplementations,
     });
 
@@ -244,7 +246,7 @@ describe("declareActivitiesHandler — middleware", () => {
   it("can substitute the input seen by the implementation", async () => {
     const activities = declareActivitiesHandler({
       contract,
-      middleware: [(_invocation, next) => next({ amount: 999 })],
+      middleware: (_invocation, next) => next({ input: { amount: 999 } }),
       activities: {
         sendEmail: () => okAsync({ sent: true }),
         processOrder: {
@@ -262,7 +264,7 @@ describe("declareActivitiesHandler — middleware", () => {
     const implementation = vi.fn(() => okAsync({ transactionId: "tx" }));
     const activities = declareActivitiesHandler({
       contract,
-      middleware: [(_invocation, next) => next({ amount: "not-a-number" })],
+      middleware: (_invocation, next) => next({ input: { amount: "not-a-number" } }),
       activities: {
         sendEmail: () => okAsync({ sent: true }),
         processOrder: { chargePayment: implementation },
@@ -279,7 +281,7 @@ describe("declareActivitiesHandler — middleware", () => {
     const implementation = vi.fn(() => okAsync({ transactionId: "tx" }));
     const activities = declareActivitiesHandler({
       contract,
-      middleware: [() => okAsync({ transactionId: "cached" })],
+      middleware: () => okAsync({ transactionId: "cached" }),
       activities: {
         sendEmail: () => okAsync({ sent: true }),
         processOrder: { chargePayment: implementation },
@@ -301,7 +303,7 @@ describe("declareActivitiesHandler — middleware", () => {
 
     const activities = declareActivitiesHandler({
       contract,
-      middleware: [observing],
+      middleware: observing,
       activities: {
         sendEmail: () => okAsync({ sent: true }),
         processOrder: {
@@ -323,16 +325,67 @@ describe("declareActivitiesHandler — middleware", () => {
     const activities = declareActivitiesHandler({
       contract,
       createContext: () => ({ tenant: "acme" }),
-      middleware: [
-        (invocation, next) => {
-          seen.push(invocation.context);
-          return next();
-        },
-      ],
+      middleware: (invocation, next) => {
+        seen.push(invocation.context);
+        return next();
+      },
       activities: passthroughImplementations,
     });
 
     await activities.sendEmail({ to: "a@b.c" });
     expect(seen).toEqual([{ tenant: "acme" }]);
+  });
+
+  it("accumulates context across the chain — seed, then per-middleware patches", async () => {
+    const seenByInner: unknown[] = [];
+    const seenByImplementation: unknown[] = [];
+
+    const outer = defineActivityMiddleware<{ tenant: string }, { tenant: string; traceId: string }>(
+      (invocation, next) => next({ context: { ...invocation.context, traceId: "t-1" } }),
+    );
+    const inner = defineActivityMiddleware<
+      { tenant: string; traceId: string },
+      { tenant: string; traceId: string; attempt: number }
+    >((invocation, next) => {
+      seenByInner.push(invocation.context);
+      return next({ context: { ...invocation.context, attempt: 1 } });
+    });
+
+    const activities = declareActivitiesHandler({
+      contract,
+      createContext: () => ({ tenant: "acme" }),
+      middleware: composeActivityMiddleware(outer, inner),
+      activities: {
+        sendEmail: (_args, { context }) => {
+          seenByImplementation.push(context);
+          return okAsync({ sent: true });
+        },
+        processOrder: {
+          chargePayment: () => okAsync({ transactionId: "tx" }),
+        },
+      },
+    });
+
+    await activities.sendEmail({ to: "a@b.c" });
+
+    // Inner middleware sees the seed + the outer patch...
+    expect(seenByInner).toEqual([{ tenant: "acme", traceId: "t-1" }]);
+    // ...and the implementation sees the full accumulation.
+    expect(seenByImplementation).toEqual([{ tenant: "acme", traceId: "t-1", attempt: 1 }]);
+  });
+
+  it("read-only middleware stays valid unchanged and context defaults to an empty object", async () => {
+    const seen: unknown[] = [];
+    const activities = declareActivitiesHandler({
+      contract,
+      middleware: (invocation, next) => {
+        seen.push(invocation.context);
+        return next();
+      },
+      activities: passthroughImplementations,
+    });
+
+    await activities.sendEmail({ to: "a@b.c" });
+    expect(seen).toEqual([{}]);
   });
 });

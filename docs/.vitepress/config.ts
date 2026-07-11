@@ -129,10 +129,7 @@ export default withMermaid(
           {
             text: "Migrations",
             collapsed: true,
-            items: [
-              { text: "From @swan-io/boxed", link: "/guide/migrating-to-neverthrow" },
-              { text: "From neverthrow", link: "/guide/migrating-to-unthrown" },
-            ],
+            items: [{ text: "From neverthrow", link: "/guide/migrating-to-unthrown" }],
           },
         ],
         "/api/": [

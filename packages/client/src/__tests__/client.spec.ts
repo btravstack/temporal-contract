@@ -60,7 +60,11 @@ const it = baseIt.extend<{
       connection: clientConnection,
       namespace: "default",
     });
-    const client = TypedClient.create(testContract, rawClient);
+    const clientResult = await TypedClient.create({ contract: testContract, client: rawClient });
+    if (!clientResult.isOk()) {
+      throw clientResult.isErr() ? clientResult.error : clientResult.cause;
+    }
+    const client = clientResult.value;
 
     await use(client);
   },

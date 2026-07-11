@@ -41,13 +41,20 @@ Implementations receive an optional second **helpers** argument:
   boundary to `ApplicationFailure(type = "PaymentDeclined", details = [validated data],
 nonRetryable from the contract)`, and rehydrated as a typed `ContractError` on the
   workflow side.
-- `helpers.context` — the value built by `declareActivitiesHandler`'s optional
-  `createContext` factory (typed dependency injection; runs once per activity
-  execution with `{ activityName, workflowName }`).
+- `helpers.context` — the accumulated typed context: the seed built by
+  `declareActivitiesHandler`'s optional `createContext` factory (runs once per
+  activity execution with `{ activityName, workflowName }`) plus everything
+  injected by the middleware chain via `next({ context })`.
 
-`declareActivitiesHandler` also accepts `middleware: ActivityMiddleware[]`
-(outermost-first, inside the validation boundary, operating on the
-`AsyncResult` — not thrown exceptions).
+`declareActivitiesHandler` also accepts `middleware` — a single
+`ActivityMiddleware` or a typed chain built with
+`composeActivityMiddleware(...)` (outermost-first, inside the validation
+boundary, operating on the `AsyncResult` — not thrown exceptions). Middleware
+accumulates context with bounded generics (`TContextOut extends TContextIn`,
+amqp-contract's model): `next({ context })` extends what downstream stages and
+the implementation see; `next({ input })` substitutes the input (re-validated).
+The client has the mirror-image seam: `TypedClient.create({ interceptors })`
+wraps start/execute/signalWithStart and handle-level signal/query/update.
 
 ## Workflow Declaration
 
@@ -92,17 +99,27 @@ Typed-error semantics inside the workflow context:
 
 ## Worker Setup
 
+`createWorker` returns `AsyncResult<Worker, TechnicalError>` (org rule:
+`Typed*.create()` factories model creation failures on the Err channel).
+Same shape on the client: `TypedClient.create({ contract, client })` returns
+`AsyncResult<TypedClient, TechnicalError>`. Deprecated throwing aliases
+(`createWorkerOrThrow`, `TypedClient.createOrThrow`) exist for migration.
+
 ```typescript
 import { createWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
 
-const worker = await createWorker({
+const workerResult = await createWorker({
   contract: myContract,
   connection,
   workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
   activities,
 });
+if (workerResult.isErr()) {
+  // bundling / connection failure — modeled, not thrown
+  process.exit(1);
+}
 
-await worker.run();
+await workerResult.value.run();
 ```
 
 ## Cancellation

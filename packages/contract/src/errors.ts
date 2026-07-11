@@ -22,6 +22,27 @@ import { TaggedError } from "unthrown";
 import type { AnySchema, ErrorDefinition, InferErrorData, InferErrorDataInput } from "./types.js";
 
 /**
+ * Error for technical/runtime failures that cannot be prevented by
+ * TypeScript — connection failures, missing runtime capabilities, worker
+ * bundling errors. Surfaced on the `Err` channel of the creation factories
+ * (`TypedClient.create`, `createWorker`), never thrown: it is a *modeled*
+ * error (it lives in the `E` channel of a `Result`), not a `Defect`.
+ *
+ * Mirrors amqp-contract's `TechnicalError` — the org-wide shape for
+ * `Typed*.create()` factories returning `AsyncResult<_, TechnicalError>`.
+ */
+export class TechnicalError extends TaggedError("@temporal-contract/TechnicalError", {
+  name: "TechnicalError",
+})<{
+  cause?: unknown;
+}> {
+  constructor(message: string, cause?: unknown) {
+    super({ cause });
+    this.message = message;
+  }
+}
+
+/**
  * A typed domain error declared on a contract's `errors` map.
  *
  * One class covers every declared error; the `errorName` field is the

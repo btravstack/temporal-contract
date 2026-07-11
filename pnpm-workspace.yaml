@@ -51,6 +51,7 @@ catalog:
   "@commitlint/config-conventional": 21.0.2
   "@standard-schema/spec": 1.1.0
   "@temporalio/client": 1.18.1
+  "@temporalio/testing": 1.18.1
   "@temporalio/common": 1.18.1
   "@temporalio/worker": 1.18.1
   "@temporalio/workflow": 1.18.1

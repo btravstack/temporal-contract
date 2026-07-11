@@ -285,5 +285,3 @@ returned `ResultAsync<T, WorkflowCancelledError>`. They now return
 ## See Also
 
 - [Result Pattern](/guide/result-pattern)
-- [Migrating from @swan-io/boxed](/guide/migrating-to-neverthrow) (the
-  earlier migration, kept for history)

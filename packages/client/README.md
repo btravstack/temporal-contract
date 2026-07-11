@@ -18,7 +18,11 @@ import { Connection, Client } from "@temporalio/client";
 
 const connection = await Connection.connect({ address: "localhost:7233" });
 const temporalClient = new Client({ connection });
-const client = TypedClient.create(myContract, temporalClient);
+const client = (
+  await TypedClient.create({ contract: myContract, client: temporalClient })
+).getOrElse((error) => {
+  throw error;
+});
 
 // Execute workflow (fully typed!)
 const result = await client.executeWorkflow("processOrder", {

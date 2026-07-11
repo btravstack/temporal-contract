@@ -1,6 +1,7 @@
 export {
   readTypedSearchAttributes,
   TypedClient,
+  type CreateTypedClientOptions,
   type TypedSearchAttributeMap,
   type TypedSignalWithStartOptions,
   type TypedWorkflowHandle,
@@ -8,6 +9,15 @@ export {
   type TypedWorkflowStartOptions,
   type WorkflowContractErrorsOf,
 } from "./client.js";
+export type {
+  ClientCallError,
+  ClientInterceptor,
+  ClientInterceptorArgs,
+  ClientInterceptorNext,
+} from "./interceptors.js";
+// Modeled creation failure — `TypedClient.create` surfaces it on the Err
+// channel instead of throwing.
+export { TechnicalError } from "@temporal-contract/contract/errors";
 // Typed contract-error surface — a failed execution whose failure matches a
 // workflow's declared `errors` entry surfaces as a `ContractError` instead
 // of the generic `WorkflowFailedError`.

@@ -17,7 +17,7 @@
       "entry": ["src/__tests__/test.workflows.ts"]
     },
     "packages/worker": {
-      "entry": ["src/__tests__/test.workflows.ts"]
+      "entry": ["src/__tests__/test.workflows.ts", "src/__tests__/inprocess.workflows.ts"]
     },
     "examples/order-processing-worker": {
       "entry": ["src/application/workflows.ts"]
