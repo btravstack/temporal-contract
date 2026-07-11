@@ -127,11 +127,10 @@ const contract = defineContract({
 });
 
 // 2. Client gets full type safety
-const client = await TypedClient.create({ contract: contract, client: temporalClient }).getOrElse(
-  (error) => {
-    throw error;
-  },
-);
+const client = await TypedClient.create({
+  contract: contract,
+  client: temporalClient,
+}).getOrThrow();
 
 const future = client.executeWorkflow("processOrder", {
   workflowId: "order-123",

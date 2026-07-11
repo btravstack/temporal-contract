@@ -199,9 +199,7 @@ const worker = await createWorker({
   // ESM-safe path resolution (there is no `require.resolve` in ESM)
   workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
   activities,
-}).getOrElse((error) => {
-  throw error;
-});
+}).getOrThrow();
 
 await worker.run();
 ```
@@ -220,9 +218,7 @@ const temporalClient = new Client({ connection });
 const client = await TypedClient.create({
   contract: orderContract,
   client: temporalClient,
-}).getOrElse((error) => {
-  throw error;
-});
+}).getOrThrow();
 
 // Fully typed workflow execution with Result/AsyncResult pattern
 const resultAsync = client.executeWorkflow("processOrder", {

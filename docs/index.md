@@ -76,7 +76,7 @@ export const orderContract = defineContract({
 ```typescript [2. Implement Activities]
 import { fromPromise } from "unthrown";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { orderContract } from "./contract";
+import { orderContract } from "./contract.js";
 
 export const activities = declareActivitiesHandler({
   contract: orderContract,
@@ -105,7 +105,7 @@ export const activities = declareActivitiesHandler({
 
 ```typescript [3. Implement Workflow]
 import { declareWorkflow } from "@temporal-contract/worker/workflow";
-import { orderContract } from "./contract";
+import { orderContract } from "./contract.js";
 
 export const processOrder = declareWorkflow({
   workflowName: "processOrder",
@@ -122,16 +122,14 @@ export const processOrder = declareWorkflow({
 ```typescript [4. Call from Client]
 import { TypedClient } from "@temporal-contract/client";
 import { Connection, Client } from "@temporalio/client";
-import { orderContract } from "./contract";
+import { orderContract } from "./contract.js";
 
 const connection = await Connection.connect({ address: "localhost:7233" });
 const temporalClient = new Client({ connection });
 const client = await TypedClient.create({
   contract: orderContract,
   client: temporalClient,
-}).getOrElse((error) => {
-  throw error;
-});
+}).getOrThrow();
 
 const future = client.executeWorkflow("processOrder", {
   workflowId: "order-123",

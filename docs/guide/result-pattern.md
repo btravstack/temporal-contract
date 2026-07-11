@@ -134,9 +134,7 @@ const temporalClient = new Client({ connection });
 const client = await TypedClient.create({
   contract: orderContract,
   client: temporalClient,
-}).getOrElse((error) => {
-  throw error;
-});
+}).getOrThrow();
 const result = await client.executeWorkflow("processOrder", {
   workflowId: "order-123",
   args: { orderId: "ORD-123", amount: 100 },

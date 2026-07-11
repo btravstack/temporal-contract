@@ -61,9 +61,7 @@ import { TypedClient } from "@temporal-contract/client";
 const client = await TypedClient.create({
   contract: orderProcessingContract,
   client: new Client({ connection, namespace: "default" }),
-}).getOrElse((error) => {
-  throw error;
-});
+}).getOrThrow();
 
 // Start workflow with full type safety
 const handle = await client.startWorkflow("processOrder", {

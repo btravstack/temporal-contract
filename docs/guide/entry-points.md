@@ -219,9 +219,7 @@ const temporalClient = new Client({ connection, namespace: "default" });
 const client = await TypedClient.create({
   contract: orderContract,
   client: temporalClient,
-}).getOrElse((error) => {
-  throw error;
-});
+}).getOrThrow();
 
 // Start workflow with full type safety (returns AsyncResult<TypedWorkflowHandle, ...>)
 const handleResult = await client.startWorkflow("processOrder", {

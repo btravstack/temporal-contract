@@ -17,7 +17,7 @@
  * @example
  * ```ts
  * import { it } from "@temporal-contract/testing/time-skipping";
- * import { createWorker } from "@temporal-contract/worker/worker";
+ * import { createWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
  * import { TypedClient } from "@temporal-contract/client";
  *
  * it("processes the order", async ({ testEnv }) => {
@@ -26,12 +26,8 @@
  *     connection: testEnv.nativeConnection,
  *     workflowsPath: workflowsPathFromURL(import.meta.url, "./test.workflows.js"),
  *     activities,
- *   }).getOrElse((error) => {
- *     throw error;
- *   });
- *   const client = await TypedClient.create({ contract: myContract, client: testEnv.client }).getOrElse((error) => {
- *     throw error;
- *   });
+ *   }).getOrThrow();
+ *   const client = await TypedClient.create({ contract: myContract, client: testEnv.client }).getOrThrow();
  *
  *   await worker.runUntil(async () => {
  *     const result = await client.executeWorkflow("processOrder", {

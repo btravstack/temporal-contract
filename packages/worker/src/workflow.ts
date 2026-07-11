@@ -161,7 +161,7 @@ export {
  * Then in your worker setup:
  * ```ts
  * // worker.ts
- * import { createWorker } from '@temporal-contract/worker/worker';
+ * import { createWorker, workflowsPathFromURL } from '@temporal-contract/worker/worker';
  * import { activities } from './activities.js';
  * import myContract from './contract.js';
  *
@@ -170,9 +170,7 @@ export {
  *   connection,
  *   workflowsPath: workflowsPathFromURL(import.meta.url, './workflows.js'),
  *   activities,
- * }).getOrElse((error) => {
- *   throw error;
- * });
+ * }).getOrThrow();
  * ```
  */
 export function declareWorkflow<
