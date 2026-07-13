@@ -49,8 +49,8 @@ catalogs:
       specifier: 2.2.1
       version: 2.2.1
     knip:
-      specifier: 6.23.0
-      version: 6.23.0
+      specifier: 6.24.0
+      version: 6.24.0
     lefthook:
       specifier: 2.1.9
       version: 2.1.9
@@ -120,7 +120,7 @@ importers:
         version: 21.0.2
       knip:
         specifier: 'catalog:'
-        version: 6.23.0
+        version: 6.24.0
       lefthook:
         specifier: 'catalog:'
         version: 2.1.9
@@ -3800,8 +3800,8 @@ packages:
   khroma@2.1.0:
     resolution: {integrity: sha512-Ls993zuzfayK269Svk9hzpeGUKob/sIgZzyHYdjQoAdQetRKpOLj+k/QQQ/6Qi0Yz65mlROrfd+Ev+1+7dz9Kw==}
 
-  knip@6.23.0:
-    resolution: {integrity: sha512-2DvAOX2pZWiG4SLvRRxOAU0aWGEn1ZoVblI541xIoXFdHqq2THMZXy66/qcY5WGuW3TXhb9T1x1zd/Hd1u+yqg==}
+  knip@6.24.0:
+    resolution: {integrity: sha512-PokLlgeEjLh1rAsB7ts+52wZ37HBr1nDhE6NNONwEaXdeZGCJOkP7ZlIAI2Gtu8xohquzTWy75bc/1diI9shQw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
 
@@ -6031,6 +6031,13 @@ snapshots:
       '@tybys/wasm-util': 0.10.3
     optional: true
 
+  '@napi-rs/wasm-runtime@1.1.6(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)':
+    dependencies:
+      '@emnapi/core': 1.11.1
+      '@emnapi/runtime': 1.11.1
+      '@tybys/wasm-util': 0.10.3
+    optional: true
+
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
       '@nodelib/fs.stat': 2.0.5
@@ -6095,7 +6102,7 @@ snapshots:
     dependencies:
       '@emnapi/core': 1.11.1
       '@emnapi/runtime': 1.11.1
-      '@napi-rs/wasm-runtime': 1.1.5(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)
+      '@napi-rs/wasm-runtime': 1.1.6(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)
     optional: true
 
   '@oxc-parser/binding-win32-arm64-msvc@0.137.0':
@@ -8213,7 +8220,7 @@ snapshots:
 
   khroma@2.1.0: {}
 
-  knip@6.23.0:
+  knip@6.24.0:
     dependencies:
       fdir: 6.5.0(picomatch@4.0.4)
       formatly: 0.3.0
