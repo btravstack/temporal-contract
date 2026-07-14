@@ -133,9 +133,7 @@ await client.executeWorkflow("processOrder", {
 // ❌ Error - Wrong workflow name
 await client.executeWorkflow("invalidWorkflow", {
   workflowId: "order-123",
-  args: {
-    /* ... */
-  },
+  args: {/* ... */},
 });
 ```
 
@@ -328,9 +326,8 @@ const logging: ClientInterceptor = (args, next) =>
 
 // Retry a transient failure once
 const retryOnce: ClientInterceptor = (args, next) =>
-  next().flatMapErr(
-    (error): ReturnType<typeof next> =>
-      error instanceof RuntimeClientError ? next() : Err(error).toAsync(),
+  next().flatMapErr((error): ReturnType<typeof next> =>
+    error instanceof RuntimeClientError ? next() : Err(error).toAsync(),
   );
 
 const client = await TypedClient.create({
@@ -413,15 +410,9 @@ const inventoryClient = await TypedClient.create({
 }).getOrThrow();
 
 // Each client is typed to its contract
-await orderClient.executeWorkflow("processOrder", {
-  /* ... */
-});
-await paymentClient.executeWorkflow("processPayment", {
-  /* ... */
-});
-await inventoryClient.executeWorkflow("updateStock", {
-  /* ... */
-});
+await orderClient.executeWorkflow("processOrder", {/* ... */});
+await paymentClient.executeWorkflow("processPayment", {/* ... */});
+await inventoryClient.executeWorkflow("updateStock", {/* ... */});
 ```
 
 ## Testing

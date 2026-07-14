@@ -25,15 +25,9 @@ const contract = defineContract({
   taskQueue: "my-queue",
   workflows: {
     myWorkflow: {
-      input: z.object({
-        /* ... */
-      }),
-      output: z.object({
-        /* ... */
-      }),
-      activities: {
-        /* ... */
-      },
+      input: z.object({/* ... */}),
+      output: z.object({/* ... */}),
+      activities: {/* ... */},
     },
   },
 });
@@ -90,9 +84,7 @@ const contract = defineContract({
         success: z.boolean(),
         transactionId: z.string(),
       }),
-      activities: {
-        /* ... */
-      },
+      activities: {/* ... */},
     },
   },
 });
@@ -177,9 +169,7 @@ const contract = defineContract({
     },
   },
 
-  workflows: {
-    /* ... */
-  },
+  workflows: {/* ... */},
 });
 ```
 
@@ -287,18 +277,14 @@ const emailActivities = {
 const ordersContract = defineContract({
   taskQueue: "orders",
   activities: emailActivities,
-  workflows: {
-    /* ... */
-  },
+  workflows: {/* ... */},
 });
 
 // Contract 2 (reusing activities)
 const shipmentsContract = defineContract({
   taskQueue: "shipments",
   activities: emailActivities,
-  workflows: {
-    /* ... */
-  },
+  workflows: {/* ... */},
 });
 ```
 
@@ -313,12 +299,8 @@ Define focused contracts for specific domains:
 const ordersContract = defineContract({
   taskQueue: "orders",
   workflows: {
-    processOrder: {
-      /* ... */
-    },
-    cancelOrder: {
-      /* ... */
-    },
+    processOrder: {/* ... */},
+    cancelOrder: {/* ... */},
   },
 });
 
@@ -326,15 +308,9 @@ const ordersContract = defineContract({
 const everythingContract = defineContract({
   taskQueue: "everything",
   workflows: {
-    processOrder: {
-      /* ... */
-    },
-    sendEmail: {
-      /* ... */
-    },
-    updateInventory: {
-      /* ... */
-    },
+    processOrder: {/* ... */},
+    sendEmail: {/* ... */},
+    updateInventory: {/* ... */},
     // ... 50 more workflows
   },
 });

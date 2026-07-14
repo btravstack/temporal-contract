@@ -22,9 +22,7 @@ export const myContract = defineContract({
     processOrder: {
       input: z.object({ orderId: z.string() }),
       output: z.object({ success: z.boolean() }),
-      activities: {
-        /* ... */
-      },
+      activities: {/* ... */},
     },
   },
 });
