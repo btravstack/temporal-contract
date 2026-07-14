@@ -1,12 +1,11 @@
 name: Deploy Documentation
 
+# Publish docs when a version is released (changesets creates a GitHub Release on publish), so the
+# site documents the latest *released* library rather than every commit on main. `workflow_dispatch`
+# is a manual redeploy escape hatch for docs-only fixes between releases.
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types:
-      - completed
-    branches:
-      - main
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -25,7 +24,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
