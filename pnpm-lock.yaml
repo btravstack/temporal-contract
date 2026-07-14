@@ -46,8 +46,8 @@ catalogs:
       specifier: 4.1.8
       version: 4.1.8
     arktype:
-      specifier: 2.2.1
-      version: 2.2.1
+      specifier: 2.2.2
+      version: 2.2.2
     knip:
       specifier: 6.24.0
       version: 6.24.0
@@ -372,7 +372,7 @@ importers:
         version: 4.1.8(vitest@4.1.8)
       arktype:
         specifier: 'catalog:'
-        version: 2.2.1
+        version: 2.2.2
       tsdown:
         specifier: 'catalog:'
         version: 0.22.3(oxc-resolver@11.21.3)(tsx@4.23.0)(typescript@6.0.3)
@@ -594,11 +594,11 @@ packages:
   '@antfu/install-pkg@1.1.0':
     resolution: {integrity: sha512-MGQsmw10ZyI+EJo45CdSER4zEb+p31LpDAFp2Z3gkSd1yqVZGi0Ebx++YTEMonJy4oChEMLsxZ64j8FH6sSqtQ==}
 
-  '@ark/schema@0.56.0':
-    resolution: {integrity: sha512-ECg3hox/6Z/nLajxXqNhgPtNdHWC9zNsDyskwO28WinoFEnWow4IsERNz9AnXRhTZJnYIlAJ4uGn3nlLk65vZA==}
+  '@ark/schema@0.56.1':
+    resolution: {integrity: sha512-1Cf2g9nKD8K/3JGRu+gCCfYw5d4qR8YLLjDs5W5kpmaButCYWAPFUJqSXyBATPjglzCd4tIkp398iPYVs8MjRA==}
 
-  '@ark/util@0.56.0':
-    resolution: {integrity: sha512-BghfRC8b9pNs3vBoDJhcta0/c1J1rsoS1+HgVUreMFPdhz/CRAKReAu57YEllNaSy98rWAdY1gE+gFup7OXpgA==}
+  '@ark/util@0.56.1':
+    resolution: {integrity: sha512-Tp1rTik3q5Z+jAeeDxr5JZpmVIw0miti1ykSEHyZv5Pw3TIJl2xbN6KTacOxITp0l3s9ytlrWd30Zvqcy5vzoQ==}
 
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
@@ -2845,11 +2845,11 @@ packages:
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
 
-  arkregex@0.0.6:
-    resolution: {integrity: sha512-9mvuMKQuibfWhBrsNYhsKhNb6k9oEHoAJ/FvDiqe8h+E9Siwe0/cro1WVOGgpajXQ9ZHd24yCOf2k35Q/QqUQw==}
+  arkregex@0.0.7:
+    resolution: {integrity: sha512-O/Ltrn9EUSn3ui0KVzfyrWGDUsHlzKxDVBtpQxL/6JmLRMAZAebfSNf/A/J5Ny5S6QIwrXX+RfXsu888HMs35A==}
 
-  arktype@2.2.1:
-    resolution: {integrity: sha512-CWPJxNoSxrS+NYGB3ufwc/blFonESEW5vBQyYPVS0rf4STu8VWoAWfKJSl5vVVm56h4yxpwbODeYwy6XFKvojA==}
+  arktype@2.2.2:
+    resolution: {integrity: sha512-YYf1xhL2dh5aPZFlsY0RAsxv5HZqfLGLptH2ZP3JidTmsGRW8VOymhPjjMTkerL12vR2YtX0SK4c1mATtae8SA==}
 
   array-ify@1.0.0:
     resolution: {integrity: sha512-c5AMf34bKdvPhQ7tBGhqkgKNUzMr4WUs+WDtC2ZUGOUncbxKMTvqxYctiseW3+L4bA8ec+GcZ6/A/FW4m8ukng==}
@@ -5235,11 +5235,11 @@ snapshots:
       package-manager-detector: 1.6.0
       tinyexec: 1.2.4
 
-  '@ark/schema@0.56.0':
+  '@ark/schema@0.56.1':
     dependencies:
-      '@ark/util': 0.56.0
+      '@ark/util': 0.56.1
 
-  '@ark/util@0.56.0': {}
+  '@ark/util@0.56.1': {}
 
   '@babel/code-frame@7.29.7':
     dependencies:
@@ -7287,15 +7287,15 @@ snapshots:
 
   argparse@2.0.1: {}
 
-  arkregex@0.0.6:
+  arkregex@0.0.7:
     dependencies:
-      '@ark/util': 0.56.0
+      '@ark/util': 0.56.1
 
-  arktype@2.2.1:
+  arktype@2.2.2:
     dependencies:
-      '@ark/schema': 0.56.0
-      '@ark/util': 0.56.0
-      arkregex: 0.0.6
+      '@ark/schema': 0.56.1
+      '@ark/util': 0.56.1
+      arkregex: 0.0.7
 
   array-ify@1.0.0: {}
 

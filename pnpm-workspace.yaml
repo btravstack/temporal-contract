@@ -58,7 +58,7 @@ catalog:
   "@types/node": 24.13.2
   "@unthrown/vitest": 4.1.0
   "@vitest/coverage-v8": 4.1.8
-  arktype: 2.2.1
+  arktype: 2.2.2
   knip: 6.24.0
   lefthook: 2.1.9
   oxfmt: 0.56.0
