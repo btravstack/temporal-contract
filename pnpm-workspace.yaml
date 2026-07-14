@@ -50,11 +50,11 @@ catalog:
   "@commitlint/cli": 21.0.2
   "@commitlint/config-conventional": 21.0.2
   "@standard-schema/spec": 1.1.0
-  "@temporalio/client": 1.18.1
-  "@temporalio/testing": 1.18.1
-  "@temporalio/common": 1.18.1
-  "@temporalio/worker": 1.18.1
-  "@temporalio/workflow": 1.18.1
+  "@temporalio/client": 1.19.0
+  "@temporalio/testing": 1.19.0
+  "@temporalio/common": 1.19.0
+  "@temporalio/worker": 1.19.0
+  "@temporalio/workflow": 1.19.0
   "@types/node": 24.13.2
   "@unthrown/vitest": 4.1.0
   "@vitest/coverage-v8": 4.1.8
