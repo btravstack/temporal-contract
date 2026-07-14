@@ -356,9 +356,7 @@ export const activities = declareActivitiesHandler({
   contract: orderContract,
   // logging wraps timing wraps the implementation
   middleware: composeActivityMiddleware(logging, timing),
-  activities: {
-    /* ... */
-  },
+  activities: {/* ... */},
 });
 ```
 

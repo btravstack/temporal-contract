@@ -312,23 +312,17 @@ export const ecommerceContract = defineContract({
     processOrder: {
       input: z.object({ orderId: z.string() }),
       output: z.object({ success: z.boolean() }),
-      activities: {
-        /* ... */
-      },
+      activities: {/* ... */},
     },
     processRefund: {
       input: z.object({ orderId: z.string(), reason: z.string() }),
       output: z.object({ refunded: z.boolean() }),
-      activities: {
-        /* ... */
-      },
+      activities: {/* ... */},
     },
     updateInventory: {
       input: z.object({ productId: z.string(), delta: z.number() }),
       output: z.object({ newQuantity: z.number() }),
-      activities: {
-        /* ... */
-      },
+      activities: {/* ... */},
     },
   },
 });
@@ -345,15 +339,9 @@ Group related workflows in the same contract:
 export const orderContract = defineContract({
   taskQueue: "orders",
   workflows: {
-    createOrder: {
-      /* ... */
-    },
-    cancelOrder: {
-      /* ... */
-    },
-    updateOrder: {
-      /* ... */
-    },
+    createOrder: {/* ... */},
+    cancelOrder: {/* ... */},
+    updateOrder: {/* ... */},
   },
 });
 
@@ -361,15 +349,9 @@ export const orderContract = defineContract({
 export const contract = defineContract({
   taskQueue: "everything",
   workflows: {
-    processOrder: {
-      /* ... */
-    },
-    sendEmail: {
-      /* ... */
-    },
-    generateReport: {
-      /* ... */
-    },
+    processOrder: {/* ... */},
+    sendEmail: {/* ... */},
+    generateReport: {/* ... */},
   },
 });
 ```
