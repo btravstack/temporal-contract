@@ -47,8 +47,8 @@ packages:
 catalog:
   "@btravstack/theme": 1.5.0
   "@changesets/cli": 2.31.0
-  "@commitlint/cli": 21.0.2
-  "@commitlint/config-conventional": 21.0.2
+  "@commitlint/cli": 21.2.0
+  "@commitlint/config-conventional": 21.2.0
   "@standard-schema/spec": 1.1.0
   "@temporalio/client": 1.19.0
   "@temporalio/testing": 1.19.0
