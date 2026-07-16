@@ -8,7 +8,8 @@ hero:
   text: "Type-safe contracts for Temporal.io"
   tagline: End-to-end type safety · Runtime validation · Explicit error handling
   image:
-    src: /logo.svg
+    light: /logo-light.svg
+    dark: /logo-dark.svg
     alt: temporal-contract
   actions:
     - theme: brand
