@@ -1,1 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 150" width="150" height="150" fill="none"><rect x="40" y="8" width="70" height="11" rx="5.5" fill="#3E1E32"></rect><rect x="40" y="131" width="70" height="11" rx="5.5" fill="#3E1E32"></rect><path d="M49,19 C49,46 72,62 72,73 C72,84 49,98 49,131 M101,19 C101,46 78,62 78,73 C78,84 101,98 101,131" stroke="#3E1E32" stroke-width="4" fill="none" stroke-linecap="round"></path><circle cx="75" cy="40" r="2.6" fill="#CE3D80"></circle><circle cx="75" cy="52" r="2.1" fill="#CE3D80"></circle><circle cx="75" cy="64" r="1.7" fill="#CE3D80"></circle><g transform="translate(75,103) scale(0.4) translate(-50,-63)"><g transform="translate(50,34)"><g transform="rotate(-35)"><path d="M0,3 C-6,-7 -6,-18 0,-28 C6,-18 6,-7 0,3 Z" fill="#2C8B4E"></path></g><g transform="rotate(35)"><path d="M0,3 C-6,-7 -6,-18 0,-28 C6,-18 6,-7 0,3 Z" fill="#2C8B4E"></path></g><path d="M0,4 C-7,-8 -7,-20 0,-32 C7,-20 7,-8 0,4 Z" fill="#3DAE62"></path></g><path d="M50,32 C29,30 17,44 17,60 C17,79 37,99 50,107 Z" fill="#CE3D80"></path><path d="M50,32 C71,30 83,44 83,60 C83,79 63,99 50,107 Z" fill="#8E1A52"></path><path d="M46.5,104 C46.5,112 44,118 39,124 C47,120 52.5,112 53.5,104 Z" fill="#8E1A52"></path></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="42 26 116 148" width="100" height="128" fill="none">
+  <g transform="rotate(10 100 100)">
+    <rect x="58" y="40" width="84" height="13" rx="6.5" fill="#5058B5"/>
+    <rect x="58" y="147" width="84" height="13" rx="6.5" fill="#5058B5"/>
+    <path d="M70,53 C70,77 93,88 93,100 C93,112 70,123 70,147" stroke="#5058B5" stroke-width="5.5" fill="none" stroke-linecap="round"/>
+    <path d="M130,53 C130,77 107,88 107,100 C107,112 130,123 130,147" stroke="#5058B5" stroke-width="5.5" fill="none" stroke-linecap="round"/>
+    <circle cx="100" cy="98" r="2.4" fill="#CE3D80"/>
+    <circle cx="99" cy="107" r="2" fill="#CE3D80" opacity="0.85"/>
+    <circle cx="101" cy="115" r="1.7" fill="#CE3D80" opacity="0.7"/>
+    <!-- beet head rising in the bottom bulb, looking up at the falling sand -->
+    <g transform="translate(100,147) scale(0.82)">
+      <path d="M0,-24 C-13,-24 -20,-16 -20,-8 C-20,-3 -18,0 -16,1 L16,1 C18,0 20,-3 20,-8 C20,-16 13,-24 0,-24 Z" fill="#CE3D80"/>
+      <path d="M8,-22 C15,-19 20,-14 20,-8 C20,-4 19,-1 17,1 L10,1 C13,-6 12,-15 8,-22 Z" fill="#8E1A52" opacity="0.85"/>
+      <circle cx="-7" cy="-12" r="3.1" fill="#3A0D24"/>
+      <circle cx="-6" cy="-13" r="1.1" fill="#FFFFFF"/>
+      <circle cx="6" cy="-12" r="3.1" fill="#3A0D24"/>
+      <circle cx="7" cy="-13" r="1.1" fill="#FFFFFF"/>
+      <path d="M-4,-6 Q0,-2.5 4,-6" stroke="#3A0D24" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+      
+    </g>
+  </g></svg>
