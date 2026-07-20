@@ -69,7 +69,7 @@ catalog:
   "@temporalio/common": 1.20.2
   "@temporalio/worker": 1.20.2
   "@temporalio/workflow": 1.20.2
-  "@types/node": 24.13.2
+  "@types/node": 24.13.3
   "@unthrown/vitest": 4.1.0
   "@vitest/coverage-v8": 4.1.8
   arktype: 2.2.2
