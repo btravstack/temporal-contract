@@ -1,56 +1,8 @@
 autoInstallPeers: false
-
 dedupePeerDependents: true
-
 engineStrict: true
-
 saveExact: true
-
 strictPeerDependencies: true
-
-peerDependencyRules:
-  ignoreMissing:
-    - search-insights
-
-overrides:
-  fast-uri: ">=3.1.2"
-  protobufjs: ">=7.6.1"
-  # undici <8.5.0 advisories (GHSA-vmh5-mc38-953g TLS cert-validation bypass,
-  # GHSA-38rv-x7px-6hhq / GHSA-vxpw-j846-p89q WebSocket DoS). Pulled in only via
-  # testcontainers (declares `undici: ^8.3.0`); the fix is 8.5.0, which still
-  # satisfies that range. Scoped to the testcontainers path so the unrelated
-  # undici 7.x line resolved elsewhere is left untouched.
-  testcontainers>undici: ">=8.5.0"
-  # brace-expansion <2.1.2 / <5.0.7 advisory (GHSA-3jxr-9vmj-r5cp): DoS via
-  # exponential-time expansion of consecutive non-expanding {} groups.
-  # Two separate version lines are pulled in transitively — 2.x via
-  # testcontainers>archiver>minimatch and 5.x via typedoc>minimatch@10.
-  # Patch each major version in-place to avoid forcing cross-major upgrades.
-  "brace-expansion@2": "2.1.2"
-  "brace-expansion@5": "5.0.7"
-  # js-yaml <3.15.0 / <4.3.0 advisory (GHSA-52cp-r559-cp3m): YAML merge-key
-  # chains can force quadratic CPU consumption. Two version lines are present:
-  #   • 3.x via @changesets/cli>@manypkg/get-packages>read-yaml-file
-  #   • 4.x via @changesets/cli>@changesets/parse
-  # Scoped to the immediate parent in each chain to avoid cross-major collisions.
-  read-yaml-file>js-yaml: "^3.15.0"
-  "@changesets/parse>js-yaml": ">=4.3.0"
-
-# esbuild <0.28.1 advisory (GHSA-gv7w-rqvm-qjhr): a Deno-only dev-server binary
-# integrity issue. Only reachable transitively via vitepress>vite>esbuild, and
-# vitepress pins a vite that is incompatible with esbuild 0.28.x (its build
-# crashes transforming destructuring). Not exploitable for a static docs build,
-# so it is ignored until vitepress ships a vite compatible with the fixed esbuild.
-#
-# vite <=6.4.2 advisory (GHSA-fx2h-pf6j-xcff): a `server.fs.deny` bypass on
-# Windows alternate paths in `vite dev`. Only reachable transitively via
-# vitepress 1.x, which pins vite 5.x; the fix exists only in vite 6.4.3+. The
-# bypass affects the dev server only and is not exploitable for the static
-# `vitepress build` output we ship, so it is ignored until vitepress 2.x lands.
-auditConfig:
-  ignoreGhsas:
-    - "GHSA-gv7w-rqvm-qjhr"
-    - "GHSA-fx2h-pf6j-xcff"
 
 packages:
   - packages/*
@@ -59,22 +11,22 @@ packages:
   - docs
 
 catalog:
-  "@btravstack/theme": 1.6.1
+  "@btravstack/theme": 1.7.0
   "@changesets/cli": 2.31.0
-  "@commitlint/cli": 21.2.0
+  "@commitlint/cli": 21.2.1
   "@commitlint/config-conventional": 21.2.0
   "@standard-schema/spec": 1.1.0
   "@temporalio/client": 1.20.2
-  "@temporalio/testing": 1.20.2
   "@temporalio/common": 1.20.2
+  "@temporalio/testing": 1.20.2
   "@temporalio/worker": 1.20.2
   "@temporalio/workflow": 1.20.2
-  "@types/node": 24.13.3
+  "@types/node": 26.1.1
   "@unthrown/vitest": 4.1.0
-  "@vitest/coverage-v8": 4.1.8
+  "@vitest/coverage-v8": 4.1.10
   arktype: 2.2.3
-  knip: 6.24.0
-  lefthook: 2.1.9
+  knip: 6.26.0
+  lefthook: 2.1.10
   oxfmt: 0.58.0
   oxlint: 1.73.0
   pino: 10.3.1
@@ -88,8 +40,33 @@ catalog:
   typescript: 6.0.3
   unthrown: 4.1.0
   valibot: 1.4.2
-  vitest: 4.1.8
+  vitest: 4.1.10
   zod: 4.4.3
+
+peerDependencyRules:
+  ignoreMissing:
+    - search-insights
+
+# Force patched versions of vulnerable transitive dependencies. Each override
+# pulls a transitive dep to its first fixed release without disturbing unrelated
+# version lines. High-severity advisories gate CI's `pnpm audit --audit-level=high`.
+overrides:
+  # GHSA-3jxr-9vmj-r5cp: brace-expansion ReDoS. Two lines are present — 2.x via
+  # testcontainers>archiver>minimatch and 5.x via typedoc>minimatch@10. Patch each
+  # major in-place to avoid forcing cross-major upgrades.
+  "brace-expansion@2": "2.1.2"
+  "brace-expansion@5": "5.0.7"
+  # GHSA-52cp-r559-cp3m: js-yaml quadratic-CPU merge keys. Two lines present —
+  # 3.x via @changesets/cli>@manypkg/get-packages>read-yaml-file and 4.x via
+  # @changesets/cli>@changesets/parse. Scoped to each parent to avoid collisions.
+  "js-yaml@3": "3.15.0"
+  "js-yaml@4": "4.3.0"
+  # GHSA-fx2h-pf6j-xcff: vite `server.fs.deny` bypass (dev-server only; the docs
+  # ship as static HTML). Reaches us via docs > vitepress > vite. vitepress 1.6.x
+  # pins vite 5.x and 5.x has no patched release, so pull vite up to 6.4.3 (the
+  # first fixed version) — the docs `vitepress build` is verified against it. This
+  # also drags esbuild to a patched 0.25.x, resolving GHSA-gv7w-rqvm-qjhr.
+  vite: 6.4.3
 
 allowBuilds:
   "@swc/core": true
@@ -99,6 +76,9 @@ allowBuilds:
   protobufjs: true
   ssh2: true
 
+# Supply-chain maturity delay: don't adopt a freshly published version until it
+# has been on the registry for 7 days (10080 minutes). Strict mode also validates
+# the committed lockfile against this cutoff.
 minimumReleaseAge: 10080
 minimumReleaseAgeStrict: true
 # First-party btravstack packages — the maturity delay guards against
