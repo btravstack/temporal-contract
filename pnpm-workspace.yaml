@@ -21,6 +21,20 @@ overrides:
   # satisfies that range. Scoped to the testcontainers path so the unrelated
   # undici 7.x line resolved elsewhere is left untouched.
   testcontainers>undici: ">=8.5.0"
+  # brace-expansion <2.1.2 / <5.0.7 advisory (GHSA-3jxr-9vmj-r5cp): DoS via
+  # exponential-time expansion of consecutive non-expanding {} groups.
+  # Two separate version lines are pulled in transitively — 2.x via
+  # testcontainers>archiver>minimatch and 5.x via typedoc>minimatch@10.
+  # Patch each major version in-place to avoid forcing cross-major upgrades.
+  "brace-expansion@2": "2.1.2"
+  "brace-expansion@5": "5.0.7"
+  # js-yaml <3.15.0 / <4.3.0 advisory (GHSA-52cp-r559-cp3m): YAML merge-key
+  # chains can force quadratic CPU consumption. Two version lines are present:
+  #   • 3.x via @changesets/cli>@manypkg/get-packages>read-yaml-file
+  #   • 4.x via @changesets/cli>@changesets/parse
+  # Scoped to the immediate parent in each chain to avoid cross-major collisions.
+  read-yaml-file>js-yaml: "^3.15.0"
+  "@changesets/parse>js-yaml": ">=4.3.0"
 
 # esbuild <0.28.1 advisory (GHSA-gv7w-rqvm-qjhr): a Deno-only dev-server binary
 # integrity issue. Only reachable transitively via vitepress>vite>esbuild, and
