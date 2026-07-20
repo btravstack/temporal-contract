@@ -91,3 +91,4 @@ minimumReleaseAgeExclude:
   - "@btravstack/theme"
   - "unthrown"
   - "@unthrown/vitest"
+auditConfig: { ignoreGhsas: null }
