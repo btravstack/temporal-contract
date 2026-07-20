@@ -48,7 +48,7 @@ When you add a peer dep, also add it to `devDependencies` (with the same `"catal
 
 ## Security `overrides` (`pnpm-workspace.yaml`)
 
-`pnpm-workspace.yaml` pins minimum versions for transitive dependencies via its `overrides:` block to close known CVEs (currently `fast-uri`, `protobufjs`, and `testcontainers>undici`). When a security audit flags a new vulnerability, add the pin there (with a comment citing the GHSA and the reachability reasoning) rather than waiting for upstream to update. Advisories that are unreachable in this repo are suppressed via `auditConfig.ignoreGhsas`, each with a documented justification.
+`pnpm-workspace.yaml` pins minimum versions for transitive dependencies via its `overrides:` block to close known CVEs (currently `fast-uri`, `protobufjs`, and `testcontainers>undici`). When a security audit flags a new vulnerability, add the pin there (with a comment citing the GHSA and the reachability reasoning) rather than waiting for upstream to update.
 
 ## Monorepo Conventions
 
