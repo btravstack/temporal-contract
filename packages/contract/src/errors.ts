@@ -19,6 +19,7 @@
  *   string-matching failure types.
  */
 import { TaggedError } from "unthrown";
+
 import type { AnySchema, ErrorDefinition, InferErrorData, InferErrorDataInput } from "./types.js";
 
 /**

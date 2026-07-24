@@ -1,6 +1,7 @@
-import { fromPromise } from "unthrown";
-import { declareActivitiesHandler, qualify } from "@temporal-contract/worker/activity";
 import { orderProcessingContract } from "@temporal-contract/sample-order-processing-contract";
+import { declareActivitiesHandler, qualify } from "@temporal-contract/worker/activity";
+import { fromPromise } from "unthrown";
+
 import {
   sendNotificationUseCase,
   processPaymentUseCase,

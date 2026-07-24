@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
+
 import {
   defineActivity,
   defineQuery,
@@ -6,7 +8,6 @@ import {
   defineUpdate,
   defineWorkflow,
 } from "./builder.js";
-import { z } from "zod";
 
 describe("Helper Functions", () => {
   describe("defineActivity", () => {

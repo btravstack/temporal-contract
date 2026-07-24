@@ -1,5 +1,5 @@
-import type { InventoryPort } from "../ports/inventory.port.js";
 import type { InventoryReservation, OrderItem } from "../entities/order.schema.js";
+import type { InventoryPort } from "../ports/inventory.port.js";
 
 /**
  * Reserve Inventory Use Case

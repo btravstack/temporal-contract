@@ -17,9 +17,9 @@
 // (`type` = error name, `details[0]` = validated data, `nonRetryable` from
 // the contract) at the boundary.
 import {
-  ActivityDefinition,
-  ContractDefinition,
-  ErrorDefinition,
+  type ActivityDefinition,
+  type ContractDefinition,
+  type ErrorDefinition,
 } from "@temporal-contract/contract";
 import {
   _internal_buildErrorConstructors,
@@ -28,16 +28,17 @@ import {
   type ContractErrorConstructors,
   type ContractErrorInputUnion,
 } from "@temporal-contract/contract/errors";
-import type { AsyncResult } from "unthrown";
 import { ApplicationFailure } from "@temporalio/common";
-import { WorkerInferInput, WorkerInferOutput } from "./types.js";
+import type { AsyncResult } from "unthrown";
+
+import { contractErrorToApplicationFailure } from "./contract-errors.js";
 import {
   ActivityDefinitionNotFoundError,
   ActivityInputValidationError,
   ActivityOutputValidationError,
 } from "./errors.js";
-import { contractErrorToApplicationFailure } from "./contract-errors.js";
 import { extractHandlerInput, makeAsyncResult } from "./internal.js";
+import { type WorkerInferInput, type WorkerInferOutput } from "./types.js";
 
 export {
   ActivityDefinitionNotFoundError,

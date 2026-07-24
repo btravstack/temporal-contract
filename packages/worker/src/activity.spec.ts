@@ -1,13 +1,14 @@
-import { describe, expect, it } from "vitest";
+import type { ContractDefinition } from "@temporal-contract/contract";
 import { Ok, Err, fromSafePromise, type AsyncResult } from "unthrown";
+import { describe, expect, it } from "vitest";
 import { z } from "zod";
+
+import { ApplicationFailure, declareActivitiesHandler, qualify } from "./activity.js";
 import {
   ActivityDefinitionNotFoundError,
   ActivityInputValidationError,
   ActivityOutputValidationError,
 } from "./errors.js";
-import type { ContractDefinition } from "@temporal-contract/contract";
-import { ApplicationFailure, declareActivitiesHandler, qualify } from "./activity.js";
 
 // unthrown has no `okAsync`/`errAsync`; lift a sync `Result` with `.toAsync()`.
 const okAsync = <T>(value: T): AsyncResult<T, never> => Ok(value).toAsync();

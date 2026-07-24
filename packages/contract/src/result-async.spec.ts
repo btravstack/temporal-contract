@@ -1,3 +1,4 @@
+import { Ok, Err } from "unthrown";
 /**
  * Coverage for the shared `_internal_makeAsyncResult` helper.
  *
@@ -10,7 +11,7 @@
  * and `worker/src/internal.ts`.
  */
 import { describe, expect, it } from "vitest";
-import { Ok, Err } from "unthrown";
+
 import { _internal_makeAsyncResult } from "./result-async.js";
 
 class TestError extends Error {

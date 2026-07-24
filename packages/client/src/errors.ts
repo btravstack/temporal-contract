@@ -1,6 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { summarizeIssues } from "@temporal-contract/contract";
-import { TaggedError } from "unthrown";
 import type {
   ActivityFailure,
   ApplicationFailure,
@@ -10,6 +9,7 @@ import type {
   TerminatedFailure,
   TimeoutFailure,
 } from "@temporalio/common";
+import { TaggedError } from "unthrown";
 
 /**
  * Union of the actionable Temporal failure types that can surface as the

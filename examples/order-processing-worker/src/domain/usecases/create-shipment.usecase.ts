@@ -1,5 +1,5 @@
-import type { ShippingPort } from "../ports/shipping.port.js";
 import type { ShippingResult } from "../entities/order.schema.js";
+import type { ShippingPort } from "../ports/shipping.port.js";
 
 /**
  * Create Shipment Use Case

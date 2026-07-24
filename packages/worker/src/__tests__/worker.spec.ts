@@ -1,14 +1,16 @@
-import { describe, expect, vi, beforeEach } from "vitest";
-import { Worker } from "@temporalio/worker";
-import { TypedClient, WorkflowValidationError } from "@temporal-contract/client";
-import { it as baseIt } from "@temporal-contract/testing/extension";
-import { Ok, Err, type AsyncResult } from "unthrown";
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { testContract } from "./test.contract.js";
+
+import { TypedClient, WorkflowValidationError } from "@temporal-contract/client";
+import { it as baseIt } from "@temporal-contract/testing/extension";
 import { Client, WorkflowFailedError } from "@temporalio/client";
+import { type Worker } from "@temporalio/worker";
+import { Ok, Err, type AsyncResult } from "unthrown";
+import { describe, expect, vi, beforeEach } from "vitest";
+
 import { ApplicationFailure, declareActivitiesHandler } from "../activity.js";
 import { createWorker } from "../worker.js";
+import { testContract } from "./test.contract.js";
 
 // unthrown has no `okAsync`/`errAsync`; lift a sync `Result` with `.toAsync()`.
 const okAsync = <T>(value: T): AsyncResult<T, never> => Ok(value).toAsync();

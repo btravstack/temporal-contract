@@ -1,3 +1,5 @@
+import type { ErrorDefinition } from "@temporal-contract/contract";
+import type { AnyContractError } from "@temporal-contract/contract/errors";
 /**
  * Worker-side bridge between contract-declared typed errors and Temporal's
  * `ApplicationFailure`.
@@ -7,8 +9,7 @@
  * `./activity` and `./workflow`.
  */
 import { ApplicationFailure } from "@temporalio/common";
-import type { ErrorDefinition } from "@temporal-contract/contract";
-import type { AnyContractError } from "@temporal-contract/contract/errors";
+
 import { ContractErrorDataValidationError } from "./errors.js";
 
 /**

@@ -1,3 +1,6 @@
+import type { ActivityDefinition } from "@temporal-contract/contract";
+import { defineActivity, defineContract, defineWorkflow } from "@temporal-contract/contract";
+import type { ActivityOptions } from "@temporalio/workflow";
 /**
  * Runtime coverage for `buildRawActivitiesProxy` — the helper that wires
  * per-activity `ActivityOptions` overrides into Temporal's `proxyActivities`.
@@ -9,9 +12,6 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import type { ActivityOptions } from "@temporalio/workflow";
-import type { ActivityDefinition } from "@temporal-contract/contract";
-import { defineActivity, defineContract, defineWorkflow } from "@temporal-contract/contract";
 
 const proxyCalls: ActivityOptions[] = [];
 

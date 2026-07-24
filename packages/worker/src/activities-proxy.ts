@@ -1,11 +1,3 @@
-/**
- * Activity inference types + the validated-activities proxy used by
- * `declareWorkflow`. Split out of `workflow.ts` to keep that file focused
- * on `declareWorkflow` and its `WorkflowContext` type. Not part of the
- * worker package's public exports.
- */
-import { isCancellation } from "@temporalio/workflow";
-import { ActivityFailure, ApplicationFailure } from "@temporalio/common";
 import type {
   ActivityDefinition,
   AnyWorkflowDefinition,
@@ -17,7 +9,16 @@ import {
   _internal_rehydrateContractError,
   type ContractErrorUnion,
 } from "@temporal-contract/contract/errors";
+import { ActivityFailure, ApplicationFailure } from "@temporalio/common";
+/**
+ * Activity inference types + the validated-activities proxy used by
+ * `declareWorkflow`. Split out of `workflow.ts` to keep that file focused
+ * on `declareWorkflow` and its `WorkflowContext` type. Not part of the
+ * worker package's public exports.
+ */
+import { isCancellation } from "@temporalio/workflow";
 import { Ok, Err, type AsyncResult } from "unthrown";
+
 import {
   ActivityCancelledError,
   ActivityError,

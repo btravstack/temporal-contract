@@ -1,12 +1,3 @@
-/**
- * Coverage for the path-aware issue formatting in client validation errors,
- * plus the `WorkflowFailedError.cause` typing contract.
- *
- * Mirrors the worker-side test (#141 closes both surfaces); the helpers are
- * intentionally duplicated across packages so each entry point has its own
- * formatting source of truth.
- */
-import { describe, expect, expectTypeOf, it } from "vitest";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type {
   ActivityFailure,
@@ -17,12 +8,22 @@ import type {
   TerminatedFailure,
   TimeoutFailure,
 } from "@temporalio/common";
+/**
+ * Coverage for the path-aware issue formatting in client validation errors,
+ * plus the `WorkflowFailedError.cause` typing contract.
+ *
+ * Mirrors the worker-side test (#141 closes both surfaces); the helpers are
+ * intentionally duplicated across packages so each entry point has its own
+ * formatting source of truth.
+ */
+import { describe, expect, expectTypeOf, it } from "vitest";
+
 import {
   QueryValidationError,
   SignalValidationError,
   type TemporalFailure,
   UpdateValidationError,
-  WorkflowFailedError,
+  type WorkflowFailedError,
   WorkflowValidationError,
 } from "./errors.js";
 

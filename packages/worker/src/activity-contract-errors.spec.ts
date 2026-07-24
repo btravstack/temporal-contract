@@ -1,3 +1,6 @@
+import { defineContract } from "@temporal-contract/contract";
+import { ContractError } from "@temporal-contract/contract/errors";
+import { Ok, Err, type AsyncResult } from "unthrown";
 /**
  * Runtime coverage for `declareActivitiesHandler`'s contract-declared typed
  * errors, middleware chain, and dependency context — the boundary where an
@@ -6,11 +9,8 @@
  * `nonRetryable` from the contract).
  */
 import { describe, expect, it, vi } from "vitest";
-import { Ok, Err, type AsyncResult } from "unthrown";
 import { z } from "zod";
-import { defineContract } from "@temporal-contract/contract";
-import { ContractError } from "@temporal-contract/contract/errors";
-import { ContractErrorDataValidationError } from "./errors.js";
+
 import {
   ApplicationFailure,
   composeActivityMiddleware,
@@ -18,6 +18,7 @@ import {
   defineActivityMiddleware,
   type ActivityMiddleware,
 } from "./activity.js";
+import { ContractErrorDataValidationError } from "./errors.js";
 
 const okAsync = <T>(value: T): AsyncResult<T, never> => Ok(value).toAsync();
 const errAsync = <E>(error: E): AsyncResult<never, E> => Err(error).toAsync();

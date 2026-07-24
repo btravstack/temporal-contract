@@ -1,5 +1,5 @@
-import type { PaymentPort } from "../ports/payment.port.js";
 import type { PaymentResult } from "../entities/order.schema.js";
+import type { PaymentPort } from "../ports/payment.port.js";
 
 /**
  * Process Payment Use Case

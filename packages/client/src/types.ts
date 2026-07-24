@@ -1,4 +1,3 @@
-import type { AsyncResult } from "unthrown";
 import type {
   ActivityDefinition,
   AnyWorkflowDefinition,
@@ -7,6 +6,7 @@ import type {
   UpdateDefinition,
   ContractDefinition,
 } from "@temporal-contract/contract";
+import type { AsyncResult } from "unthrown";
 
 // The direction-aware schema inference primitives live in
 // `@temporal-contract/contract` (single source of truth shared with the

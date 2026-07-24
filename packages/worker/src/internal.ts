@@ -1,3 +1,10 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import {
+  type ActivityDefinition,
+  type ContractDefinition,
+  summarizeIssues,
+} from "@temporal-contract/contract";
+import { ChildWorkflowFailure } from "@temporalio/common";
 /**
  * Internal helpers shared across the worker package's entry points.
  *
@@ -7,13 +14,7 @@
  */
 import { isCancellation, makeContinueAsNewFunc, proxyActivities } from "@temporalio/workflow";
 import type { ActivityOptions, ContinueAsNewOptions } from "@temporalio/workflow";
-import { ChildWorkflowFailure } from "@temporalio/common";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
-import {
-  type ActivityDefinition,
-  type ContractDefinition,
-  summarizeIssues,
-} from "@temporal-contract/contract";
+
 import {
   ChildWorkflowCancelledError,
   ChildWorkflowError,

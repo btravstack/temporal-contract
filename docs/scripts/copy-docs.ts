@@ -4,7 +4,6 @@ import "@temporal-contract/client";
 import "@temporal-contract/contract";
 import "@temporal-contract/testing/global-setup";
 import "@temporal-contract/worker/activity";
-
 import { cp, mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

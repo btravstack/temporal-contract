@@ -1,3 +1,4 @@
+import { defineContract, defineWorkflow } from "@temporal-contract/contract";
 /**
  * Runtime coverage for `declareWorkflow`'s `.name` surfacing.
  *
@@ -9,7 +10,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { defineContract, defineWorkflow } from "@temporal-contract/contract";
+
 import { declareWorkflow } from "./workflow.js";
 
 const contract = defineContract({

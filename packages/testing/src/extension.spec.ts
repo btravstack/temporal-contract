@@ -9,6 +9,7 @@
  * cleanup is deliberately left to the test framework).
  */
 import { afterAll, describe, expect, vi } from "vitest";
+
 import { it } from "./extension.js";
 
 const mocks = vi.hoisted(() => {

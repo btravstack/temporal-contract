@@ -1,3 +1,4 @@
+import type { AnyContractError } from "@temporal-contract/contract/errors";
 /**
  * Client-side interceptors — the trace-propagation / retry / observability
  * seam of the typed client, mirroring amqp-contract's
@@ -16,7 +17,7 @@
  * - **short-circuit** — return your own `AsyncResult` without calling `next`.
  */
 import type { AsyncResult } from "unthrown";
-import type { AnyContractError } from "@temporal-contract/contract/errors";
+
 import type {
   QueryValidationError,
   RuntimeClientError,

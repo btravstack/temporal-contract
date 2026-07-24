@@ -1,5 +1,5 @@
-import type { ShippingPort } from "../../domain/ports/shipping.port.js";
 import type { ShippingResult } from "../../domain/entities/order.schema.js";
+import type { ShippingPort } from "../../domain/ports/shipping.port.js";
 import { logger } from "../../logger.js";
 
 /**

@@ -1,5 +1,5 @@
-import { z } from "zod";
 import { defineActivity, defineContract, defineWorkflow } from "@temporal-contract/contract";
+import { z } from "zod";
 
 // Composition-first: resources are defined individually, then composed into
 // the contract (never inlined in `defineContract`).

@@ -5,13 +5,13 @@
  * The schemas themselves are defined in the contract package.
  */
 
-import type { z } from "zod";
 import {
-  OrderItemSchema,
-  PaymentResultSchema,
-  InventoryReservationSchema,
-  ShippingResultSchema,
+  type OrderItemSchema,
+  type PaymentResultSchema,
+  type InventoryReservationSchema,
+  type ShippingResultSchema,
 } from "@temporal-contract/sample-order-processing-contract";
+import type { z } from "zod";
 
 export type OrderItem = z.infer<typeof OrderItemSchema>;
 export type PaymentResult = z.infer<typeof PaymentResultSchema>;

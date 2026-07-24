@@ -1,6 +1,20 @@
+import { defineContract, defineSearchAttribute, defineWorkflow } from "@temporal-contract/contract";
+import { ContractError } from "@temporal-contract/contract/errors";
+import {
+  type Client,
+  WorkflowExecutionAlreadyStartedError,
+  WorkflowFailedError as TemporalWorkflowFailedError,
+} from "@temporalio/client";
+import {
+  ApplicationFailure,
+  defineSearchAttributeKey,
+  TypedSearchAttributes,
+  WorkflowNotFoundError as TemporalWorkflowNotFoundError,
+} from "@temporalio/common";
+import { Err } from "unthrown";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
-import { defineContract, defineSearchAttribute, defineWorkflow } from "@temporal-contract/contract";
+
 import { readTypedSearchAttributes, TypedClient } from "./client.js";
 import {
   QueryValidationError,
@@ -13,19 +27,6 @@ import {
   WorkflowNotFoundError,
   WorkflowValidationError,
 } from "./errors.js";
-import {
-  Client,
-  WorkflowExecutionAlreadyStartedError,
-  WorkflowFailedError as TemporalWorkflowFailedError,
-} from "@temporalio/client";
-import {
-  ApplicationFailure,
-  defineSearchAttributeKey,
-  TypedSearchAttributes,
-  WorkflowNotFoundError as TemporalWorkflowNotFoundError,
-} from "@temporalio/common";
-import { ContractError } from "@temporal-contract/contract/errors";
-import { Err } from "unthrown";
 import type { ClientInterceptor } from "./interceptors.js";
 
 // Create mock workflow object

@@ -3,19 +3,18 @@
  * Centralizes the instantiation and wiring of all domain and infrastructure components
  */
 
+import { CreateShipmentUseCase } from "./domain/usecases/create-shipment.usecase.js";
 // Domain
 import { ProcessPaymentUseCase } from "./domain/usecases/process-payment.usecase.js";
-import { ReserveInventoryUseCase } from "./domain/usecases/reserve-inventory.usecase.js";
-import { ReleaseInventoryUseCase } from "./domain/usecases/release-inventory.usecase.js";
-import { CreateShipmentUseCase } from "./domain/usecases/create-shipment.usecase.js";
-import { SendNotificationUseCase } from "./domain/usecases/send-notification.usecase.js";
 import { RefundPaymentUseCase } from "./domain/usecases/refund-payment.usecase.js";
-
+import { ReleaseInventoryUseCase } from "./domain/usecases/release-inventory.usecase.js";
+import { ReserveInventoryUseCase } from "./domain/usecases/reserve-inventory.usecase.js";
+import { SendNotificationUseCase } from "./domain/usecases/send-notification.usecase.js";
+import { MockInventoryAdapter } from "./infrastructure/adapters/inventory.adapter.js";
+import { ConsoleNotificationAdapter } from "./infrastructure/adapters/notification.adapter.js";
 // Infrastructure
 import { MockPaymentAdapter } from "./infrastructure/adapters/payment.adapter.js";
-import { MockInventoryAdapter } from "./infrastructure/adapters/inventory.adapter.js";
 import { MockShippingAdapter } from "./infrastructure/adapters/shipping.adapter.js";
-import { ConsoleNotificationAdapter } from "./infrastructure/adapters/notification.adapter.js";
 
 // ============================================================================
 // Adapters

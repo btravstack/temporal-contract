@@ -1,3 +1,4 @@
+import { defineWorkflow } from "@temporal-contract/contract";
 /**
  * Coverage for the hoisted signal/query/update bind helpers
  * (`bindSignalHandler`, `bindQueryHandler`, `bindUpdateHandler`).
@@ -17,7 +18,6 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { defineWorkflow } from "@temporal-contract/contract";
 
 const captured: Array<{
   kind: string;

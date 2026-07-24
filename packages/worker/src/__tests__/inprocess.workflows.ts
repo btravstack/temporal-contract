@@ -1,4 +1,5 @@
 import { sleep } from "@temporalio/workflow";
+
 import { ContractError, declareWorkflow } from "../workflow.js";
 import { inprocessContract } from "./inprocess.contract.js";
 

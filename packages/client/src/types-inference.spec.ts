@@ -1,3 +1,4 @@
+import { defineContract, defineSignal, defineWorkflow } from "@temporal-contract/contract";
 /**
  * Type-level tests for the typed-client surface.
  *
@@ -18,7 +19,7 @@
  */
 import { describe, expectTypeOf, it } from "vitest";
 import { z } from "zod";
-import { defineContract, defineSignal, defineWorkflow } from "@temporal-contract/contract";
+
 import type { TypedSignalWithStartOptions, TypedWorkflowStartOptions } from "./client.js";
 
 const contractWithSignal = defineContract({
