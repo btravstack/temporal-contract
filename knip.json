@@ -2,7 +2,8 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "ignoreExportsUsedInFile": true,
   "ignoreDependencies": [
-    "@temporal-contract/typedoc",
+    "@btravstack/typedoc",
+    "@btravstack/oxlint",
     "typedoc-plugin-markdown",
     "@changesets/config"
   ],
@@ -22,15 +23,8 @@
     "examples/order-processing-worker": {
       "entry": ["src/application/workflows.ts"]
     },
-    "tools/tsconfig": {
-      "entry": ["*.json"]
-    },
-    "tools/typedoc": {
-      "entry": ["*.json"],
-      "ignoreDependencies": ["typedoc", "typedoc-plugin-markdown"]
-    },
     "docs": {
-      "ignoreDependencies": ["@temporal-contract/tsconfig"]
+      "ignoreDependencies": ["@btravstack/tsconfig"]
     }
   },
   "ignore": []

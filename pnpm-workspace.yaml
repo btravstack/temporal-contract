@@ -7,14 +7,16 @@ strictPeerDependencies: true
 packages:
   - packages/*
   - examples/*
-  - tools/*
   - docs
 
 catalog:
+  "@btravstack/commitlint": 0.1.0
+  "@btravstack/oxlint": 0.1.0
   "@btravstack/theme": 1.7.0
+  "@btravstack/tsconfig": 0.1.0
+  "@btravstack/typedoc": 0.1.0
   "@changesets/cli": 2.31.0
   "@commitlint/cli": 21.2.1
-  "@commitlint/config-conventional": 21.2.0
   "@standard-schema/spec": 1.1.0
   "@temporalio/client": 1.20.2
   "@temporalio/common": 1.20.2
@@ -51,6 +53,12 @@ peerDependencyRules:
 # pulls a transitive dep to its first fixed release without disturbing unrelated
 # version lines. High-severity advisories gate CI's `pnpm audit --audit-level=high`.
 overrides:
+  # GHSA-v2hh-gcrm-f6hx (High): fast-uri host confusion via literal backslash
+  # authority delimiter. Only the vulnerable <3.1.4 line is present (transitive,
+  # dev/build tooling); 3.1.4 is the first patched release. Newly disclosed.
+  # fast-uri is added to minimumReleaseAgeExclude below because 3.1.4 is younger
+  # than the 7-day cutoff.
+  "fast-uri@<3.1.4": "3.1.4"
   # GHSA-3jxr-9vmj-r5cp: brace-expansion ReDoS. Two lines are present — 2.x via
   # testcontainers>archiver>minimatch and 5.x via typedoc>minimatch@10. Patch each
   # major in-place to avoid forcing cross-major upgrades.
@@ -85,6 +93,13 @@ minimumReleaseAgeStrict: true
 # First-party btravstack packages — the maturity delay guards against
 # third-party supply-chain risk, which does not apply to our own org's libraries.
 minimumReleaseAgeExclude:
+  - "@btravstack/commitlint"
+  - "@btravstack/oxlint"
   - "@btravstack/theme"
+  - "@btravstack/tsconfig"
+  - "@btravstack/typedoc"
   - "unthrown"
   - "@unthrown/vitest"
+  # Temporary: fast-uri 3.1.4 (the GHSA-v2hh-gcrm-f6hx override above) is younger
+  # than the 7-day cutoff. Remove once 3.1.4 is 7 days old (published 2026-07-19).
+  - fast-uri

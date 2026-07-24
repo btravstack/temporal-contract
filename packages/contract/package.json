@@ -72,8 +72,9 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@temporal-contract/tsconfig": "workspace:*",
-    "@temporal-contract/typedoc": "workspace:*",
+    "@btravstack/tsconfig": "catalog:",
+    "@btravstack/typedoc": "catalog:",
+    "@types/node": "catalog:",
     "@unthrown/vitest": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "arktype": "catalog:",

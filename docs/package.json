@@ -19,7 +19,7 @@
   },
   "devDependencies": {
     "@btravstack/theme": "catalog:",
-    "@temporal-contract/tsconfig": "workspace:*",
+    "@btravstack/tsconfig": "catalog:",
     "@types/node": "catalog:",
     "mermaid": "11.16.0",
     "tsx": "catalog:",

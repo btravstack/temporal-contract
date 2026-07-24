@@ -73,10 +73,10 @@
     "@temporal-contract/contract": "workspace:*"
   },
   "devDependencies": {
+    "@btravstack/tsconfig": "catalog:",
+    "@btravstack/typedoc": "catalog:",
     "@temporal-contract/client": "workspace:*",
     "@temporal-contract/testing": "workspace:*",
-    "@temporal-contract/tsconfig": "workspace:*",
-    "@temporal-contract/typedoc": "workspace:*",
     "@temporalio/client": "catalog:",
     "@temporalio/common": "catalog:",
     "@temporalio/worker": "catalog:",

@@ -13,5 +13,11 @@
   "linked": [],
   "access": "public",
   "baseBranch": "main",
-  "updateInternalDependencies": "patch"
+  "updateInternalDependencies": "patch",
+  "ignore": [
+    "@temporal-contract/docs",
+    "@temporal-contract/sample-order-processing-client",
+    "@temporal-contract/sample-order-processing-contract",
+    "@temporal-contract/sample-order-processing-worker"
+  ]
 }
