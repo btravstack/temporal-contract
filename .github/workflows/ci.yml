@@ -1,19 +1,19 @@
 name: CI
 permissions:
   contents: read
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
 jobs:
   ci:
     uses: btravstack/config/.github/workflows/ci-reusable.yml@workflows-v1
     with:
       integration-tests: true
-      bundle-size: true
-      test-command: "pnpm test -- --coverage --reporter=default --reporter=github-actions"
-      integration-command: "pnpm test:integration --concurrency 3 -- --coverage --reporter=default --reporter=github-actions"
