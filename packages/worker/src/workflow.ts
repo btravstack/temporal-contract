@@ -62,7 +62,7 @@ import {
   createValidatedActivities,
   type WorkflowInferWorkflowContextActivities,
 } from "./activities-proxy.js";
-import { ActivityOptions, WorkflowInfo, workflowInfo } from "@temporalio/workflow";
+import { type ActivityOptions, type WorkflowInfo, workflowInfo } from "@temporalio/workflow";
 
 export {
   ActivityCancelledError,
