@@ -1,73 +1,19 @@
 name: CI
 permissions:
   contents: read
-
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   ci:
-    uses: btravstack/config/.github/workflows/ci-reusable.yml@main
+    uses: btravstack/config/.github/workflows/ci-reusable.yml@workflows-v1
     with:
-      changeset: false
+      integration-tests: true
+      bundle-size: true
       test-command: "pnpm test -- --coverage --reporter=default --reporter=github-actions"
-
-  test-integration:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          fetch-depth: 0
-
-      - name: Setup
-        uses: ./.github/actions/setup
-
-      - name: Run integration tests
-        run: pnpm test:integration --concurrency 3 -- --coverage --reporter=default --reporter=github-actions
-
-      - name: Upload Integration Coverage Report
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: integration-coverage-report
-          path: ./**/coverage/
-          retention-days: 30
-
-  bundle-size:
-    name: Bundle Size
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: ci
-    steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-
-      - name: Setup
-        uses: ./.github/actions/setup
-
-      - name: Build packages
-        run: pnpm build
-
-      - name: Report bundle sizes
-        run: |
-          echo "## Bundle Sizes" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Package | Size |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|------|" >> $GITHUB_STEP_SUMMARY
-          for dir in packages/*/dist; do
-            if [ -d "$dir" ]; then
-              package=$(dirname "$dir" | xargs basename)
-              size=$(du -sh "$dir" | cut -f1)
-              echo "| $package | $size |" >> $GITHUB_STEP_SUMMARY
-            fi
-          done
+      integration-command: "pnpm test:integration --concurrency 3 -- --coverage --reporter=default --reporter=github-actions"
