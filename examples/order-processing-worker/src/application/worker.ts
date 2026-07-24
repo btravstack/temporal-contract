@@ -1,10 +1,12 @@
-import { NativeConnection } from "@temporalio/worker";
-import { createWorker } from "@temporal-contract/worker/worker";
-import { orderProcessingContract } from "@temporal-contract/sample-order-processing-contract";
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { activities } from "./activities.js";
+
+import { orderProcessingContract } from "@temporal-contract/sample-order-processing-contract";
+import { createWorker } from "@temporal-contract/worker/worker";
+import { NativeConnection } from "@temporalio/worker";
+
 import { logger } from "../logger.js";
+import { activities } from "./activities.js";
 
 function workflowPath(filename: string): string {
   return fileURLToPath(new URL(`./${filename}${extname(import.meta.url)}`, import.meta.url));

@@ -1,3 +1,4 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 /**
  * Coverage for the shared Standard Schema issue formatters.
  *
@@ -9,7 +10,7 @@
  * validation error messages.
  */
 import { describe, expect, it } from "vitest";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
+
 import { formatIssue, summarizeIssues } from "./format.js";
 
 function issue(

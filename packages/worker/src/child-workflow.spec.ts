@@ -1,3 +1,12 @@
+import {
+  ApplicationFailure,
+  CancelledFailure,
+  ChildWorkflowFailure,
+  TerminatedFailure,
+  TimeoutFailure,
+  TimeoutType,
+} from "@temporalio/common";
+import { RetryState } from "@temporalio/common";
 /**
  * Unit coverage for `classifyChildWorkflowError`. Mirrors the client-side
  * `classifyResultError` discrimination pattern so worker-side child-workflow
@@ -8,21 +17,13 @@
  * #11 (`WorkflowFailedError.cause` typing).
  */
 import { describe, expect, it } from "vitest";
-import {
-  ApplicationFailure,
-  CancelledFailure,
-  ChildWorkflowFailure,
-  TerminatedFailure,
-  TimeoutFailure,
-  TimeoutType,
-} from "@temporalio/common";
-import { RetryState } from "@temporalio/common";
-import { classifyChildWorkflowError } from "./internal.js";
+
 import {
   ChildWorkflowCancelledError,
   ChildWorkflowError,
   ChildWorkflowNotFoundError,
 } from "./errors.js";
+import { classifyChildWorkflowError } from "./internal.js";
 
 // Minimal stand-in for a `WorkflowExecution`. The classify helper never
 // inspects the field — it only reads `.cause` off the wrapper — so the

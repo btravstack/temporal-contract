@@ -1,3 +1,7 @@
+import type { ActivityDefinition } from "@temporal-contract/contract";
+import { ContractError } from "@temporal-contract/contract/errors";
+import { ApplicationFailure, CancelledFailure } from "@temporalio/common";
+import type { AsyncResult } from "unthrown";
 /**
  * Runtime coverage for `createValidatedActivities` — specifically the
  * Result-shaped wrapper that activities with a declared `errors` map get on
@@ -6,11 +10,8 @@
  * `ActivityError` fallback for everything else.
  */
 import { describe, expect, it } from "vitest";
-import type { AsyncResult } from "unthrown";
 import { z } from "zod";
-import { ApplicationFailure, CancelledFailure } from "@temporalio/common";
-import type { ActivityDefinition } from "@temporal-contract/contract";
-import { ContractError } from "@temporal-contract/contract/errors";
+
 import { createValidatedActivities } from "./activities-proxy.js";
 import { ActivityCancelledError, ActivityError } from "./errors.js";
 

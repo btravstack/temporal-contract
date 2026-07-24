@@ -1,5 +1,5 @@
-import type { InventoryPort } from "../../domain/ports/inventory.port.js";
 import type { InventoryReservation, OrderItem } from "../../domain/entities/order.schema.js";
+import type { InventoryPort } from "../../domain/ports/inventory.port.js";
 import { logger } from "../../logger.js";
 
 /**

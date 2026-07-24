@@ -1,3 +1,4 @@
+import { defineActivity } from "@temporal-contract/contract";
 /**
  * Type-level tests for the worker- and client-side inference helpers.
  *
@@ -7,7 +8,7 @@
  */
 import { describe, expectTypeOf, it } from "vitest";
 import { z } from "zod";
-import { defineActivity } from "@temporal-contract/contract";
+
 import type {
   ClientInferInput,
   ClientInferOutput,

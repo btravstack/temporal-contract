@@ -16,6 +16,7 @@ import type {
   UpdateDefinition,
 } from "@temporal-contract/contract";
 import { defineQuery, defineSignal, defineUpdate, setHandler } from "@temporalio/workflow";
+
 import {
   QueryInputValidationError,
   QueryOutputValidationError,

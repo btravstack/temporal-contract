@@ -1,11 +1,12 @@
-import { Client, Connection } from "@temporalio/client";
 import { TypedClient } from "@temporal-contract/client";
 import {
   orderProcessingContract,
-  OrderSchema,
+  type OrderSchema,
 } from "@temporal-contract/sample-order-processing-contract";
-import type { z } from "zod";
+import { Client, Connection } from "@temporalio/client";
 import { matchTags } from "unthrown";
+import type { z } from "zod";
+
 import { logger } from "./logger.js";
 
 type Order = z.infer<typeof OrderSchema>;

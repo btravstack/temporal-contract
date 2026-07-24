@@ -1,8 +1,9 @@
+import type { ContractDefinition } from "@temporal-contract/contract";
+import { type NativeConnection, Worker } from "@temporalio/worker";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { z } from "zod";
-import type { ContractDefinition } from "@temporal-contract/contract";
+
 import { createWorker, createWorkerOrThrow, workflowsPathFromURL } from "./worker.js";
-import { NativeConnection, Worker } from "@temporalio/worker";
 
 // Mock @temporalio/worker
 vi.mock("@temporalio/worker", () => ({

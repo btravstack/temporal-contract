@@ -1,9 +1,11 @@
-// Entry point for worker creation utilities
-import { ContractDefinition } from "@temporal-contract/contract";
-import { TechnicalError } from "@temporal-contract/contract/errors";
-import { Worker, WorkerOptions } from "@temporalio/worker";
 import { fileURLToPath } from "node:url";
+
+// Entry point for worker creation utilities
+import { type ContractDefinition } from "@temporal-contract/contract";
+import { TechnicalError } from "@temporal-contract/contract/errors";
+import { Worker, type WorkerOptions } from "@temporalio/worker";
 import { fromPromise, type AsyncResult } from "unthrown";
+
 import type { ActivitiesHandler } from "./activity.js";
 
 // Modeled creation failure — `createWorker` surfaces it on the Err channel

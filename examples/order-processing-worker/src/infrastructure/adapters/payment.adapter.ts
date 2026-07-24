@@ -1,5 +1,5 @@
-import type { PaymentPort } from "../../domain/ports/payment.port.js";
 import type { PaymentResult } from "../../domain/entities/order.schema.js";
+import type { PaymentPort } from "../../domain/ports/payment.port.js";
 import { logger } from "../../logger.js";
 
 /**

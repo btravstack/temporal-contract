@@ -1,6 +1,7 @@
-import { testContract } from "./test.contract.js";
-import { declareWorkflow } from "../workflow.js";
 import { sleep } from "@temporalio/workflow";
+
+import { declareWorkflow } from "../workflow.js";
+import { testContract } from "./test.contract.js";
 
 export const simpleWorkflow = declareWorkflow({
   workflowName: "simpleWorkflow",

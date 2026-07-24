@@ -1,3 +1,5 @@
+import { defineContract } from "@temporal-contract/contract";
+import { ApplicationFailure } from "@temporalio/common";
 /**
  * Runtime coverage for workflow-level contract errors: a
  * `throw context.errors.X(...)` from the implementation must leave the
@@ -10,8 +12,6 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { defineContract } from "@temporal-contract/contract";
-import { ApplicationFailure } from "@temporalio/common";
 
 vi.mock("@temporalio/workflow", async () => {
   const actual =

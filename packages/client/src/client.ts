@@ -1,6 +1,3 @@
-import { Client, WorkflowHandle } from "@temporalio/client";
-import type { WorkflowSignalWithStartOptions, WorkflowStartOptions } from "@temporalio/client";
-import { defineSearchAttributeKey, TypedSearchAttributes } from "@temporalio/common";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type {
   AnyWorkflowDefinition,
@@ -12,20 +9,14 @@ import type {
   SignalNamesOf,
 } from "@temporal-contract/contract";
 import { TechnicalError, type ContractErrorUnion } from "@temporal-contract/contract/errors";
-import {
-  chainInterceptors,
-  type ClientCallError,
-  type ClientInterceptor,
-  type ClientInterceptorArgs,
-} from "./interceptors.js";
-import type {
-  ClientInferInput,
-  ClientInferOutput,
-  ClientInferWorkflowQueries,
-  ClientInferWorkflowSignals,
-  ClientInferWorkflowUpdates,
-} from "./types.js";
+import { type Client, type WorkflowHandle } from "@temporalio/client";
+import type { WorkflowSignalWithStartOptions, WorkflowStartOptions } from "@temporalio/client";
+import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
+import { WorkflowFailedError as TemporalWorkflowFailedError } from "@temporalio/client";
+import { defineSearchAttributeKey, type TypedSearchAttributes } from "@temporalio/common";
+import { WorkflowNotFoundError as TemporalWorkflowNotFoundError } from "@temporalio/common";
 import { type AsyncResult, type Result, Ok, Err, fromPromise } from "unthrown";
+
 import {
   type TemporalFailure,
   WorkflowAlreadyStartedError,
@@ -38,7 +29,12 @@ import {
   UpdateValidationError,
   RuntimeClientError,
 } from "./errors.js";
-import { TypedScheduleClient } from "./schedule.js";
+import {
+  chainInterceptors,
+  type ClientCallError,
+  type ClientInterceptor,
+  type ClientInterceptorArgs,
+} from "./interceptors.js";
 import {
   assertNoDefect,
   classifyHandleError,
@@ -48,9 +44,14 @@ import {
   rehydrateWorkflowContractError,
   toTypedSearchAttributes,
 } from "./internal.js";
-import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
-import { WorkflowFailedError as TemporalWorkflowFailedError } from "@temporalio/client";
-import { WorkflowNotFoundError as TemporalWorkflowNotFoundError } from "@temporalio/common";
+import { TypedScheduleClient } from "./schedule.js";
+import type {
+  ClientInferInput,
+  ClientInferOutput,
+  ClientInferWorkflowQueries,
+  ClientInferWorkflowSignals,
+  ClientInferWorkflowUpdates,
+} from "./types.js";
 
 /**
  * Typed `searchAttributes` map for a workflow, derived from the workflow's

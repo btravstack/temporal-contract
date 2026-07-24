@@ -1,3 +1,5 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { ApplicationFailure } from "@temporalio/common";
 /**
  * Coverage for the path-aware issue formatting in worker validation errors
  * and in `formatChildWorkflowValidationMessage` (the workflow.ts call site
@@ -10,8 +12,7 @@
  * Closes #141.
  */
 import { describe, expect, it } from "vitest";
-import { ApplicationFailure } from "@temporalio/common";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
+
 import {
   ActivityInputValidationError,
   ActivityOutputValidationError,

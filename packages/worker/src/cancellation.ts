@@ -14,6 +14,7 @@
  */
 import { CancellationScope, isCancellation } from "@temporalio/workflow";
 import { type AsyncResult, type Result, Ok, Err } from "unthrown";
+
 import { WorkflowCancelledError } from "./errors.js";
 import { makeAsyncResult } from "./internal.js";
 

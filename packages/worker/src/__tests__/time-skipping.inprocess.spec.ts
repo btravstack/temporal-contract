@@ -1,3 +1,9 @@
+import { extname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { ContractError, TypedClient, type ClientInterceptor } from "@temporal-contract/client";
+import { it } from "@temporal-contract/testing/time-skipping";
+import { Ok, Err, type AsyncResult } from "unthrown";
 /**
  * Full contract-pipeline coverage against the time-skipping
  * `TestWorkflowEnvironment` (`@temporal-contract/testing/time-skipping`) —
@@ -13,11 +19,7 @@
  * - time skipping (an hour-long `sleep` resolving immediately).
  */
 import { describe, expect } from "vitest";
-import { extname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { Ok, Err, type AsyncResult } from "unthrown";
-import { it } from "@temporal-contract/testing/time-skipping";
-import { ContractError, TypedClient, type ClientInterceptor } from "@temporal-contract/client";
+
 import {
   composeActivityMiddleware,
   declareActivitiesHandler,

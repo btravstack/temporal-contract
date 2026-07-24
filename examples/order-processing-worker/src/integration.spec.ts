@@ -1,17 +1,19 @@
-import { describe, expect, vi, beforeEach } from "vitest";
-import { Worker } from "@temporalio/worker";
-import { TypedClient, WorkflowValidationError } from "@temporal-contract/client";
-import { it as baseIt } from "@temporal-contract/testing/extension";
-import {
-  orderProcessingContract,
-  OrderSchema,
-} from "@temporal-contract/sample-order-processing-contract";
-import { activities } from "./application/activities.js";
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { z } from "zod";
-import { paymentAdapter } from "./dependencies.js";
+
+import { TypedClient, WorkflowValidationError } from "@temporal-contract/client";
+import {
+  orderProcessingContract,
+  type OrderSchema,
+} from "@temporal-contract/sample-order-processing-contract";
+import { it as baseIt } from "@temporal-contract/testing/extension";
 import { Client } from "@temporalio/client";
+import { Worker } from "@temporalio/worker";
+import { describe, expect, vi, beforeEach } from "vitest";
+import type { z } from "zod";
+
+import { activities } from "./application/activities.js";
+import { paymentAdapter } from "./dependencies.js";
 
 type Order = z.infer<typeof OrderSchema>;
 

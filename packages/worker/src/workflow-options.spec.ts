@@ -1,3 +1,5 @@
+import { defineActivity, defineContract, defineWorkflow } from "@temporal-contract/contract";
+import type { ActivityOptions } from "@temporalio/workflow";
 /**
  * Type-level coverage for `declareWorkflow`'s `activityOptionsByName`.
  *
@@ -8,9 +10,8 @@
  */
 import { describe, expectTypeOf, it } from "vitest";
 import { z } from "zod";
-import { defineActivity, defineContract, defineWorkflow } from "@temporal-contract/contract";
-import type { ActivityOptions } from "@temporalio/workflow";
-import { declareWorkflow } from "./workflow.js";
+
+import { type declareWorkflow } from "./workflow.js";
 
 const contract = defineContract({
   taskQueue: "tq",

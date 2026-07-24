@@ -1,3 +1,4 @@
+import { defineContract, defineWorkflow } from "@temporal-contract/contract";
 /**
  * Coverage for the typed cancellation-scope helpers
  * ({@link cancellableScope}, {@link nonCancellableScope}).
@@ -21,7 +22,6 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { defineContract, defineWorkflow } from "@temporal-contract/contract";
 
 const CANCEL_MARKER = "__CANCEL__";
 

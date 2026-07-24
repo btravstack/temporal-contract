@@ -1,3 +1,6 @@
+import { defineContract, defineSearchAttribute, defineWorkflow } from "@temporal-contract/contract";
+import type { Client } from "@temporalio/client";
+import { TypedSearchAttributes } from "@temporalio/common";
 /**
  * Coverage for `TypedClient.schedule` — typed wrapper around Temporal's
  * `ScheduleClient`.
@@ -6,9 +9,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import type { Client } from "@temporalio/client";
-import { TypedSearchAttributes } from "@temporalio/common";
-import { defineContract, defineSearchAttribute, defineWorkflow } from "@temporal-contract/contract";
+
 import { TypedClient } from "./client.js";
 import { RuntimeClientError, WorkflowNotFoundError, WorkflowValidationError } from "./errors.js";
 

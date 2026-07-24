@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { defineContract } from "./builder.js";
 import { z } from "zod";
+
+import { defineContract } from "./builder.js";
 
 describe("Contract Builder", () => {
   describe("defineContract", () => {

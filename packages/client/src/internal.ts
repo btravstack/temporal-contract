@@ -1,3 +1,9 @@
+import type { AnyWorkflowDefinition, SearchAttributeDefinition } from "@temporal-contract/contract";
+import {
+  _internal_rehydrateContractError,
+  type AnyContractError,
+} from "@temporal-contract/contract/errors";
+import { _internal_makeAsyncResult } from "@temporal-contract/contract/result-async";
 /**
  * Internal helpers shared across the client package's modules.
  *
@@ -14,12 +20,6 @@ import {
   TypedSearchAttributes,
   WorkflowNotFoundError as TemporalWorkflowNotFoundError,
 } from "@temporalio/common";
-import type { AnyWorkflowDefinition, SearchAttributeDefinition } from "@temporal-contract/contract";
-import {
-  _internal_rehydrateContractError,
-  type AnyContractError,
-} from "@temporal-contract/contract/errors";
-import { _internal_makeAsyncResult } from "@temporal-contract/contract/result-async";
 import { Ok, Err, type AsyncResult, type Result } from "unthrown";
 
 // `assertNoDefect` narrows an internally-built `Result` (known to carry only

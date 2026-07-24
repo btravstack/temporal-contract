@@ -1,6 +1,6 @@
+import { orderProcessingContract } from "@temporal-contract/sample-order-processing-contract";
 import { declareWorkflow } from "@temporal-contract/worker/workflow";
 import { isCancellation, log } from "@temporalio/workflow";
-import { orderProcessingContract } from "@temporal-contract/sample-order-processing-contract";
 
 /**
  * Process Order Workflow Implementation

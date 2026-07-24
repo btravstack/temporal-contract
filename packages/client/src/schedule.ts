@@ -1,3 +1,4 @@
+import type { ContractDefinition } from "@temporal-contract/contract";
 import type {
   ScheduleClient,
   ScheduleDescription,
@@ -7,12 +8,12 @@ import type {
   ScheduleOverlapPolicy,
   ScheduleSpec,
 } from "@temporalio/client";
-import type { ContractDefinition } from "@temporal-contract/contract";
 import { type AsyncResult, type Result, Ok, Err, fromPromise } from "unthrown";
+
 import type { TypedSearchAttributeMap } from "./client.js";
-import type { ClientInferInput } from "./types.js";
 import { RuntimeClientError, WorkflowNotFoundError, WorkflowValidationError } from "./errors.js";
 import { assertNoDefect, makeAsyncResult, toTypedSearchAttributes } from "./internal.js";
+import type { ClientInferInput } from "./types.js";
 
 /**
  * Workflow-action–level overrides forwarded to Temporal's

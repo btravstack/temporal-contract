@@ -1,3 +1,5 @@
+import { defineActivity, defineContract, defineWorkflow } from "@temporal-contract/contract";
+import type { ContinueAsNewOptions } from "@temporalio/workflow";
 /**
  * Coverage for the typed `context.continueAsNew(...)` helper.
  *
@@ -14,8 +16,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import type { ContinueAsNewOptions } from "@temporalio/workflow";
-import { defineActivity, defineContract, defineWorkflow } from "@temporal-contract/contract";
+
 import { WorkflowInputValidationError } from "./errors.js";
 
 type CapturedCall = { options: ContinueAsNewOptions; args: unknown[] };

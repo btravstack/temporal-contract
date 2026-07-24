@@ -9,6 +9,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TestProject } from "vitest/node";
+
 import setup from "./global-setup.js";
 
 type StartedContainer = {
