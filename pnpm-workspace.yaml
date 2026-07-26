@@ -60,11 +60,15 @@ overrides:
   # fast-uri is added to minimumReleaseAgeExclude below because 3.1.4 is younger
   # than the 7-day cutoff.
   "fast-uri@<3.1.4": "3.1.4"
-  # GHSA-3jxr-9vmj-r5cp: brace-expansion ReDoS. Two lines are present — 2.x via
-  # testcontainers>archiver>minimatch and 5.x via typedoc>minimatch@10. Patch each
-  # major in-place to avoid forcing cross-major upgrades.
+  # GHSA-3jxr-9vmj-r5cp (ReDoS) + GHSA-mh99-v99m-4gvg (DoS via unbounded
+  # expansion length): brace-expansion. Two lines are present — 2.x via
+  # testcontainers>archiver>minimatch and 5.x via typedoc>minimatch@10. The 5.x
+  # line is pulled to 5.0.8 (the only release patched for GHSA-mh99); the 2.x
+  # line stays on its ReDoS-patched release — GHSA-mh99 has NO patched release
+  # for it (vulnerable range <=5.0.7), so that advisory is ignored via
+  # auditConfig.ignoreGhsas below rather than force-upgrading across majors.
   "brace-expansion@2": "2.1.2"
-  "brace-expansion@5": "5.0.7"
+  "brace-expansion@5": "5.0.8"
   # GHSA-52cp-r559-cp3m: js-yaml quadratic-CPU merge keys. Two lines present —
   # 3.x via @changesets/cli>@manypkg/get-packages>read-yaml-file and 4.x via
   # @changesets/cli>@changesets/parse. Each major line is version-scoped and
@@ -105,3 +109,18 @@ minimumReleaseAgeExclude:
   # Temporary: fast-uri 3.1.4 (the GHSA-v2hh-gcrm-f6hx override above) is younger
   # than the 7-day cutoff. Remove once 3.1.4 is 7 days old (published 2026-07-19).
   - fast-uri
+  # Temporary: brace-expansion 5.0.8 (the GHSA-mh99-v99m-4gvg override above) is
+  # younger than the 7-day cutoff. Remove once 5.0.8 is 7 days old (published
+  # 2026-07-23).
+  - brace-expansion
+
+# GHSA-mh99-v99m-4gvg (brace-expansion DoS via unbounded expansion length) has a
+# patched release ONLY on the 5.x line (>=5.0.8, applied via the override above);
+# the 2.x line resolved under testcontainers > archiver has no patched release,
+# and forcing it to 5.x across majors is unsafe. Accepted risk: the expansion
+# input there is library-internal glob patterns, never user input. Remove this
+# ignore as soon as upstream ships a patched 2.x (or archiver moves to
+# minimatch@10).
+auditConfig:
+  ignoreGhsas:
+    - GHSA-mh99-v99m-4gvg
