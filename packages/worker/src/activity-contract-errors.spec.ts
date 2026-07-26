@@ -1,6 +1,6 @@
 import { defineContract } from "@temporal-contract/contract";
 import { ContractError } from "@temporal-contract/contract/errors";
-import { Ok, Err, type AsyncResult } from "unthrown";
+import { Ok, Err, P, type AsyncResult } from "unthrown";
 /**
  * Runtime coverage for `declareActivitiesHandler`'s contract-declared typed
  * errors, middleware chain, and dependency context — the boundary where an
@@ -298,9 +298,11 @@ describe("declareActivitiesHandler — middleware", () => {
   it("observes typed errors on the err channel", async () => {
     const observed: unknown[] = [];
     const observing: ActivityMiddleware = (_invocation, next) =>
-      next().tapErr((error) => {
-        observed.push(error);
-      });
+      next().tapErr((matcher) =>
+        matcher.with(P._, (error) => {
+          observed.push(error);
+        }),
+      );
 
     const activities = declareActivitiesHandler({
       contract,

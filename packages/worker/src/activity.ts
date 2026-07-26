@@ -29,7 +29,7 @@ import {
   type ContractErrorInputUnion,
 } from "@temporal-contract/contract/errors";
 import { ApplicationFailure } from "@temporalio/common";
-import type { AsyncResult } from "unthrown";
+import { P, type AsyncResult } from "unthrown";
 
 import { contractErrorToApplicationFailure } from "./contract-errors.js";
 import {
@@ -294,9 +294,11 @@ export type ActivityMiddlewareNext<
  * @example Log every activity invocation and its outcome (read-only)
  * ```ts
  * const logging: ActivityMiddleware = ({ activityName, workflowName }, next) =>
- *   next().tapErr((error) => {
- *     logger.warn({ activityName, workflowName, error }, "activity failed");
- *   });
+ *   next().tapErr((matcher) =>
+ *     matcher.with(P._, (error) => {
+ *       logger.warn({ activityName, workflowName, error }, "activity failed");
+ *     }),
+ *   );
  * ```
  *
  * @example Guard-and-narrow: inject a tenant id for everything downstream
@@ -739,16 +741,17 @@ export function declareActivitiesHandler<
         // retry policy (honoring `nonRetryable: true`). Contract errors are
         // validated against their declared data schema and serialized as
         // ApplicationFailure(type = error name, details = [data]).
-        err: async (error) => {
-          if (error instanceof ContractError) {
-            throw await contractErrorToApplicationFailure(
-              error,
-              activityDef.errors,
-              `activity "${label}"`,
-            );
-          }
-          throw error;
-        },
+        err: (matcher) =>
+          matcher.with(P._, async (error) => {
+            if (error instanceof ContractError) {
+              throw await contractErrorToApplicationFailure(
+                error,
+                activityDef.errors,
+                `activity "${label}"`,
+              );
+            }
+            throw error;
+          }),
         // A defect is an *unanticipated* throw inside the activity. Re-throw the
         // original cause unwrapped: Temporal wraps a non-`ApplicationFailure`
         // error as `ApplicationFailure(type: "Error")` and applies the default

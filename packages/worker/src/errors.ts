@@ -345,9 +345,9 @@ export class ChildWorkflowError extends TaggedError("@temporal-contract/ChildWor
  * A sibling of {@link ChildWorkflowError} rather than a subclass: both are
  * distinct {@link TaggedError}s, so call sites discriminate on the `_tag`
  * (or `instanceof ChildWorkflowCancelledError`) instead of relying on an
- * `instanceof ChildWorkflowError` that also matches cancellation. `matchTags`
- * folds the `ChildWorkflowError | ChildWorkflowCancelledError` union
- * exhaustively.
+ * `instanceof ChildWorkflowError` that also matches cancellation. A
+ * `result.match` with the ts-pattern `err` matcher folds the
+ * `ChildWorkflowError | ChildWorkflowCancelledError` union exhaustively.
  */
 export class ChildWorkflowCancelledError extends TaggedError(
   "@temporal-contract/ChildWorkflowCancelledError",

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { it as baseIt } from "@temporal-contract/testing/extension";
 import { Client } from "@temporalio/client";
 import { Worker } from "@temporalio/worker";
+import { P } from "unthrown";
 import { describe, expect, vi, beforeEach } from "vitest";
 
 import { TypedClient } from "../client.js";
@@ -401,9 +402,10 @@ describe("Client Package - Integration Tests", () => {
           matched = true;
           expect(value).toEqual({ result: "Processed: test" });
         },
-        err: () => {
-          throw new Error("Should not be called");
-        },
+        err: (matcher) =>
+          matcher.with(P._, () => {
+            throw new Error("Should not be called");
+          }),
         defect: () => {
           throw new Error("Should not be called");
         },
