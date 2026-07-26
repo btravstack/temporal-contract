@@ -4,7 +4,7 @@ import {
   type OrderSchema,
 } from "@temporal-contract/sample-order-processing-contract";
 import { Client, Connection } from "@temporalio/client";
-import { matchTags } from "unthrown";
+import { tag } from "unthrown";
 import type { z } from "zod";
 
 import { logger } from "./logger.js";
@@ -91,7 +91,7 @@ async function run() {
     // Chain start → result on the AsyncResult railway: `tap` logs the started
     // handle without leaving the railway, `flatMap` sequences the dependent
     // `handle.result()` call, and its error union widens to cover both phases.
-    // A single `matchTags` then folds the combined result exhaustively — every
+    // A single `match` then folds the combined result exhaustively — every
     // modeled error tag (package-namespaced `@temporal-contract/...`) plus `Ok`
     // and `Defect` must be handled, or it is a compile error.
     const result = await contractClient
@@ -102,8 +102,8 @@ async function run() {
       })
       .flatMap((handle) => handle.result());
 
-    matchTags(result, {
-      Ok: (output) => {
+    result.match({
+      ok: (output) => {
         if (output.status === "completed") {
           logger.info(
             {
@@ -124,32 +124,40 @@ async function run() {
           );
         }
       },
-      "@temporal-contract/WorkflowNotFoundError": (err) =>
-        logger.error({ error: err, orderId: order.orderId }, "❌ Workflow not found"),
-      "@temporal-contract/WorkflowValidationError": (err) =>
-        logger.error({ error: err, orderId: order.orderId }, "❌ Workflow validation failed"),
-      // Idempotent fast-path: a workflow with this ID is already running (or in
-      // retention). Production callers can re-fetch the existing handle; here we
-      // just log and move on.
-      "@temporal-contract/WorkflowAlreadyStartedError": (err) =>
-        logger.warn(
-          { error: err, orderId: order.orderId },
-          "⏭️  Workflow already started — skipping",
-        ),
-      "@temporal-contract/WorkflowFailedError": (err) =>
-        logger.error(
-          { error: err, orderId: order.orderId, cause: err.cause },
-          "❌ Workflow completed with failure",
-        ),
-      "@temporal-contract/WorkflowExecutionNotFoundError": (err) =>
-        logger.error(
-          { error: err, orderId: order.orderId },
-          "❌ Workflow execution not found in namespace",
-        ),
-      "@temporal-contract/RuntimeClientError": (err) =>
-        logger.error({ error: err, orderId: order.orderId }, "❌ Workflow execution failed"),
+      err: (matcher) =>
+        matcher
+          .with(tag("@temporal-contract/WorkflowNotFoundError"), (err) =>
+            logger.error({ error: err, orderId: order.orderId }, "❌ Workflow not found"),
+          )
+          .with(tag("@temporal-contract/WorkflowValidationError"), (err) =>
+            logger.error({ error: err, orderId: order.orderId }, "❌ Workflow validation failed"),
+          )
+          // Idempotent fast-path: a workflow with this ID is already running (or in
+          // retention). Production callers can re-fetch the existing handle; here we
+          // just log and move on.
+          .with(tag("@temporal-contract/WorkflowAlreadyStartedError"), (err) =>
+            logger.warn(
+              { error: err, orderId: order.orderId },
+              "⏭️  Workflow already started — skipping",
+            ),
+          )
+          .with(tag("@temporal-contract/WorkflowFailedError"), (err) =>
+            logger.error(
+              { error: err, orderId: order.orderId, cause: err.cause },
+              "❌ Workflow completed with failure",
+            ),
+          )
+          .with(tag("@temporal-contract/WorkflowExecutionNotFoundError"), (err) =>
+            logger.error(
+              { error: err, orderId: order.orderId },
+              "❌ Workflow execution not found in namespace",
+            ),
+          )
+          .with(tag("@temporal-contract/RuntimeClientError"), (err) =>
+            logger.error({ error: err, orderId: order.orderId }, "❌ Workflow execution failed"),
+          ),
       // A defect is an unmodeled failure (a bug), not an anticipated outcome.
-      Defect: (cause) =>
+      defect: (cause) =>
         logger.error({ cause, orderId: order.orderId }, "❌ Unexpected failure processing order"),
     });
   }
@@ -178,8 +186,8 @@ async function run() {
 
   // Handle the result by tag — `executeWorkflow` can surface both start-phase
   // and result-phase errors, so its union is the widest.
-  matchTags(result, {
-    Ok: (output) => {
+  result.match({
+    ok: (output) => {
       const summary = {
         id: output.orderId,
         success: output.status === "completed",
@@ -190,20 +198,28 @@ async function run() {
       };
       logger.info({ data: summary }, `📊 Order summary: ${summary.message}`);
     },
-    "@temporal-contract/WorkflowNotFoundError": (err) =>
-      logger.error({ error: err }, "❌ Workflow not found"),
-    "@temporal-contract/WorkflowValidationError": (err) =>
-      logger.error({ error: err }, "❌ Validation failed"),
-    "@temporal-contract/WorkflowAlreadyStartedError": (err) =>
-      logger.warn({ error: err }, "⏭️  Workflow already started"),
-    "@temporal-contract/WorkflowFailedError": (err) =>
-      logger.error({ error: err, cause: err.cause }, "❌ Workflow completed with failure"),
-    "@temporal-contract/WorkflowExecutionNotFoundError": (err) =>
-      logger.error({ error: err }, "❌ Workflow execution not found in namespace"),
-    "@temporal-contract/RuntimeClientError": (err) =>
-      logger.error({ error: err }, "❌ Workflow execution failed"),
+    err: (matcher) =>
+      matcher
+        .with(tag("@temporal-contract/WorkflowNotFoundError"), (err) =>
+          logger.error({ error: err }, "❌ Workflow not found"),
+        )
+        .with(tag("@temporal-contract/WorkflowValidationError"), (err) =>
+          logger.error({ error: err }, "❌ Validation failed"),
+        )
+        .with(tag("@temporal-contract/WorkflowAlreadyStartedError"), (err) =>
+          logger.warn({ error: err }, "⏭️  Workflow already started"),
+        )
+        .with(tag("@temporal-contract/WorkflowFailedError"), (err) =>
+          logger.error({ error: err, cause: err.cause }, "❌ Workflow completed with failure"),
+        )
+        .with(tag("@temporal-contract/WorkflowExecutionNotFoundError"), (err) =>
+          logger.error({ error: err }, "❌ Workflow execution not found in namespace"),
+        )
+        .with(tag("@temporal-contract/RuntimeClientError"), (err) =>
+          logger.error({ error: err }, "❌ Workflow execution failed"),
+        ),
     // A defect is an unmodeled failure (a bug), not an anticipated outcome.
-    Defect: (cause) => logger.error({ cause }, "❌ Unexpected failure executing workflow"),
+    defect: (cause) => logger.error({ cause }, "❌ Unexpected failure executing workflow"),
   });
 
   logger.info("\n✨ Done!");
@@ -213,7 +229,7 @@ async function run() {
   logger.info("   - Type-safe error values");
   logger.info("   - Functional composition with flatMap, map, mapErr, flatMapErr");
   logger.info("   - Railway-oriented programming");
-  logger.info("   - Exhaustive error matching with unthrown matchTags");
+  logger.info("   - Exhaustive error matching with unthrown match");
 
   process.exit(0);
 }

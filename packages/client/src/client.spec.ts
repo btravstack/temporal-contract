@@ -11,7 +11,7 @@ import {
   TypedSearchAttributes,
   WorkflowNotFoundError as TemporalWorkflowNotFoundError,
 } from "@temporalio/common";
-import { Err } from "unthrown";
+import { Err, P } from "unthrown";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
 
@@ -784,9 +784,10 @@ describe("TypedClient", () => {
           matched = true;
           expect(value).toEqual({ result: "success" });
         },
-        err: () => {
-          throw new Error("Should not be called");
-        },
+        err: (matcher) =>
+          matcher.with(P._, () => {
+            throw new Error("Should not be called");
+          }),
         defect: () => {
           throw new Error("Should not be called");
         },
@@ -1512,9 +1513,12 @@ describe("TypedClient — interceptors", () => {
       .mockRejectedValueOnce(new Error("transient"))
       .mockResolvedValueOnce({ result: "ok" });
     const retryOnce: ClientInterceptor = (_args, next) =>
-      next().flatMapErr(
-        (error): ReturnType<typeof next> =>
-          error instanceof RuntimeClientError ? next() : Err(error).toAsync(),
+      next().flatMapErr((matcher) =>
+        matcher.with(
+          P._,
+          (error): ReturnType<typeof next> =>
+            error instanceof RuntimeClientError ? next() : Err(error).toAsync(),
+        ),
       );
 
     const result = await clientWith([retryOnce]).executeWorkflow("testWorkflow", {

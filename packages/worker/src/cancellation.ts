@@ -37,9 +37,10 @@ import { makeAsyncResult } from "./internal.js";
  *
  * result.match({
  *   ok: (output) => { ... },
- *   err: (error) => {
- *     // error instanceof WorkflowCancelledError — graceful exit
- *   },
+ *   err: (matcher) =>
+ *     matcher.with(P._, (error) => {
+ *       // error instanceof WorkflowCancelledError — graceful exit
+ *     }),
  *   defect: (cause) => {
  *     // a non-cancellation failure thrown inside the scope (a bug)
  *   },

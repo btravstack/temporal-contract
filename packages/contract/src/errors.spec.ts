@@ -59,7 +59,7 @@ describe("_internal_buildErrorConstructors", () => {
     expect(withoutData.cause).toBe(cause);
   });
 
-  it("carries the unthrown tag for matchTags-style discrimination", () => {
+  it("carries the unthrown tag for match/tag-style discrimination", () => {
     const constructors = _internal_buildErrorConstructors(declaredErrors);
 
     expect(constructors["OutOfStock"]!()._tag).toBe("@temporal-contract/ContractError");

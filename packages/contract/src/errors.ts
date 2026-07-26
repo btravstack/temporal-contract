@@ -61,8 +61,8 @@ export class TechnicalError extends TaggedError("@temporal-contract/TechnicalErr
  *
  * The unthrown `_tag` ("@temporal-contract/ContractError") discriminates a
  * `ContractError` from the other tagged errors in a Result's error channel
- * (e.g. via `matchTags`); `errorName` then narrows to the concrete declared
- * error.
+ * (e.g. via `result.match({ err: (m) => m.with(tag("@temporal-contract/ContractError"), …) })`);
+ * `errorName` then narrows to the concrete declared error.
  */
 export class ContractError<TName extends string = string, TData = unknown> extends TaggedError(
   "@temporal-contract/ContractError",

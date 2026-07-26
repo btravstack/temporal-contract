@@ -415,7 +415,7 @@ export class TypedClient<TContract extends ContractDefinition> {
    *
    * await result.match({
    *   ok: async (handle) => { await handle.pause("maintenance"); },
-   *   err: (error) => console.error("schedule create failed", error),
+   *   err: (matcher) => matcher.with(P._, (error) => console.error("schedule create failed", error)),
    *   defect: (cause) => console.error("unexpected failure", cause),
    * });
    * ```
@@ -546,7 +546,7 @@ export class TypedClient<TContract extends ContractDefinition> {
    *     const result = await handle.result();
    *     // ... handle result
    *   },
-   *   err: (error) => console.error('Failed to start:', error),
+   *   err: (matcher) => matcher.with(P._, (error) => console.error('Failed to start:', error)),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
    * });
    * ```
@@ -637,7 +637,7 @@ export class TypedClient<TContract extends ContractDefinition> {
    *
    * await result.match({
    *   ok: (handle) => console.log('signaled run', handle.signaledRunId),
-   *   err: (error) => console.error('signalWithStart failed', error),
+   *   err: (matcher) => matcher.with(P._, (error) => console.error('signalWithStart failed', error)),
    *   defect: (cause) => console.error('unexpected failure', cause),
    * });
    * ```
@@ -761,7 +761,7 @@ export class TypedClient<TContract extends ContractDefinition> {
    *
    * await result.match({
    *   ok: (output) => console.log('Order processed:', output.status),
-   *   err: (error) => console.error('Processing failed:', error),
+   *   err: (matcher) => matcher.with(P._, (error) => console.error('Processing failed:', error)),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
    * });
    * ```
@@ -802,7 +802,7 @@ export class TypedClient<TContract extends ContractDefinition> {
         );
         // The resolver only ever builds ok/err; assert away the impossible defect.
         assertNoDefect(resolved);
-        if (resolved.isErr()) return Err(resolved.error);
+        if (resolved.isErr()) return Err<Err>(resolved.error);
         const { definition, validatedInput, typedSearchAttributes } = resolved.value;
 
         try {
@@ -818,7 +818,9 @@ export class TypedClient<TContract extends ContractDefinition> {
           // shape; the helper only handles pre-call concerns.
           const outputResult = await definition.output["~standard"].validate(result);
           if (outputResult.issues) {
-            return Err(createWorkflowValidationError(workflowName, "output", outputResult.issues));
+            return Err<Err>(
+              createWorkflowValidationError(workflowName, "output", outputResult.issues),
+            );
           }
 
           return Ok(outputResult.value as Ok);
@@ -828,7 +830,7 @@ export class TypedClient<TContract extends ContractDefinition> {
           // routing through a dedicated helper — this is the only call site
           // that needs the full union.
           if (error instanceof WorkflowExecutionAlreadyStartedError) {
-            return Err(
+            return Err<Err>(
               new WorkflowAlreadyStartedError(error.workflowType, error.workflowId, error),
             );
           }
@@ -848,7 +850,7 @@ export class TypedClient<TContract extends ContractDefinition> {
             // ever populates it with a `TemporalFailure` subclass here; narrow
             // with the public union so the typed `cause` lines up with the
             // surfaced `WorkflowFailedError`.
-            return Err(
+            return Err<Err>(
               new WorkflowFailedError(
                 temporalOptions.workflowId,
                 error.cause as TemporalFailure | undefined,
@@ -856,7 +858,7 @@ export class TypedClient<TContract extends ContractDefinition> {
             );
           }
           if (error instanceof TemporalWorkflowNotFoundError) {
-            return Err(
+            return Err<Err>(
               new WorkflowExecutionNotFoundError(
                 error.workflowId || temporalOptions.workflowId,
                 error.runId,
@@ -864,7 +866,7 @@ export class TypedClient<TContract extends ContractDefinition> {
               ),
             );
           }
-          return Err(createRuntimeClientError("executeWorkflow", error));
+          return Err<Err>(createRuntimeClientError("executeWorkflow", error));
         }
       };
       return makeAsyncResult(work);
@@ -894,7 +896,7 @@ export class TypedClient<TContract extends ContractDefinition> {
    *     const result = await handle.result();
    *     // ... handle result
    *   },
-   *   err: (error) => console.error('Failed to get handle:', error),
+   *   err: (matcher) => matcher.with(P._, (error) => console.error('Failed to get handle:', error)),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
    * });
    * ```
@@ -992,7 +994,7 @@ export class TypedClient<TContract extends ContractDefinition> {
             const result = await workflowHandle.result();
             const outputResult = await definition.output["~standard"].validate(result);
             if (outputResult.issues) {
-              return Err(
+              return Err<Err>(
                 new WorkflowValidationError(
                   workflowHandle.workflowId,
                   "output",
@@ -1011,7 +1013,7 @@ export class TypedClient<TContract extends ContractDefinition> {
                 return Err(rehydrated as Err);
               }
             }
-            return Err(classifyResultError("result", error, workflowHandle.workflowId));
+            return Err<Err>(classifyResultError("result", error, workflowHandle.workflowId));
           }
         };
         return makeAsyncResult(work);
@@ -1138,7 +1140,7 @@ function buildValidatedProxy<TDef extends DefWithInput, TValidationError extends
           }
           return Ok(outputResult.value);
         } catch (error) {
-          return Err(classifyHandleError(operation, error, workflowId));
+          return Err<ProxyError>(classifyHandleError(operation, error, workflowId));
         }
       };
       return makeAsyncResult(work);
