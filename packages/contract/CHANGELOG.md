@@ -1,5 +1,16 @@
 # @temporal-contract/contract
 
+## 8.0.0-beta.0
+
+### Major Changes
+
+- 890d49a: Adopt unthrown v5 (beta): the error combinators and `match`'s `err` handler now take a ts-pattern matcher callback; peer bumped to `^5.0.0-beta.3`.
+
+### Patch Changes
+
+- 5fc2359: Enable oxfmt import sorting (the `.oxfmtrc.json` used a key oxfmt 0.58 dropped, so sorting was silently off) and adopt the shared `@btravstack/lefthook` hooks preset.
+- 74433ea: Consume the shared `@btravstack/tsconfig` / `@btravstack/typedoc` published config directly (the local `tools/*` packages are removed). Also add a direct `@types/node` dev dependency to `@temporal-contract/contract` (its siblings already declare it) so `types: ["node"]` still resolves now that the strict TS base comes from `node_modules/@btravstack/tsconfig`.
+
 ## 7.0.0
 
 ### Minor Changes

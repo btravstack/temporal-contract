@@ -1,5 +1,18 @@
 # @temporal-contract/client
 
+## 8.0.0-beta.0
+
+### Major Changes
+
+- 890d49a: Adopt unthrown v5 (beta): the error combinators and `match`'s `err` handler now take a ts-pattern matcher callback; peer bumped to `^5.0.0-beta.3`.
+
+### Patch Changes
+
+- Updated dependencies [5fc2359]
+- Updated dependencies [890d49a]
+- Updated dependencies [74433ea]
+  - @temporal-contract/contract@8.0.0-beta.0
+
 ## 7.0.0
 
 ### Major Changes
