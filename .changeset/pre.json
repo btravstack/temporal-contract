@@ -1,0 +1,11 @@
+{
+  "mode": "pre",
+  "tag": "beta",
+  "initialVersions": {
+    "@temporal-contract/client": "7.0.0",
+    "@temporal-contract/contract": "7.0.0",
+    "@temporal-contract/testing": "7.0.0",
+    "@temporal-contract/worker": "7.0.0"
+  },
+  "changesets": []
+}
