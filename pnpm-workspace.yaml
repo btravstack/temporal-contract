@@ -25,7 +25,7 @@ catalog:
   "@temporalio/worker": 1.20.2
   "@temporalio/workflow": 1.20.2
   "@types/node": 26.1.1
-  "@unthrown/vitest": 5.0.0-beta.2
+  "@unthrown/vitest": 5.0.0-beta.3
   "@vitest/coverage-v8": 4.1.10
   arktype: 2.2.3
   knip: 6.26.0
@@ -41,7 +41,7 @@ catalog:
   typedoc: 0.28.20
   typedoc-plugin-markdown: 4.12.0
   typescript: 6.0.3
-  unthrown: 5.0.0-beta.2
+  unthrown: 5.0.0-beta.3
   valibot: 1.4.2
   vitest: 4.1.10
   zod: 4.4.3

@@ -802,7 +802,7 @@ export class TypedClient<TContract extends ContractDefinition> {
         );
         // The resolver only ever builds ok/err; assert away the impossible defect.
         assertNoDefect(resolved);
-        if (resolved.isErr()) return Err<Err>(resolved.error);
+        if (resolved.isErr()) return Err(resolved.error);
         const { definition, validatedInput, typedSearchAttributes } = resolved.value;
 
         try {
@@ -818,9 +818,7 @@ export class TypedClient<TContract extends ContractDefinition> {
           // shape; the helper only handles pre-call concerns.
           const outputResult = await definition.output["~standard"].validate(result);
           if (outputResult.issues) {
-            return Err<Err>(
-              createWorkflowValidationError(workflowName, "output", outputResult.issues),
-            );
+            return Err(createWorkflowValidationError(workflowName, "output", outputResult.issues));
           }
 
           return Ok(outputResult.value as Ok);
@@ -830,7 +828,7 @@ export class TypedClient<TContract extends ContractDefinition> {
           // routing through a dedicated helper — this is the only call site
           // that needs the full union.
           if (error instanceof WorkflowExecutionAlreadyStartedError) {
-            return Err<Err>(
+            return Err(
               new WorkflowAlreadyStartedError(error.workflowType, error.workflowId, error),
             );
           }
@@ -850,7 +848,7 @@ export class TypedClient<TContract extends ContractDefinition> {
             // ever populates it with a `TemporalFailure` subclass here; narrow
             // with the public union so the typed `cause` lines up with the
             // surfaced `WorkflowFailedError`.
-            return Err<Err>(
+            return Err(
               new WorkflowFailedError(
                 temporalOptions.workflowId,
                 error.cause as TemporalFailure | undefined,
@@ -858,7 +856,7 @@ export class TypedClient<TContract extends ContractDefinition> {
             );
           }
           if (error instanceof TemporalWorkflowNotFoundError) {
-            return Err<Err>(
+            return Err(
               new WorkflowExecutionNotFoundError(
                 error.workflowId || temporalOptions.workflowId,
                 error.runId,
@@ -866,7 +864,7 @@ export class TypedClient<TContract extends ContractDefinition> {
               ),
             );
           }
-          return Err<Err>(createRuntimeClientError("executeWorkflow", error));
+          return Err(createRuntimeClientError("executeWorkflow", error));
         }
       };
       return makeAsyncResult(work);
@@ -994,7 +992,7 @@ export class TypedClient<TContract extends ContractDefinition> {
             const result = await workflowHandle.result();
             const outputResult = await definition.output["~standard"].validate(result);
             if (outputResult.issues) {
-              return Err<Err>(
+              return Err(
                 new WorkflowValidationError(
                   workflowHandle.workflowId,
                   "output",
@@ -1013,7 +1011,7 @@ export class TypedClient<TContract extends ContractDefinition> {
                 return Err(rehydrated as Err);
               }
             }
-            return Err<Err>(classifyResultError("result", error, workflowHandle.workflowId));
+            return Err(classifyResultError("result", error, workflowHandle.workflowId));
           }
         };
         return makeAsyncResult(work);
@@ -1140,7 +1138,7 @@ function buildValidatedProxy<TDef extends DefWithInput, TValidationError extends
           }
           return Ok(outputResult.value);
         } catch (error) {
-          return Err<ProxyError>(classifyHandleError(operation, error, workflowId));
+          return Err(classifyHandleError(operation, error, workflowId));
         }
       };
       return makeAsyncResult(work);
