@@ -341,9 +341,15 @@ import {
 } from "@temporal-contract/worker/activity";
 
 const logging: ActivityMiddleware = ({ activityName, workflowName }, next) =>
-  next().tapErr((error) => {
-    logger.warn({ activityName, workflowName, error }, "activity failed");
-  });
+  next().tapErrCases((matcher) =>
+    matcher.with(
+      P.instanceOf(ApplicationFailure),
+      tag("@temporal-contract/ContractError"),
+      (error) => {
+        logger.warn({ activityName, workflowName, error }, "activity failed");
+      },
+    ),
+  );
 
 const timing: ActivityMiddleware = async ({ activityName }, next) => {
   const started = Date.now();

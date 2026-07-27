@@ -141,7 +141,17 @@ const result = await future;
 
 result.match({
   ok: (output) => console.log(output.status), // ✅ 'success' | 'failed'
-  err: (error) => console.error("Failed:", error),
+  errCases: (matcher) =>
+    matcher.with(
+      tag("@temporal-contract/ContractError"),
+      tag("@temporal-contract/WorkflowNotFoundError"),
+      tag("@temporal-contract/WorkflowValidationError"),
+      tag("@temporal-contract/WorkflowAlreadyStartedError"),
+      tag("@temporal-contract/WorkflowFailedError"),
+      tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+      tag("@temporal-contract/RuntimeClientError"),
+      (error) => console.error("Failed:", error),
+    ),
   defect: (cause) => console.error("Unexpected:", cause),
 });
 ```

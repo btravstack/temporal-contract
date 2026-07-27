@@ -232,9 +232,19 @@ result.match({
   ok: (output) => {
     console.log(output.status); // 'success' | 'failed' — fully typed!
   },
-  err: (error) => {
-    console.error("Workflow failed:", error);
-  },
+  errCases: (matcher) =>
+    matcher.with(
+      tag("@temporal-contract/ContractError"),
+      tag("@temporal-contract/WorkflowNotFoundError"),
+      tag("@temporal-contract/WorkflowValidationError"),
+      tag("@temporal-contract/WorkflowAlreadyStartedError"),
+      tag("@temporal-contract/WorkflowFailedError"),
+      tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+      tag("@temporal-contract/RuntimeClientError"),
+      (error) => {
+        console.error("Workflow failed:", error);
+      },
+    ),
   defect: (cause) => {
     console.error("Unexpected failure:", cause);
   },

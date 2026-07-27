@@ -145,9 +145,19 @@ result.match({
   ok: (value) => {
     console.log("Order processed:", value.transactionId);
   },
-  err: (error) => {
-    console.error("Order failed:", error);
-  },
+  errCases: (matcher) =>
+    matcher.with(
+      tag("@temporal-contract/ContractError"),
+      tag("@temporal-contract/WorkflowNotFoundError"),
+      tag("@temporal-contract/WorkflowValidationError"),
+      tag("@temporal-contract/WorkflowAlreadyStartedError"),
+      tag("@temporal-contract/WorkflowFailedError"),
+      tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+      tag("@temporal-contract/RuntimeClientError"),
+      (error) => {
+        console.error("Order failed:", error);
+      },
+    ),
   defect: (cause) => {
     console.error("Unexpected failure:", cause);
   },
@@ -158,7 +168,7 @@ result.match({
 
 `AsyncResult<T, E>` is a thin wrapper around a `Promise<Result<T, E>>`. You
 can `await` it once and then inspect synchronously, or chain with
-`.map`, `.mapErr`, `.flatMap`, `.flatMapErr` before awaiting:
+`.map`, `.mapErrCases`, `.flatMap`, `.flatMapErrCases` before awaiting:
 
 ```typescript
 import { isErr } from "unthrown";
@@ -355,12 +365,17 @@ const processOrder = ({ orderId }) =>
     .flatMap((validId) => fetchOrder(validId))
     .flatMap((order) => processPayment(order))
     .flatMap((payment) => updateDatabase(payment))
-    .mapErr((error) =>
-      ApplicationFailure.create({
-        type: "ORDER_FAILED",
-        message: "Order processing failed",
-        cause: error instanceof Error ? error : undefined,
-      }),
+    .mapErrCases((matcher) =>
+      matcher.with(
+        tag("@temporal-contract/ContractError"),
+        tag("@temporal-contract/TechnicalError"),
+        (error) =>
+          ApplicationFailure.create({
+            type: "ORDER_FAILED",
+            message: "Order processing failed",
+            cause: error instanceof Error ? error : undefined,
+          }),
+      ),
     );
 // Stops at first error
 ```
@@ -412,13 +427,18 @@ unthrown exposes `all([...])` to fan in a list of `Result`s into a single
 array, or call `.match` on the result:
 
 ```typescript
-import { all } from "unthrown";
+import { all, tag } from "unthrown";
 
 const combined = all([validateA(a), validateB(b), validateC(c)]);
 
 return combined.match({
   ok: ([resA, resB, resC]) => proceed({ resA, resB, resC }),
-  err: (error) => fail(error),
+  errCases: (matcher) =>
+    matcher.with(
+      tag("@temporal-contract/ContractError"),
+      tag("@temporal-contract/TechnicalError"),
+      (error) => fail(error),
+    ),
   defect: (cause) => fail(cause),
 });
 ```
@@ -449,10 +469,16 @@ export const parentWorkflow = declareWorkflow({
         success: true,
         transactionId: output.transactionId,
       }),
-      err: (error) => ({
-        success: false,
-        error: error.message,
-      }),
+      errCases: (matcher) =>
+        matcher.with(
+          tag("@temporal-contract/ChildWorkflowError"),
+          tag("@temporal-contract/ChildWorkflowCancelledError"),
+          tag("@temporal-contract/ChildWorkflowNotFoundError"),
+          (error) => ({
+            success: false,
+            error: error.message,
+          }),
+        ),
       defect: (cause) => ({
         success: false,
         error: cause instanceof Error ? cause.message : "Unexpected failure",
@@ -482,9 +508,15 @@ export const parentWorkflow = declareWorkflow({
         // Can wait for result later if needed
         const result = await handle.result();
       },
-      err: (error) => {
-        console.error("Failed to start child:", error);
-      },
+      errCases: (matcher) =>
+        matcher.with(
+          tag("@temporal-contract/ChildWorkflowError"),
+          tag("@temporal-contract/ChildWorkflowCancelledError"),
+          tag("@temporal-contract/ChildWorkflowNotFoundError"),
+          (error) => {
+            console.error("Failed to start child:", error);
+          },
+        ),
       defect: (cause) => {
         console.error("Unexpected failure starting child:", cause);
       },
@@ -521,10 +553,16 @@ export const orderWorkflow = declareWorkflow({
     // Workflows return plain objects, not Result
     return notifyResult.match({
       ok: () => ({ status: "completed" }),
-      err: (error) => ({
-        status: "failed",
-        error: error.message,
-      }),
+      errCases: (matcher) =>
+        matcher.with(
+          tag("@temporal-contract/ChildWorkflowError"),
+          tag("@temporal-contract/ChildWorkflowCancelledError"),
+          tag("@temporal-contract/ChildWorkflowNotFoundError"),
+          (error) => ({
+            status: "failed",
+            error: error.message,
+          }),
+        ),
       defect: (cause) => ({
         status: "failed",
         error: cause instanceof Error ? cause.message : "Unexpected failure",
@@ -576,7 +614,7 @@ Keep deliberate boundary errors in the `err` channel (wrap them in
 `ApplicationFailure` for activities) and let only truly unexpected throws
 become defects.
 
-## `TaggedError` and `matchTags`
+## `TaggedError` and exhaustive matching
 
 Error classes are built with `TaggedError`, which stamps each class with a
 `_tag` discriminant:
@@ -602,20 +640,25 @@ class GatewayTimeout extends TaggedError("GatewayTimeout")<{
 > scope — e.g. `_tag === "@temporal-contract/WorkflowExecutionNotFoundError"` —
 > so they never collide with a `_tag` from your own code or another library.
 > Their `.name` stays the bare class name (e.g. `"WorkflowExecutionNotFoundError"`)
-> for readable logs. When folding library errors, the `matchTags` keys carry the
-> prefix: `matchTags(result, { "@temporal-contract/WorkflowExecutionNotFoundError": ... })`.
+> for readable logs. When folding library errors, the `errCases` matcher uses
+> the prefixed tag:
+> `matcher.with(tag("@temporal-contract/WorkflowExecutionNotFoundError"), …)`.
 
-Because every tagged error carries a `_tag`, unthrown's `matchTags` folds a
-`Result` exhaustively by tag, with dedicated `Ok` and `Defect` channels:
+Because every tagged error carries a `_tag`, `match`'s `errCases` matcher folds
+a `Result` exhaustively by tag, alongside the dedicated `ok` and `defect`
+channels. The matcher is **exhaustive**: a missing tag is a compile error, so
+enriching the error union forces every fold to be updated:
 
 ```typescript
-import { matchTags } from "unthrown";
+import { tag } from "unthrown";
 
-const message = matchTags(result, {
-  Ok: (value) => `charged ${value.transactionId}`,
-  PaymentDeclined: (e) => `declined for ${e.customerId}`,
-  GatewayTimeout: (e) => `timed out after ${e.elapsedMs}ms`,
-  Defect: (cause) => `unexpected: ${String(cause)}`,
+const message = result.match({
+  ok: (value) => `charged ${value.transactionId}`,
+  errCases: (matcher) =>
+    matcher
+      .with(tag("PaymentDeclined"), (e) => `declined for ${e.customerId}`)
+      .with(tag("GatewayTimeout"), (e) => `timed out after ${e.elapsedMs}ms`),
+  defect: (cause) => `unexpected: ${String(cause)}`,
 });
 ```
 

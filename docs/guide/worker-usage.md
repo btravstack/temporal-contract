@@ -183,10 +183,16 @@ export const parentWorkflow = declareWorkflow({
         success: true,
         transactionId: output.transactionId,
       }),
-      err: (error) => ({
-        success: false,
-        error: error.message,
-      }),
+      errCases: (matcher) =>
+        matcher.with(
+          tag("@temporal-contract/ChildWorkflowError"),
+          tag("@temporal-contract/ChildWorkflowCancelledError"),
+          tag("@temporal-contract/ChildWorkflowNotFoundError"),
+          (error) => ({
+            success: false,
+            error: error.message,
+          }),
+        ),
       defect: (cause) => ({
         success: false,
         error: cause instanceof Error ? cause.message : "Unexpected failure",
@@ -272,7 +278,7 @@ describe("Activities", () => {
 
 ## Best Practices
 
-### 1. Use `fromPromise` with `.map` / `.mapErr` for Activities
+### 1. Use `fromPromise` with `.map` / `.mapErrCases` for Activities
 
 Activities should pass the error mapper directly to `fromPromise`
 and chain `.map` for the success path:

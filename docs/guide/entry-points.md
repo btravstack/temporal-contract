@@ -233,11 +233,26 @@ handleResult.match({
     const result = await handle.result();
     result.match({
       ok: (output) => console.log(output.success), // ✅ TypeScript knows the shape
-      err: (error) => console.error("Workflow failed:", error),
+      errCases: (matcher) =>
+        matcher.with(
+          tag("@temporal-contract/ContractError"),
+          tag("@temporal-contract/WorkflowValidationError"),
+          tag("@temporal-contract/WorkflowFailedError"),
+          tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+          tag("@temporal-contract/RuntimeClientError"),
+          (error) => console.error("Workflow failed:", error),
+        ),
       defect: (cause) => console.error("Unexpected failure:", cause),
     });
   },
-  err: (error) => console.error("Failed to start workflow:", error),
+  errCases: (matcher) =>
+    matcher.with(
+      tag("@temporal-contract/WorkflowNotFoundError"),
+      tag("@temporal-contract/WorkflowValidationError"),
+      tag("@temporal-contract/WorkflowAlreadyStartedError"),
+      tag("@temporal-contract/RuntimeClientError"),
+      (error) => console.error("Failed to start workflow:", error),
+    ),
   defect: (cause) => console.error("Unexpected failure:", cause),
 });
 ```

@@ -137,10 +137,20 @@ const result = await client.executeWorkflow("processOrder", {
   args: { orderId: "ORD-123", amount: 100 },
 });
 
-// result is a Result — use .match({ ok, err, defect }) or isOk(result) to unwrap
+// result is a Result — use .match({ ok, errCases, defect }) or isOk(result) to unwrap
 result.match({
   ok: (output) => console.log(output.transactionId),
-  err: (error) => console.error("Workflow failed:", error),
+  errCases: (matcher) =>
+    matcher.with(
+      tag("@temporal-contract/ContractError"),
+      tag("@temporal-contract/WorkflowNotFoundError"),
+      tag("@temporal-contract/WorkflowValidationError"),
+      tag("@temporal-contract/WorkflowAlreadyStartedError"),
+      tag("@temporal-contract/WorkflowFailedError"),
+      tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+      tag("@temporal-contract/RuntimeClientError"),
+      (error) => console.error("Workflow failed:", error),
+    ),
   defect: (cause) => console.error("Unexpected failure:", cause),
 });
 ```

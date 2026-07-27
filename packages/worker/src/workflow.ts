@@ -627,7 +627,13 @@ type WorkflowContext<
    *     const result = await handle.result();
    *     // ... handle result
    *   },
-   *   errCases: (matcher) => matcher.with(P._, (error) => console.error('Failed to start:', error)),
+   *   errCases: (matcher) =>
+   *     matcher.with(
+   *       tag('@temporal-contract/ChildWorkflowError'),
+   *       tag('@temporal-contract/ChildWorkflowCancelledError'),
+   *       tag('@temporal-contract/ChildWorkflowNotFoundError'),
+   *       (error) => console.error('Failed to start:', error),
+   *     ),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
    * });
    * ```
@@ -667,7 +673,13 @@ type WorkflowContext<
    *
    * await result.match({
    *   ok: (output) => console.log('Payment processed:', output),
-   *   errCases: (matcher) => matcher.with(P._, (error) => console.error('Processing failed:', error)),
+   *   errCases: (matcher) =>
+   *     matcher.with(
+   *       tag('@temporal-contract/ChildWorkflowError'),
+   *       tag('@temporal-contract/ChildWorkflowCancelledError'),
+   *       tag('@temporal-contract/ChildWorkflowNotFoundError'),
+   *       (error) => console.error('Processing failed:', error),
+   *     ),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
    * });
    * ```

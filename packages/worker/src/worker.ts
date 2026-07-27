@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { type ContractDefinition } from "@temporal-contract/contract";
 import { TechnicalError } from "@temporal-contract/contract/errors";
 import { Worker, type WorkerOptions } from "@temporalio/worker";
-import { fromPromise, P, type AsyncResult } from "unthrown";
+import { fromPromise, tag, type AsyncResult } from "unthrown";
 
 import type { ActivitiesHandler } from "./activity.js";
 
@@ -104,7 +104,7 @@ export async function createWorkerOrThrow<TContract extends ContractDefinition>(
   return result.match({
     ok: (worker) => worker,
     errCases: (matcher) =>
-      matcher.with(P._, (error) => {
+      matcher.with(tag("@temporal-contract/TechnicalError"), (error) => {
         throw error.cause ?? error;
       }),
     defect: (cause) => {

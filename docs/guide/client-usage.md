@@ -63,9 +63,19 @@ result.match({
   ok: (output) => {
     console.log("Order processed:", output.status); // TypeScript knows the shape!
   },
-  err: (error) => {
-    console.error("Workflow failed:", error);
-  },
+  errCases: (matcher) =>
+    matcher.with(
+      tag("@temporal-contract/ContractError"),
+      tag("@temporal-contract/WorkflowNotFoundError"),
+      tag("@temporal-contract/WorkflowValidationError"),
+      tag("@temporal-contract/WorkflowAlreadyStartedError"),
+      tag("@temporal-contract/WorkflowFailedError"),
+      tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+      tag("@temporal-contract/RuntimeClientError"),
+      (error) => {
+        console.error("Workflow failed:", error);
+      },
+    ),
   defect: (cause) => {
     console.error("Unexpected failure:", cause);
   },
@@ -94,13 +104,28 @@ handleResult.match({
     const result = await handle.result();
     result.match({
       ok: (output) => console.log("Completed:", output),
-      err: (error) => console.error("Failed:", error),
+      errCases: (matcher) =>
+        matcher.with(
+          tag("@temporal-contract/ContractError"),
+          tag("@temporal-contract/WorkflowValidationError"),
+          tag("@temporal-contract/WorkflowFailedError"),
+          tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+          tag("@temporal-contract/RuntimeClientError"),
+          (error) => console.error("Failed:", error),
+        ),
       defect: (cause) => console.error("Unexpected failure:", cause),
     });
   },
-  err: (error) => {
-    console.error("Failed to start workflow:", error);
-  },
+  errCases: (matcher) =>
+    matcher.with(
+      tag("@temporal-contract/WorkflowNotFoundError"),
+      tag("@temporal-contract/WorkflowValidationError"),
+      tag("@temporal-contract/WorkflowAlreadyStartedError"),
+      tag("@temporal-contract/RuntimeClientError"),
+      (error) => {
+        console.error("Failed to start workflow:", error);
+      },
+    ),
   defect: (cause) => {
     console.error("Unexpected failure:", cause);
   },
@@ -142,7 +167,7 @@ await client.executeWorkflow("invalidWorkflow", {
 The client uses `unthrown` for explicit error handling:
 
 ```typescript
-import { Result } from "unthrown";
+import { Result, tag } from "unthrown";
 
 const result = await client.executeWorkflow("processOrder", {
   workflowId: "order-123",
@@ -154,9 +179,19 @@ result.match({
   ok: (value) => {
     console.log("Order processed:", value.transactionId);
   },
-  err: (error) => {
-    console.error("Order failed:", error);
-  },
+  errCases: (matcher) =>
+    matcher.with(
+      tag("@temporal-contract/ContractError"),
+      tag("@temporal-contract/WorkflowNotFoundError"),
+      tag("@temporal-contract/WorkflowValidationError"),
+      tag("@temporal-contract/WorkflowAlreadyStartedError"),
+      tag("@temporal-contract/WorkflowFailedError"),
+      tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+      tag("@temporal-contract/RuntimeClientError"),
+      (error) => {
+        console.error("Order failed:", error);
+      },
+    ),
   defect: (cause) => {
     console.error("Unexpected failure:", cause);
   },
@@ -200,7 +235,13 @@ handleResult.match({
     const statusResult = await handle.queries.getStatus({});
     statusResult.match({
       ok: (status) => console.log("Status:", status),
-      err: (error) => console.error("Query failed:", error),
+      errCases: (matcher) =>
+        matcher.with(
+          tag("@temporal-contract/QueryValidationError"),
+          tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+          tag("@temporal-contract/RuntimeClientError"),
+          (error) => console.error("Query failed:", error),
+        ),
       defect: (cause) => console.error("Unexpected failure:", cause),
     });
 
@@ -208,7 +249,13 @@ handleResult.match({
     const signalResult = await handle.signals.cancelOrder({ reason: "Customer request" });
     signalResult.match({
       ok: () => console.log("Signal sent"),
-      err: (error) => console.error("Signal failed:", error),
+      errCases: (matcher) =>
+        matcher.with(
+          tag("@temporal-contract/SignalValidationError"),
+          tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+          tag("@temporal-contract/RuntimeClientError"),
+          (error) => console.error("Signal failed:", error),
+        ),
       defect: (cause) => console.error("Unexpected failure:", cause),
     });
 
@@ -216,11 +263,24 @@ handleResult.match({
     const result = await handle.result();
     result.match({
       ok: (output) => console.log("Result:", output),
-      err: (error) => console.error("Workflow failed:", error),
+      errCases: (matcher) =>
+        matcher.with(
+          tag("@temporal-contract/ContractError"),
+          tag("@temporal-contract/WorkflowValidationError"),
+          tag("@temporal-contract/WorkflowFailedError"),
+          tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+          tag("@temporal-contract/RuntimeClientError"),
+          (error) => console.error("Workflow failed:", error),
+        ),
       defect: (cause) => console.error("Unexpected failure:", cause),
     });
   },
-  err: (error) => console.error("Failed to get handle:", error),
+  errCases: (matcher) =>
+    matcher.with(
+      tag("@temporal-contract/WorkflowNotFoundError"),
+      tag("@temporal-contract/RuntimeClientError"),
+      (error) => console.error("Failed to get handle:", error),
+    ),
   defect: (cause) => console.error("Unexpected failure:", cause),
 });
 ```
@@ -253,7 +313,17 @@ const result = await client.executeWorkflow("processOrder", {
 
 result.match({
   ok: (value) => console.log("Success:", value),
-  err: (error) => console.error("Workflow returned error:", error),
+  errCases: (matcher) =>
+    matcher.with(
+      tag("@temporal-contract/ContractError"),
+      tag("@temporal-contract/WorkflowNotFoundError"),
+      tag("@temporal-contract/WorkflowValidationError"),
+      tag("@temporal-contract/WorkflowAlreadyStartedError"),
+      tag("@temporal-contract/WorkflowFailedError"),
+      tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+      tag("@temporal-contract/RuntimeClientError"),
+      (error) => console.error("Workflow returned error:", error),
+    ),
   defect: (cause) => console.error("Unexpected failure:", cause),
 });
 ```
@@ -320,14 +390,41 @@ import type { ClientInterceptor } from "@temporal-contract/client";
 
 // Observe every operation
 const logging: ClientInterceptor = (args, next) =>
-  next().tapErr((error) => {
-    logger.warn({ operation: args.operation, workflowId: args.workflowId, error });
-  });
+  next().tapErrCases((matcher) =>
+    matcher.with(
+      tag("@temporal-contract/WorkflowNotFoundError"),
+      tag("@temporal-contract/WorkflowValidationError"),
+      tag("@temporal-contract/WorkflowAlreadyStartedError"),
+      tag("@temporal-contract/WorkflowFailedError"),
+      tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+      tag("@temporal-contract/SignalValidationError"),
+      tag("@temporal-contract/QueryValidationError"),
+      tag("@temporal-contract/UpdateValidationError"),
+      tag("@temporal-contract/RuntimeClientError"),
+      tag("@temporal-contract/ContractError"),
+      (error) => {
+        logger.warn({ operation: args.operation, workflowId: args.workflowId, error });
+      },
+    ),
+  );
 
 // Retry a transient failure once
 const retryOnce: ClientInterceptor = (args, next) =>
-  next().flatMapErr((error): ReturnType<typeof next> =>
-    error instanceof RuntimeClientError ? next() : Err(error).toAsync(),
+  next().flatMapErrCases((matcher) =>
+    matcher.with(
+      tag("@temporal-contract/WorkflowNotFoundError"),
+      tag("@temporal-contract/WorkflowValidationError"),
+      tag("@temporal-contract/WorkflowAlreadyStartedError"),
+      tag("@temporal-contract/WorkflowFailedError"),
+      tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+      tag("@temporal-contract/SignalValidationError"),
+      tag("@temporal-contract/QueryValidationError"),
+      tag("@temporal-contract/UpdateValidationError"),
+      tag("@temporal-contract/RuntimeClientError"),
+      tag("@temporal-contract/ContractError"),
+      (error): ReturnType<typeof next> =>
+        error instanceof RuntimeClientError ? next() : Err(error).toAsync(),
+    ),
   );
 
 const client = await TypedClient.create({
@@ -496,11 +593,21 @@ result.match({
     // Handle success
     updateDatabase(value);
   },
-  err: (error) => {
-    // Handle error
-    logError(error);
-    notifySupport(error);
-  },
+  errCases: (matcher) =>
+    matcher.with(
+      tag("@temporal-contract/ContractError"),
+      tag("@temporal-contract/WorkflowNotFoundError"),
+      tag("@temporal-contract/WorkflowValidationError"),
+      tag("@temporal-contract/WorkflowAlreadyStartedError"),
+      tag("@temporal-contract/WorkflowFailedError"),
+      tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+      tag("@temporal-contract/RuntimeClientError"),
+      (error) => {
+        // Handle error
+        logError(error);
+        notifySupport(error);
+      },
+    ),
   defect: (cause) => {
     // Handle unexpected failure (bug)
     logError(cause);
