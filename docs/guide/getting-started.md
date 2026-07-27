@@ -191,15 +191,17 @@ const connection = await NativeConnection.connect({
   address: "localhost:7233",
 });
 
-// Creation returns AsyncResult<Worker, TechnicalError> — bundling and
-// connection failures land on the Err channel instead of throwing.
+// Creation returns AsyncResult<Worker, never> — bundling and connection
+// failures are technical faults that ride the defect channel (a TechnicalError
+// cause), not the Err channel. `get()` panics (rethrowing that cause) on
+// failure; there is no modeled error to `getOrThrow`.
 const worker = await createWorker({
   contract: orderContract, // the task queue comes from the contract
   connection,
   // ESM-safe path resolution (there is no `require.resolve` in ESM)
   workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
   activities,
-}).getOrThrow();
+}).get();
 
 await worker.run();
 ```
@@ -215,10 +217,12 @@ const connection = await Connection.connect({
 });
 
 const temporalClient = new Client({ connection });
+// `create` returns AsyncResult<TypedClient, never> — setup faults ride the
+// defect channel (a TechnicalError cause), so `get()` is the extractor.
 const client = await TypedClient.create({
   contract: orderContract,
   client: temporalClient,
-}).getOrThrow();
+}).get();
 
 // Fully typed workflow execution with Result/AsyncResult pattern
 const resultAsync = client.executeWorkflow("processOrder", {
@@ -240,7 +244,6 @@ result.match({
       tag("@temporal-contract/WorkflowAlreadyStartedError"),
       tag("@temporal-contract/WorkflowFailedError"),
       tag("@temporal-contract/WorkflowExecutionNotFoundError"),
-      tag("@temporal-contract/RuntimeClientError"),
       (error) => {
         console.error("Workflow failed:", error);
       },

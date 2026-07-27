@@ -1,5 +1,5 @@
 import { defineContract, defineSearchAttribute, defineWorkflow } from "@temporal-contract/contract";
-import { ContractError } from "@temporal-contract/contract/errors";
+import { ContractError, TechnicalError } from "@temporal-contract/contract/errors";
 import {
   type Client,
   WorkflowExecutionAlreadyStartedError,
@@ -11,7 +11,7 @@ import {
   TypedSearchAttributes,
   WorkflowNotFoundError as TemporalWorkflowNotFoundError,
 } from "@temporalio/common";
-import { Err, tag } from "unthrown";
+import { tag } from "unthrown";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
 
@@ -154,17 +154,19 @@ describe("TypedClient", () => {
       }
     });
 
-    it("surfaces a missing Schedule API as Err(TechnicalError) instead of throwing", async () => {
+    it("surfaces a missing Schedule API as a Defect(TechnicalError) instead of throwing", async () => {
       const oldClient = { workflow: mockWorkflow } as unknown as Client;
       const created = await TypedClient.create({ contract: testContract, client: oldClient });
-      expect(created).toBeErr();
-      if (created.isErr()) {
-        expect(created.error._tag).toBe("@temporal-contract/TechnicalError");
-        expect(created.error.message).toMatch(/requires @temporalio\/client >= 1\.16/);
+      expect(created).toBeDefect();
+      if (created.isDefect()) {
+        const cause = created.cause;
+        expect(cause).toBeInstanceOf(TechnicalError);
+        expect((cause as TechnicalError)._tag).toBe("@temporal-contract/TechnicalError");
+        expect((cause as TechnicalError).message).toMatch(/requires @temporalio\/client >= 1\.16/);
       }
     });
 
-    it("surfaces an eager-connection failure as Err(TechnicalError)", async () => {
+    it("surfaces an eager-connection failure as a Defect(TechnicalError)", async () => {
       const failing = new Error("connection refused");
       const rawClient = {
         workflow: mockWorkflow,
@@ -172,10 +174,12 @@ describe("TypedClient", () => {
         connection: { ensureConnected: vi.fn().mockRejectedValue(failing) },
       } as unknown as Client;
       const created = await TypedClient.create({ contract: testContract, client: rawClient });
-      expect(created).toBeErr();
-      if (created.isErr()) {
-        expect(created.error._tag).toBe("@temporal-contract/TechnicalError");
-        expect(created.error.cause).toBe(failing);
+      expect(created).toBeDefect();
+      if (created.isDefect()) {
+        const cause = created.cause;
+        expect(cause).toBeInstanceOf(TechnicalError);
+        expect((cause as TechnicalError)._tag).toBe("@temporal-contract/TechnicalError");
+        expect((cause as TechnicalError).cause).toBe(failing);
       }
     });
   });
@@ -280,7 +284,7 @@ describe("TypedClient", () => {
       }
     });
 
-    it("should return Error result when workflow execution throws", async () => {
+    it("surfaces a Defect(RuntimeClientError) when workflow execution throws an unrecognized error", async () => {
       mockWorkflow.execute.mockRejectedValue(new Error("Workflow execution failed"));
 
       const result = await typedClient.executeWorkflow("testWorkflow", {
@@ -288,7 +292,11 @@ describe("TypedClient", () => {
         args: { name: "hello", value: 42 },
       });
 
-      expect(result).toBeErr();
+      expect(result).toBeDefect();
+      if (result.isDefect()) {
+        expect(result.cause).toBeInstanceOf(RuntimeClientError);
+        expect((result.cause as RuntimeClientError).operation).toBe("executeWorkflow");
+      }
     });
   });
 
@@ -394,7 +402,7 @@ describe("TypedClient", () => {
       expect(mockWorkflow.signalWithStart).not.toHaveBeenCalled();
     });
 
-    it("returns RuntimeClientError when the underlying Temporal call rejects", async () => {
+    it("surfaces a Defect(RuntimeClientError) when the underlying Temporal call rejects", async () => {
       mockWorkflow.signalWithStart.mockRejectedValue(new Error("temporal down"));
 
       const result = await typedClient.signalWithStart("testWorkflow", {
@@ -404,10 +412,10 @@ describe("TypedClient", () => {
         signalArgs: [50],
       });
 
-      expect(result).toBeErr();
-      if (result.isErr()) {
-        expect(result.error).toBeInstanceOf(RuntimeClientError);
-        expect((result.error as RuntimeClientError).operation).toBe("signalWithStart");
+      expect(result).toBeDefect();
+      if (result.isDefect()) {
+        expect(result.cause).toBeInstanceOf(RuntimeClientError);
+        expect((result.cause as RuntimeClientError).operation).toBe("signalWithStart");
       }
     });
   });
@@ -652,7 +660,7 @@ describe("TypedClient", () => {
         }
       });
 
-      it("returns RuntimeClientError when the underlying query call rejects", async () => {
+      it("surfaces a Defect(RuntimeClientError) when the underlying query call rejects", async () => {
         mockHandle.query.mockRejectedValue(new Error("network down"));
 
         const handleResult = await typedClient.startWorkflow("testWorkflow", {
@@ -663,10 +671,10 @@ describe("TypedClient", () => {
 
         const result = await handleResult.value.queries.getStatus([]);
 
-        expect(result).toBeErr();
-        if (result.isErr()) {
-          expect(result.error).toBeInstanceOf(RuntimeClientError);
-          expect((result.error as RuntimeClientError).operation).toBe("query");
+        expect(result).toBeDefect();
+        if (result.isDefect()) {
+          expect(result.cause).toBeInstanceOf(RuntimeClientError);
+          expect((result.cause as RuntimeClientError).operation).toBe("query");
         }
       });
 
@@ -690,7 +698,7 @@ describe("TypedClient", () => {
         expect(mockHandle.signal).not.toHaveBeenCalled();
       });
 
-      it("returns RuntimeClientError when the underlying signal call rejects", async () => {
+      it("surfaces a Defect(RuntimeClientError) when the underlying signal call rejects", async () => {
         mockHandle.signal.mockRejectedValue(new Error("connection reset"));
 
         const handleResult = await typedClient.startWorkflow("testWorkflow", {
@@ -701,10 +709,10 @@ describe("TypedClient", () => {
 
         const result = await handleResult.value.signals.updateProgress([50]);
 
-        expect(result).toBeErr();
-        if (result.isErr()) {
-          expect(result.error).toBeInstanceOf(RuntimeClientError);
-          expect((result.error as RuntimeClientError).operation).toBe("signal");
+        expect(result).toBeDefect();
+        if (result.isDefect()) {
+          expect(result.cause).toBeInstanceOf(RuntimeClientError);
+          expect((result.cause as RuntimeClientError).operation).toBe("signal");
         }
       });
 
@@ -749,7 +757,7 @@ describe("TypedClient", () => {
         }
       });
 
-      it("returns RuntimeClientError when the underlying update call rejects", async () => {
+      it("surfaces a Defect(RuntimeClientError) when the underlying update call rejects", async () => {
         mockHandle.executeUpdate.mockRejectedValue(new Error("update timeout"));
 
         const handleResult = await typedClient.startWorkflow("testWorkflow", {
@@ -760,10 +768,10 @@ describe("TypedClient", () => {
 
         const result = await handleResult.value.updates.setConfig([{ value: "ok" }]);
 
-        expect(result).toBeErr();
-        if (result.isErr()) {
-          expect(result.error).toBeInstanceOf(RuntimeClientError);
-          expect((result.error as RuntimeClientError).operation).toBe("update");
+        expect(result).toBeDefect();
+        if (result.isDefect()) {
+          expect(result.cause).toBeInstanceOf(RuntimeClientError);
+          expect((result.cause as RuntimeClientError).operation).toBe("update");
         }
       });
     });
@@ -791,7 +799,6 @@ describe("TypedClient", () => {
             tag("@temporal-contract/WorkflowAlreadyStartedError"),
             tag("@temporal-contract/WorkflowFailedError"),
             tag("@temporal-contract/WorkflowExecutionNotFoundError"),
-            tag("@temporal-contract/RuntimeClientError"),
             () => {
               throw new Error("Should not be called");
             },
@@ -973,12 +980,12 @@ describe("TypedClient", () => {
         },
       });
 
-      expect(result).toBeErr();
-      if (result.isErr()) {
-        expect(result.error).toBeInstanceOf(RuntimeClientError);
-        const op = (result.error as RuntimeClientError).operation;
+      expect(result).toBeDefect();
+      if (result.isDefect()) {
+        expect(result.cause).toBeInstanceOf(RuntimeClientError);
+        const op = (result.cause as RuntimeClientError).operation;
         expect(op).toBe("searchAttributes");
-        expect((result.error as RuntimeClientError).message).toContain("unknownAttr");
+        expect((result.cause as RuntimeClientError).message).toContain("unknownAttr");
       }
       // Temporal must NOT have been called with the bad attribute.
       expect(mockWorkflow.start).not.toHaveBeenCalled();
@@ -1002,11 +1009,11 @@ describe("TypedClient", () => {
         },
       );
 
-      expect(result).toBeErr();
-      if (result.isErr()) {
-        expect(result.error).toBeInstanceOf(RuntimeClientError);
-        expect((result.error as RuntimeClientError).operation).toBe("searchAttributes");
-        expect((result.error as RuntimeClientError).message).toContain("customerId");
+      expect(result).toBeDefect();
+      if (result.isDefect()) {
+        expect(result.cause).toBeInstanceOf(RuntimeClientError);
+        expect((result.cause as RuntimeClientError).operation).toBe("searchAttributes");
+        expect((result.cause as RuntimeClientError).message).toContain("customerId");
       }
       expect(mockWorkflow.start).not.toHaveBeenCalled();
     });
@@ -1065,7 +1072,7 @@ describe("TypedClient", () => {
       }
     });
 
-    it("startWorkflow falls through to RuntimeClientError for unrelated errors", async () => {
+    it("startWorkflow falls through to a Defect(RuntimeClientError) for unrelated errors", async () => {
       mockWorkflow.start.mockRejectedValue(new Error("network down"));
 
       const result = await typedClient.startWorkflow("testWorkflow", {
@@ -1073,11 +1080,11 @@ describe("TypedClient", () => {
         args: { name: "hello", value: 42 },
       });
 
-      expect(result).toBeErr();
-      if (result.isErr()) {
-        expect(result.error).toBeInstanceOf(RuntimeClientError);
-        expect(result.error).not.toBeInstanceOf(WorkflowAlreadyStartedError);
-        expect((result.error as RuntimeClientError).operation).toBe("startWorkflow");
+      expect(result).toBeDefect();
+      if (result.isDefect()) {
+        expect(result.cause).toBeInstanceOf(RuntimeClientError);
+        expect(result.cause).not.toBeInstanceOf(WorkflowAlreadyStartedError);
+        expect((result.cause as RuntimeClientError).operation).toBe("startWorkflow");
       }
     });
 
@@ -1520,23 +1527,11 @@ describe("TypedClient — interceptors", () => {
     mockWorkflow.execute
       .mockRejectedValueOnce(new Error("transient"))
       .mockResolvedValueOnce({ result: "ok" });
-    const retryOnce: ClientInterceptor = (_args, next) =>
-      next().flatMapErrCases((matcher) =>
-        matcher.with(
-          tag("@temporal-contract/WorkflowNotFoundError"),
-          tag("@temporal-contract/WorkflowValidationError"),
-          tag("@temporal-contract/WorkflowAlreadyStartedError"),
-          tag("@temporal-contract/WorkflowFailedError"),
-          tag("@temporal-contract/WorkflowExecutionNotFoundError"),
-          tag("@temporal-contract/SignalValidationError"),
-          tag("@temporal-contract/QueryValidationError"),
-          tag("@temporal-contract/UpdateValidationError"),
-          tag("@temporal-contract/RuntimeClientError"),
-          tag("@temporal-contract/ContractError"),
-          (error): ReturnType<typeof next> =>
-            error instanceof RuntimeClientError ? next() : Err(error).toAsync(),
-        ),
-      );
+    // A transient Temporal failure now rides the defect channel (a
+    // `RuntimeClientError` cause), so the retry re-enters via `recoverDefect`
+    // rather than a modeled-error matcher — a defect is the retry signal, and
+    // any genuinely-modeled `Err` still flows through untouched.
+    const retryOnce: ClientInterceptor = (_args, next) => next().recoverDefect(() => next());
 
     const result = await clientWith([retryOnce]).executeWorkflow("testWorkflow", {
       workflowId: "wf-4",

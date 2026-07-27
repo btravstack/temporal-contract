@@ -29,7 +29,8 @@ async function run() {
   });
 
   // Create and run the worker using createWorker — creation failures are
-  // modeled on the Err channel (TechnicalError), not thrown.
+  // technical faults that ride the defect channel (a TechnicalError cause),
+  // not the Err channel and not thrown.
   const workerResult = await createWorker({
     contract: orderProcessingContract,
     connection,

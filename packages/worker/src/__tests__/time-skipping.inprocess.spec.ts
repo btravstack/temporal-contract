@@ -25,7 +25,7 @@ import {
   declareActivitiesHandler,
   defineActivityMiddleware,
 } from "../activity.js";
-import { createWorker } from "../worker.js";
+import { createWorker, TechnicalError } from "../worker.js";
 import { inprocessContract } from "./inprocess.contract.js";
 
 const okAsync = <T>(value: T): AsyncResult<T, never> => Ok(value).toAsync();
@@ -138,17 +138,19 @@ describe("time-skipping TestWorkflowEnvironment", () => {
     ]);
   });
 
-  it("surfaces worker bundling failures on the Err channel", async ({ testEnv }) => {
+  it("surfaces worker bundling failures on the defect channel", async ({ testEnv }) => {
     const workerResult = await createWorker({
       contract: inprocessContract,
       connection: testEnv.nativeConnection,
       workflowsPath: workflowPath("does-not-exist"),
       activities,
     });
-    expect(workerResult.isErr()).toBe(true);
-    if (workerResult.isErr()) {
-      expect(workerResult.error._tag).toBe("@temporal-contract/TechnicalError");
-      expect(workerResult.error.message).toContain("inprocess-tests");
+    expect(workerResult.isDefect()).toBe(true);
+    if (workerResult.isDefect()) {
+      const cause = workerResult.cause;
+      expect(cause).toBeInstanceOf(TechnicalError);
+      expect((cause as TechnicalError)._tag).toBe("@temporal-contract/TechnicalError");
+      expect((cause as TechnicalError).message).toContain("inprocess-tests");
     }
   });
 });

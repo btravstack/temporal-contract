@@ -3,7 +3,12 @@ import { type NativeConnection, Worker } from "@temporalio/worker";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { z } from "zod";
 
-import { createWorker, createWorkerOrThrow, workflowsPathFromURL } from "./worker.js";
+import {
+  createWorker,
+  createWorkerOrThrow,
+  TechnicalError,
+  workflowsPathFromURL,
+} from "./worker.js";
 
 // Mock @temporalio/worker
 vi.mock("@temporalio/worker", () => ({
@@ -56,7 +61,7 @@ describe("Worker Entry Point", () => {
       expect(workerResult).toBeOkWith(mockWorker);
     });
 
-    it("should surface Worker.create rejections as Err(TechnicalError)", async () => {
+    it("should surface Worker.create rejections as a Defect with a TechnicalError cause", async () => {
       // GIVEN
       const contract = {
         taskQueue: "test-queue",
@@ -78,12 +83,15 @@ describe("Worker Entry Point", () => {
         activities: {},
       });
 
-      // THEN — modeled on the Err channel, not thrown
-      expect(workerResult).toBeErr();
-      if (workerResult.isErr()) {
-        expect(workerResult.error._tag).toBe("@temporal-contract/TechnicalError");
-        expect(workerResult.error.message).toContain('task queue "test-queue"');
-        expect(workerResult.error.cause).toBe(bundleError);
+      // THEN — a technical fault rides the defect channel (a TechnicalError
+      // instance as the cause), not the modeled Err channel
+      expect(workerResult).toBeDefect();
+      if (workerResult.isDefect()) {
+        const cause = workerResult.cause;
+        expect(cause).toBeInstanceOf(TechnicalError);
+        expect((cause as TechnicalError)._tag).toBe("@temporal-contract/TechnicalError");
+        expect((cause as TechnicalError).message).toContain('task queue "test-queue"');
+        expect((cause as TechnicalError).cause).toBe(bundleError);
       }
     });
 

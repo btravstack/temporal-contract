@@ -409,7 +409,6 @@ describe("Client Package - Integration Tests", () => {
             tag("@temporal-contract/WorkflowAlreadyStartedError"),
             tag("@temporal-contract/WorkflowFailedError"),
             tag("@temporal-contract/WorkflowExecutionNotFoundError"),
-            tag("@temporal-contract/RuntimeClientError"),
             () => {
               throw new Error("Should not be called");
             },

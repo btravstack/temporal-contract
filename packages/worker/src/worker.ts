@@ -4,12 +4,13 @@ import { fileURLToPath } from "node:url";
 import { type ContractDefinition } from "@temporal-contract/contract";
 import { TechnicalError } from "@temporal-contract/contract/errors";
 import { Worker, type WorkerOptions } from "@temporalio/worker";
-import { fromPromise, tag, type AsyncResult } from "unthrown";
+import { fromPromise, type AsyncResult } from "unthrown";
 
 import type { ActivitiesHandler } from "./activity.js";
 
-// Modeled creation failure — `createWorker` surfaces it on the Err channel
-// instead of throwing.
+// Technical creation failure — worker bundling / connection errors are
+// unmodeled infrastructure defects, surfaced on the `Defect` channel with a
+// {@link TechnicalError} instance as their cause (never in the `Err` channel).
 export { TechnicalError } from "@temporal-contract/contract/errors";
 
 /**
@@ -37,10 +38,11 @@ export type CreateWorkerOptions<TContract extends ContractDefinition> = Omit<
  * - Using the contract's task queue automatically
  * - Providing type-safe configuration
  *
- * Returns `AsyncResult<Worker, TechnicalError>` — worker bundling and
- * connection failures are modeled on the `Err` channel instead of thrown,
- * matching the org-wide `Typed*.create()` factory shape (amqp-contract's
- * `TypedAmqpWorker.create`).
+ * Returns `AsyncResult<Worker, never>` — worker bundling and connection
+ * failures are *technical* infrastructure faults, not anticipated domain
+ * errors, so they surface on the `Defect` channel (a {@link TechnicalError}
+ * instance as the defect's cause) rather than the modeled `Err` channel.
+ * Inspect them via `match`'s `defect` handler or `recoverDefect` / `tapDefect`.
  *
  * @example
  * ```ts
@@ -59,8 +61,8 @@ export type CreateWorkerOptions<TContract extends ContractDefinition> = Omit<
  *   workflowsPath: workflowsPathFromURL(import.meta.url, './workflows.js'),
  *   activities,
  * });
- * if (workerResult.isErr()) {
- *   console.error('worker setup failed', workerResult.error);
+ * if (workerResult.isDefect()) {
+ *   console.error('worker setup failed', workerResult.cause);
  *   process.exit(1);
  * }
  *
@@ -69,22 +71,25 @@ export type CreateWorkerOptions<TContract extends ContractDefinition> = Omit<
  */
 export function createWorker<TContract extends ContractDefinition>(
   options: CreateWorkerOptions<TContract>,
-): AsyncResult<Worker, TechnicalError> {
+): AsyncResult<Worker, never> {
   const { contract, activities, ...workerOptions } = options;
 
   // Create the worker with contract's task queue. `Worker.create` rejects on
   // workflow-bundle compilation errors, bad connections, and invalid
-  // options — all technical failures, modeled rather than thrown.
+  // options — all *technical* faults, routed to the defect channel with a
+  // `TechnicalError` cause (never a modeled `Err`).
   return fromPromise(
     Worker.create({
       ...workerOptions,
       activities,
       taskQueue: contract.taskQueue,
     }),
-    (cause) =>
-      new TechnicalError(
-        `Failed to create Temporal worker for task queue "${contract.taskQueue}"`,
-        cause,
+    (cause, defect) =>
+      defect(
+        new TechnicalError(
+          `Failed to create Temporal worker for task queue "${contract.taskQueue}"`,
+          cause,
+        ),
       ),
   );
 }
@@ -94,23 +99,21 @@ export function createWorker<TContract extends ContractDefinition>(
  * pre-AsyncResult behavior.
  *
  * @deprecated Use {@link createWorker}, which returns
- * `AsyncResult<Worker, TechnicalError>`. This throwing alias exists to ease
- * migration and will be removed in a future major.
+ * `AsyncResult<Worker, never>` (technical failures ride the defect channel).
+ * This throwing alias exists to ease migration and will be removed in a
+ * future major.
  */
 export async function createWorkerOrThrow<TContract extends ContractDefinition>(
   options: CreateWorkerOptions<TContract>,
 ): Promise<Worker> {
   const result = await createWorker(options);
-  return result.match({
-    ok: (worker) => worker,
-    errCases: (matcher) =>
-      matcher.with(tag("@temporal-contract/TechnicalError"), (error) => {
-        throw error.cause ?? error;
-      }),
-    defect: (cause) => {
-      throw cause;
-    },
-  });
+  // A technical failure now rides the defect channel with a `TechnicalError`
+  // cause; unwrap it so this throwing alias keeps rethrowing the *original*
+  // cause (its pre-defect behavior), not the wrapper.
+  if (result.isDefect() && result.cause instanceof TechnicalError) {
+    throw result.cause.cause ?? result.cause;
+  }
+  return result.get();
 }
 
 /**

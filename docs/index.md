@@ -130,7 +130,7 @@ const temporalClient = new Client({ connection });
 const client = await TypedClient.create({
   contract: orderContract,
   client: temporalClient,
-}).getOrThrow();
+}).get();
 
 const future = client.executeWorkflow("processOrder", {
   workflowId: "order-123",
@@ -149,7 +149,6 @@ result.match({
       tag("@temporal-contract/WorkflowAlreadyStartedError"),
       tag("@temporal-contract/WorkflowFailedError"),
       tag("@temporal-contract/WorkflowExecutionNotFoundError"),
-      tag("@temporal-contract/RuntimeClientError"),
       (error) => console.error("Failed:", error),
     ),
   defect: (cause) => console.error("Unexpected:", cause),

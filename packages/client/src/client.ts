@@ -209,12 +209,7 @@ export type TypedWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
     [K in keyof ClientInferWorkflowQueries<TWorkflow>]: ClientInferWorkflowQueries<TWorkflow>[K] extends (
       ...args: infer Args
     ) => AsyncResult<infer R, Error>
-      ? (
-          ...args: Args
-        ) => AsyncResult<
-          R,
-          QueryValidationError | WorkflowExecutionNotFoundError | RuntimeClientError
-        >
+      ? (...args: Args) => AsyncResult<R, QueryValidationError | WorkflowExecutionNotFoundError>
       : never;
   };
 
@@ -226,12 +221,7 @@ export type TypedWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
     [K in keyof ClientInferWorkflowSignals<TWorkflow>]: ClientInferWorkflowSignals<TWorkflow>[K] extends (
       ...args: infer Args
     ) => AsyncResult<void, Error>
-      ? (
-          ...args: Args
-        ) => AsyncResult<
-          void,
-          SignalValidationError | WorkflowExecutionNotFoundError | RuntimeClientError
-        >
+      ? (...args: Args) => AsyncResult<void, SignalValidationError | WorkflowExecutionNotFoundError>
       : never;
   };
 
@@ -243,12 +233,7 @@ export type TypedWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
     [K in keyof ClientInferWorkflowUpdates<TWorkflow>]: ClientInferWorkflowUpdates<TWorkflow>[K] extends (
       ...args: infer Args
     ) => AsyncResult<infer R, Error>
-      ? (
-          ...args: Args
-        ) => AsyncResult<
-          R,
-          UpdateValidationError | WorkflowExecutionNotFoundError | RuntimeClientError
-        >
+      ? (...args: Args) => AsyncResult<R, UpdateValidationError | WorkflowExecutionNotFoundError>
       : never;
   };
 
@@ -264,27 +249,24 @@ export type TypedWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
     | WorkflowValidationError
     | WorkflowFailedError
     | WorkflowExecutionNotFoundError
-    | RuntimeClientError
   >;
 
   /**
    * Terminate workflow with Result pattern
    */
-  terminate: (
-    reason?: string,
-  ) => AsyncResult<void, WorkflowExecutionNotFoundError | RuntimeClientError>;
+  terminate: (reason?: string) => AsyncResult<void, WorkflowExecutionNotFoundError>;
 
   /**
    * Cancel workflow with Result pattern
    */
-  cancel: () => AsyncResult<void, WorkflowExecutionNotFoundError | RuntimeClientError>;
+  cancel: () => AsyncResult<void, WorkflowExecutionNotFoundError>;
 
   /**
    * Get workflow execution description including status and metadata
    */
   describe: () => AsyncResult<
     Awaited<ReturnType<WorkflowHandle["describe"]>>,
-    WorkflowExecutionNotFoundError | RuntimeClientError
+    WorkflowExecutionNotFoundError
   >;
 
   /**
@@ -292,7 +274,7 @@ export type TypedWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
    */
   fetchHistory: () => AsyncResult<
     Awaited<ReturnType<WorkflowHandle["fetchHistory"]>>,
-    WorkflowExecutionNotFoundError | RuntimeClientError
+    WorkflowExecutionNotFoundError
   >;
 };
 
@@ -338,7 +320,7 @@ async function resolveDefinitionAndValidateInput<
 ): Promise<
   Result<
     ResolvedWorkflow<TContract["workflows"][TWorkflowName]>,
-    WorkflowNotFoundError | WorkflowValidationError | RuntimeClientError
+    WorkflowNotFoundError | WorkflowValidationError
   >
 > {
   const definition = contract.workflows[workflowName];
@@ -351,16 +333,10 @@ async function resolveDefinitionAndValidateInput<
     return Err(createWorkflowValidationError(workflowName, "input", inputResult.issues));
   }
 
-  const searchAttributesResult = toTypedSearchAttributes(
-    definition,
-    workflowName,
-    searchAttributes,
-  );
-  // `toTypedSearchAttributes` only ever builds ok/err; assert away the
-  // impossible defect so `.error` / `.value` narrow cleanly.
-  assertNoDefect(searchAttributesResult);
-  if (searchAttributesResult.isErr()) return Err(searchAttributesResult.error);
-  const typedSearchAttributes = searchAttributesResult.value;
+  // `toTypedSearchAttributes` throws a `RuntimeClientError` on an undeclared
+  // key — a technical misconfiguration routed to the defect channel by the
+  // enclosing `makeAsyncResult` work thunk (never a modeled Err).
+  const typedSearchAttributes = toTypedSearchAttributes(definition, workflowName, searchAttributes);
 
   return Ok({
     definition: definition as TContract["workflows"][TWorkflowName],
@@ -419,7 +395,6 @@ export class TypedClient<TContract extends ContractDefinition> {
    *     matcher.with(
    *       tag("@temporal-contract/WorkflowNotFoundError"),
    *       tag("@temporal-contract/WorkflowValidationError"),
-   *       tag("@temporal-contract/RuntimeClientError"),
    *       (error) => console.error("schedule create failed", error),
    *     ),
    *   defect: (cause) => console.error("unexpected failure", cause),
@@ -450,10 +425,10 @@ export class TypedClient<TContract extends ContractDefinition> {
   /**
    * Create a typed Temporal client with unthrown pattern from a contract.
    *
-   * Returns `AsyncResult<TypedClient, TechnicalError>` — errors-as-values
-   * from the very first call, matching the org-wide `Typed*.create()`
-   * factory shape (amqp-contract's `TypedAmqpClient.create`). Modeled
-   * failures on the `Err` channel:
+   * Returns `AsyncResult<TypedClient, never>` — setup faults are *technical*
+   * infrastructure failures, not anticipated domain errors, so they surface on
+   * the `Defect` channel (a {@link TechnicalError} instance as the defect's
+   * cause), never the modeled `Err` channel. Technical failures routed there:
    *
    * - the underlying `Client` lacks the Schedule API
    *   (`@temporalio/client` < 1.16);
@@ -469,8 +444,8 @@ export class TypedClient<TContract extends ContractDefinition> {
    *   contract: myContract,
    *   client: temporalClient,
    * });
-   * if (clientResult.isErr()) {
-   *   console.error('client setup failed', clientResult.error);
+   * if (clientResult.isDefect()) {
+   *   console.error('client setup failed', clientResult.cause);
    *   return;
    * }
    * const client = clientResult.value;
@@ -485,17 +460,17 @@ export class TypedClient<TContract extends ContractDefinition> {
     contract,
     client,
     interceptors,
-  }: CreateTypedClientOptions<TContract>): AsyncResult<TypedClient<TContract>, TechnicalError> {
-    const work = async (): Promise<Result<TypedClient<TContract>, TechnicalError>> => {
+  }: CreateTypedClientOptions<TContract>): AsyncResult<TypedClient<TContract>, never> {
+    const work = async (): Promise<Result<TypedClient<TContract>, never>> => {
       let instance: TypedClient<TContract>;
       try {
         instance = new TypedClient(contract, client, interceptors ?? []);
       } catch (error) {
-        return Err(
-          new TechnicalError(
-            error instanceof Error ? error.message : "Failed to create TypedClient",
-            error,
-          ),
+        // Technical setup fault — throw a `TechnicalError`; `makeAsyncResult`'s
+        // throw→defect net routes it to the defect channel (never a modeled Err).
+        throw new TechnicalError(
+          error instanceof Error ? error.message : "Failed to create TypedClient",
+          error,
         );
       }
 
@@ -509,7 +484,8 @@ export class TypedClient<TContract extends ContractDefinition> {
         try {
           await connection.ensureConnected();
         } catch (error) {
-          return Err(new TechnicalError("Failed to connect to Temporal server", error));
+          // Technical connection fault — route to the defect channel too.
+          throw new TechnicalError("Failed to connect to Temporal server", error);
         }
       }
 
@@ -557,7 +533,6 @@ export class TypedClient<TContract extends ContractDefinition> {
    *       tag('@temporal-contract/WorkflowNotFoundError'),
    *       tag('@temporal-contract/WorkflowValidationError'),
    *       tag('@temporal-contract/WorkflowAlreadyStartedError'),
-   *       tag('@temporal-contract/RuntimeClientError'),
    *       (error) => console.error('Failed to start:', error),
    *     ),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
@@ -573,17 +548,10 @@ export class TypedClient<TContract extends ContractDefinition> {
     }: TypedWorkflowStartOptions<TContract, TWorkflowName>,
   ): AsyncResult<
     TypedWorkflowHandle<TContract["workflows"][TWorkflowName]>,
-    | WorkflowNotFoundError
-    | WorkflowValidationError
-    | WorkflowAlreadyStartedError
-    | RuntimeClientError
+    WorkflowNotFoundError | WorkflowValidationError | WorkflowAlreadyStartedError
   > {
     type Ok = TypedWorkflowHandle<TContract["workflows"][TWorkflowName]>;
-    type Err =
-      | WorkflowNotFoundError
-      | WorkflowValidationError
-      | WorkflowAlreadyStartedError
-      | RuntimeClientError;
+    type Err = WorkflowNotFoundError | WorkflowValidationError | WorkflowAlreadyStartedError;
     const runPipeline = (currentInput: unknown): AsyncResult<Ok, Err> => {
       const work = async (): Promise<Result<Ok, Err>> => {
         const resolved = await resolveDefinitionAndValidateInput(
@@ -606,7 +574,10 @@ export class TypedClient<TContract extends ContractDefinition> {
           });
           return Ok(this.createTypedHandle(handle, workflowName, definition) as Ok);
         } catch (error) {
-          return Err(classifyStartError("startWorkflow", error));
+          const alreadyStarted = classifyStartError(error);
+          if (alreadyStarted) return Err(alreadyStarted);
+          // Unrecognized, technical failure — route to the defect channel.
+          throw new RuntimeClientError("startWorkflow", error);
         }
       };
       return makeAsyncResult(work);
@@ -656,7 +627,6 @@ export class TypedClient<TContract extends ContractDefinition> {
    *       tag('@temporal-contract/WorkflowValidationError'),
    *       tag('@temporal-contract/SignalValidationError'),
    *       tag('@temporal-contract/WorkflowAlreadyStartedError'),
-   *       tag('@temporal-contract/RuntimeClientError'),
    *       (error) => console.error('signalWithStart failed', error),
    *     ),
    *   defect: (cause) => console.error('unexpected failure', cause),
@@ -681,15 +651,13 @@ export class TypedClient<TContract extends ContractDefinition> {
     | WorkflowValidationError
     | SignalValidationError
     | WorkflowAlreadyStartedError
-    | RuntimeClientError
   > {
     type Ok = TypedWorkflowHandleWithSignaledRunId<TContract["workflows"][TWorkflowName]>;
     type Err =
       | WorkflowNotFoundError
       | WorkflowValidationError
       | SignalValidationError
-      | WorkflowAlreadyStartedError
-      | RuntimeClientError;
+      | WorkflowAlreadyStartedError;
 
     const runPipeline = (
       currentInput: unknown,
@@ -743,7 +711,10 @@ export class TypedClient<TContract extends ContractDefinition> {
           ) as TypedWorkflowHandle<TContract["workflows"][TWorkflowName]>;
           return Ok({ ...typed, signaledRunId: handle.signaledRunId } as Ok);
         } catch (error) {
-          return Err(classifyStartError("signalWithStart", error));
+          const alreadyStarted = classifyStartError(error);
+          if (alreadyStarted) return Err(alreadyStarted);
+          // Unrecognized, technical failure — route to the defect channel.
+          throw new RuntimeClientError("signalWithStart", error);
         }
       };
       return makeAsyncResult(work);
@@ -790,7 +761,6 @@ export class TypedClient<TContract extends ContractDefinition> {
    *       tag('@temporal-contract/WorkflowAlreadyStartedError'),
    *       tag('@temporal-contract/WorkflowFailedError'),
    *       tag('@temporal-contract/WorkflowExecutionNotFoundError'),
-   *       tag('@temporal-contract/RuntimeClientError'),
    *       (error) => console.error('Processing failed:', error),
    *     ),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
@@ -812,7 +782,6 @@ export class TypedClient<TContract extends ContractDefinition> {
     | WorkflowAlreadyStartedError
     | WorkflowFailedError
     | WorkflowExecutionNotFoundError
-    | RuntimeClientError
   > {
     type Ok = ClientInferOutput<TContract["workflows"][TWorkflowName]>;
     type Err =
@@ -821,8 +790,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       | WorkflowValidationError
       | WorkflowAlreadyStartedError
       | WorkflowFailedError
-      | WorkflowExecutionNotFoundError
-      | RuntimeClientError;
+      | WorkflowExecutionNotFoundError;
     const runPipeline = (currentInput: unknown): AsyncResult<Ok, Err> => {
       const work = async (): Promise<Result<Ok, Err>> => {
         const resolved = await resolveDefinitionAndValidateInput(
@@ -895,7 +863,8 @@ export class TypedClient<TContract extends ContractDefinition> {
               ),
             );
           }
-          return Err(createRuntimeClientError("executeWorkflow", error));
+          // Unrecognized, technical failure — route to the defect channel.
+          throw new RuntimeClientError("executeWorkflow", error);
         }
       };
       return makeAsyncResult(work);
@@ -928,7 +897,6 @@ export class TypedClient<TContract extends ContractDefinition> {
    *   errCases: (matcher) =>
    *     matcher.with(
    *       tag('@temporal-contract/WorkflowNotFoundError'),
-   *       tag('@temporal-contract/RuntimeClientError'),
    *       (error) => console.error('Failed to get handle:', error),
    *     ),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
@@ -940,10 +908,10 @@ export class TypedClient<TContract extends ContractDefinition> {
     workflowId: string,
   ): AsyncResult<
     TypedWorkflowHandle<TContract["workflows"][TWorkflowName]>,
-    WorkflowNotFoundError | RuntimeClientError
+    WorkflowNotFoundError
   > {
     type Ok = TypedWorkflowHandle<TContract["workflows"][TWorkflowName]>;
-    type Err = WorkflowNotFoundError | RuntimeClientError;
+    type Err = WorkflowNotFoundError;
     const work = async (): Promise<Result<Ok, Err>> => {
       const definition = this.contract.workflows[workflowName];
       if (!definition) {
@@ -954,7 +922,8 @@ export class TypedClient<TContract extends ContractDefinition> {
         const handle = this.client.workflow.getHandle(workflowId);
         return Ok(this.createTypedHandle(handle, workflowName, definition) as Ok);
       } catch (error) {
-        return Err(createRuntimeClientError("getHandle", error));
+        // Unrecognized, technical failure — route to the defect channel.
+        throw new RuntimeClientError("getHandle", error);
       }
     };
     return makeAsyncResult(work);
@@ -1014,15 +983,13 @@ export class TypedClient<TContract extends ContractDefinition> {
         | WorkflowValidationError
         | WorkflowFailedError
         | WorkflowExecutionNotFoundError
-        | RuntimeClientError
       > => {
         type Ok = ClientInferOutput<TWorkflow>;
         type Err =
           | WorkflowContractErrorsOf<TWorkflow>
           | WorkflowValidationError
           | WorkflowFailedError
-          | WorkflowExecutionNotFoundError
-          | RuntimeClientError;
+          | WorkflowExecutionNotFoundError;
         const work = async (): Promise<Result<Ok, Err>> => {
           try {
             const result = await workflowHandle.result();
@@ -1047,41 +1014,50 @@ export class TypedClient<TContract extends ContractDefinition> {
                 return Err(rehydrated as Err);
               }
             }
-            return Err(classifyResultError("result", error, workflowHandle.workflowId));
+            const classified = classifyResultError(error, workflowHandle.workflowId);
+            if (classified) return Err(classified);
+            // Unrecognized, technical failure — route to the defect channel.
+            throw new RuntimeClientError("result", error);
           }
         };
         return makeAsyncResult(work);
       },
-      terminate: (
-        reason?: string,
-      ): AsyncResult<void, WorkflowExecutionNotFoundError | RuntimeClientError> =>
-        fromPromise(workflowHandle.terminate(reason), (error) =>
-          classifyHandleError("terminate", error, workflowHandle.workflowId),
+      terminate: (reason?: string): AsyncResult<void, WorkflowExecutionNotFoundError> =>
+        fromPromise(
+          workflowHandle.terminate(reason),
+          (error, defect) =>
+            classifyHandleError(error, workflowHandle.workflowId) ??
+            defect(new RuntimeClientError("terminate", error)),
         ).map(() => undefined),
-      cancel: (): AsyncResult<void, WorkflowExecutionNotFoundError | RuntimeClientError> =>
-        fromPromise(workflowHandle.cancel(), (error) =>
-          classifyHandleError("cancel", error, workflowHandle.workflowId),
+      cancel: (): AsyncResult<void, WorkflowExecutionNotFoundError> =>
+        fromPromise(
+          workflowHandle.cancel(),
+          (error, defect) =>
+            classifyHandleError(error, workflowHandle.workflowId) ??
+            defect(new RuntimeClientError("cancel", error)),
         ).map(() => undefined),
       describe: (): AsyncResult<
         Awaited<ReturnType<WorkflowHandle["describe"]>>,
-        WorkflowExecutionNotFoundError | RuntimeClientError
+        WorkflowExecutionNotFoundError
       > =>
-        fromPromise(workflowHandle.describe(), (error) =>
-          classifyHandleError("describe", error, workflowHandle.workflowId),
+        fromPromise(
+          workflowHandle.describe(),
+          (error, defect) =>
+            classifyHandleError(error, workflowHandle.workflowId) ??
+            defect(new RuntimeClientError("describe", error)),
         ),
       fetchHistory: (): AsyncResult<
         Awaited<ReturnType<WorkflowHandle["fetchHistory"]>>,
-        WorkflowExecutionNotFoundError | RuntimeClientError
+        WorkflowExecutionNotFoundError
       > =>
-        fromPromise(workflowHandle.fetchHistory(), (error) =>
-          classifyHandleError("fetchHistory", error, workflowHandle.workflowId),
+        fromPromise(
+          workflowHandle.fetchHistory(),
+          (error, defect) =>
+            classifyHandleError(error, workflowHandle.workflowId) ??
+            defect(new RuntimeClientError("fetchHistory", error)),
         ),
     };
   }
-}
-
-function createRuntimeClientError(operation: string, error: unknown): RuntimeClientError {
-  return new RuntimeClientError(operation, error);
 }
 
 function createWorkflowNotFoundError(
@@ -1146,11 +1122,9 @@ function buildValidatedProxy<TDef extends DefWithInput, TValidationError extends
   validateOutput,
 }: ProxyOptions<TDef, TValidationError>): Record<
   string,
-  (
-    args: unknown,
-  ) => AsyncResult<unknown, TValidationError | WorkflowExecutionNotFoundError | RuntimeClientError>
+  (args: unknown) => AsyncResult<unknown, TValidationError | WorkflowExecutionNotFoundError>
 > {
-  type ProxyError = TValidationError | WorkflowExecutionNotFoundError | RuntimeClientError;
+  type ProxyError = TValidationError | WorkflowExecutionNotFoundError;
   const proxy: Record<string, (args: unknown) => AsyncResult<unknown, ProxyError>> = {};
   if (!defs) return proxy;
 
@@ -1174,7 +1148,10 @@ function buildValidatedProxy<TDef extends DefWithInput, TValidationError extends
           }
           return Ok(outputResult.value);
         } catch (error) {
-          return Err(classifyHandleError(operation, error, workflowId));
+          const notFound = classifyHandleError(error, workflowId);
+          if (notFound) return Err(notFound);
+          // Unrecognized, technical failure — route to the defect channel.
+          throw new RuntimeClientError(operation, error);
         }
       };
       return makeAsyncResult(work);

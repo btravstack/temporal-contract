@@ -136,7 +136,7 @@ describe("TypedClient.schedule", () => {
       expect(mockSchedule.create).not.toHaveBeenCalled();
     });
 
-    it("returns RuntimeClientError when Temporal's create rejects", async () => {
+    it("surfaces a Defect(RuntimeClientError) when Temporal's create rejects", async () => {
       mockSchedule.create.mockRejectedValue(new Error("temporal down"));
 
       const result = await client.schedule.create("processOrder", {
@@ -145,10 +145,10 @@ describe("TypedClient.schedule", () => {
         args: { orderId: "sweep" },
       });
 
-      expect(result).toBeErr();
-      if (result.isErr()) {
-        expect(result.error).toBeInstanceOf(RuntimeClientError);
-        expect((result.error as RuntimeClientError).operation).toBe("schedule.create");
+      expect(result).toBeDefect();
+      if (result.isDefect()) {
+        expect(result.cause).toBeInstanceOf(RuntimeClientError);
+        expect((result.cause as RuntimeClientError).operation).toBe("schedule.create");
       }
     });
 
@@ -280,7 +280,7 @@ describe("TypedClient.schedule", () => {
       expect(Object.hasOwn(passed.action, "typedSearchAttributes")).toBe(false);
     });
 
-    it("rejects undeclared attribute keys with a RuntimeClientError", async () => {
+    it("rejects undeclared attribute keys with a Defect(RuntimeClientError)", async () => {
       const result = await searchClient.schedule.create("processOrder", {
         scheduleId: "search-sweep",
         spec: { cronExpressions: ["0 2 * * *"] },
@@ -292,11 +292,11 @@ describe("TypedClient.schedule", () => {
         },
       });
 
-      expect(result).toBeErr();
-      if (result.isErr()) {
-        expect(result.error).toBeInstanceOf(RuntimeClientError);
-        expect((result.error as RuntimeClientError).operation).toBe("searchAttributes");
-        expect((result.error as RuntimeClientError).message).toContain("unknownAttr");
+      expect(result).toBeDefect();
+      if (result.isDefect()) {
+        expect(result.cause).toBeInstanceOf(RuntimeClientError);
+        expect((result.cause as RuntimeClientError).operation).toBe("searchAttributes");
+        expect((result.cause as RuntimeClientError).message).toContain("unknownAttr");
       }
       expect(mockSchedule.create).not.toHaveBeenCalled();
     });
@@ -323,17 +323,17 @@ describe("TypedClient.schedule", () => {
       expect(tempHandle.delete).toHaveBeenCalled();
     });
 
-    it("wraps Temporal errors as RuntimeClientError tagged by the failing operation", async () => {
+    it("wraps Temporal errors as a Defect(RuntimeClientError) tagged by the failing operation", async () => {
       const tempHandle = createMockHandle();
       tempHandle.pause.mockRejectedValue(new Error("not found"));
       mockSchedule.getHandle.mockReturnValue(tempHandle);
 
       const handle = client.schedule.getHandle("missing");
       const result = await handle.pause();
-      expect(result).toBeErr();
-      if (result.isErr()) {
-        expect(result.error).toBeInstanceOf(RuntimeClientError);
-        expect((result.error as RuntimeClientError).operation).toBe("schedule.pause");
+      expect(result).toBeDefect();
+      if (result.isDefect()) {
+        expect(result.cause).toBeInstanceOf(RuntimeClientError);
+        expect((result.cause as RuntimeClientError).operation).toBe("schedule.pause");
       }
     });
 
