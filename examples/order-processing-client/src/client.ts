@@ -36,7 +36,8 @@ async function run() {
   });
 
   // Create type-safe client with unthrown AsyncResult pattern — creation
-  // failures (bad connection, missing Schedule API) land on the Err channel.
+  // failures (bad connection, missing Schedule API) are technical faults that
+  // ride the defect channel (a `TechnicalError` cause), not the Err channel.
   const clientResult = await TypedClient.create({
     contract: orderProcessingContract,
     client: rawClient,
@@ -152,11 +153,10 @@ async function run() {
               { error: err, orderId: order.orderId },
               "❌ Workflow execution not found in namespace",
             ),
-          )
-          .with(tag("@temporal-contract/RuntimeClientError"), (err) =>
-            logger.error({ error: err, orderId: order.orderId }, "❌ Workflow execution failed"),
           ),
-      // A defect is an unmodeled failure (a bug), not an anticipated outcome.
+      // A defect is an unmodeled failure (a bug) — including technical/
+      // infrastructure faults like a dropped connection (a `RuntimeClientError`
+      // cause) — not an anticipated outcome.
       defect: (cause) =>
         logger.error({ cause, orderId: order.orderId }, "❌ Unexpected failure processing order"),
     });
@@ -214,11 +214,10 @@ async function run() {
         )
         .with(tag("@temporal-contract/WorkflowExecutionNotFoundError"), (err) =>
           logger.error({ error: err }, "❌ Workflow execution not found in namespace"),
-        )
-        .with(tag("@temporal-contract/RuntimeClientError"), (err) =>
-          logger.error({ error: err }, "❌ Workflow execution failed"),
         ),
-    // A defect is an unmodeled failure (a bug), not an anticipated outcome.
+    // A defect is an unmodeled failure (a bug) — including technical/
+    // infrastructure faults like a dropped connection (a `RuntimeClientError`
+    // cause) — not an anticipated outcome.
     defect: (cause) => logger.error({ cause }, "❌ Unexpected failure executing workflow"),
   });
 

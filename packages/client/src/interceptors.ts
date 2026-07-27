@@ -20,7 +20,6 @@ import type { AsyncResult } from "unthrown";
 
 import type {
   QueryValidationError,
-  RuntimeClientError,
   SignalValidationError,
   UpdateValidationError,
   WorkflowAlreadyStartedError,
@@ -46,7 +45,6 @@ export type ClientCallError =
   | SignalValidationError
   | QueryValidationError
   | UpdateValidationError
-  | RuntimeClientError
   | AnyContractError;
 
 /**
@@ -110,13 +108,16 @@ export type ClientInterceptorNext = (patch?: {
  *       tag("@temporal-contract/SignalValidationError"),
  *       tag("@temporal-contract/QueryValidationError"),
  *       tag("@temporal-contract/UpdateValidationError"),
- *       tag("@temporal-contract/RuntimeClientError"),
  *       tag("@temporal-contract/ContractError"),
  *       (error) =>
- *         error instanceof RuntimeClientError ? next() : Err(error).toAsync(),
+ *         error instanceof WorkflowExecutionNotFoundError ? next() : Err(error).toAsync(),
  *     ),
  *   );
  * ```
+ *
+ * Technical/infrastructure faults (formerly `RuntimeClientError`) now ride the
+ * `Defect` channel, so they never reach this modeled-error matcher — recover
+ * them with `recoverDefect` or observe them with `tapDefect` instead.
  */
 export type ClientInterceptor = (
   args: ClientInterceptorArgs,

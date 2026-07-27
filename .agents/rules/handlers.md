@@ -99,11 +99,13 @@ Typed-error semantics inside the workflow context:
 
 ## Worker Setup
 
-`createWorker` returns `AsyncResult<Worker, TechnicalError>` (org rule:
-`Typed*.create()` factories model creation failures on the Err channel).
-Same shape on the client: `TypedClient.create({ contract, client })` returns
-`AsyncResult<TypedClient, TechnicalError>`. Deprecated throwing aliases
-(`createWorkerOrThrow`, `TypedClient.createOrThrow`) exist for migration.
+`createWorker` returns `AsyncResult<Worker, never>` — bundling / connection
+failures are _technical_ infrastructure faults, so they ride the **defect**
+channel (a `TechnicalError` instance as the cause), not the modeled Err
+channel. Same shape on the client: `TypedClient.create({ contract, client })`
+returns `AsyncResult<TypedClient, never>` (a `TechnicalError`-caused defect on
+setup failure). Deprecated throwing aliases (`createWorkerOrThrow`,
+`TypedClient.createOrThrow`) exist for migration.
 
 ```typescript
 import { createWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
@@ -114,8 +116,8 @@ const workerResult = await createWorker({
   workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
   activities,
 });
-if (workerResult.isErr()) {
-  // bundling / connection failure — modeled, not thrown
+if (workerResult.isDefect()) {
+  // bundling / connection failure — a TechnicalError-caused defect, not thrown
   process.exit(1);
 }
 

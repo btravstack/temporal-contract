@@ -12,7 +12,7 @@ import { type AsyncResult, type Result, Ok, Err, fromPromise } from "unthrown";
 
 import type { TypedSearchAttributeMap } from "./client.js";
 import { RuntimeClientError, WorkflowNotFoundError, WorkflowValidationError } from "./errors.js";
-import { assertNoDefect, makeAsyncResult, toTypedSearchAttributes } from "./internal.js";
+import { makeAsyncResult, toTypedSearchAttributes } from "./internal.js";
 import type { ClientInferInput } from "./types.js";
 
 /**
@@ -90,16 +90,23 @@ export type TypedScheduleCreateOptions<
 export type TypedScheduleHandle = {
   /** This schedule's identifier. */
   readonly scheduleId: string;
-  /** Pause the schedule. Optional note becomes part of the audit trail. */
-  pause: (note?: string) => AsyncResult<void, RuntimeClientError>;
+  /**
+   * Pause the schedule. Optional note becomes part of the audit trail.
+   *
+   * Returns `AsyncResult<void, never>` — a failed schedule operation is a
+   * *technical* fault (an unknown schedule ID, a transport error, …), routed
+   * to the `Defect` channel with a {@link RuntimeClientError} cause rather
+   * than surfaced as a modeled `Err`.
+   */
+  pause: (note?: string) => AsyncResult<void, never>;
   /** Resume a paused schedule. */
-  unpause: (note?: string) => AsyncResult<void, RuntimeClientError>;
+  unpause: (note?: string) => AsyncResult<void, never>;
   /** Fire the schedule's action immediately. */
-  trigger: (overlap?: ScheduleOverlapPolicy) => AsyncResult<void, RuntimeClientError>;
+  trigger: (overlap?: ScheduleOverlapPolicy) => AsyncResult<void, never>;
   /** Delete the schedule. */
-  delete: () => AsyncResult<void, RuntimeClientError>;
+  delete: () => AsyncResult<void, never>;
   /** Fetch the schedule's current description from the server. */
-  describe: () => AsyncResult<ScheduleDescription, RuntimeClientError>;
+  describe: () => AsyncResult<ScheduleDescription, never>;
 };
 
 /**
@@ -125,12 +132,9 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
   create<TWorkflowName extends keyof TContract["workflows"] & string>(
     workflowName: TWorkflowName,
     options: TypedScheduleCreateOptions<TContract, TWorkflowName>,
-  ): AsyncResult<
-    TypedScheduleHandle,
-    WorkflowNotFoundError | WorkflowValidationError | RuntimeClientError
-  > {
+  ): AsyncResult<TypedScheduleHandle, WorkflowNotFoundError | WorkflowValidationError> {
     type Ok = TypedScheduleHandle;
-    type Err = WorkflowNotFoundError | WorkflowValidationError | RuntimeClientError;
+    type Err = WorkflowNotFoundError | WorkflowValidationError;
     const work = async (): Promise<Result<Ok, Err>> => {
       const definition = this.contract.workflows[workflowName];
       if (!definition) {
@@ -147,16 +151,14 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
       // indexing), not on the schedule itself. Mirrors what
       // `client.startWorkflow` does for direct starts so schedule-spawned
       // runs share visibility with their direct-start counterparts.
-      const searchAttributesResult = toTypedSearchAttributes(
+      // `toTypedSearchAttributes` throws a `RuntimeClientError` on an
+      // undeclared key — a technical misconfiguration routed to the defect
+      // channel by the enclosing `makeAsyncResult` work thunk.
+      const typedSearchAttributes = toTypedSearchAttributes(
         definition,
         workflowName,
         options.searchAttributes as Record<string, unknown> | undefined,
       );
-      // `toTypedSearchAttributes` only ever builds ok/err; assert away the
-      // impossible defect so `.error` / `.value` narrow cleanly.
-      assertNoDefect(searchAttributesResult);
-      if (searchAttributesResult.isErr()) return Err(searchAttributesResult.error);
-      const typedSearchAttributes = searchAttributesResult.value;
 
       try {
         const overrides = options.action ?? {};
@@ -196,7 +198,8 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
         });
         return Ok(wrapScheduleHandle(handle));
       } catch (error) {
-        return Err(new RuntimeClientError("schedule.create", error));
+        // Technical failure creating the schedule — route to the defect channel.
+        throw new RuntimeClientError("schedule.create", error);
       }
     };
     return makeAsyncResult(work);
@@ -216,25 +219,24 @@ function wrapScheduleHandle(handle: ScheduleHandle): TypedScheduleHandle {
   return {
     scheduleId: handle.scheduleId,
     pause: (note) =>
-      fromPromise(
-        handle.pause(note),
-        (error) => new RuntimeClientError("schedule.pause", error),
+      fromPromise(handle.pause(note), (error, defect) =>
+        defect(new RuntimeClientError("schedule.pause", error)),
       ).map(() => undefined),
     unpause: (note) =>
-      fromPromise(
-        handle.unpause(note),
-        (error) => new RuntimeClientError("schedule.unpause", error),
+      fromPromise(handle.unpause(note), (error, defect) =>
+        defect(new RuntimeClientError("schedule.unpause", error)),
       ).map(() => undefined),
     trigger: (overlap) =>
-      fromPromise(
-        handle.trigger(overlap),
-        (error) => new RuntimeClientError("schedule.trigger", error),
+      fromPromise(handle.trigger(overlap), (error, defect) =>
+        defect(new RuntimeClientError("schedule.trigger", error)),
       ).map(() => undefined),
     delete: () =>
-      fromPromise(handle.delete(), (error) => new RuntimeClientError("schedule.delete", error)).map(
-        () => undefined,
-      ),
+      fromPromise(handle.delete(), (error, defect) =>
+        defect(new RuntimeClientError("schedule.delete", error)),
+      ).map(() => undefined),
     describe: () =>
-      fromPromise(handle.describe(), (error) => new RuntimeClientError("schedule.describe", error)),
+      fromPromise(handle.describe(), (error, defect) =>
+        defect(new RuntimeClientError("schedule.describe", error)),
+      ),
   };
 }

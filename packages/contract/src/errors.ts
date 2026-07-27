@@ -25,12 +25,15 @@ import type { AnySchema, ErrorDefinition, InferErrorData, InferErrorDataInput } 
 /**
  * Error for technical/runtime failures that cannot be prevented by
  * TypeScript — connection failures, missing runtime capabilities, worker
- * bundling errors. Surfaced on the `Err` channel of the creation factories
- * (`TypedClient.create`, `createWorker`), never thrown: it is a *modeled*
- * error (it lives in the `E` channel of a `Result`), not a `Defect`.
+ * bundling errors. These are *unmodeled* infrastructure faults, never
+ * anticipated domain failures, so they ride the `Defect` channel: the
+ * creation factories (`TypedClient.create`, `createWorker`) surface them as a
+ * `Defect` whose `cause` is a `TechnicalError` instance (inspect via `match`'s
+ * `defect` handler, `recoverDefect`, or `tapDefect`) — this class never
+ * appears in a `Result`'s modeled `E` channel.
  *
- * Mirrors amqp-contract's `TechnicalError` — the org-wide shape for
- * `Typed*.create()` factories returning `AsyncResult<_, TechnicalError>`.
+ * The class is retained (and still exported) so the descriptive message and
+ * `cause` survive for logging; it is only ever used as a defect's `cause`.
  */
 export class TechnicalError extends TaggedError("@temporal-contract/TechnicalError", {
   name: "TechnicalError",

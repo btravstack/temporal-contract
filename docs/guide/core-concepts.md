@@ -129,7 +129,7 @@ const temporalClient = new Client({ connection });
 const client = await TypedClient.create({
   contract: contract,
   client: temporalClient,
-}).getOrThrow();
+}).get();
 
 // TypeScript knows the exact argument types
 const result = await client.executeWorkflow("processOrder", {
@@ -148,7 +148,6 @@ result.match({
       tag("@temporal-contract/WorkflowAlreadyStartedError"),
       tag("@temporal-contract/WorkflowFailedError"),
       tag("@temporal-contract/WorkflowExecutionNotFoundError"),
-      tag("@temporal-contract/RuntimeClientError"),
       (error) => console.error("Workflow failed:", error),
     ),
   defect: (cause) => console.error("Unexpected failure:", cause),

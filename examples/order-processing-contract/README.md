@@ -57,11 +57,13 @@ import {
 } from "@temporal-contract/sample-order-processing-contract";
 import { TypedClient } from "@temporal-contract/client";
 
-// Create type-safe client — creation returns AsyncResult<_, TechnicalError>
+// Create type-safe client — creation returns AsyncResult<_, never>; setup
+// faults ride the defect channel (a TechnicalError cause), so `get()` panics
+// (rethrowing that cause) on failure.
 const client = await TypedClient.create({
   contract: orderProcessingContract,
   client: new Client({ connection, namespace: "default" }),
-}).getOrThrow();
+}).get();
 
 // Start workflow with full type safety
 const handle = await client.startWorkflow("processOrder", {

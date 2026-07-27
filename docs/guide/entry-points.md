@@ -219,7 +219,7 @@ const temporalClient = new Client({ connection, namespace: "default" });
 const client = await TypedClient.create({
   contract: orderContract,
   client: temporalClient,
-}).getOrThrow();
+}).get();
 
 // Start workflow with full type safety (returns AsyncResult<TypedWorkflowHandle, ...>)
 const handleResult = await client.startWorkflow("processOrder", {
@@ -239,7 +239,6 @@ handleResult.match({
           tag("@temporal-contract/WorkflowValidationError"),
           tag("@temporal-contract/WorkflowFailedError"),
           tag("@temporal-contract/WorkflowExecutionNotFoundError"),
-          tag("@temporal-contract/RuntimeClientError"),
           (error) => console.error("Workflow failed:", error),
         ),
       defect: (cause) => console.error("Unexpected failure:", cause),
@@ -250,7 +249,6 @@ handleResult.match({
       tag("@temporal-contract/WorkflowNotFoundError"),
       tag("@temporal-contract/WorkflowValidationError"),
       tag("@temporal-contract/WorkflowAlreadyStartedError"),
-      tag("@temporal-contract/RuntimeClientError"),
       (error) => console.error("Failed to start workflow:", error),
     ),
   defect: (cause) => console.error("Unexpected failure:", cause),

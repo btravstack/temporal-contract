@@ -26,15 +26,16 @@ const connection = await Connection.connect({
 
 // Create Temporal client and typed client
 const temporalClient = new Client({ connection });
-// Creation returns AsyncResult<TypedClient, TechnicalError> — connection
-// and capability failures land on the Err channel instead of throwing.
+// Creation returns AsyncResult<TypedClient, never> — connection and capability
+// failures are technical faults that ride the defect channel (a TechnicalError
+// instance as the cause), not the modeled Err channel, and are never thrown.
 const clientResult = await TypedClient.create({
   contract: myContract,
   client: temporalClient,
 });
-if (!clientResult.isOk()) {
-  // Err carries the modeled TechnicalError; a defect carries the raw cause.
-  throw clientResult.isErr() ? clientResult.error : clientResult.cause;
+if (clientResult.isDefect()) {
+  // The defect's cause is a TechnicalError describing the setup failure.
+  throw clientResult.cause;
 }
 const client = clientResult.value;
 ```
@@ -71,7 +72,6 @@ result.match({
       tag("@temporal-contract/WorkflowAlreadyStartedError"),
       tag("@temporal-contract/WorkflowFailedError"),
       tag("@temporal-contract/WorkflowExecutionNotFoundError"),
-      tag("@temporal-contract/RuntimeClientError"),
       (error) => {
         console.error("Workflow failed:", error);
       },
@@ -110,7 +110,6 @@ handleResult.match({
           tag("@temporal-contract/WorkflowValidationError"),
           tag("@temporal-contract/WorkflowFailedError"),
           tag("@temporal-contract/WorkflowExecutionNotFoundError"),
-          tag("@temporal-contract/RuntimeClientError"),
           (error) => console.error("Failed:", error),
         ),
       defect: (cause) => console.error("Unexpected failure:", cause),
@@ -121,7 +120,6 @@ handleResult.match({
       tag("@temporal-contract/WorkflowNotFoundError"),
       tag("@temporal-contract/WorkflowValidationError"),
       tag("@temporal-contract/WorkflowAlreadyStartedError"),
-      tag("@temporal-contract/RuntimeClientError"),
       (error) => {
         console.error("Failed to start workflow:", error);
       },
@@ -187,7 +185,6 @@ result.match({
       tag("@temporal-contract/WorkflowAlreadyStartedError"),
       tag("@temporal-contract/WorkflowFailedError"),
       tag("@temporal-contract/WorkflowExecutionNotFoundError"),
-      tag("@temporal-contract/RuntimeClientError"),
       (error) => {
         console.error("Order failed:", error);
       },
@@ -239,7 +236,6 @@ handleResult.match({
         matcher.with(
           tag("@temporal-contract/QueryValidationError"),
           tag("@temporal-contract/WorkflowExecutionNotFoundError"),
-          tag("@temporal-contract/RuntimeClientError"),
           (error) => console.error("Query failed:", error),
         ),
       defect: (cause) => console.error("Unexpected failure:", cause),
@@ -253,7 +249,6 @@ handleResult.match({
         matcher.with(
           tag("@temporal-contract/SignalValidationError"),
           tag("@temporal-contract/WorkflowExecutionNotFoundError"),
-          tag("@temporal-contract/RuntimeClientError"),
           (error) => console.error("Signal failed:", error),
         ),
       defect: (cause) => console.error("Unexpected failure:", cause),
@@ -269,17 +264,14 @@ handleResult.match({
           tag("@temporal-contract/WorkflowValidationError"),
           tag("@temporal-contract/WorkflowFailedError"),
           tag("@temporal-contract/WorkflowExecutionNotFoundError"),
-          tag("@temporal-contract/RuntimeClientError"),
           (error) => console.error("Workflow failed:", error),
         ),
       defect: (cause) => console.error("Unexpected failure:", cause),
     });
   },
   errCases: (matcher) =>
-    matcher.with(
-      tag("@temporal-contract/WorkflowNotFoundError"),
-      tag("@temporal-contract/RuntimeClientError"),
-      (error) => console.error("Failed to get handle:", error),
+    matcher.with(tag("@temporal-contract/WorkflowNotFoundError"), (error) =>
+      console.error("Failed to get handle:", error),
     ),
   defect: (cause) => console.error("Unexpected failure:", cause),
 });
@@ -321,7 +313,6 @@ result.match({
       tag("@temporal-contract/WorkflowAlreadyStartedError"),
       tag("@temporal-contract/WorkflowFailedError"),
       tag("@temporal-contract/WorkflowExecutionNotFoundError"),
-      tag("@temporal-contract/RuntimeClientError"),
       (error) => console.error("Workflow returned error:", error),
     ),
   defect: (cause) => console.error("Unexpected failure:", cause),
@@ -400,7 +391,6 @@ const logging: ClientInterceptor = (args, next) =>
       tag("@temporal-contract/SignalValidationError"),
       tag("@temporal-contract/QueryValidationError"),
       tag("@temporal-contract/UpdateValidationError"),
-      tag("@temporal-contract/RuntimeClientError"),
       tag("@temporal-contract/ContractError"),
       (error) => {
         logger.warn({ operation: args.operation, workflowId: args.workflowId, error });
@@ -408,30 +398,20 @@ const logging: ClientInterceptor = (args, next) =>
     ),
   );
 
-// Retry a transient failure once
-const retryOnce: ClientInterceptor = (args, next) =>
-  next().flatMapErrCases((matcher) =>
-    matcher.with(
-      tag("@temporal-contract/WorkflowNotFoundError"),
-      tag("@temporal-contract/WorkflowValidationError"),
-      tag("@temporal-contract/WorkflowAlreadyStartedError"),
-      tag("@temporal-contract/WorkflowFailedError"),
-      tag("@temporal-contract/WorkflowExecutionNotFoundError"),
-      tag("@temporal-contract/SignalValidationError"),
-      tag("@temporal-contract/QueryValidationError"),
-      tag("@temporal-contract/UpdateValidationError"),
-      tag("@temporal-contract/RuntimeClientError"),
-      tag("@temporal-contract/ContractError"),
-      (error): ReturnType<typeof next> =>
-        error instanceof RuntimeClientError ? next() : Err(error).toAsync(),
-    ),
-  );
+// Retry a transient failure once. Transient technical faults (an unrecognized
+// Temporal rejection, a dropped connection) ride the defect channel now, so the
+// retry re-enters via `recoverDefect` — a defect is the retry signal, and any
+// genuinely-modeled `Err` still flows through untouched.
+const retryOnce: ClientInterceptor = (args, next) => next().recoverDefect(() => next());
 
+// `create` returns AsyncResult<TypedClient, never> — its only failures are
+// defects, so `get()` (not `getOrThrow()`) is the extractor; it panics
+// (rethrowing the defect's TechnicalError cause) if setup failed.
 const client = await TypedClient.create({
   contract: myContract,
   client: temporalClient,
   interceptors: [logging, retryOnce],
-}).getOrThrow();
+}).get();
 ```
 
 An interceptor can also patch the invocation (`next({ input })`) or
@@ -453,11 +433,11 @@ const temporalClient = new Client({ connection });
 const orderClient = await TypedClient.create({
   contract: orderContract,
   client: temporalClient,
-}).getOrThrow();
+}).get();
 const inventoryClient = await TypedClient.create({
   contract: inventoryContract,
   client: temporalClient,
-}).getOrThrow();
+}).get();
 
 // Both clients share the same connection and Temporal client instance
 ```
@@ -496,15 +476,15 @@ const temporalClient = new Client({ connection });
 const orderClient = await TypedClient.create({
   contract: orderContract,
   client: temporalClient,
-}).getOrThrow();
+}).get();
 const paymentClient = await TypedClient.create({
   contract: paymentContract,
   client: temporalClient,
-}).getOrThrow();
+}).get();
 const inventoryClient = await TypedClient.create({
   contract: inventoryContract,
   client: temporalClient,
-}).getOrThrow();
+}).get();
 
 // Each client is typed to its contract
 await orderClient.executeWorkflow("processOrder", {/* ... */});
@@ -555,7 +535,7 @@ const temporalClient = new Client({ connection });
 const client = await TypedClient.create({
   contract: contract,
   client: temporalClient,
-}).getOrThrow();
+}).get();
 
 // ❌ Avoid - creating connections repeatedly
 for (const order of orders) {
@@ -564,7 +544,7 @@ for (const order of orders) {
   const client = await TypedClient.create({
     contract: contract,
     client: temporalClient,
-  }).getOrThrow();
+  }).get();
   await client.executeWorkflow(/* ... */);
 }
 ```
@@ -601,7 +581,6 @@ result.match({
       tag("@temporal-contract/WorkflowAlreadyStartedError"),
       tag("@temporal-contract/WorkflowFailedError"),
       tag("@temporal-contract/WorkflowExecutionNotFoundError"),
-      tag("@temporal-contract/RuntimeClientError"),
       (error) => {
         // Handle error
         logError(error);

@@ -134,7 +134,7 @@ const temporalClient = new Client({ connection });
 const client = await TypedClient.create({
   contract: orderContract,
   client: temporalClient,
-}).getOrThrow();
+}).get();
 const result = await client.executeWorkflow("processOrder", {
   workflowId: "order-123",
   args: { orderId: "ORD-123", amount: 100 },
@@ -153,7 +153,6 @@ result.match({
       tag("@temporal-contract/WorkflowAlreadyStartedError"),
       tag("@temporal-contract/WorkflowFailedError"),
       tag("@temporal-contract/WorkflowExecutionNotFoundError"),
-      tag("@temporal-contract/RuntimeClientError"),
       (error) => {
         console.error("Order failed:", error);
       },
@@ -366,15 +365,12 @@ const processOrder = ({ orderId }) =>
     .flatMap((order) => processPayment(order))
     .flatMap((payment) => updateDatabase(payment))
     .mapErrCases((matcher) =>
-      matcher.with(
-        tag("@temporal-contract/ContractError"),
-        tag("@temporal-contract/TechnicalError"),
-        (error) =>
-          ApplicationFailure.create({
-            type: "ORDER_FAILED",
-            message: "Order processing failed",
-            cause: error instanceof Error ? error : undefined,
-          }),
+      matcher.with(tag("@temporal-contract/ContractError"), (error) =>
+        ApplicationFailure.create({
+          type: "ORDER_FAILED",
+          message: "Order processing failed",
+          cause: error instanceof Error ? error : undefined,
+        }),
       ),
     );
 // Stops at first error
@@ -434,11 +430,7 @@ const combined = all([validateA(a), validateB(b), validateC(c)]);
 return combined.match({
   ok: ([resA, resB, resC]) => proceed({ resA, resB, resC }),
   errCases: (matcher) =>
-    matcher.with(
-      tag("@temporal-contract/ContractError"),
-      tag("@temporal-contract/TechnicalError"),
-      (error) => fail(error),
-    ),
+    matcher.with(tag("@temporal-contract/ContractError"), (error) => fail(error)),
   defect: (cause) => fail(cause),
 });
 ```

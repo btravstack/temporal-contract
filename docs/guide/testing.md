@@ -28,11 +28,11 @@ it("processes the order", async ({ testEnv }) => {
     connection: testEnv.nativeConnection,
     workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
     activities,
-  }).getOrThrow();
+  }).get();
   const client = await TypedClient.create({
     contract: myContract,
     client: testEnv.client,
-  }).getOrThrow();
+  }).get();
 
   await worker.runUntil(async () => {
     const result = await client.executeWorkflow("processOrder", {
@@ -127,7 +127,7 @@ const it = baseIt.extend<{
   ],
   client: async ({ clientConnection }, use) => {
     const rawClient = new Client({ connection: clientConnection, namespace: "default" });
-    await use(await TypedClient.create({ contract: myContract, client: rawClient }).getOrThrow());
+    await use(await TypedClient.create({ contract: myContract, client: rawClient }).get());
   },
 });
 

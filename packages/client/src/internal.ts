@@ -20,7 +20,7 @@ import {
   TypedSearchAttributes,
   WorkflowNotFoundError as TemporalWorkflowNotFoundError,
 } from "@temporalio/common";
-import { Ok, Err, type AsyncResult, type Result } from "unthrown";
+import { type AsyncResult, type Result } from "unthrown";
 
 // `assertNoDefect` narrows an internally-built `Result` (known to carry only
 // ok/err) to `Ok | Err`, re-throwing a stray defect's cause — so call sites
@@ -40,21 +40,23 @@ import {
  * Temporal client honours indexing when starting the workflow.
  *
  * Workflows without a `searchAttributes` block (or callers passing no
- * values) resolve to `Ok(undefined)`, matching the Temporal SDK's
+ * values) resolve to `undefined`, matching the Temporal SDK's
  * "absent ≠ empty" semantics.
  *
- * Returns `Err(RuntimeClientError)` on unknown keys. The TypeScript
- * surface already gates the happy path; the runtime check catches typed
- * escape hatches (`as never`, `as any`, raw-call interop) where a typo
- * would otherwise silently drop the attribute, leaving the workflow
- * unindexed without any signal to the caller.
+ * **Throws** a {@link RuntimeClientError} on unknown keys — a *technical*
+ * misconfiguration, not a modeled domain error, so it rides the defect
+ * channel (this helper always runs inside a `makeAsyncResult` work thunk,
+ * whose throw→defect net captures it). The TypeScript surface already gates
+ * the happy path; the runtime check catches typed escape hatches (`as never`,
+ * `as any`, raw-call interop) where a typo would otherwise silently drop the
+ * attribute, leaving the workflow unindexed without any signal to the caller.
  */
 export function toTypedSearchAttributes(
   workflowDef: AnyWorkflowDefinition,
   workflowName: string,
   values: Record<string, unknown> | undefined,
-): Result<TypedSearchAttributes | undefined, RuntimeClientError> {
-  if (!values) return Ok(undefined);
+): TypedSearchAttributes | undefined {
+  if (!values) return undefined;
   // Workflows that omit the `searchAttributes` block declare none. Treat
   // that as an empty declared map so a caller passing values still hits
   // the per-key "undeclared" check below — silently dropping them would
@@ -68,20 +70,18 @@ export function toTypedSearchAttributes(
     if (value === undefined) continue;
     const def = declared[name];
     if (!def) {
-      return Err(
-        new RuntimeClientError(
-          "searchAttributes",
-          new Error(
-            `Search attribute "${name}" is not declared on workflow "${workflowName}". ` +
-              `Declared attributes: ${Object.keys(declared).join(", ") || "none"}.`,
-          ),
+      throw new RuntimeClientError(
+        "searchAttributes",
+        new Error(
+          `Search attribute "${name}" is not declared on workflow "${workflowName}". ` +
+            `Declared attributes: ${Object.keys(declared).join(", ") || "none"}.`,
         ),
       );
     }
     const key = defineSearchAttributeKey(name, def.kind);
     pairs.push({ key, value } as SearchAttributePair);
   }
-  return Ok(pairs.length > 0 ? new TypedSearchAttributes(pairs) : undefined);
+  return pairs.length > 0 ? new TypedSearchAttributes(pairs) : undefined;
 }
 
 /**
@@ -120,37 +120,35 @@ export async function rehydrateWorkflowContractError(
 }
 
 /**
- * Map a thrown error from `client.workflow.start` / `signalWithStart` into
- * the discriminated union surfaced by the typed client. Specifically
- * recognizes Temporal's `WorkflowExecutionAlreadyStartedError`; everything
- * else falls through to {@link RuntimeClientError}.
+ * Recognize a thrown error from `client.workflow.start` / `signalWithStart`
+ * as the modeled {@link WorkflowAlreadyStartedError} (Temporal's
+ * `WorkflowExecutionAlreadyStartedError`). Returns `undefined` for anything
+ * else — an unrecognized, *technical* failure the caller routes to the defect
+ * channel with a {@link RuntimeClientError} cause.
  */
-export function classifyStartError(
-  operation: string,
-  error: unknown,
-): WorkflowAlreadyStartedError | RuntimeClientError {
+export function classifyStartError(error: unknown): WorkflowAlreadyStartedError | undefined {
   if (error instanceof WorkflowExecutionAlreadyStartedError) {
     return new WorkflowAlreadyStartedError(error.workflowType, error.workflowId, error);
   }
-  return new RuntimeClientError(operation, error);
+  return undefined;
 }
 
 /**
- * Map a thrown error from a workflow handle method (signal, query,
- * executeUpdate, terminate, cancel, describe, fetchHistory) into the
- * discriminated union surfaced by the typed client. Recognizes Temporal's
- * `WorkflowNotFoundError`; everything else falls through to
- * {@link RuntimeClientError}.
+ * Recognize a thrown error from a workflow handle method (signal, query,
+ * executeUpdate, terminate, cancel, describe, fetchHistory) as the modeled
+ * {@link WorkflowExecutionNotFoundError} (Temporal's `WorkflowNotFoundError`).
+ * Returns `undefined` for anything else — an unrecognized, *technical* failure
+ * the caller routes to the defect channel with a {@link RuntimeClientError}
+ * cause.
  *
  * `fallbackWorkflowId` is used when Temporal's error carries an empty
  * `workflowId` (it normalizes missing IDs to the empty string), so the
  * surfaced error always identifies the targeted execution.
  */
 export function classifyHandleError(
-  operation: string,
   error: unknown,
   fallbackWorkflowId: string,
-): WorkflowExecutionNotFoundError | RuntimeClientError {
+): WorkflowExecutionNotFoundError | undefined {
   if (error instanceof TemporalWorkflowNotFoundError) {
     return new WorkflowExecutionNotFoundError(
       error.workflowId || fallbackWorkflowId,
@@ -158,14 +156,16 @@ export function classifyHandleError(
       error,
     );
   }
-  return new RuntimeClientError(operation, error);
+  return undefined;
 }
 
 /**
- * Map a thrown error from `handle.result()` / `client.workflow.execute()`
- * (the latter when waiting on the result phase). Recognizes Temporal's
- * `WorkflowFailedError` and `WorkflowNotFoundError`; everything else falls
- * through to {@link RuntimeClientError}.
+ * Recognize a thrown error from `handle.result()` / `client.workflow.execute()`
+ * (the latter when waiting on the result phase) as one of the modeled
+ * {@link WorkflowFailedError} / {@link WorkflowExecutionNotFoundError}
+ * (Temporal's `WorkflowFailedError` / `WorkflowNotFoundError`). Returns
+ * `undefined` for anything else — an unrecognized, *technical* failure the
+ * caller routes to the defect channel with a {@link RuntimeClientError} cause.
  *
  * Temporal's `WorkflowFailedError` is itself a wrapper — the actionable
  * failure (ApplicationFailure, CancelledFailure, TerminatedFailure, etc.)
@@ -175,10 +175,9 @@ export function classifyHandleError(
  * `cause` is too — same shape as before.)
  */
 export function classifyResultError(
-  operation: string,
   error: unknown,
   workflowId: string,
-): WorkflowFailedError | WorkflowExecutionNotFoundError | RuntimeClientError {
+): WorkflowFailedError | WorkflowExecutionNotFoundError | undefined {
   if (error instanceof TemporalWorkflowFailedError) {
     // Temporal types `cause` as `Error | undefined`, but the SDK only ever
     // populates it with a `TemporalFailure` subclass when surfacing a
@@ -189,5 +188,5 @@ export function classifyResultError(
   if (error instanceof TemporalWorkflowNotFoundError) {
     return new WorkflowExecutionNotFoundError(error.workflowId || workflowId, error.runId, error);
   }
-  return new RuntimeClientError(operation, error);
+  return undefined;
 }
