@@ -1,5 +1,35 @@
 # @temporal-contract/worker
 
+## 8.0.0-beta.1
+
+### Patch Changes
+
+- 75ec554: Bump `unthrown` to `5.0.0-beta.5`. This tracks two beta breaking changes:
+  `match`'s error handler key is renamed `err` → `errCases`, and the bare error
+  combinators gained the `*Cases` suffix (`flatMapErr` → `flatMapErrCases`,
+  `tapErr` → `tapErrCases`). `unthrown` also now declares `ts-pattern` as a peer
+  dependency, so `ts-pattern` (`^5`) is added alongside it. The peer range is
+  raised to `^5.0.0-beta.5`.
+- fff11ff: Bump `unthrown` to `5.0.0-beta.6`, whose exhaustive matcher is now built-in
+  (same `.with(…)` / `tag` / `P` call-site shape — no code changes needed). The
+  `ts-pattern` peer/dev dependencies added for beta.5 are removed: `unthrown` has
+  zero runtime dependencies, so nothing needs installing alongside it. The
+  `unthrown` peer range is raised to `^5.0.0-beta.6`.
+- efec2b2: Route `TechnicalError` and `RuntimeClientError` to unthrown's defect channel instead of the modeled `Err` channel.
+
+  These two errors describe technical/infrastructure failures (connection/bundling faults, an unknown schedule ID, an unrecognized Temporal rejection) that are never branched on for domain logic. Per unthrown's Thesis #1, the `E` channel is only for anticipated domain failures, so they now surface as a `Defect` whose `cause` is a `TechnicalError` / `RuntimeClientError` instance — the classes stay exported so the descriptive message, `operation`, and `cause` survive for logging.
+
+  **Breaking.** Consumers who matched these on the error channel must move to the defect channel:
+
+  - `TypedClient.create` and `createWorker` now return `AsyncResult<_, never>` (was `AsyncResult<_, TechnicalError>`). Inspect setup faults via `result.isDefect()` / `match`'s `defect` handler / `recoverDefect`, not `isErr()`.
+  - Every modeled error union drops `RuntimeClientError` (`startWorkflow`, `signalWithStart`, `executeWorkflow`, `getHandle`, handle `queries`/`signals`/`updates`/`result`/`terminate`/`cancel`/`describe`/`fetchHistory`, the schedule handle methods, `ClientCallError`). Schedule handle methods now return `AsyncResult<_, never>`.
+  - Drop any `.with(tag("@temporal-contract/RuntimeClientError"), …)` / `.with(tag("@temporal-contract/TechnicalError"), …)` arm from exhaustive matchers; handle these in the `defect` arm (e.g. `recoverDefect` / `tapDefect`), matching on `cause instanceof RuntimeClientError` where needed.
+
+- Updated dependencies [75ec554]
+- Updated dependencies [fff11ff]
+- Updated dependencies [efec2b2]
+  - @temporal-contract/contract@8.0.0-beta.1
+
 ## 8.0.0-beta.0
 
 ### Major Changes
