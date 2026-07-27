@@ -13,7 +13,7 @@
 | `zod`                   | Direct dep of `contract` (used internally for the `defineContract` runtime validation pass); user-side schema lib for the others |
 | `valibot` / `arktype`   | User-side schema libraries (Standard Schema)                                                                                     |
 
-`pino` and `ts-pattern` appear in the catalog and are used by `examples/` only — they're not imported from any published package's `src/`.
+`pino` appears in the catalog and is used by `examples/` only — it's not imported from any published package's `src/`.
 
 ## Tooling
 
