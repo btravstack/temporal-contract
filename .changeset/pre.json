@@ -7,5 +7,12 @@
     "@temporal-contract/testing": "7.0.0",
     "@temporal-contract/worker": "7.0.0"
   },
-  "changesets": ["adopt-lefthook-oxfmt", "adopt-unthrown-v5-beta", "contract-types-node"]
+  "changesets": [
+    "adopt-lefthook-oxfmt",
+    "adopt-unthrown-v5-beta",
+    "bump-unthrown-beta-5",
+    "bump-unthrown-beta-6",
+    "contract-types-node",
+    "technical-errors-to-defect"
+  ]
 }
