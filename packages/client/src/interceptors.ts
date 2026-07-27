@@ -100,7 +100,7 @@ export type ClientInterceptorNext = (patch?: {
  * @example Retry a transient failure once
  * ```ts
  * const retryOnce: ClientInterceptor = (args, next) =>
- *   next().flatMapErr((matcher) =>
+ *   next().flatMapErrCases((matcher) =>
  *     matcher.with(P._, (error) =>
  *       error instanceof RuntimeClientError ? next() : Err(error).toAsync(),
  *     ),

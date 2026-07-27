@@ -294,7 +294,7 @@ export type ActivityMiddlewareNext<
  * @example Log every activity invocation and its outcome (read-only)
  * ```ts
  * const logging: ActivityMiddleware = ({ activityName, workflowName }, next) =>
- *   next().tapErr((matcher) =>
+ *   next().tapErrCases((matcher) =>
  *     matcher.with(P._, (error) => {
  *       logger.warn({ activityName, workflowName, error }, "activity failed");
  *     }),
@@ -741,7 +741,7 @@ export function declareActivitiesHandler<
         // retry policy (honoring `nonRetryable: true`). Contract errors are
         // validated against their declared data schema and serialized as
         // ApplicationFailure(type = error name, details = [data]).
-        err: (matcher) =>
+        errCases: (matcher) =>
           matcher.with(P._, async (error) => {
             if (error instanceof ContractError) {
               throw await contractErrorToApplicationFailure(
