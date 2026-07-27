@@ -298,7 +298,7 @@ describe("declareActivitiesHandler — middleware", () => {
   it("observes typed errors on the err channel", async () => {
     const observed: unknown[] = [];
     const observing: ActivityMiddleware = (_invocation, next) =>
-      next().tapErr((matcher) =>
+      next().tapErrCases((matcher) =>
         matcher.with(P._, (error) => {
           observed.push(error);
         }),

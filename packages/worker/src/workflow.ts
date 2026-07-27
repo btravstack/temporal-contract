@@ -627,7 +627,7 @@ type WorkflowContext<
    *     const result = await handle.result();
    *     // ... handle result
    *   },
-   *   err: (matcher) => matcher.with(P._, (error) => console.error('Failed to start:', error)),
+   *   errCases: (matcher) => matcher.with(P._, (error) => console.error('Failed to start:', error)),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
    * });
    * ```
@@ -667,7 +667,7 @@ type WorkflowContext<
    *
    * await result.match({
    *   ok: (output) => console.log('Payment processed:', output),
-   *   err: (matcher) => matcher.with(P._, (error) => console.error('Processing failed:', error)),
+   *   errCases: (matcher) => matcher.with(P._, (error) => console.error('Processing failed:', error)),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
    * });
    * ```

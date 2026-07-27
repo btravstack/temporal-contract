@@ -103,7 +103,7 @@ export async function createWorkerOrThrow<TContract extends ContractDefinition>(
   const result = await createWorker(options);
   return result.match({
     ok: (worker) => worker,
-    err: (matcher) =>
+    errCases: (matcher) =>
       matcher.with(P._, (error) => {
         throw error.cause ?? error;
       }),

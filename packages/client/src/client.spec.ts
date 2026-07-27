@@ -784,7 +784,7 @@ describe("TypedClient", () => {
           matched = true;
           expect(value).toEqual({ result: "success" });
         },
-        err: (matcher) =>
+        errCases: (matcher) =>
           matcher.with(P._, () => {
             throw new Error("Should not be called");
           }),
@@ -1513,7 +1513,7 @@ describe("TypedClient — interceptors", () => {
       .mockRejectedValueOnce(new Error("transient"))
       .mockResolvedValueOnce({ result: "ok" });
     const retryOnce: ClientInterceptor = (_args, next) =>
-      next().flatMapErr((matcher) =>
+      next().flatMapErrCases((matcher) =>
         matcher.with(
           P._,
           (error): ReturnType<typeof next> =>

@@ -402,7 +402,7 @@ describe("Client Package - Integration Tests", () => {
           matched = true;
           expect(value).toEqual({ result: "Processed: test" });
         },
-        err: (matcher) =>
+        errCases: (matcher) =>
           matcher.with(P._, () => {
             throw new Error("Should not be called");
           }),

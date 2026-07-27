@@ -124,7 +124,7 @@ async function run() {
           );
         }
       },
-      err: (matcher) =>
+      errCases: (matcher) =>
         matcher
           .with(tag("@temporal-contract/WorkflowNotFoundError"), (err) =>
             logger.error({ error: err, orderId: order.orderId }, "❌ Workflow not found"),
@@ -198,7 +198,7 @@ async function run() {
       };
       logger.info({ data: summary }, `📊 Order summary: ${summary.message}`);
     },
-    err: (matcher) =>
+    errCases: (matcher) =>
       matcher
         .with(tag("@temporal-contract/WorkflowNotFoundError"), (err) =>
           logger.error({ error: err }, "❌ Workflow not found"),

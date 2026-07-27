@@ -415,7 +415,7 @@ export class TypedClient<TContract extends ContractDefinition> {
    *
    * await result.match({
    *   ok: async (handle) => { await handle.pause("maintenance"); },
-   *   err: (matcher) => matcher.with(P._, (error) => console.error("schedule create failed", error)),
+   *   errCases: (matcher) => matcher.with(P._, (error) => console.error("schedule create failed", error)),
    *   defect: (cause) => console.error("unexpected failure", cause),
    * });
    * ```
@@ -546,7 +546,7 @@ export class TypedClient<TContract extends ContractDefinition> {
    *     const result = await handle.result();
    *     // ... handle result
    *   },
-   *   err: (matcher) => matcher.with(P._, (error) => console.error('Failed to start:', error)),
+   *   errCases: (matcher) => matcher.with(P._, (error) => console.error('Failed to start:', error)),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
    * });
    * ```
@@ -637,7 +637,7 @@ export class TypedClient<TContract extends ContractDefinition> {
    *
    * await result.match({
    *   ok: (handle) => console.log('signaled run', handle.signaledRunId),
-   *   err: (matcher) => matcher.with(P._, (error) => console.error('signalWithStart failed', error)),
+   *   errCases: (matcher) => matcher.with(P._, (error) => console.error('signalWithStart failed', error)),
    *   defect: (cause) => console.error('unexpected failure', cause),
    * });
    * ```
@@ -761,7 +761,7 @@ export class TypedClient<TContract extends ContractDefinition> {
    *
    * await result.match({
    *   ok: (output) => console.log('Order processed:', output.status),
-   *   err: (matcher) => matcher.with(P._, (error) => console.error('Processing failed:', error)),
+   *   errCases: (matcher) => matcher.with(P._, (error) => console.error('Processing failed:', error)),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
    * });
    * ```
@@ -894,7 +894,7 @@ export class TypedClient<TContract extends ContractDefinition> {
    *     const result = await handle.result();
    *     // ... handle result
    *   },
-   *   err: (matcher) => matcher.with(P._, (error) => console.error('Failed to get handle:', error)),
+   *   errCases: (matcher) => matcher.with(P._, (error) => console.error('Failed to get handle:', error)),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
    * });
    * ```
