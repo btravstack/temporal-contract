@@ -28,7 +28,7 @@ catalog:
   "@unthrown/vitest": 5.0.0-beta.5
   "@vitest/coverage-v8": 4.1.10
   arktype: 2.2.3
-  knip: 6.26.0
+  knip: 6.27.0
   lefthook: 2.1.10
   oxfmt: 0.58.0
   oxlint: 1.73.0
