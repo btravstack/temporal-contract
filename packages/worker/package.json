@@ -84,7 +84,6 @@
     "@types/node": "catalog:",
     "@unthrown/vitest": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "ts-pattern": "catalog:",
     "tsdown": "catalog:",
     "typedoc": "catalog:",
     "typedoc-plugin-markdown": "catalog:",
@@ -97,8 +96,7 @@
     "@temporalio/common": "^1",
     "@temporalio/worker": "^1",
     "@temporalio/workflow": "^1",
-    "ts-pattern": "^5",
-    "unthrown": "^5.0.0-beta.5"
+    "unthrown": "^5.0.0-beta.6"
   },
   "engines": {
     "node": ">=22.19.0"
