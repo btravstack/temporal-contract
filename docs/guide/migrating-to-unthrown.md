@@ -19,7 +19,8 @@ This page is an end-to-end mapping for upgrading existing code.
   in your type signature; unexpected throws surface as defects that re-throw
   on `await`/unwrap instead of being silently swallowed.
 - **Tagged errors**: error classes built with `TaggedError(...)` carry a
-  `_tag` discriminant, enabling exhaustive `matchTags(...)` folds.
+  `_tag` discriminant, enabling exhaustive `match` folds over the error channel
+  (the `errCases` matcher).
 - **Active maintenance**: a first-party, actively-maintained library
   (neverthrow's releases have stalled, see
   [supermacro/neverthrow#670](https://github.com/supermacro/neverthrow/issues/670)).
@@ -51,21 +52,21 @@ the same name but is now imported from `"unthrown"`.
 
 ## API mapping
 
-| neverthrow                                   | unthrown                                                                                                            |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `import { ResultAsync } from "neverthrow"`   | `import { fromPromise } from "unthrown"`                                                                            |
-| type `ResultAsync<T, E>`                     | type `AsyncResult<T, E>`                                                                                            |
-| type `Result<T, E>`                          | `Result<T, E>` (now from `"unthrown"`)                                                                              |
-| `ok(v)` / `err(e)`                           | `Ok(v)` / `Err(e)` (from `"unthrown"`)                                                                              |
-| `okAsync(v)`                                 | `Ok(v).toAsync()` (no `okAsync`)                                                                                    |
-| `errAsync(e)`                                | `Err(e).toAsync()` (no `errAsync`)                                                                                  |
-| `ResultAsync.fromPromise(promise, errFn)`    | `fromPromise(promise, errFn)`                                                                                       |
-| `ResultAsync.fromSafePromise(promise)`       | `fromSafePromise(promise)`                                                                                          |
-| `.andThen(fn)`                               | `.flatMap(fn)`                                                                                                      |
-| `.map(fn)` / `.mapErr(fn)` / `.orElse(fn)`   | `.map(fn)` / `.mapErr(fn)` / `.flatMapErr(fn)` (`orElse` was renamed in unthrown 4.1)                               |
-| `Result.combine([...])`                      | `all([...])`                                                                                                        |
-| `result.match(okFn, errFn)` (positional)     | `result.match({ ok, err, defect })` (object, 3 channels)                                                            |
-| `result.isOk()` / `result.isErr()` to narrow | `result.isOk()` / `result.isErr()` / `result.isDefect()` (methods narrow; `isOk(result)` free functions also exist) |
+| neverthrow                                   | unthrown                                                                                                                                       |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `import { ResultAsync } from "neverthrow"`   | `import { fromPromise } from "unthrown"`                                                                                                       |
+| type `ResultAsync<T, E>`                     | type `AsyncResult<T, E>`                                                                                                                       |
+| type `Result<T, E>`                          | `Result<T, E>` (now from `"unthrown"`)                                                                                                         |
+| `ok(v)` / `err(e)`                           | `Ok(v)` / `Err(e)` (from `"unthrown"`)                                                                                                         |
+| `okAsync(v)`                                 | `Ok(v).toAsync()` (no `okAsync`)                                                                                                               |
+| `errAsync(e)`                                | `Err(e).toAsync()` (no `errAsync`)                                                                                                             |
+| `ResultAsync.fromPromise(promise, errFn)`    | `fromPromise(promise, errFn)`                                                                                                                  |
+| `ResultAsync.fromSafePromise(promise)`       | `fromSafePromise(promise)`                                                                                                                     |
+| `.andThen(fn)`                               | `.flatMap(fn)`                                                                                                                                 |
+| `.map(fn)` / `.mapErr(fn)` / `.orElse(fn)`   | `.map(fn)` / `.mapErrCases(m)` / `.flatMapErrCases(m)` (the error combinators take an exhaustive ts-pattern matcher `m`, not a plain callback) |
+| `Result.combine([...])`                      | `all([...])`                                                                                                                                   |
+| `result.match(okFn, errFn)` (positional)     | `result.match({ ok, errCases, defect })` (object, 3 channels; `errCases` is an exhaustive matcher)                                             |
+| `result.isOk()` / `result.isErr()` to narrow | `result.isOk()` / `result.isErr()` / `result.isDefect()` (methods narrow; `isOk(result)` free functions also exist)                            |
 
 ## `okAsync` / `errAsync` are gone
 
@@ -147,12 +148,25 @@ if (result.isOk()) {
 - );
 + result.match({
 +   ok: (output) => console.log("Order:", output),
-+   err: (error) => console.error("Failed:", error),
++   errCases: (matcher) =>
++     matcher.with(
++       tag("@temporal-contract/ContractError"),
++       tag("@temporal-contract/WorkflowNotFoundError"),
++       tag("@temporal-contract/WorkflowValidationError"),
++       tag("@temporal-contract/WorkflowAlreadyStartedError"),
++       tag("@temporal-contract/WorkflowFailedError"),
++       tag("@temporal-contract/WorkflowExecutionNotFoundError"),
++       tag("@temporal-contract/RuntimeClientError"),
++       (error) => console.error("Failed:", error),
++     ),
 +   defect: (cause) => console.error("Unexpected:", cause),
 + });
 ```
 
-Always add the `defect` handler — it is a required, distinct channel.
+Always add the `defect` handler — it is a required, distinct channel. The
+`errCases` matcher is **exhaustive**: every error tag must be handled (grouped
+with a single handler is fine), so a new error variant is a compile error until
+you handle it.
 
 ## Error classes: `TaggedError`
 
@@ -172,17 +186,20 @@ with a `_tag` discriminant:
 + }> {}
 ```
 
-Because every tagged error carries a `_tag`, unthrown's `matchTags` folds a
-`Result` exhaustively by tag, with dedicated `Ok` and `Defect` channels:
+Because every tagged error carries a `_tag`, `match`'s `errCases` matcher folds
+a `Result` exhaustively by tag, alongside the dedicated `ok` and `defect`
+channels:
 
 ```ts
-import { matchTags } from "unthrown";
+import { tag } from "unthrown";
 
-const message = matchTags(result, {
-  Ok: (value) => `charged ${value.transactionId}`,
-  PaymentDeclined: (e) => `declined for ${e.customerId}`,
-  GatewayTimeout: (e) => `timed out after ${e.elapsedMs}ms`,
-  Defect: (cause) => `unexpected: ${String(cause)}`,
+const message = result.match({
+  ok: (value) => `charged ${value.transactionId}`,
+  errCases: (matcher) =>
+    matcher
+      .with(tag("PaymentDeclined"), (e) => `declined for ${e.customerId}`)
+      .with(tag("GatewayTimeout"), (e) => `timed out after ${e.elapsedMs}ms`),
+  defect: (cause) => `unexpected: ${String(cause)}`,
 });
 ```
 
@@ -193,9 +210,9 @@ const message = matchTags(result, {
 > [!NOTE]
 > temporal-contract's own error tags are **package-namespaced** — e.g.
 > `_tag === "@temporal-contract/WorkflowExecutionNotFoundError"` — while each
-> error's `.name` stays the bare class name. If you `matchTags` over library
-> errors, the handler keys carry the prefix:
-> `matchTags(result, { "@temporal-contract/WorkflowExecutionNotFoundError": ... })`.
+> error's `.name` stays the bare class name. If you fold library errors with
+> the `errCases` matcher, the patterns carry the prefix:
+> `matcher.with(tag("@temporal-contract/WorkflowExecutionNotFoundError"), …)`.
 
 ## End-to-end activity example
 
@@ -259,7 +276,17 @@ result.match(
 const result = await client.executeWorkflow("processOrder", { workflowId, args });
 result.match({
   ok: (output) => console.log("Order:", output),
-  err: (error) => console.error("Failed:", error),
+  errCases: (matcher) =>
+    matcher.with(
+      tag("@temporal-contract/ContractError"),
+      tag("@temporal-contract/WorkflowNotFoundError"),
+      tag("@temporal-contract/WorkflowValidationError"),
+      tag("@temporal-contract/WorkflowAlreadyStartedError"),
+      tag("@temporal-contract/WorkflowFailedError"),
+      tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+      tag("@temporal-contract/RuntimeClientError"),
+      (error) => console.error("Failed:", error),
+    ),
   defect: (cause) => console.error("Unexpected:", cause),
 });
 ```

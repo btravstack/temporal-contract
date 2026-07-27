@@ -82,10 +82,17 @@ export const parentWorkflow = declareWorkflow({
       args: { amount: input.totalAmount },
     });
 
-    childResult.match(
-      (output) => console.log("Payment processed:", output),
-      (error) => console.error("Payment failed:", error),
-    );
+    childResult.match({
+      ok: (output) => console.log("Payment processed:", output),
+      errCases: (matcher) =>
+        matcher.with(
+          tag("@temporal-contract/ChildWorkflowError"),
+          tag("@temporal-contract/ChildWorkflowCancelledError"),
+          tag("@temporal-contract/ChildWorkflowNotFoundError"),
+          (error) => console.error("Payment failed:", error),
+        ),
+      defect: (cause) => console.error("Unexpected failure:", cause),
+    });
 
     // Execute child workflow from another contract (another worker)
     const notificationResult = await context.executeChildWorkflow(
@@ -103,14 +110,21 @@ export const parentWorkflow = declareWorkflow({
       args: { to: "user@example.com", body: "Order received" },
     });
 
-    handleResult.match(
-      async (handle) => {
+    handleResult.match({
+      ok: async (handle) => {
         // Can wait for result later
         const result = await handle.result();
         // ...
       },
-      (error) => console.error("Failed to start:", error),
-    );
+      errCases: (matcher) =>
+        matcher.with(
+          tag("@temporal-contract/ChildWorkflowError"),
+          tag("@temporal-contract/ChildWorkflowCancelledError"),
+          tag("@temporal-contract/ChildWorkflowNotFoundError"),
+          (error) => console.error("Failed to start:", error),
+        ),
+      defect: (cause) => console.error("Unexpected failure:", cause),
+    });
 
     return { success: true };
   },

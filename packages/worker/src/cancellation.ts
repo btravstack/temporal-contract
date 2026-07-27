@@ -38,7 +38,7 @@ import { makeAsyncResult } from "./internal.js";
  * result.match({
  *   ok: (output) => { ... },
  *   errCases: (matcher) =>
- *     matcher.with(P._, (error) => {
+ *     matcher.with(tag("@temporal-contract/WorkflowCancelledError"), (error) => {
  *       // error instanceof WorkflowCancelledError — graceful exit
  *     }),
  *   defect: (cause) => {

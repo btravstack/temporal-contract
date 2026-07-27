@@ -504,7 +504,13 @@ export const parentWorkflow = declareWorkflow({
 
     result.match({
       ok: (output) => console.log("Payment processed:", output),
-      err: (error) => console.error("Payment failed:", error),
+      errCases: (matcher) =>
+        matcher.with(
+          tag("@temporal-contract/ChildWorkflowError"),
+          tag("@temporal-contract/ChildWorkflowCancelledError"),
+          tag("@temporal-contract/ChildWorkflowNotFoundError"),
+          (error) => console.error("Payment failed:", error),
+        ),
       defect: (cause) => console.error("Unexpected failure:", cause),
     });
 
@@ -576,9 +582,15 @@ export const orderWorkflow = declareWorkflow({
         // Can wait for result later if needed
         const result = await handle.result();
       },
-      err: (error) => {
-        console.error("Failed to start notification:", error);
-      },
+      errCases: (matcher) =>
+        matcher.with(
+          tag("@temporal-contract/ChildWorkflowError"),
+          tag("@temporal-contract/ChildWorkflowCancelledError"),
+          tag("@temporal-contract/ChildWorkflowNotFoundError"),
+          (error) => {
+            console.error("Failed to start notification:", error);
+          },
+        ),
       defect: (cause) => {
         console.error("Unexpected failure starting notification:", cause);
       },
@@ -604,14 +616,20 @@ result.match({
     // Child workflow completed successfully
     console.log("Transaction ID:", output.transactionId);
   },
-  err: (error) => {
-    // Handle child workflow errors
-    if (error instanceof ChildWorkflowNotFoundError) {
-      console.error("Workflow not found in contract");
-    } else {
-      console.error("Child workflow failed:", error.message);
-    }
-  },
+  errCases: (matcher) =>
+    matcher.with(
+      tag("@temporal-contract/ChildWorkflowError"),
+      tag("@temporal-contract/ChildWorkflowCancelledError"),
+      tag("@temporal-contract/ChildWorkflowNotFoundError"),
+      (error) => {
+        // Handle child workflow errors
+        if (error instanceof ChildWorkflowNotFoundError) {
+          console.error("Workflow not found in contract");
+        } else {
+          console.error("Child workflow failed:", error.message);
+        }
+      },
+    ),
   defect: (cause) => {
     // Unexpected failure (bug), not a modeled child-workflow error
     console.error("Unexpected failure:", cause);

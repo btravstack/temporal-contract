@@ -101,8 +101,19 @@ export type ClientInterceptorNext = (patch?: {
  * ```ts
  * const retryOnce: ClientInterceptor = (args, next) =>
  *   next().flatMapErrCases((matcher) =>
- *     matcher.with(P._, (error) =>
- *       error instanceof RuntimeClientError ? next() : Err(error).toAsync(),
+ *     matcher.with(
+ *       tag("@temporal-contract/WorkflowNotFoundError"),
+ *       tag("@temporal-contract/WorkflowValidationError"),
+ *       tag("@temporal-contract/WorkflowAlreadyStartedError"),
+ *       tag("@temporal-contract/WorkflowFailedError"),
+ *       tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+ *       tag("@temporal-contract/SignalValidationError"),
+ *       tag("@temporal-contract/QueryValidationError"),
+ *       tag("@temporal-contract/UpdateValidationError"),
+ *       tag("@temporal-contract/RuntimeClientError"),
+ *       tag("@temporal-contract/ContractError"),
+ *       (error) =>
+ *         error instanceof RuntimeClientError ? next() : Err(error).toAsync(),
  *     ),
  *   );
  * ```

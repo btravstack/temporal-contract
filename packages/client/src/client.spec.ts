@@ -11,7 +11,7 @@ import {
   TypedSearchAttributes,
   WorkflowNotFoundError as TemporalWorkflowNotFoundError,
 } from "@temporalio/common";
-import { Err, P } from "unthrown";
+import { Err, tag } from "unthrown";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
 
@@ -785,9 +785,17 @@ describe("TypedClient", () => {
           expect(value).toEqual({ result: "success" });
         },
         errCases: (matcher) =>
-          matcher.with(P._, () => {
-            throw new Error("Should not be called");
-          }),
+          matcher.with(
+            tag("@temporal-contract/WorkflowNotFoundError"),
+            tag("@temporal-contract/WorkflowValidationError"),
+            tag("@temporal-contract/WorkflowAlreadyStartedError"),
+            tag("@temporal-contract/WorkflowFailedError"),
+            tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+            tag("@temporal-contract/RuntimeClientError"),
+            () => {
+              throw new Error("Should not be called");
+            },
+          ),
         defect: () => {
           throw new Error("Should not be called");
         },
@@ -1515,7 +1523,16 @@ describe("TypedClient — interceptors", () => {
     const retryOnce: ClientInterceptor = (_args, next) =>
       next().flatMapErrCases((matcher) =>
         matcher.with(
-          P._,
+          tag("@temporal-contract/WorkflowNotFoundError"),
+          tag("@temporal-contract/WorkflowValidationError"),
+          tag("@temporal-contract/WorkflowAlreadyStartedError"),
+          tag("@temporal-contract/WorkflowFailedError"),
+          tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+          tag("@temporal-contract/SignalValidationError"),
+          tag("@temporal-contract/QueryValidationError"),
+          tag("@temporal-contract/UpdateValidationError"),
+          tag("@temporal-contract/RuntimeClientError"),
+          tag("@temporal-contract/ContractError"),
           (error): ReturnType<typeof next> =>
             error instanceof RuntimeClientError ? next() : Err(error).toAsync(),
         ),

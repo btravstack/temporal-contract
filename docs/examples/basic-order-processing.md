@@ -79,7 +79,7 @@ This example demonstrates the unthrown-based pattern:
 - Activities return `AsyncResult<T, ApplicationFailure>` instead of throwing
 - Child workflow calls return `Result<T, E>` for explicit error handling
 - Errors are part of the type signature
-- Enables railway-oriented programming via `.flatMap` / `.map` / `.mapErr`
+- Enables railway-oriented programming via `.flatMap` / `.map` / `.mapErrCases`
 
 ### Worker Application
 

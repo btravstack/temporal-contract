@@ -29,7 +29,7 @@ import {
   type ContractErrorInputUnion,
 } from "@temporal-contract/contract/errors";
 import { ApplicationFailure } from "@temporalio/common";
-import { P, type AsyncResult } from "unthrown";
+import { P, tag, type AsyncResult } from "unthrown";
 
 import { contractErrorToApplicationFailure } from "./contract-errors.js";
 import {
@@ -295,9 +295,13 @@ export type ActivityMiddlewareNext<
  * ```ts
  * const logging: ActivityMiddleware = ({ activityName, workflowName }, next) =>
  *   next().tapErrCases((matcher) =>
- *     matcher.with(P._, (error) => {
- *       logger.warn({ activityName, workflowName, error }, "activity failed");
- *     }),
+ *     matcher.with(
+ *       P.instanceOf(ApplicationFailure),
+ *       tag("@temporal-contract/ContractError"),
+ *       (error) => {
+ *         logger.warn({ activityName, workflowName, error }, "activity failed");
+ *       },
+ *     ),
  *   );
  * ```
  *
@@ -742,16 +746,20 @@ export function declareActivitiesHandler<
         // validated against their declared data schema and serialized as
         // ApplicationFailure(type = error name, details = [data]).
         errCases: (matcher) =>
-          matcher.with(P._, async (error) => {
-            if (error instanceof ContractError) {
-              throw await contractErrorToApplicationFailure(
-                error,
-                activityDef.errors,
-                `activity "${label}"`,
-              );
-            }
-            throw error;
-          }),
+          matcher.with(
+            P.instanceOf(ApplicationFailure),
+            tag("@temporal-contract/ContractError"),
+            async (error) => {
+              if (error instanceof ContractError) {
+                throw await contractErrorToApplicationFailure(
+                  error,
+                  activityDef.errors,
+                  `activity "${label}"`,
+                );
+              }
+              throw error;
+            },
+          ),
         // A defect is an *unanticipated* throw inside the activity. Re-throw the
         // original cause unwrapped: Temporal wraps a non-`ApplicationFailure`
         // error as `ApplicationFailure(type: "Error")` and applies the default

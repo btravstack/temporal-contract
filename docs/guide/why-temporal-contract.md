@@ -169,7 +169,17 @@ const result = await client.executeWorkflow("processOrder", {
 
 result.match({
   ok: (output) => console.log("Success:", output),
-  err: (error) => console.error("Validation failed:", error),
+  errCases: (matcher) =>
+    matcher.with(
+      tag("@temporal-contract/ContractError"),
+      tag("@temporal-contract/WorkflowNotFoundError"),
+      tag("@temporal-contract/WorkflowValidationError"),
+      tag("@temporal-contract/WorkflowAlreadyStartedError"),
+      tag("@temporal-contract/WorkflowFailedError"),
+      tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+      tag("@temporal-contract/RuntimeClientError"),
+      (error) => console.error("Validation failed:", error),
+    ),
   defect: (cause) => console.error("Unexpected failure:", cause),
 });
 ```
