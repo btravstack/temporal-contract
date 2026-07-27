@@ -25,7 +25,7 @@ catalog:
   "@temporalio/worker": 1.20.3
   "@temporalio/workflow": 1.20.3
   "@types/node": 26.1.1
-  "@unthrown/vitest": 5.0.0-beta.5
+  "@unthrown/vitest": 5.0.0-beta.6
   "@vitest/coverage-v8": 4.1.10
   arktype: 2.2.3
   knip: 6.27.0
@@ -35,14 +35,13 @@ catalog:
   pino: 10.3.1
   pino-pretty: 13.1.3
   testcontainers: 12.0.4
-  ts-pattern: 5.9.0
   tsdown: 0.22.12
   tsx: 4.23.1
   turbo: 2.10.5
   typedoc: 0.28.20
   typedoc-plugin-markdown: 4.12.0
   typescript: 6.0.3
-  unthrown: 5.0.0-beta.5
+  unthrown: 5.0.0-beta.6
   valibot: 1.4.2
   vitest: 4.1.10
   zod: 4.4.3
