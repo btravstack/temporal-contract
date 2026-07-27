@@ -52,21 +52,21 @@ the same name but is now imported from `"unthrown"`.
 
 ## API mapping
 
-| neverthrow                                   | unthrown                                                                                                                                       |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `import { ResultAsync } from "neverthrow"`   | `import { fromPromise } from "unthrown"`                                                                                                       |
-| type `ResultAsync<T, E>`                     | type `AsyncResult<T, E>`                                                                                                                       |
-| type `Result<T, E>`                          | `Result<T, E>` (now from `"unthrown"`)                                                                                                         |
-| `ok(v)` / `err(e)`                           | `Ok(v)` / `Err(e)` (from `"unthrown"`)                                                                                                         |
-| `okAsync(v)`                                 | `Ok(v).toAsync()` (no `okAsync`)                                                                                                               |
-| `errAsync(e)`                                | `Err(e).toAsync()` (no `errAsync`)                                                                                                             |
-| `ResultAsync.fromPromise(promise, errFn)`    | `fromPromise(promise, errFn)`                                                                                                                  |
-| `ResultAsync.fromSafePromise(promise)`       | `fromSafePromise(promise)`                                                                                                                     |
-| `.andThen(fn)`                               | `.flatMap(fn)`                                                                                                                                 |
-| `.map(fn)` / `.mapErr(fn)` / `.orElse(fn)`   | `.map(fn)` / `.mapErrCases(m)` / `.flatMapErrCases(m)` (the error combinators take an exhaustive ts-pattern matcher `m`, not a plain callback) |
-| `Result.combine([...])`                      | `all([...])`                                                                                                                                   |
-| `result.match(okFn, errFn)` (positional)     | `result.match({ ok, errCases, defect })` (object, 3 channels; `errCases` is an exhaustive matcher)                                             |
-| `result.isOk()` / `result.isErr()` to narrow | `result.isOk()` / `result.isErr()` / `result.isDefect()` (methods narrow; `isOk(result)` free functions also exist)                            |
+| neverthrow                                   | unthrown                                                                                                                            |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `import { ResultAsync } from "neverthrow"`   | `import { fromPromise } from "unthrown"`                                                                                            |
+| type `ResultAsync<T, E>`                     | type `AsyncResult<T, E>`                                                                                                            |
+| type `Result<T, E>`                          | `Result<T, E>` (now from `"unthrown"`)                                                                                              |
+| `ok(v)` / `err(e)`                           | `Ok(v)` / `Err(e)` (from `"unthrown"`)                                                                                              |
+| `okAsync(v)`                                 | `Ok(v).toAsync()` (no `okAsync`)                                                                                                    |
+| `errAsync(e)`                                | `Err(e).toAsync()` (no `errAsync`)                                                                                                  |
+| `ResultAsync.fromPromise(promise, errFn)`    | `fromPromise(promise, errFn)`                                                                                                       |
+| `ResultAsync.fromSafePromise(promise)`       | `fromSafePromise(promise)`                                                                                                          |
+| `.andThen(fn)`                               | `.flatMap(fn)`                                                                                                                      |
+| `.map(fn)` / `.mapErr(fn)` / `.orElse(fn)`   | `.map(fn)` / `.mapErrCases(m)` / `.flatMapErrCases(m)` (the error combinators take an exhaustive matcher `m`, not a plain callback) |
+| `Result.combine([...])`                      | `all([...])`                                                                                                                        |
+| `result.match(okFn, errFn)` (positional)     | `result.match({ ok, errCases, defect })` (object, 3 channels; `errCases` is an exhaustive matcher)                                  |
+| `result.isOk()` / `result.isErr()` to narrow | `result.isOk()` / `result.isErr()` / `result.isDefect()` (methods narrow; `isOk(result)` free functions also exist)                 |
 
 ## `okAsync` / `errAsync` are gone
 
