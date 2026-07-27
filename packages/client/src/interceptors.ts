@@ -95,29 +95,23 @@ export type ClientInterceptorNext = (patch?: {
  * A client-side interceptor. See the module doc for semantics; the array
  * passed to `TypedClient.create` composes outermost-first.
  *
- * @example Retry a transient failure once
+ * @example Retry a transient (technical) failure once
  * ```ts
+ * import { RuntimeClientError } from "@temporal-contract/client";
+ *
+ * // Transient technical faults — a connection blip, a gRPC hiccup — ride the
+ * // Defect channel, so retry them with `recoverDefect`; re-raise anything else
+ * // as a defect so it still surfaces at the edge.
  * const retryOnce: ClientInterceptor = (args, next) =>
- *   next().flatMapErrCases((matcher) =>
- *     matcher.with(
- *       tag("@temporal-contract/WorkflowNotFoundError"),
- *       tag("@temporal-contract/WorkflowValidationError"),
- *       tag("@temporal-contract/WorkflowAlreadyStartedError"),
- *       tag("@temporal-contract/WorkflowFailedError"),
- *       tag("@temporal-contract/WorkflowExecutionNotFoundError"),
- *       tag("@temporal-contract/SignalValidationError"),
- *       tag("@temporal-contract/QueryValidationError"),
- *       tag("@temporal-contract/UpdateValidationError"),
- *       tag("@temporal-contract/ContractError"),
- *       (error) =>
- *         error instanceof WorkflowExecutionNotFoundError ? next() : Err(error).toAsync(),
- *     ),
- *   );
+ *   next().recoverDefect((cause) => {
+ *     if (cause instanceof RuntimeClientError) return next();
+ *     throw cause; // not a transient fault we own — keep it a defect
+ *   });
  * ```
  *
- * Technical/infrastructure faults (formerly `RuntimeClientError`) now ride the
- * `Defect` channel, so they never reach this modeled-error matcher — recover
- * them with `recoverDefect` or observe them with `tapDefect` instead.
+ * Modeled domain errors (`WorkflowNotFoundError`, a `ContractError`, …) stay on
+ * the `Err` channel — branch on those with `flatMapErrCases` / `match` as usual;
+ * `recoverDefect` / `tapDefect` are for the technical faults on the defect channel.
  */
 export type ClientInterceptor = (
   args: ClientInterceptorArgs,
