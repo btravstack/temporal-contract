@@ -104,7 +104,7 @@ Temporal's `CancellationScope` and surface cancellation as
 const result = await context.cancellableScope(() => context.activities.processStep(args));
 
 if (result.isErr()) {
-  await context.nonCancellableScope(() => context.activities.releaseResources(args));
+  await context.nonCancellableScope(() => context.activities.releaseResources(args)).getOrThrow();
   return { status: "cancelled" };
 }
 ```

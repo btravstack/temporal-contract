@@ -95,14 +95,24 @@ Modeled domain errors (`WorkflowNotFoundError`, a `ContractError`, a validation
 failure) stay on the `err` channel. Branch on those with `flatMapErrCases`:
 
 ```typescript
+import { Err, Ok, P, tag } from "unthrown";
+
 const fallback: ClientInterceptor = (args, next) =>
   next().flatMapErrCases((matcher) =>
-    matcher.with(tag("@temporal-contract/WorkflowAlreadyStartedError"), () =>
+    matcher
       // Idempotent start: treat "already running" as success.
-      Ok(undefined).toAsync(),
-    ),
+      .with(tag("@temporal-contract/WorkflowAlreadyStartedError"), () => Ok(undefined).toAsync())
+      // The matcher must cover the whole union — `P._` passes the rest through.
+      .with(P._, (error) => Err(error).toAsync()),
   );
 ```
+
+::: warning The matcher is exhaustive
+`flatMapErrCases`, `mapErrCases`, `tapErrCases`, and `recoverErrCases` all
+require a match that covers every member of the error union — here the nine
+members of `ClientCallError`. A single `.with(tag(...))` arm will not compile.
+Handle the cases you care about, then close with `P._`.
+:::
 
 Calling `next()` twice re-runs the rest of the chain, so retries compose.
 
@@ -111,14 +121,43 @@ Calling `next()` twice re-runs the rest of the chain, so retries compose.
 Return your own result without calling `next`:
 
 ```typescript
+import { fromSafePromise } from "unthrown";
+
 const readOnlyGuard: ClientInterceptor = (args, next) => {
   if (maintenanceMode && args.operation !== "query") {
-    return Err(
-      new RuntimeClientError(args.operation, new Error("maintenance mode: writes disabled")),
-    ).toAsync();
+    // Maintenance mode is a technical fault, not a domain outcome, so it
+    // belongs on the defect channel. `fromSafePromise` turns any throw from
+    // the thunk into a defect, giving an AsyncResult<never, never>.
+    return fromSafePromise(async () => {
+      throw new RuntimeClientError(args.operation, new Error("maintenance mode: writes disabled"));
+    });
   }
   return next();
 };
+```
+
+::: warning Do not put `RuntimeClientError` on the `err` channel
+`ClientCallError` does not include it — since 8.0 it rides the defect channel.
+`Err(new RuntimeClientError(...))` is both a type error and the wrong channel.
+
+There is no exported bare `Defect` constructor. Produce one by throwing inside
+`fromSafePromise` / `fromSafeThrowable`, or via the `defect` helper passed as
+the **second argument** to every `*ErrCases` callback and to a `fromPromise`
+qualifier:
+
+```typescript
+next().mapErrCases(
+  (matcher, defect) => matcher.with(P._, (error) => defect(error)), // demote every modeled error
+);
+```
+
+:::
+
+To short-circuit with a _modeled_ outcome instead, return `Ok`:
+
+```typescript
+const skipInReadOnly: ClientInterceptor = (args, next) =>
+  maintenanceMode && args.operation === "signal" ? Ok(undefined).toAsync() : next();
 ```
 
 ## Measure latency

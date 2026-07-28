@@ -61,19 +61,21 @@ DST shifts will surprise you otherwise.
 ## Control overlap and catch-up
 
 ```typescript
-await client.schedule.create("reconcileLedger", {
-  scheduleId: "nightly-reconcile",
-  spec: { cronExpressions: ["0 2 * * *"] },
-  args: { mode: "full" },
-  policies: {
-    // What to do if the previous run is still going.
-    overlap: "SKIP", // BUFFER_ONE | BUFFER_ALL | CANCEL_OTHER | TERMINATE_OTHER | ALLOW_ALL
-    // How far back to catch up after an outage.
-    catchupWindow: "1 hour",
-    // Pause the whole schedule if a run fails.
-    pauseOnFailure: true,
-  },
-});
+await client.schedule
+  .create("reconcileLedger", {
+    scheduleId: "nightly-reconcile",
+    spec: { cronExpressions: ["0 2 * * *"] },
+    args: { mode: "full" },
+    policies: {
+      // What to do if the previous run is still going.
+      overlap: "SKIP", // BUFFER_ONE | BUFFER_ALL | CANCEL_OTHER | TERMINATE_OTHER | ALLOW_ALL
+      // How far back to catch up after an outage.
+      catchupWindow: "1 hour",
+      // Pause the whole schedule if a run fails.
+      pauseOnFailure: true,
+    },
+  })
+  .getOrThrow();
 ```
 
 `overlap: "SKIP"` is the safe default for anything non-idempotent. `ALLOW_ALL`
@@ -82,17 +84,19 @@ will happily run twenty copies at once after an outage.
 ## Start paused
 
 ```typescript
-await client.schedule.create("reconcileLedger", {
-  scheduleId: "nightly-reconcile",
-  spec: { cronExpressions: ["0 2 * * *"] },
-  args: { mode: "full" },
-  state: {
-    paused: true,
-    note: "awaiting sign-off",
-    // Fire a fixed number of times then stop.
-    remainingActions: 10,
-  },
-});
+await client.schedule
+  .create("reconcileLedger", {
+    scheduleId: "nightly-reconcile",
+    spec: { cronExpressions: ["0 2 * * *"] },
+    args: { mode: "full" },
+    state: {
+      paused: true,
+      note: "awaiting sign-off",
+      // Fire a fixed number of times then stop.
+      remainingActions: 10,
+    },
+  })
+  .getOrThrow();
 ```
 
 ## Override the spawned workflow
@@ -100,17 +104,19 @@ await client.schedule.create("reconcileLedger", {
 `action` carries workflow-level overrides for each run:
 
 ```typescript
-await client.schedule.create("reconcileLedger", {
-  scheduleId: "nightly-reconcile",
-  spec: { cronExpressions: ["0 2 * * *"] },
-  args: { mode: "full" },
-  memo: { owner: "platform" }, // metadata on the schedule itself
-  action: {
-    workflowExecutionTimeout: "2 hours",
-    retry: { maximumAttempts: 2 },
-    memo: { kind: "scheduled-run" }, // metadata on each spawned workflow
-  },
-});
+await client.schedule
+  .create("reconcileLedger", {
+    scheduleId: "nightly-reconcile",
+    spec: { cronExpressions: ["0 2 * * *"] },
+    args: { mode: "full" },
+    memo: { owner: "platform" }, // metadata on the schedule itself
+    action: {
+      workflowExecutionTimeout: "2 hours",
+      retry: { maximumAttempts: 2 },
+      memo: { kind: "scheduled-run" }, // metadata on each spawned workflow
+    },
+  })
+  .getOrThrow();
 ```
 
 ::: tip Two different memos
@@ -124,15 +130,17 @@ are nested separately.
 ## Index the spawned runs
 
 ```typescript
-await client.schedule.create("reconcileLedger", {
-  scheduleId: "nightly-reconcile",
-  spec: { cronExpressions: ["0 2 * * *"] },
-  args: { mode: "full" },
-  searchAttributes: {
-    priority: 5,
-    tags: ["scheduled"],
-  },
-});
+await client.schedule
+  .create("reconcileLedger", {
+    scheduleId: "nightly-reconcile",
+    spec: { cronExpressions: ["0 2 * * *"] },
+    args: { mode: "full" },
+    searchAttributes: {
+      priority: 5,
+      tags: ["scheduled"],
+    },
+  })
+  .getOrThrow();
 ```
 
 Keys and value types are constrained to what the workflow declares. See
@@ -149,24 +157,35 @@ if (created.isErr()) throw created.error;
 
 const schedule = created.value;
 
-await schedule.pause("incident #4821");
-await schedule.unpause("incident resolved");
+// `.get()` rethrows a defect's original cause. Without it, `await` merely
+// collapses the AsyncResult to a Result and the failure is discarded.
+await schedule.pause("incident #4821").get();
+await schedule.unpause("incident resolved").get();
 
 // Run it right now, without waiting for the next tick.
-await schedule.trigger();
+await schedule.trigger().get();
 
 // Inspect current state.
 const described = await schedule.describe();
-if (described.isOk()) {
+if (described.isDefect()) {
+  console.error("describe failed:", described.cause);
+} else {
   console.log(described.value.state.paused, described.value.info.nextActionTimes);
 }
 
-await schedule.delete();
+await schedule.delete().get();
 ```
 
 Every method returns `AsyncResult<T, never>` — there is no modeled error. An
 unknown schedule id or a transport failure is a technical fault on the defect
-channel, so `.get()` is the extractor and a genuine problem surfaces loudly.
+channel.
+
+::: warning `await` alone does not surface the failure
+`AsyncResult` is a success-only thenable: awaiting it yields a `Result`, and the
+underlying promise never rejects. `await schedule.pause(...)` therefore discards
+a defect silently. Chain `.get()` (which rethrows the original cause) or branch
+on `isDefect()` — the same applies to every `AsyncResult` in this library.
+:::
 
 ## Reach an existing schedule
 

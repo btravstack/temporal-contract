@@ -174,11 +174,17 @@ Because `next` can be called more than once, a retry is just a branch on the
 error channel:
 
 ```typescript
+import { Err, P } from "unthrown";
+
 const retryOnce: ActivityMiddleware = (invocation, next) =>
   next().flatMapErrCases((matcher) =>
-    matcher.with(P.instanceOf(ApplicationFailure), (error) =>
-      error.type === "GATEWAY_TIMEOUT" ? next() : Err(error).toAsync(),
-    ),
+    matcher
+      .with(P.instanceOf(ApplicationFailure), (error) =>
+        error.type === "GATEWAY_TIMEOUT" ? next() : Err(error).toAsync(),
+      )
+      // The middleware error union is `ApplicationFailure | AnyContractError`,
+      // and the matcher must cover all of it — pass declared errors through.
+      .with(P._, (error) => Err(error).toAsync()),
   );
 ```
 

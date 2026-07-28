@@ -223,7 +223,10 @@ const updated = await handle.updates.changeAmount({ amount: 99.5 });
 console.log("new amount:", updated.getOrThrow()); // { amount: 99.5 }
 
 // 3. Signal approval. This unblocks the workflow.
-await handle.signals.approve({ approvedBy: "ops@example.com" });
+//    Every handle call returns an AsyncResult, and `await` only collapses it
+//    to a Result — it never throws. Unwrap it, or a failed delivery is
+//    silently dropped and the workflow just never proceeds.
+(await handle.signals.approve({ approvedBy: "ops@example.com" })).getOrThrow();
 
 // 4. Now wait for the final result.
 const result = await handle.result();

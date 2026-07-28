@@ -193,6 +193,34 @@ Extractors, and how each treats a defect:
 
 Every one rethrows a defect. There is no extractor that quietly swallows a bug.
 
+### `await` is not an extractor
+
+The one trap worth internalizing. `AsyncResult` is a **success-only thenable**:
+awaiting it collapses it to a `Result`, and the underlying promise never
+rejects. So `await` never throws, whatever the outcome:
+
+```typescript
+// ❌ The Result is discarded. A failed signal — or an outright bug — vanishes.
+await handle.signals.approve({ approvedBy: "ops" });
+
+// ✅ Unwrap it.
+(await handle.signals.approve({ approvedBy: "ops" })).getOrThrow();
+
+// ✅ Or chain the extractor before awaiting.
+await handle.signals.approve({ approvedBy: "ops" }).getOrThrow();
+
+// ✅ Or branch.
+const sent = await handle.signals.approve({ approvedBy: "ops" });
+if (sent.isErr()) {
+  /* ... */
+}
+```
+
+This bites hardest on operations returning `AsyncResult<void, never>` — the
+schedule handle's `pause` / `unpause` / `trigger` / `delete`. An empty error
+channel reads like "cannot fail", but every failure there is a _defect_, and a
+bare `await` drops it silently. Chain `.get()`.
+
 ## Next
 
 - [Errors reference](/reference/errors) — every class and its channel
