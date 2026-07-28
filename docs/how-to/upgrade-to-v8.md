@@ -31,7 +31,7 @@ pnpm add @temporal-contract/contract@beta \
          @temporal-contract/worker@beta \
          @temporal-contract/client@beta
 pnpm add -D @temporal-contract/testing@beta
-pnpm add unthrown@^5.0.0-beta.6
+pnpm add unthrown@^5.0.0-beta.7
 ```
 
 If an intermediate beta had you install `ts-pattern` as a peer, remove it —
@@ -222,7 +222,7 @@ const retryOnce: ClientInterceptor = (args, next) =>
 ## Checklist
 
 - [ ] All four `@temporal-contract/*` packages on the same 8.0 version
-- [ ] `unthrown` resolves to `^5.0.0-beta.6`
+- [ ] `unthrown` resolves to `^5.0.0-beta.7`
 - [ ] `ts-pattern` removed if it was added for beta.5
 - [ ] `mapErr` / `flatMapErr` / `tapErr` / `recoverErr` → `*Cases`
 - [ ] `match({ err })` → `match({ errCases })`

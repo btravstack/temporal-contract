@@ -56,7 +56,7 @@ types. Your code and the library must resolve to the _same_ copy.
 
 | Peer                   | Required by              | Range           |
 | ---------------------- | ------------------------ | --------------- |
-| `unthrown`             | contract, worker, client | `^5.0.0-beta.6` |
+| `unthrown`             | contract, worker, client | `^5.0.0-beta.7` |
 | `@temporalio/common`   | worker, client           | `^1`            |
 | `@temporalio/worker`   | worker, testing          | `^1`            |
 | `@temporalio/workflow` | worker                   | `^1`            |
