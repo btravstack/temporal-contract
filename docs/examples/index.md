@@ -1,296 +1,87 @@
 # Examples
 
-Learn by example! Explore complete working examples that demonstrate temporal-contract in action.
+A complete, runnable order-processing application lives in the
+[repository](https://github.com/btravstack/temporal-contract/tree/main/examples).
 
-## Architecture Overview
+If you are learning, start with [Your first
+workflow](/tutorial/your-first-workflow) instead — it builds a smaller version
+of the same thing step by step.
 
-```mermaid
-graph TB
-    subgraph Contract Package
-        C[Contract Definition<br/>Zod Schemas]
-    end
+## Order processing
 
-    subgraph Worker
-        W[Workflows]
-        A[Activities]
-    end
+Three packages, mirroring how a real deployment splits:
 
-    subgraph Client
-        CL[TypedClient<br/>Execute Workflows]
-    end
+| Package                                                                                                                     | Contents                                               |
+| --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| [`order-processing-contract`](https://github.com/btravstack/temporal-contract/tree/main/examples/order-processing-contract) | Schemas and the contract. Depended on by the other two |
+| [`order-processing-worker`](https://github.com/btravstack/temporal-contract/tree/main/examples/order-processing-worker)     | Activities, workflow, worker, integration tests        |
+| [`order-processing-client`](https://github.com/btravstack/temporal-contract/tree/main/examples/order-processing-client)     | Starts workflows and handles results                   |
 
-    C --> W
-    C --> A
-    C --> CL
+### What it demonstrates
 
-    style C fill:#3b82f6,stroke:#1e40af,color:#fff
-    style Worker fill:#10b981,stroke:#059669,color:#fff
-    style Client fill:#8b5cf6,stroke:#6d28d9,color:#fff
-```
+- **A saga with compensation** — payment succeeds, inventory reservation fails,
+  the payment is refunded before returning a failure.
+- **Global and workflow-scoped activities** — `sendNotification` is shared;
+  payment, inventory, and shipping belong to `processOrder`.
+- **Per-activity option overrides** — payment activities get longer timeouts and
+  more retries than the workflow default.
+- **Hexagonal structure** — the worker separates `domain/` (ports and use cases)
+  from `infrastructure/` (adapters), with activities as thin wrappers. Not
+  required by the library, but it shows the shape the `createContext` seam
+  supports.
+- **Replay-safe logging** — `log` from `@temporalio/workflow`, with a note on
+  why logging should not be an activity.
+- **Cancellation propagation** — the non-critical notification step re-throws
+  cancellation rather than swallowing it.
+- **Integration tests** — against a real Temporal server via testcontainers.
 
-## Available Examples
-
-### [Order Processing Example](/examples/basic-order-processing)
-
-A complete e-commerce order processing workflow using `Result` / `AsyncResult` from unthrown for explicit error handling.
-
-**Features:**
-
-- Type-safe error handling with `Result<T, E>`
-- Order validation
-- Payment processing
-- Inventory management
-- Email notifications
-- Clean Architecture structure
-
-**Best for:** Understanding temporal-contract with modern, type-safe error handling.
-
-## Running the Examples
-
-All examples are located in the [`examples/`](https://github.com/btravstack/temporal-contract/tree/main/examples) directory of the repository.
-
-### Prerequisites
-
-1. Clone the repository:
-
-   ```bash
-   git clone https://github.com/btravstack/temporal-contract.git
-   cd temporal-contract
-   ```
-
-2. Install dependencies:
-
-   ```bash
-   pnpm install
-   ```
-
-3. Build the packages:
-
-   ```bash
-   pnpm build
-   ```
-
-4. Start Temporal server:
-   ```bash
-   temporal server start-dev
-   ```
-
-### Running an Example
-
-Each example has its own directory with a README:
+### Run it
 
 ```bash
-# Navigate to an example
-cd examples/order-processing-worker
+git clone https://github.com/btravstack/temporal-contract.git
+cd temporal-contract
+pnpm install
+pnpm build
 
-# Start the worker
-pnpm dev
+# Terminal 1 — a Temporal dev server
+temporal server start-dev
 
-# In another terminal, run the client
-cd examples/order-processing-client
-pnpm dev
+# Terminal 2 — the worker
+pnpm --filter @temporal-contract/sample-order-processing-worker dev
+
+# Terminal 3 — the client
+pnpm --filter @temporal-contract/sample-order-processing-client dev
 ```
 
-## Example Structure
+Watch the execution at <http://localhost:8233>.
 
-Each example follows this structure:
+### Run its tests
 
-```
-examples/
-├── example-contract/              # Shared contract package
-│   ├── src/
-│   │   └── contract.ts            # Contract definition
-│   └── package.json
-├── example-worker/                # Worker implementation
-│   ├── src/
-│   │   ├── application/
-│   │   │   ├── activities.ts      # Activity implementations
-│   │   │   ├── workflows.ts       # Workflow implementations
-│   │   │   └── worker.ts          # Worker setup
-│   │   ├── domain/                # Business logic / use cases
-│   │   └── infrastructure/        # External adapters
-│   └── package.json
-└── example-client/                # Client application
-    ├── src/
-    │   └── client.ts              # Example client
-    └── package.json
+```bash
+# Integration tests — needs Docker
+pnpm --filter @temporal-contract/sample-order-processing-worker test
 ```
 
-## Code Snippets
+## Worth reading in the source
 
-### Contract Definition
+| File                                                                                                                                        | Why                                                             |
+| ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| [`contract.ts`](https://github.com/btravstack/temporal-contract/blob/main/examples/order-processing-contract/src/contract.ts)               | The global vs workflow-scoped activity split                    |
+| [`workflows.ts`](https://github.com/btravstack/temporal-contract/blob/main/examples/order-processing-worker/src/application/workflows.ts)   | Compensation logic, cancellation handling, per-activity options |
+| [`activities.ts`](https://github.com/btravstack/temporal-contract/blob/main/examples/order-processing-worker/src/application/activities.ts) | The nested implementation map, `fromPromise` + `qualify`        |
 
-All examples start with a contract:
+## Smaller, focused examples
 
-```typescript
-import { defineContract } from "@temporal-contract/contract";
-import { z } from "zod";
+Each how-to guide is a self-contained recipe:
 
-export const orderContract = defineContract({
-  taskQueue: "orders",
+- [Model domain errors](/how-to/model-domain-errors)
+- [Use signals, queries, and updates](/how-to/use-signals-queries-and-updates)
+- [Run child workflows](/how-to/run-child-workflows)
+- [Handle cancellation](/how-to/handle-cancellation)
+- [Schedule workflows](/how-to/schedule-workflows)
+- [Test workflows](/how-to/test-workflows)
 
-  activities: {
-    sendEmail: {
-      input: z.object({
-        to: z.string().email(),
-        subject: z.string(),
-        body: z.string(),
-      }),
-      output: z.object({ sent: z.boolean() }),
-    },
-  },
+## Contribute one
 
-  workflows: {
-    processOrder: {
-      input: z.object({
-        orderId: z.string(),
-        customerId: z.string(),
-        items: z.array(
-          z.object({
-            sku: z.string(),
-            quantity: z.number().positive(),
-          }),
-        ),
-      }),
-      output: z.object({
-        success: z.boolean(),
-        transactionId: z.string().optional(),
-      }),
-
-      activities: {
-        validateInventory: {
-          input: z.object({ items: z.array(z.any()) }),
-          output: z.object({ available: z.boolean() }),
-        },
-        processPayment: {
-          input: z.object({
-            customerId: z.string(),
-            amount: z.number(),
-          }),
-          output: z.object({
-            transactionId: z.string(),
-            success: z.boolean(),
-          }),
-        },
-      },
-    },
-  },
-});
-```
-
-### Activity Implementation
-
-Clean, typed activity implementations with `AsyncResult`:
-
-```typescript
-import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
-import { fromPromise } from "unthrown";
-import { orderContract } from "../contracts/order.contract";
-import { emailService } from "../infrastructure/email.service";
-import { paymentService } from "../infrastructure/payment.service";
-
-export const activities = declareActivitiesHandler({
-  contract: orderContract,
-  activities: {
-    sendEmail: ({ to, subject, body }) =>
-      fromPromise(emailService.send({ to, subject, body }), (error) =>
-        ApplicationFailure.create({
-          type: "EMAIL_FAILED",
-          message: error instanceof Error ? error.message : "Failed to send email",
-          ...(error instanceof Error ? { cause: error } : {}),
-        }),
-      ).map(() => ({ sent: true })),
-
-    processOrder: {
-      validateInventory: ({ items }) =>
-        fromPromise(inventoryService.checkAvailability(items), (error) =>
-          ApplicationFailure.create({
-            type: "INVENTORY_CHECK_FAILED",
-            message: "Failed to check inventory",
-            cause: error instanceof Error ? error : undefined,
-          }),
-        ).map((available) => ({ available })),
-
-      processPayment: ({ customerId, amount }) =>
-        fromPromise(paymentService.charge(customerId, amount), (error) =>
-          ApplicationFailure.create({
-            type: "PAYMENT_FAILED",
-            message: "Failed to process payment",
-            cause: error instanceof Error ? error : undefined,
-          }),
-        ).map((result) => ({
-          transactionId: result.id,
-          success: result.status === "success",
-        })),
-    },
-  },
-});
-```
-
-### Workflow Implementation
-
-Type-safe workflow with full autocomplete:
-
-```typescript
-import { declareWorkflow } from "@temporal-contract/worker/workflow";
-import { orderContract } from "../contracts/order.contract";
-
-export const processOrder = declareWorkflow({
-  workflowName: "processOrder",
-  contract: orderContract,
-  activityOptions: { startToCloseTimeout: "1 minute" },
-  implementation: async (context, { orderId, customerId, items }) => {
-    // Validate inventory
-    const inventory = await context.activities.validateInventory({ items });
-
-    if (!inventory.available) {
-      await context.activities.sendEmail({
-        to: customerId,
-        subject: "Order Failed",
-        body: "Items not available",
-      });
-      return { success: false };
-    }
-
-    // Calculate total
-    const total = items.reduce((sum, item) => sum + item.quantity * 100, 0);
-
-    // Process payment
-    const payment = await context.activities.processPayment({
-      customerId,
-      amount: total,
-    });
-
-    if (!payment.success) {
-      await context.activities.sendEmail({
-        to: customerId,
-        subject: "Payment Failed",
-        body: "Unable to process payment",
-      });
-      return { success: false };
-    }
-
-    // Send confirmation
-    await context.activities.sendEmail({
-      to: customerId,
-      subject: "Order Confirmed",
-      body: `Order ${orderId} confirmed. Transaction: ${payment.transactionId}`,
-    });
-
-    return {
-      success: true,
-      transactionId: payment.transactionId,
-    };
-  },
-});
-```
-
-## Learn More
-
-- 📚 Read the [Getting Started Guide](/guide/getting-started)
-- 🔍 Understand [Core Concepts](/guide/core-concepts)
-- 📖 Browse the [API Reference](/api/)
-
-## Contributing Examples
-
-Have an interesting use case? We welcome example contributions! See our [Contributing Guide](https://github.com/btravstack/temporal-contract/blob/main/CONTRIBUTING.md).
+Examples covering a pattern not shown here are welcome. See
+[CONTRIBUTING.md](https://github.com/btravstack/temporal-contract/blob/main/CONTRIBUTING.md).

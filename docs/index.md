@@ -13,146 +13,145 @@ hero:
     alt: temporal-contract
   actions:
     - theme: brand
-      text: Get Started
-      link: /guide/getting-started
+      text: Your first workflow
+      link: /tutorial/your-first-workflow
     - theme: alt
       text: Why temporal-contract?
-      link: /guide/why-temporal-contract
+      link: /explanation/why-temporal-contract
     - theme: alt
       text: GitHub
       link: https://github.com/btravstack/temporal-contract
 
 features:
   - icon: { src: /icons/shield-check.svg }
-    title: Type Safety & Validation
-    details: End-to-end TypeScript inference with automatic runtime validation using Zod, Valibot, or ArkType.
+    title: Validated at every boundary
+    details: Schemas run on both sides of every network hop. A malformed call is rejected before a workflow is ever started — no history, no partial state.
 
   - icon: { src: /icons/target.svg }
-    title: Explicit Error Handling
-    details: Result/AsyncResult pattern from unthrown for workflows that need explicit error handling without exceptions.
+    title: Failures as typed values
+    details: Declare domain errors on the contract and handle them with an exhaustive matcher. A separate defect channel keeps genuine bugs loud instead of absorbed.
 
   - icon: { src: /icons/contract.svg }
-    title: Contract-First Design
-    details: Define your workflow interface once — types and validation flow from contract to client and worker.
+    title: One definition, both sides
+    details: Workflows, activities, signals, queries, updates, errors, and search attributes derive from a single contract the client and worker share.
 ---
 
-## Quick Example
-
-Define your contract once — get type safety everywhere:
+## Define once, use everywhere
 
 ::: code-group
 
-```typescript [1. Define Contract]
-import { defineContract } from "@temporal-contract/contract";
+```typescript [1. Contract]
+import { defineActivity, defineContract, defineWorkflow } from "@temporal-contract/contract";
 import { z } from "zod";
+
+const chargeCard = defineActivity({
+  input: z.object({ customerId: z.string(), amount: z.number().positive() }),
+  output: z.object({ transactionId: z.string() }),
+});
+
+const processOrder = defineWorkflow({
+  input: z.object({
+    orderId: z.string(),
+    customerId: z.string(),
+    amount: z.number().positive(),
+  }),
+  output: z.object({ orderId: z.string(), transactionId: z.string() }),
+  activities: { chargeCard },
+});
 
 export const orderContract = defineContract({
   taskQueue: "orders",
-  workflows: {
-    processOrder: {
-      input: z.object({
-        orderId: z.string(),
-        customerId: z.string(),
-        amount: z.number(),
-      }),
-      output: z.object({
-        status: z.enum(["success", "failed"]),
-        transactionId: z.string().optional(),
-      }),
-      activities: {
-        processPayment: {
-          input: z.object({ customerId: z.string(), amount: z.number() }),
-          output: z.object({ transactionId: z.string() }),
-        },
-        sendNotification: {
-          input: z.object({ customerId: z.string(), message: z.string() }),
-          output: z.void(),
-        },
-      },
-    },
-  },
+  workflows: { processOrder },
 });
 ```
 
-```typescript [2. Implement Activities]
+```typescript [2. Activities]
+import { declareActivitiesHandler, qualify } from "@temporal-contract/worker/activity";
 import { fromPromise } from "unthrown";
-import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
+
 import { orderContract } from "./contract.js";
 
 export const activities = declareActivitiesHandler({
   contract: orderContract,
   activities: {
+    // Workflow-scoped activities nest under their workflow, mirroring the contract.
     processOrder: {
-      processPayment: ({ customerId, amount }) =>
-        fromPromise(paymentService.charge(customerId, amount), (e) =>
-          ApplicationFailure.create({
-            type: "PAYMENT_FAILED",
-            message: e instanceof Error ? e.message : "Payment failed",
-            cause: e instanceof Error ? e : undefined,
-          }),
-        ).map((tx) => ({ transactionId: tx.id })),
-      sendNotification: ({ customerId, message }) =>
-        fromPromise(notificationService.send(customerId, message), (e) =>
-          ApplicationFailure.create({
-            type: "NOTIFICATION_FAILED",
-            message: e instanceof Error ? e.message : "Notification failed",
-            cause: e instanceof Error ? e : undefined,
-          }),
-        ),
+      chargeCard: ({ customerId, amount }) =>
+        fromPromise(gateway.charge(customerId, amount), qualify("CHARGE_FAILED")).map((charge) => ({
+          transactionId: charge.id,
+        })),
     },
   },
 });
 ```
 
-```typescript [3. Implement Workflow]
+```typescript [3. Workflow]
 import { declareWorkflow } from "@temporal-contract/worker/workflow";
+
 import { orderContract } from "./contract.js";
 
 export const processOrder = declareWorkflow({
   workflowName: "processOrder",
   contract: orderContract,
   activityOptions: { startToCloseTimeout: "1 minute" },
-  implementation: async ({ activities }, { orderId, customerId, amount }) => {
-    const { transactionId } = await activities.processPayment({ customerId, amount });
-    await activities.sendNotification({ customerId, message: `Order ${orderId} confirmed!` });
-    return { status: "success", transactionId };
+  implementation: async (context, order) => {
+    // `order` is typed from the contract. So is the return value.
+    const { transactionId } = await context.activities.chargeCard({
+      customerId: order.customerId,
+      amount: order.amount,
+    });
+
+    return { orderId: order.orderId, transactionId };
   },
 });
 ```
 
-```typescript [4. Call from Client]
+```typescript [4. Client]
 import { TypedClient } from "@temporal-contract/client";
-import { Connection, Client } from "@temporalio/client";
+import { Client, Connection } from "@temporalio/client";
+import { tag } from "unthrown";
+
 import { orderContract } from "./contract.js";
 
 const connection = await Connection.connect({ address: "localhost:7233" });
-const temporalClient = new Client({ connection });
+
 const client = await TypedClient.create({
   contract: orderContract,
-  client: temporalClient,
+  client: new Client({ connection }),
 }).get();
 
-const future = client.executeWorkflow("processOrder", {
+const result = await client.executeWorkflow("processOrder", {
   workflowId: "order-123",
   args: { orderId: "ORD-123", customerId: "CUST-456", amount: 99.99 },
 });
 
-const result = await future;
-
 result.match({
-  ok: (output) => console.log(output.status), // ✅ 'success' | 'failed'
+  ok: (output) => console.log(output.transactionId), // ✅ typed
   errCases: (matcher) =>
     matcher.with(
-      tag("@temporal-contract/ContractError"),
       tag("@temporal-contract/WorkflowNotFoundError"),
       tag("@temporal-contract/WorkflowValidationError"),
       tag("@temporal-contract/WorkflowAlreadyStartedError"),
       tag("@temporal-contract/WorkflowFailedError"),
       tag("@temporal-contract/WorkflowExecutionNotFoundError"),
-      (error) => console.error("Failed:", error),
+      (error) => console.error("failed:", error.message),
     ),
-  defect: (cause) => console.error("Unexpected:", cause),
+  defect: (cause) => console.error("unexpected:", cause),
 });
 ```
 
 :::
+
+## Where to start
+
+| You want to…                     | Go to                                                |
+| -------------------------------- | ---------------------------------------------------- |
+| Build something end to end       | [Your first workflow](/tutorial/your-first-workflow) |
+| Solve a specific problem         | [How-to guides](/how-to/install)                     |
+| Look up an option or type        | [Reference](/reference/contract-surface)             |
+| Understand why it works this way | [Explanation](/explanation/why-temporal-contract)    |
+| Upgrade from 7.x                 | [Upgrade to v8](/how-to/upgrade-to-v8)               |
+
+The documentation follows the [Diátaxis](https://diataxis.fr/) framework:
+tutorials teach, how-to guides solve, reference describes, explanation
+clarifies.

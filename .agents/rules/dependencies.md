@@ -39,9 +39,9 @@ Anything that appears in a published package's **public type signatures** must b
 
 | Package  | Peer dependencies                                                                                                                                                             |
 | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| client   | `@temporalio/client ^1`, `@temporalio/common ^1`, `unthrown ^4`                                                                                                               |
-| worker   | `@temporalio/common ^1`, `@temporalio/worker ^1`, `@temporalio/workflow ^1`, `unthrown ^4`                                                                                    |
-| contract | `unthrown ^4` (optional — only needed when using `result-async`)                                                                                                              |
+| client   | `@temporalio/client ^1`, `@temporalio/common ^1`, `unthrown ^5`                                                                                                               |
+| worker   | `@temporalio/common ^1`, `@temporalio/worker ^1`, `@temporalio/workflow ^1`, `unthrown ^5`                                                                                    |
+| contract | `unthrown ^5` (optional — only needed when using `result-async`)                                                                                                              |
 | testing  | `vitest ^4` (the `globalSetup` hook integrates with vitest's test runner), `@temporalio/client ^1`, `@temporalio/worker ^1` (both exposed by the `it` fixture's public types) |
 
 When you add a peer dep, also add it to `devDependencies` (with the same `"catalog:"` reference) so the local workspace build still resolves it. The workspace has `autoInstallPeers: false`, so peers must be present somewhere on the install side.

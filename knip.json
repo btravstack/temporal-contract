@@ -28,5 +28,5 @@
       "ignoreDependencies": ["@btravstack/tsconfig"]
     }
   },
-  "ignore": []
+  "ignore": [".github/scripts/**"]
 }

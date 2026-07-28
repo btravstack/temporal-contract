@@ -175,7 +175,7 @@ typos surface as TypeScript errors rather than silently running with defaults.
 📖 **[Read the full documentation →](https://btravstack.github.io/temporal-contract)**
 
 - [API Reference](https://btravstack.github.io/temporal-contract/api/worker)
-- [Worker Implementation Guide](https://btravstack.github.io/temporal-contract/guide/worker-implementation)
+- [Worker surface](https://btravstack.github.io/temporal-contract/reference/worker-surface)
 - [Examples](https://btravstack.github.io/temporal-contract/examples/)
 
 ## License

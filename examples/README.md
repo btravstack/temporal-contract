@@ -38,7 +38,7 @@ pnpm dev  # Terminal 2
 **[Read the full documentation](https://btravstack.github.io/temporal-contract)**
 
 - [Examples Overview](https://btravstack.github.io/temporal-contract/examples/)
-- [Getting Started](https://btravstack.github.io/temporal-contract/guide/getting-started)
+- [Your first workflow](https://btravstack.github.io/temporal-contract/tutorial/your-first-workflow)
 - [API Reference](https://btravstack.github.io/temporal-contract/api/)
 
 ## License

@@ -25,7 +25,7 @@ pnpm dev
 📖 **[Read the full documentation →](https://btravstack.github.io/temporal-contract)**
 
 - [Example Overview](https://btravstack.github.io/temporal-contract/examples/basic-order-processing)
-- [Getting Started](https://btravstack.github.io/temporal-contract/guide/getting-started)
+- [Your first workflow](https://btravstack.github.io/temporal-contract/tutorial/your-first-workflow)
 - [All Examples](https://btravstack.github.io/temporal-contract/examples/)
 
 ## License

@@ -3,6 +3,12 @@ name: Deploy Documentation
 # Publish docs when a version is released (changesets creates a GitHub Release on publish), so the
 # site documents the latest *released* library — and also when the docs themselves change on main
 # (theme bumps, content edits), since those need no library release to be worth shipping.
+#
+# Versioned deploys: while a prerelease is in progress (`.changeset/pre.json` on main), the site is
+# built TWICE — the latest stable tag's docs at the root (the default a visitor lands on) and
+# main's docs under /beta/ — with a version dropdown linking the two. When no prerelease is in
+# progress, main IS the stable line and deploys alone to the root, exactly as before. Pages deploys
+# replace the whole site, so every run assembles all versions into one artifact.
 on:
   release:
     types: [published]
@@ -12,6 +18,7 @@ on:
       - "docs/**"
       - "pnpm-workspace.yaml"
       - ".github/workflows/deploy-docs.yml"
+      - ".github/scripts/inject-docs-version-nav.ts"
   workflow_dispatch:
 
 permissions:
@@ -31,26 +38,109 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          # Full history + tags: the stable site is built from the latest stable tag.
           fetch-depth: 0
 
       - name: Setup
         uses: ./.github/actions/setup
 
+      - name: Determine versions
+        id: meta
+        run: |
+          # NOTE: every tag here contains a hyphen inside "@temporal-contract/", so a bare
+          # `grep -v -- '-'` over whole tags would discard ALL of them. Strip the package
+          # prefix first, then filter prereleases on the version alone.
+          stable_version=$(git tag -l '@temporal-contract/contract@*' \
+            | sed 's|^@temporal-contract/contract@||' \
+            | grep -v -- '-' \
+            | sort -V \
+            | tail -1)
+          if [ -z "$stable_version" ]; then
+            echo "::error::no stable @temporal-contract/contract@* tag found"
+            exit 1
+          fi
+          stable_tag="@temporal-contract/contract@${stable_version}"
+          echo "stable_tag=$stable_tag" >> "$GITHUB_OUTPUT"
+          echo "stable_version=$stable_version" >> "$GITHUB_OUTPUT"
+          if [ -f .changeset/pre.json ]; then
+            beta_version=$(node -p "require('./packages/contract/package.json').version")
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "beta_version=$beta_version" >> "$GITHUB_OUTPUT"
+            STABLE_VERSION="$stable_version" BETA_VERSION="$beta_version" node -e "
+              // target: '_self' — cross-version links are same-site; without it
+              // VitePress treats the absolute URLs as external and opens a new tab
+              // (the client-side enhancement also preserves the current page).
+              const stable = {
+                text: 'v' + process.env.STABLE_VERSION + ' (stable)',
+                link: 'https://btravstack.github.io/temporal-contract/',
+                target: '_self',
+              };
+              const beta = {
+                text: 'v' + process.env.BETA_VERSION + ' (beta)',
+                link: 'https://btravstack.github.io/temporal-contract/beta/',
+                target: '_self',
+              };
+              const out = [
+                'versions_stable=' + JSON.stringify({ current: 'v' + process.env.STABLE_VERSION, items: [stable, beta] }),
+                'versions_beta=' + JSON.stringify({ current: 'v' + process.env.BETA_VERSION, items: [stable, beta] }),
+                '',
+              ].join('\n');
+              require('fs').appendFileSync(process.env.GITHUB_OUTPUT, out);
+            "
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
 
-      - name: Build documentation
+      # --- Single-version path: main is the stable line; deploy it alone to the root. ---
+      - name: Build documentation (stable line)
+        if: steps.meta.outputs.prerelease == 'false'
+        run: |
+          pnpm --filter ./docs exec turbo build
+          mkdir -p site
+          cp -r docs/.vitepress/dist/* site/
+
+      # --- Versioned path: stable tag at the root, main under /beta/. ---
+      - name: Build beta documentation (main)
+        if: steps.meta.outputs.prerelease == 'true'
+        env:
+          DOCS_BASE: /temporal-contract/beta/
+          DOCS_VERSIONS: ${{ steps.meta.outputs.versions_beta }}
         run: pnpm --filter ./docs exec turbo build
+
+      - name: Build stable documentation (latest stable tag)
+        if: steps.meta.outputs.prerelease == 'true'
+        env:
+          DOCS_VERSIONS: ${{ steps.meta.outputs.versions_stable }}
+        run: |
+          git worktree add /tmp/stable-docs "${{ steps.meta.outputs.stable_tag }}"
+          # A tag that predates native DOCS_VERSIONS support in the config gets the
+          # version dropdown injected; a no-op once the stable tag carries it natively.
+          # (Runs with the main checkout's docs toolchain — tsx lives there.)
+          pnpm --filter ./docs exec tsx "$GITHUB_WORKSPACE/.github/scripts/inject-docs-version-nav.ts" \
+            /tmp/stable-docs/docs/.vitepress
+          cd /tmp/stable-docs
+          pnpm install --frozen-lockfile
+          pnpm --filter ./docs exec turbo build
+
+      - name: Assemble versioned site
+        if: steps.meta.outputs.prerelease == 'true'
+        run: |
+          mkdir -p site/beta
+          cp -r /tmp/stable-docs/docs/.vitepress/dist/* site/
+          cp -r docs/.vitepress/dist/* site/beta/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
-          path: docs/.vitepress/dist
+          path: site
 
   deploy:
     environment:
