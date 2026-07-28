@@ -103,7 +103,7 @@ exhaustive matcher instead of the bare error:
 // before
 result.mapErr((error) => new WrappedError(error));
 
-// after
+// after — one arm per tag in the union (abbreviated here; see the note below)
 import { tag } from "unthrown";
 
 result.mapErrCases((matcher) =>

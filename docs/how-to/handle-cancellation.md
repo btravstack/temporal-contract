@@ -13,10 +13,12 @@ if (bound.isErr()) {
 }
 
 // Cooperative: the workflow observes the request and exits on its own terms.
-await bound.value.cancel();
+// `.getOrThrow()` surfaces a WorkflowExecutionNotFoundError — a bare `await`
+// would collapse the AsyncResult to an ignored Result instead.
+await bound.value.cancel().getOrThrow();
 
 // Forceful: Temporal stops the execution immediately. No cleanup runs.
-await bound.value.terminate("fraud detected");
+await bound.value.terminate("fraud detected").getOrThrow();
 ```
 
 Prefer `cancel`. Reach for `terminate` only when the workflow is stuck or
@@ -76,7 +78,11 @@ implementation: async (context, order) => {
     // Cancelled after the charge but before shipping — refund.
     // Without the non-cancellable scope this refund would itself be cancelled.
     if (transactionId !== undefined) {
-      await context.nonCancellableScope(() => context.activities.refundPayment({ transactionId }));
+      // Unwrap: a refund that silently failed is worse than a loud failure,
+      // and a bare `await` would discard both the Err and any defect.
+      await context
+        .nonCancellableScope(() => context.activities.refundPayment({ transactionId }))
+        .getOrThrow();
     }
     return { status: "cancelled" as const };
   }

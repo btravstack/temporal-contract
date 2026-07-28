@@ -146,8 +146,10 @@ if (progress.isOk()) {
 const updated = await handle.updates.addItems({ skus: ["SKU-9", "SKU-10"] });
 console.log(updated.getOrThrow().total);
 
-// Signal — returns as soon as it is delivered
-await handle.signals.cancelRequested({ reason: "operator stopped the import" });
+// Signal — returns as soon as it is delivered.
+// Unwrap it: `await` alone yields a Result and would silently drop a failed
+// delivery (AsyncResult is a success-only thenable and never rejects).
+(await handle.signals.cancelRequested({ reason: "operator stopped the import" })).getOrThrow();
 
 // Final result
 const result = await handle.result();
@@ -160,6 +162,14 @@ Every call returns an `AsyncResult`. Their error channels are narrow:
 | `queries.x()` | `QueryValidationError \| WorkflowExecutionNotFoundError`  |
 | `signals.x()` | `SignalValidationError \| WorkflowExecutionNotFoundError` |
 | `updates.x()` | `UpdateValidationError \| WorkflowExecutionNotFoundError` |
+
+::: warning `await` does not throw on failure
+`AsyncResult` is a success-only thenable — awaiting it collapses it to a
+`Result`, and the underlying promise never rejects. A bare
+`await handle.signals.x(...)` therefore discards the failure and the workflow
+simply never receives the signal. Unwrap with `.getOrThrow()`, or branch on
+`isErr()` / `isDefect()`.
+:::
 
 ## Reach an existing workflow
 
@@ -175,7 +185,9 @@ if (bound.isErr()) {
 const handle = bound.value;
 
 const progress = await handle.queries.getProgress({});
-await handle.signals.cancelRequested({ reason: "budget exhausted" });
+console.log(progress.getOrThrow());
+
+(await handle.signals.cancelRequested({ reason: "budget exhausted" })).getOrThrow();
 ```
 
 ## Signal-with-start

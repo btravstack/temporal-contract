@@ -152,15 +152,17 @@ Attributes set on a schedule apply to each run it spawns, so scheduled and
 directly started executions are indexed identically:
 
 ```typescript
-await client.schedule.create("processOrder", {
-  scheduleId: "nightly-reconcile",
-  spec: { cronExpressions: ["0 2 * * *"] },
-  args: { mode: "reconcile" },
-  searchAttributes: {
-    priority: 5,
-    tags: ["scheduled"],
-  },
-});
+await client.schedule
+  .create("processOrder", {
+    scheduleId: "nightly-reconcile",
+    spec: { cronExpressions: ["0 2 * * *"] },
+    args: { mode: "reconcile" },
+    searchAttributes: {
+      priority: 5,
+      tags: ["scheduled"],
+    },
+  })
+  .getOrThrow();
 ```
 
 ## Keep the cardinality sane

@@ -58,7 +58,7 @@ matcher rather than the error directly:
 // 7.x
 result.mapErr((error) => new WrappedError(error));
 
-// 8.0
+// 8.0 — one arm per tag in the union (abbreviated here; see the note below)
 result.mapErrCases((matcher) =>
   matcher.with(tag("@temporal-contract/WorkflowFailedError"), (error) => new WrappedError(error)),
 );
@@ -187,9 +187,15 @@ Every `TypedScheduleHandle` method now returns `AsyncResult<void, never>` (or
 branch left to write:
 
 ```typescript
-// 8.0
-await schedule.pause("maintenance"); // failures are defects
+// 8.0 — `.get()` rethrows the defect's original cause.
+await schedule.pause("maintenance").get();
 ```
+
+::: warning A bare `await` swallows the defect
+`AsyncResult` is a success-only thenable: awaiting it collapses it to a
+`Result`, and the underlying promise never rejects. `await schedule.pause(...)`
+on its own discards the failure. Chain `.get()`, or branch on `isDefect()`.
+:::
 
 ## 5. Interceptors and middleware
 
