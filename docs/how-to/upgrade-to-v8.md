@@ -10,8 +10,9 @@ Version 8 has two breaking changes:
 Both are mechanical. Budget an afternoon for a medium codebase.
 
 ::: warning 8.0 is currently a prerelease
-The 8.0 line is published under the `beta` tag. `npm install
-@temporal-contract/contract` still resolves 7.x. Install explicitly:
+The 8.0 line is published under the `beta` tag, so a plain
+`npm install @temporal-contract/contract` still resolves 7.x. Install
+explicitly:
 
 ```bash
 pnpm add @temporal-contract/contract@beta @temporal-contract/worker@beta \

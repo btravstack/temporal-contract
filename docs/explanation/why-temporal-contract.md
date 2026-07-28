@@ -112,8 +112,8 @@ or charges wrongly, and leaves a failed execution to explain.
 ## Failures as values
 
 Temporal's failure model is strings: an `ApplicationFailure` with a `type` that
-retry policies match on. Effective for retries, weak for branching. `if
-(error.type === "CARD_DECLINED")` is a stringly-typed conditional with a typo
+retry policies match on. Effective for retries, weak for branching. A check like
+`error.type === "CARD_DECLINED"` is a stringly-typed conditional with a typo
 waiting to happen, and no payload beyond a message.
 
 A contract can declare its failures:
