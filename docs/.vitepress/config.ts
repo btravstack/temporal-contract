@@ -4,12 +4,108 @@ import { withMermaid } from "vitepress-plugin-mermaid";
 const SITE_DESCRIPTION =
   "Build reliable workflow applications with end-to-end type safety, automatic schema validation, and type-safe contracts for Temporal.io workflows and activities in TypeScript";
 
+// Versioned deploys (deploy-docs.yml): while a prerelease is in progress the
+// workflow builds main's docs a second time as the "beta" site, overriding the
+// base to /temporal-contract/beta/ via DOCS_BASE; the stable site (built from
+// the latest stable tag) stays at the root. Absent env — local dev, plain
+// builds — keeps today's root base.
+// Normalized to a guaranteed leading + trailing slash so a DOCS_BASE typed
+// without one in CI cannot corrupt asset routing or canonical URLs.
+const RAW_BASE = process.env.DOCS_BASE ?? "/temporal-contract/";
+const BASE = `/${RAW_BASE.replace(/^\/+|\/+$/g, "")}/`;
+const SITE_URL = `https://btravstack.github.io${BASE}`;
+
+// DOCS_VERSIONS — the marker the deploy workflow probes for to detect native
+// version-picker support (legacy tags without it get the dropdown injected at
+// build time instead). JSON: { current: string, items: { text, link }[] } —
+// rendered as a dropdown at the end of the nav, linking every deployed version
+// with absolute URLs (cross-version links must not inherit this build's base).
+// Absent env → no dropdown (single-version site, local dev).
+const DOCS_VERSIONS = process.env.DOCS_VERSIONS
+  ? (JSON.parse(process.env.DOCS_VERSIONS) as {
+      current: string;
+      items: { text: string; link: string }[];
+    })
+  : undefined;
+const VERSION_NAV = DOCS_VERSIONS
+  ? [{ text: DOCS_VERSIONS.current, items: DOCS_VERSIONS.items }]
+  : [];
+
+// The docs are structured by the four Diátaxis modes (https://diataxis.fr/):
+// a learning-oriented Tutorial, task-oriented How-to guides,
+// information-oriented Reference, and understanding-oriented Explanation. One
+// shared sidebar carries all four so any page can reach any other.
+const DOCS_SIDEBAR = [
+  {
+    text: "Tutorial",
+    items: [
+      { text: "Your first workflow", link: "/tutorial/your-first-workflow" },
+      { text: "Adding signals and queries", link: "/tutorial/adding-signals-and-queries" },
+    ],
+  },
+  {
+    text: "How-to guides",
+    items: [
+      { text: "Install temporal-contract", link: "/how-to/install" },
+      { text: "Define a contract", link: "/how-to/define-a-contract" },
+      { text: "Implement activities", link: "/how-to/implement-activities" },
+      { text: "Model domain errors", link: "/how-to/model-domain-errors" },
+      {
+        text: "Use signals, queries, and updates",
+        link: "/how-to/use-signals-queries-and-updates",
+      },
+      {
+        text: "Index with search attributes",
+        link: "/how-to/index-workflows-with-search-attributes",
+      },
+      { text: "Run child workflows", link: "/how-to/run-child-workflows" },
+      { text: "Handle cancellation", link: "/how-to/handle-cancellation" },
+      { text: "Continue as new", link: "/how-to/continue-as-new" },
+      { text: "Tune activity options", link: "/how-to/tune-activity-options" },
+      { text: "Add activity middleware", link: "/how-to/add-activity-middleware" },
+      { text: "Intercept client calls", link: "/how-to/intercept-client-calls" },
+      { text: "Schedule workflows", link: "/how-to/schedule-workflows" },
+      { text: "Configure a worker", link: "/how-to/configure-a-worker" },
+      { text: "Test workflows", link: "/how-to/test-workflows" },
+      { text: "Upgrade from 7.x to 8.0", link: "/how-to/upgrade-to-v8" },
+      { text: "Migrate from neverthrow", link: "/how-to/migrate-from-neverthrow" },
+      { text: "Troubleshoot", link: "/how-to/troubleshoot" },
+    ],
+  },
+  {
+    text: "Reference",
+    items: [
+      { text: "Contract surface", link: "/reference/contract-surface" },
+      { text: "Worker surface", link: "/reference/worker-surface" },
+      { text: "Client surface", link: "/reference/client-surface" },
+      { text: "Errors", link: "/reference/errors" },
+      { text: "Glossary", link: "/reference/glossary" },
+      { text: "API reference", link: "/api/" },
+    ],
+  },
+  {
+    text: "Explanation",
+    items: [
+      { text: "Why temporal-contract?", link: "/explanation/why-temporal-contract" },
+      { text: "The result model", link: "/explanation/the-result-model" },
+      { text: "Validation boundaries", link: "/explanation/validation-boundaries" },
+      { text: "Workflow determinism", link: "/explanation/workflow-determinism" },
+      { text: "Architecture", link: "/explanation/architecture" },
+      { text: "Nexus", link: "/explanation/nexus" },
+    ],
+  },
+  {
+    text: "Examples",
+    items: [{ text: "Order processing", link: "/examples/" }],
+  },
+];
+
 // https://vitepress.dev/reference/site-config
 export default withMermaid(
   defineConfig({
     title: "temporal-contract",
     description: SITE_DESCRIPTION,
-    base: "/temporal-contract/",
+    base: BASE,
     lang: "en-US",
 
     // `@btravstack/theme` re-exports VitePress's default theme, which imports
@@ -33,7 +129,7 @@ export default withMermaid(
     ],
 
     sitemap: {
-      hostname: "https://btravstack.github.io/temporal-contract/",
+      hostname: SITE_URL,
     },
 
     // Inject canonical URLs and dynamic meta tags for each page to prevent duplicate content issues
@@ -43,10 +139,12 @@ export default withMermaid(
         return;
       }
 
-      // VitePress provides relativePath without leading slash (e.g., "guide/getting-started.md")
-      // Normalize the path by removing any leading slashes just in case
+      // VitePress provides relativePath without leading slash (e.g.,
+      // "tutorial/your-first-workflow.md"). Normalize by removing any leading
+      // slashes just in case. `SITE_URL` already carries this build's base, so
+      // the beta site canonicalizes to /beta/ URLs rather than the stable ones.
       const normalizedPath = pageData.relativePath.replace(/^\/+/, "");
-      const canonicalUrl = `https://btravstack.github.io/temporal-contract/${normalizedPath}`
+      const canonicalUrl = `${SITE_URL}${normalizedPath}`
         .replace(/index\.md$/, "")
         .replace(/\.md$/, ".html");
 
@@ -85,53 +183,24 @@ export default withMermaid(
       logo: { light: "/logo-light.svg", dark: "/logo-dark.svg" },
 
       nav: [
-        { text: "Guides", link: "/guide/getting-started" },
+        { text: "Tutorial", link: "/tutorial/your-first-workflow" },
+        { text: "How-to", link: "/how-to/install" },
+        { text: "Reference", link: "/reference/contract-surface" },
+        { text: "Explanation", link: "/explanation/why-temporal-contract" },
         { text: "API", link: "/api/" },
-        { text: "Examples", link: "/examples/" },
         { text: "Changelog", link: "https://github.com/btravstack/temporal-contract/releases" },
         // Back to the btravstack hub (links the docs up to the landing page).
         { text: "btravstack", link: "https://btravstack.github.io/" },
+        // Version dropdown — present only on versioned (prerelease) deploys.
+        ...VERSION_NAV,
       ],
 
       sidebar: {
-        "/guide/": [
-          {
-            text: "Getting Started",
-            items: [
-              { text: "Why temporal-contract?", link: "/guide/why-temporal-contract" },
-              { text: "Getting Started", link: "/guide/getting-started" },
-              { text: "Core Concepts", link: "/guide/core-concepts" },
-              { text: "Installation", link: "/guide/installation" },
-            ],
-          },
-          {
-            text: "Core Usage",
-            items: [
-              { text: "Defining Contracts", link: "/guide/defining-contracts" },
-              { text: "Client Usage", link: "/guide/client-usage" },
-              { text: "Worker Usage", link: "/guide/worker-usage" },
-              { text: "Testing", link: "/guide/testing" },
-            ],
-          },
-          {
-            text: "Advanced",
-            items: [
-              { text: "Result Pattern", link: "/guide/result-pattern" },
-              { text: "Worker Implementation", link: "/guide/worker-implementation" },
-              { text: "Entry Points Architecture", link: "/guide/entry-points" },
-              { text: "Activity Handler Types", link: "/guide/activity-handlers" },
-            ],
-          },
-          {
-            text: "Help",
-            items: [{ text: "Troubleshooting", link: "/guide/troubleshooting" }],
-          },
-          {
-            text: "Migrations",
-            collapsed: true,
-            items: [{ text: "From neverthrow", link: "/guide/migrating-to-unthrown" }],
-          },
-        ],
+        "/tutorial/": DOCS_SIDEBAR,
+        "/how-to/": DOCS_SIDEBAR,
+        "/reference/": DOCS_SIDEBAR,
+        "/explanation/": DOCS_SIDEBAR,
+        "/examples/": DOCS_SIDEBAR,
         "/api/": [
           {
             text: "Core Packages",
@@ -146,16 +215,11 @@ export default withMermaid(
             text: "Testing",
             items: [{ text: "@temporal-contract/testing", link: "/api/testing/" }],
           },
-        ],
-        "/examples/": [
           {
-            text: "Examples",
+            text: "Docs",
             items: [
-              { text: "Overview", link: "/examples/" },
-              {
-                text: "Basic Order Processing",
-                link: "/examples/basic-order-processing",
-              },
+              { text: "Reference", link: "/reference/contract-surface" },
+              { text: "How-to guides", link: "/how-to/install" },
             ],
           },
         ],
@@ -185,7 +249,7 @@ export default withMermaid(
     },
 
     head: [
-      ["link", { rel: "icon", type: "image/svg+xml", href: "/temporal-contract/logo.svg" }],
+      ["link", { rel: "icon", type: "image/svg+xml", href: `${BASE}logo.svg` }],
       // SEO keywords meta tags
       [
         "meta",
@@ -203,7 +267,7 @@ export default withMermaid(
         "meta",
         {
           property: "og:image",
-          content: "https://btravstack.github.io/temporal-contract/og-temporal-contract.png",
+          content: `${SITE_URL}og-temporal-contract.png`,
         },
       ],
       ["meta", { property: "og:image:type", content: "image/png" }],
@@ -222,7 +286,7 @@ export default withMermaid(
         "meta",
         {
           name: "twitter:image",
-          content: "https://btravstack.github.io/temporal-contract/og-temporal-contract.png",
+          content: `${SITE_URL}og-temporal-contract.png`,
         },
       ],
       [
@@ -258,7 +322,7 @@ export default withMermaid(
             price: "0",
             priceCurrency: "USD",
           },
-          url: "https://btravstack.github.io/temporal-contract/",
+          url: SITE_URL,
           author: {
             "@type": "Person",
             name: "Benoit TRAVERS",
@@ -280,7 +344,7 @@ export default withMermaid(
           "@context": "https://schema.org",
           "@type": "WebSite",
           name: "temporal-contract",
-          url: "https://btravstack.github.io/temporal-contract/",
+          url: SITE_URL,
         }),
       ],
       // Organization JSON-LD for logo display in Google search
@@ -291,10 +355,10 @@ export default withMermaid(
           "@context": "https://schema.org",
           "@type": "Organization",
           name: "temporal-contract",
-          url: "https://btravstack.github.io/temporal-contract/",
+          url: SITE_URL,
           logo: {
             "@type": "ImageObject",
-            url: "https://btravstack.github.io/temporal-contract/logo.svg",
+            url: `${SITE_URL}logo.svg`,
           },
           sameAs: ["https://github.com/btravstack/temporal-contract"],
         }),

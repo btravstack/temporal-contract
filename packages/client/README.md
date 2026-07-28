@@ -35,7 +35,7 @@ const result = await client.executeWorkflow("processOrder", {
 📖 **[Read the full documentation →](https://btravstack.github.io/temporal-contract)**
 
 - [API Reference](https://btravstack.github.io/temporal-contract/api/client)
-- [Getting Started](https://btravstack.github.io/temporal-contract/guide/getting-started)
+- [Your first workflow](https://btravstack.github.io/temporal-contract/tutorial/your-first-workflow)
 - [Examples](https://btravstack.github.io/temporal-contract/examples/)
 
 ## License

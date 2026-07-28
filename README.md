@@ -6,7 +6,7 @@
 
 **Type-safe contracts for Temporal.io**
 
-End-to-end type safety and automatic validation for workflows and activities
+End-to-end type safety and runtime validation for workflows and activities
 
 [![CI](https://github.com/btravstack/temporal-contract/actions/workflows/ci.yml/badge.svg)](https://github.com/btravstack/temporal-contract/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/@temporal-contract/contract.svg?logo=npm)](https://www.npmjs.com/package/@temporal-contract/contract)
@@ -14,109 +14,172 @@ End-to-end type safety and automatic validation for workflows and activities
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-[**Documentation**](https://btravstack.github.io/temporal-contract) · [**Get Started**](https://btravstack.github.io/temporal-contract/guide/getting-started) · [**Examples**](https://btravstack.github.io/temporal-contract/examples/)
+[**Documentation**](https://btravstack.github.io/temporal-contract) · [**Tutorial**](https://btravstack.github.io/temporal-contract/tutorial/your-first-workflow) · [**Reference**](https://btravstack.github.io/temporal-contract/reference/contract-surface)
 
 </div>
 
-## Features
+## The problem
 
-- ✅ **End-to-end type safety** — From contract to client, workflows, and activities
-- ✅ **Automatic validation** — Zod schemas validate at all network boundaries
-- ✅ **Compile-time checks** — TypeScript catches missing or incorrect implementations
-- ✅ **Better DX** — Autocomplete, refactoring support, inline documentation
-- ✅ **Child workflows** — Type-safe child workflow execution with unthrown's `AsyncResult`
-- ✅ **Result pattern** — Explicit error handling without exceptions, powered by [unthrown](https://github.com/btravstack/unthrown)
-- 🚧 **Nexus support** — Cross-namespace operations (planned)
-
-## Quick Example
+Temporal invokes workflows by **string name** with **positional arguments**:
 
 ```typescript
-// Define contract once
-const contract = defineContract({
+await client.workflow.execute("processOrder", {
   taskQueue: "orders",
-  workflows: {
-    processOrder: {
-      input: z.object({ orderId: z.string() }),
-      output: z.object({ success: z.boolean() }),
-      activities: {
-        processPayment: {
-          input: z.object({ orderId: z.string() }),
-          output: z.object({ transactionId: z.string() }),
-        },
-      },
-    },
-  },
-});
-
-// Implement activities with unthrown's AsyncResult
-import { declareActivitiesHandler, qualify } from "@temporal-contract/worker/activity";
-import { fromPromise } from "unthrown";
-
-const activities = declareActivitiesHandler({
-  contract,
-  activities: {
-    processPayment: ({ orderId }) =>
-      // `qualify` wraps a rejection in an ApplicationFailure of that type
-      fromPromise(paymentService.process(orderId), qualify("PAYMENT_FAILED")).map((txId) => ({
-        transactionId: txId,
-      })),
-  },
-});
-
-// Call from client - fully typed everywhere
-const result = await client.executeWorkflow("processOrder", {
   workflowId: "order-123",
-  args: { orderId: "ORD-123" }, // ✅ TypeScript knows!
+  args: [{ orderId: "ORD-1", amount: 99.99 }],
 });
 ```
 
-## Installation
+Nothing here is checked — not the name, not the queue, not the argument shape.
+The client and the worker are usually different deployments on different release
+cadences, so `typeof activities` is a claim nobody verifies. Rename a field and
+the workflow reads `undefined`, runs to completion, and does the wrong thing —
+durably.
+
+## What this does
+
+Declare the shape once; both sides import it.
+
+```typescript
+import { defineActivity, defineContract, defineWorkflow } from "@temporal-contract/contract";
+import { z } from "zod";
+
+const chargeCard = defineActivity({
+  input: z.object({ customerId: z.string(), amount: z.number().positive() }),
+  output: z.object({ transactionId: z.string() }),
+});
+
+const processOrder = defineWorkflow({
+  input: z.object({ orderId: z.string(), customerId: z.string(), amount: z.number().positive() }),
+  output: z.object({ orderId: z.string(), transactionId: z.string() }),
+  activities: { chargeCard },
+});
+
+export const orderContract = defineContract({
+  taskQueue: "orders",
+  workflows: { processOrder },
+});
+```
+
+Implement the activities — note that workflow-scoped activities nest under their
+workflow, mirroring the contract:
+
+```typescript
+import { declareActivitiesHandler, qualify } from "@temporal-contract/worker/activity";
+import { fromPromise } from "unthrown";
+
+export const activities = declareActivitiesHandler({
+  contract: orderContract,
+  activities: {
+    processOrder: {
+      chargeCard: ({ customerId, amount }) =>
+        fromPromise(gateway.charge(customerId, amount), qualify("CHARGE_FAILED")).map((charge) => ({
+          transactionId: charge.id,
+        })),
+    },
+  },
+});
+```
+
+Call it — names, arguments, and results all typed, and validated at runtime:
+
+```typescript
+const result = await client.executeWorkflow("processOrder", {
+  workflowId: "order-123",
+  args: { orderId: "ORD-1", customerId: "CUST-1", amount: 99.99 },
+});
+
+result.match({
+  ok: (output) => console.log(output.transactionId),
+  errCases: (matcher) =>
+    matcher.with(
+      tag("@temporal-contract/WorkflowValidationError"),
+      tag("@temporal-contract/WorkflowFailedError"),
+      // ...exhaustive — a missing tag is a compile error
+      (error) => console.error(error.message),
+    ),
+  defect: (cause) => console.error("unexpected:", cause),
+});
+```
+
+An invalid call is rejected **before** a workflow is started — no history, no
+partial state, nothing to unwind.
+
+## Features
+
+- **End-to-end type safety** — workflows, activities, signals, queries, updates,
+  errors, and search attributes all derive from one contract
+- **Validation at every boundary** — Standard Schema (Zod, Valibot, ArkType) runs
+  on both sides of every network hop
+- **Typed domain errors** — declare failures on the contract; consume them as
+  schema-validated values with an exhaustive matcher
+- **Explicit error handling** — `Result` / `AsyncResult` from
+  [unthrown](https://github.com/btravstack/unthrown), with a separate `defect`
+  channel that keeps genuine bugs loud
+- **Child workflows** — typed, including across contracts and teams
+- **Schedules, cancellation scopes, continue-as-new, activity middleware, client
+  interceptors** — all contract-aware
+- **Testing utilities** — time-skipping (no Docker) and real-server
+  (testcontainers) fixtures
+- **Nexus** — not implemented; see
+  [the status page](https://btravstack.github.io/temporal-contract/explanation/nexus)
+
+## Install
 
 ```bash
 # Core packages
 pnpm add @temporal-contract/contract @temporal-contract/worker @temporal-contract/client
 
-# Required peer dependencies — install these too. `unthrown` (^4.1.0) supplies the
-# Result/AsyncResult types you use directly; plus the Temporal SDK and a
-# Standard Schema library (zod shown here).
-pnpm add unthrown @temporalio/client @temporalio/common @temporalio/worker @temporalio/workflow zod
+# Peer dependencies
+pnpm add unthrown zod \
+  @temporalio/client @temporalio/common @temporalio/worker @temporalio/workflow
 ```
 
-> Install `unthrown` explicitly even if your package manager auto-installs peers:
-> your own code imports its `Result` / `AsyncResult` types, so it belongs in your
-> `package.json`, and it must resolve to **v4** (v4 is not compatible with v3).
-> Requires **Node.js ≥ 22.19** and is developed against **TypeScript 6.0**. See
-> [Installation](https://btravstack.github.io/temporal-contract/guide/installation)
-> for details.
+Requires **Node.js ≥ 22.19**, ESM (`"type": "module"`), and TypeScript `strict`.
+Developed against **TypeScript 6.0**.
+
+> Install `unthrown` explicitly even if your package manager auto-installs
+> peers — your own code imports its `Result` / `AsyncResult` types, so it is a
+> real dependency of yours. It must resolve to **v5**.
+
+See [Install](https://btravstack.github.io/temporal-contract/how-to/install) for
+the per-process breakdown.
 
 ## Documentation
 
-📖 **[Read the full documentation →](https://btravstack.github.io/temporal-contract)**
+📖 **[btravstack.github.io/temporal-contract](https://btravstack.github.io/temporal-contract)**
 
-- [Getting Started](https://btravstack.github.io/temporal-contract/guide/getting-started)
-- [Core Concepts](https://btravstack.github.io/temporal-contract/guide/core-concepts)
-- [API Reference](https://btravstack.github.io/temporal-contract/api/)
-- [Examples](https://btravstack.github.io/temporal-contract/examples/)
+Organized by [Diátaxis](https://diataxis.fr/):
+
+|                                                                                                 |                                |
+| ----------------------------------------------------------------------------------------------- | ------------------------------ |
+| [Tutorial](https://btravstack.github.io/temporal-contract/tutorial/your-first-workflow)         | Build a working app end to end |
+| [How-to guides](https://btravstack.github.io/temporal-contract/how-to/install)                  | Recipes for specific problems  |
+| [Reference](https://btravstack.github.io/temporal-contract/reference/contract-surface)          | Every option, type, and error  |
+| [Explanation](https://btravstack.github.io/temporal-contract/explanation/why-temporal-contract) | Why it works this way          |
 
 ## Packages
 
-| Package                                            | Description                                |
-| -------------------------------------------------- | ------------------------------------------ |
-| [@temporal-contract/contract](./packages/contract) | Contract builder and type definitions      |
-| [@temporal-contract/worker](./packages/worker)     | Type-safe worker with automatic validation |
-| [@temporal-contract/client](./packages/client)     | Type-safe client for consuming workflows   |
-| [@temporal-contract/testing](./packages/testing)   | Testing utilities for integration tests    |
+| Package                                            | Description                                 |
+| -------------------------------------------------- | ------------------------------------------- |
+| [@temporal-contract/contract](./packages/contract) | Contract builders, types, and errors        |
+| [@temporal-contract/worker](./packages/worker)     | Workflow, activity, and worker entry points |
+| [@temporal-contract/client](./packages/client)     | Typed client, handles, and schedules        |
+| [@temporal-contract/testing](./packages/testing)   | Time-skipping and testcontainers fixtures   |
 
-## Usage Patterns
+All four version together as a fixed release group — one version number
+describes a compatible set.
 
-temporal-contract uses **[unthrown](https://github.com/btravstack/unthrown)** end-to-end (workflows, activities, and the typed client) for explicit error handling via `Result` and `AsyncResult`, with a separate `defect` channel for unanticipated failures. Migrating from a previous release that used `neverthrow`? See [Migrating to unthrown](https://btravstack.github.io/temporal-contract/guide/migrating-to-unthrown).
+## Stability
 
-## Stability & Versioning
+The contract API (`defineContract`, `declareWorkflow`, `declareActivitiesHandler`,
+`TypedClient`) is stable. Earlier major bumps were migrations of the underlying
+result library, now settled on [unthrown](https://github.com/btravstack/unthrown);
+there are no plans to switch again. The `unthrown` peer range tracks its current
+major line, and each raise is documented in the changelog with migration notes.
 
-The contract API (`defineContract`, `declareWorkflow`, `declareActivitiesHandler`, `TypedClient`) is stable — earlier major bumps were migrations of the underlying Result library, now settled on [unthrown](https://github.com/btravstack/unthrown). Going forward:
-
-- **unthrown is the committed error-handling foundation.** There are no plans to switch to a different Result library. The `unthrown` peer range tracks its current major line, with the minimum version the packages are validated against (currently `^4.1.0`, i.e. any 4.x >= 4.1.0); each raise is documented in the changelog with migration notes.
-- **All four packages version together** (a fixed release group), so a single version number describes a compatible set.
+Upgrading from 7.x? See
+[Upgrade to v8](https://btravstack.github.io/temporal-contract/how-to/upgrade-to-v8).
 
 ## Contributing
 
