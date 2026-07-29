@@ -128,11 +128,17 @@ partial state, nothing to unwind.
 
 ## Install
 
-```bash
-# Core packages
-pnpm add @temporal-contract/contract @temporal-contract/worker @temporal-contract/client
+> **8.0 is currently a prerelease.** npm's `latest` tag still resolves to 7.x,
+> while this README documents the v8 API. Install the `@temporal-contract/*`
+> packages with the `beta` tag until 8.0 is stable — a plain
+> `pnpm add @temporal-contract/contract` gives you the previous major.
 
-# Peer dependencies
+```bash
+# Core packages (8.0 beta — `latest` still resolves 7.x)
+pnpm add @temporal-contract/contract@beta @temporal-contract/worker@beta \
+         @temporal-contract/client@beta
+
+# Peer dependencies (stable releases)
 pnpm add unthrown zod \
   @temporalio/client @temporalio/common @temporalio/worker @temporalio/workflow
 ```

@@ -8,6 +8,7 @@
 | `@temporalio/worker`    | Temporal worker SDK — peer dep of `worker`                                                                                       |
 | `@temporalio/workflow`  | Temporal workflow API — peer dep of `worker`                                                                                     |
 | `@temporalio/common`    | Shared Temporal types — peer dep of `client`/`worker`                                                                            |
+| `@temporalio/testing`   | Time-skipping test server (`TestWorkflowEnvironment`) — peer dep of `testing`                                                    |
 | `@standard-schema/spec` | Standard Schema specification — direct dep                                                                                       |
 | `unthrown`              | `Result` / `AsyncResult` — peer dep of `client`/`worker`                                                                         |
 | `zod`                   | Direct dep of `contract` (used internally for the `defineContract` runtime validation pass); user-side schema lib for the others |
@@ -37,12 +38,12 @@ All dependency versions are centralized in `pnpm-workspace.yaml` under the `cata
 
 Anything that appears in a published package's **public type signatures** must be a peer dep, not a regular dep — otherwise downstream consumers can end up with two disjoint nominal types in their typechecker (theirs and ours), even though the runtime classes are compatible.
 
-| Package  | Peer dependencies                                                                                                                                                             |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| client   | `@temporalio/client ^1`, `@temporalio/common ^1`, `unthrown ^5`                                                                                                               |
-| worker   | `@temporalio/common ^1`, `@temporalio/worker ^1`, `@temporalio/workflow ^1`, `unthrown ^5`                                                                                    |
-| contract | `unthrown ^5` (optional — only needed when using `result-async`)                                                                                                              |
-| testing  | `vitest ^4` (the `globalSetup` hook integrates with vitest's test runner), `@temporalio/client ^1`, `@temporalio/worker ^1` (both exposed by the `it` fixture's public types) |
+| Package  | Peer dependencies                                                                                                                                                                                                                                     |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| client   | `@temporalio/client ^1`, `@temporalio/common ^1`, `unthrown ^5`                                                                                                                                                                                       |
+| worker   | `@temporalio/common ^1`, `@temporalio/worker ^1`, `@temporalio/workflow ^1`, `unthrown ^5`                                                                                                                                                            |
+| contract | `unthrown ^5` (optional — only needed when using `result-async`)                                                                                                                                                                                      |
+| testing  | `vitest ^4` (the `globalSetup` hook integrates with vitest's test runner), `@temporalio/client ^1`, `@temporalio/testing ^1`, `@temporalio/worker ^1` (all exposed by the fixtures' public types — e.g. `TestWorkflowEnvironment` in `time-skipping`) |
 
 When you add a peer dep, also add it to `devDependencies` (with the same `"catalog:"` reference) so the local workspace build still resolves it. The workspace has `autoInstallPeers: false`, so peers must be present somewhere on the install side.
 

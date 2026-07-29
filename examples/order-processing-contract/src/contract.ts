@@ -16,7 +16,7 @@ import {
  * This contract defines a unified order processing system with:
  * - Global activities for logging and notifications
  * - A workflow for processing orders with payment, inventory, and shipping
- * - Support for both standard Promise-based and Result/Future pattern implementations
+ * - Activity implementations that return `AsyncResult` values from unthrown
  *
  * The contract uses domain schemas as the source of truth for business entities.
  */
