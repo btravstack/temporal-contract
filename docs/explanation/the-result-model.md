@@ -121,16 +121,16 @@ The `errCases` handler and the `*ErrCases` combinators receive a matcher rather
 than the bare error:
 
 ```typescript
-import { tag } from "unthrown";
+import { P } from "unthrown";
 
 result.match({
   ok: (output) => output.transactionId,
   errCases: (matcher) =>
     matcher
-      .with(tag("@temporal-contract/ContractError"), (e) => handleDomain(e))
+      .with(P.tag("@temporal-contract/ContractError"), (e) => handleDomain(e))
       .with(
-        tag("@temporal-contract/WorkflowFailedError"),
-        tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+        P.tag("@temporal-contract/WorkflowFailedError"),
+        P.tag("@temporal-contract/WorkflowExecutionNotFoundError"),
         (e) => handleInfra(e),
       ),
   defect: (cause) => report(cause),

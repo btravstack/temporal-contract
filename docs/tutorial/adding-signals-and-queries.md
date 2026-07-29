@@ -187,7 +187,7 @@ Replace `src/client.ts`:
 ```typescript
 import { TypedClient } from "@temporal-contract/client";
 import { Client, Connection } from "@temporalio/client";
-import { tag } from "unthrown";
+import { P } from "unthrown";
 
 import { orderContract } from "./contract.js";
 
@@ -235,9 +235,9 @@ result.match({
   ok: (output) => console.log("charged:", output.transactionId),
   errCases: (matcher) =>
     matcher.with(
-      tag("@temporal-contract/WorkflowValidationError"),
-      tag("@temporal-contract/WorkflowFailedError"),
-      tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+      P.tag("@temporal-contract/WorkflowValidationError"),
+      P.tag("@temporal-contract/WorkflowFailedError"),
+      P.tag("@temporal-contract/WorkflowExecutionNotFoundError"),
       (error) => console.error("workflow failed:", error.message),
     ),
   defect: (cause) => console.error("unexpected:", cause),

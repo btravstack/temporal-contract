@@ -29,7 +29,7 @@ import {
   type ContractErrorInputUnion,
 } from "@temporal-contract/contract/errors";
 import { ApplicationFailure } from "@temporalio/common";
-import { P, tag, type AsyncResult } from "unthrown";
+import { P, type AsyncResult } from "unthrown";
 
 import { contractErrorToApplicationFailure } from "./contract-errors.js";
 import {
@@ -297,7 +297,7 @@ export type ActivityMiddlewareNext<
  *   next().tapErrCases((matcher) =>
  *     matcher.with(
  *       P.instanceOf(ApplicationFailure),
- *       tag("@temporal-contract/ContractError"),
+ *       P.tag("@temporal-contract/ContractError"),
  *       (error) => {
  *         logger.warn({ activityName, workflowName, error }, "activity failed");
  *       },
@@ -748,7 +748,7 @@ export function declareActivitiesHandler<
         errCases: (matcher) =>
           matcher.with(
             P.instanceOf(ApplicationFailure),
-            tag("@temporal-contract/ContractError"),
+            P.tag("@temporal-contract/ContractError"),
             async (error) => {
               if (error instanceof ContractError) {
                 throw await contractErrorToApplicationFailure(

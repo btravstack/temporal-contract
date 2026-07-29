@@ -16,8 +16,11 @@ explicitly:
 
 ```bash
 pnpm add @temporal-contract/contract@beta @temporal-contract/worker@beta \
-         @temporal-contract/client@beta unthrown@beta
+         @temporal-contract/client@beta unthrown@^5
 ```
+
+`unthrown` itself is stable — only the `@temporal-contract/*` packages are on
+the `beta` tag.
 
 The [stable docs](https://btravstack.github.io/temporal-contract/) document
 7.x; you are reading the beta docs.
@@ -32,7 +35,7 @@ pnpm add @temporal-contract/contract@beta \
          @temporal-contract/worker@beta \
          @temporal-contract/client@beta
 pnpm add -D @temporal-contract/testing@beta
-pnpm add unthrown@^5.0.0-beta.7
+pnpm add unthrown@^5.0.0
 ```
 
 If an intermediate beta had you install `ts-pattern` as a peer, remove it —
@@ -41,6 +44,20 @@ dependencies:
 
 ```bash
 pnpm remove ts-pattern
+```
+
+If you already tracked an 8.0 beta, the standalone `tag` export is gone in
+unthrown 5.0.0 — it is `P.tag` now. Drop `tag` from the import (keeping or
+adding `P`) and prefix the call sites:
+
+```diff
+- import { tag } from "unthrown";
++ import { P } from "unthrown";
+
+  result.mapErrCases((matcher) =>
+-   matcher.with(tag("@temporal-contract/WorkflowFailedError"), (error) => handle(error)),
++   matcher.with(P.tag("@temporal-contract/WorkflowFailedError"), (error) => handle(error)),
+  );
 ```
 
 ## 2. Rename the error combinators
@@ -61,7 +78,7 @@ result.mapErr((error) => new WrappedError(error));
 
 // 8.0 — one arm per tag in the union (abbreviated here; see the note below)
 result.mapErrCases((matcher) =>
-  matcher.with(tag("@temporal-contract/WorkflowFailedError"), (error) => new WrappedError(error)),
+  matcher.with(P.tag("@temporal-contract/WorkflowFailedError"), (error) => new WrappedError(error)),
 );
 ```
 
@@ -92,8 +109,8 @@ result.match({
   ok: (value) => value,
   errCases: (matcher) =>
     matcher.with(
-      tag("@temporal-contract/WorkflowFailedError"),
-      tag("@temporal-contract/WorkflowValidationError"),
+      P.tag("@temporal-contract/WorkflowFailedError"),
+      P.tag("@temporal-contract/WorkflowValidationError"),
       (error) => handle(error),
     ),
   defect: (cause) => report(cause),
@@ -162,8 +179,8 @@ result.match({
   ok: (value) => value,
   errCases: (matcher) =>
     matcher
-      .with(tag("@temporal-contract/RuntimeClientError"), (e) => report(e)) // ❌ remove
-      .with(tag("@temporal-contract/WorkflowFailedError"), (e) => handle(e)),
+      .with(P.tag("@temporal-contract/RuntimeClientError"), (e) => report(e)) // ❌ remove
+      .with(P.tag("@temporal-contract/WorkflowFailedError"), (e) => handle(e)),
   defect: (cause) => report(cause),
 });
 
@@ -171,7 +188,7 @@ result.match({
 result.match({
   ok: (value) => value,
   errCases: (matcher) =>
-    matcher.with(tag("@temporal-contract/WorkflowFailedError"), (e) => handle(e)),
+    matcher.with(P.tag("@temporal-contract/WorkflowFailedError"), (e) => handle(e)),
   defect: (cause) => {
     if (cause instanceof RuntimeClientError) {
       return report(cause); // handle it here instead
@@ -223,13 +240,14 @@ const retryOnce: ClientInterceptor = (args, next) =>
 ## Checklist
 
 - [ ] All four `@temporal-contract/*` packages on the same 8.0 version
-- [ ] `unthrown` resolves to `^5.0.0-beta.7`
+- [ ] `unthrown` resolves to `^5.0.0`
 - [ ] `ts-pattern` removed if it was added for beta.5
+- [ ] `tag(...)` → `P.tag(...)` if you tracked an earlier 8.0 beta
 - [ ] `mapErr` / `flatMapErr` / `tapErr` / `recoverErr` → `*Cases`
 - [ ] `match({ err })` → `match({ errCases })`
 - [ ] `TypedClient.create` / `createWorker` use `isDefect()` or `.get()`
-- [ ] No `tag("@temporal-contract/RuntimeClientError")` or
-      `tag("@temporal-contract/TechnicalError")` arms remain
+- [ ] No `P.tag("@temporal-contract/RuntimeClientError")` or
+      `P.tag("@temporal-contract/TechnicalError")` arms remain
 - [ ] `pnpm typecheck` clean
 
 The exhaustive matcher does most of the work: once it compiles, the migration is

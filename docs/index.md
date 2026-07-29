@@ -109,7 +109,7 @@ export const processOrder = declareWorkflow({
 ```typescript [4. Client]
 import { TypedClient } from "@temporal-contract/client";
 import { Client, Connection } from "@temporalio/client";
-import { tag } from "unthrown";
+import { P } from "unthrown";
 
 import { orderContract } from "./contract.js";
 
@@ -129,11 +129,11 @@ result.match({
   ok: (output) => console.log(output.transactionId), // ✅ typed
   errCases: (matcher) =>
     matcher.with(
-      tag("@temporal-contract/WorkflowNotFoundError"),
-      tag("@temporal-contract/WorkflowValidationError"),
-      tag("@temporal-contract/WorkflowAlreadyStartedError"),
-      tag("@temporal-contract/WorkflowFailedError"),
-      tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+      P.tag("@temporal-contract/WorkflowNotFoundError"),
+      P.tag("@temporal-contract/WorkflowValidationError"),
+      P.tag("@temporal-contract/WorkflowAlreadyStartedError"),
+      P.tag("@temporal-contract/WorkflowFailedError"),
+      P.tag("@temporal-contract/WorkflowExecutionNotFoundError"),
       (error) => console.error("failed:", error.message),
     ),
   defect: (cause) => console.error("unexpected:", cause),

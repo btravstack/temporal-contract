@@ -629,9 +629,9 @@ type WorkflowContext<
    *   },
    *   errCases: (matcher) =>
    *     matcher.with(
-   *       tag('@temporal-contract/ChildWorkflowError'),
-   *       tag('@temporal-contract/ChildWorkflowCancelledError'),
-   *       tag('@temporal-contract/ChildWorkflowNotFoundError'),
+   *       P.tag('@temporal-contract/ChildWorkflowError'),
+   *       P.tag('@temporal-contract/ChildWorkflowCancelledError'),
+   *       P.tag('@temporal-contract/ChildWorkflowNotFoundError'),
    *       (error) => console.error('Failed to start:', error),
    *     ),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
@@ -675,9 +675,9 @@ type WorkflowContext<
    *   ok: (output) => console.log('Payment processed:', output),
    *   errCases: (matcher) =>
    *     matcher.with(
-   *       tag('@temporal-contract/ChildWorkflowError'),
-   *       tag('@temporal-contract/ChildWorkflowCancelledError'),
-   *       tag('@temporal-contract/ChildWorkflowNotFoundError'),
+   *       P.tag('@temporal-contract/ChildWorkflowError'),
+   *       P.tag('@temporal-contract/ChildWorkflowCancelledError'),
+   *       P.tag('@temporal-contract/ChildWorkflowNotFoundError'),
    *       (error) => console.error('Processing failed:', error),
    *     ),
    *   defect: (cause) => console.error('Unexpected failure:', cause),

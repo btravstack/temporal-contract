@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { it as baseIt } from "@temporal-contract/testing/extension";
 import { Client } from "@temporalio/client";
 import { Worker } from "@temporalio/worker";
-import { tag } from "unthrown";
+import { P } from "unthrown";
 import { describe, expect, vi, beforeEach } from "vitest";
 
 import { TypedClient } from "../client.js";
@@ -404,11 +404,11 @@ describe("Client Package - Integration Tests", () => {
         },
         errCases: (matcher) =>
           matcher.with(
-            tag("@temporal-contract/WorkflowNotFoundError"),
-            tag("@temporal-contract/WorkflowValidationError"),
-            tag("@temporal-contract/WorkflowAlreadyStartedError"),
-            tag("@temporal-contract/WorkflowFailedError"),
-            tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+            P.tag("@temporal-contract/WorkflowNotFoundError"),
+            P.tag("@temporal-contract/WorkflowValidationError"),
+            P.tag("@temporal-contract/WorkflowAlreadyStartedError"),
+            P.tag("@temporal-contract/WorkflowFailedError"),
+            P.tag("@temporal-contract/WorkflowExecutionNotFoundError"),
             () => {
               throw new Error("Should not be called");
             },

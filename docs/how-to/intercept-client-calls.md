@@ -95,13 +95,13 @@ Modeled domain errors (`WorkflowNotFoundError`, a `ContractError`, a validation
 failure) stay on the `err` channel. Branch on those with `flatMapErrCases`:
 
 ```typescript
-import { Err, Ok, P, tag } from "unthrown";
+import { Err, Ok, P } from "unthrown";
 
 const fallback: ClientInterceptor = (args, next) =>
   next().flatMapErrCases((matcher) =>
     matcher
       // Idempotent start: treat "already running" as success.
-      .with(tag("@temporal-contract/WorkflowAlreadyStartedError"), () => Ok(undefined).toAsync())
+      .with(P.tag("@temporal-contract/WorkflowAlreadyStartedError"), () => Ok(undefined).toAsync())
       // The matcher must cover the whole union — `P._` passes the rest through.
       .with(P._, (error) => Err(error).toAsync()),
   );
@@ -110,7 +110,7 @@ const fallback: ClientInterceptor = (args, next) =>
 ::: warning The matcher is exhaustive
 `flatMapErrCases`, `mapErrCases`, `tapErrCases`, and `recoverErrCases` all
 require a match that covers every member of the error union — here the nine
-members of `ClientCallError`. A single `.with(tag(...))` arm will not compile.
+members of `ClientCallError`. A single `.with(P.tag(...))` arm will not compile.
 Handle the cases you care about, then close with `P._`.
 :::
 

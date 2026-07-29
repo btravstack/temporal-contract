@@ -104,10 +104,10 @@ exhaustive matcher instead of the bare error:
 result.mapErr((error) => new WrappedError(error));
 
 // after — one arm per tag in the union (abbreviated here; see the note below)
-import { tag } from "unthrown";
+import { P } from "unthrown";
 
 result.mapErrCases((matcher) =>
-  matcher.with(tag("@temporal-contract/WorkflowFailedError"), (error) => new WrappedError(error)),
+  matcher.with(P.tag("@temporal-contract/WorkflowFailedError"), (error) => new WrappedError(error)),
 );
 ```
 
@@ -125,9 +125,9 @@ into one branch is compact:
 
 ```typescript
 matcher.with(
-  tag("@temporal-contract/WorkflowNotFoundError"),
-  tag("@temporal-contract/WorkflowValidationError"),
-  tag("@temporal-contract/WorkflowFailedError"),
+  P.tag("@temporal-contract/WorkflowNotFoundError"),
+  P.tag("@temporal-contract/WorkflowValidationError"),
+  P.tag("@temporal-contract/WorkflowFailedError"),
   (error) => report(error),
 );
 ```
@@ -146,8 +146,8 @@ const message = result.match({
   ok: (value) => `charged ${value.transactionId}`,
   errCases: (matcher) =>
     matcher.with(
-      tag("@temporal-contract/WorkflowFailedError"),
-      tag("@temporal-contract/WorkflowValidationError"),
+      P.tag("@temporal-contract/WorkflowFailedError"),
+      P.tag("@temporal-contract/WorkflowValidationError"),
       (error) => `failed: ${error.message}`,
     ),
   defect: (cause) => `unexpected: ${String(cause)}`,

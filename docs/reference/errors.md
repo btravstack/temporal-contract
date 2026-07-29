@@ -12,7 +12,7 @@ exhaustive matcher. Tags are namespaced with the package scope
 library's. `.name` stays the bare class name for readable logs.
 
 ```typescript
-matcher.with(tag("@temporal-contract/WorkflowFailedError"), (error) => ...);
+matcher.with(P.tag("@temporal-contract/WorkflowFailedError"), (error) => ...);
 ```
 
 **`ValidationError` subclasses** extend Temporal's `ApplicationFailure` instead.
@@ -58,7 +58,7 @@ declared error; `errorName` is the discriminant.
 | `cause`     | optional                                                        |
 
 ```typescript
-matcher.with(tag("@temporal-contract/ContractError"), (error) => {
+matcher.with(P.tag("@temporal-contract/ContractError"), (error) => {
   switch (error.errorName) {
     case "CardDeclined":
       return error.data.reason;

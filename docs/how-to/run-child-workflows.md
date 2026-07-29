@@ -13,7 +13,7 @@ same-contract and cross-contract calls look identical.
 
 ```typescript
 import { declareWorkflow } from "@temporal-contract/worker/workflow";
-import { tag } from "unthrown";
+import { P } from "unthrown";
 
 import { orderContract } from "./contract.js";
 
@@ -31,9 +31,9 @@ export const processOrder = declareWorkflow({
       ok: (output) => ({ status: "completed" as const, transactionId: output.transactionId }),
       errCases: (matcher) =>
         matcher.with(
-          tag("@temporal-contract/ChildWorkflowError"),
-          tag("@temporal-contract/ChildWorkflowCancelledError"),
-          tag("@temporal-contract/ChildWorkflowNotFoundError"),
+          P.tag("@temporal-contract/ChildWorkflowError"),
+          P.tag("@temporal-contract/ChildWorkflowCancelledError"),
+          P.tag("@temporal-contract/ChildWorkflowNotFoundError"),
           (error) => ({ status: "failed" as const, reason: error.message }),
         ),
       defect: (cause) => ({

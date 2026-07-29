@@ -38,13 +38,13 @@ import {
   declareActivitiesHandler,
   type ActivityMiddleware,
 } from "@temporal-contract/worker/activity";
-import { P, tag } from "unthrown";
+import { P } from "unthrown";
 
 const logging: ActivityMiddleware = ({ activityName, workflowName }, next) =>
   next().tapErrCases((matcher) =>
     matcher.with(
       P.instanceOf(ApplicationFailure),
-      tag("@temporal-contract/ContractError"),
+      P.tag("@temporal-contract/ContractError"),
       (error) => {
         logger.warn({ activityName, workflowName, error }, "activity failed");
       },
