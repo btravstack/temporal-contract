@@ -252,7 +252,7 @@ Handle them in `defect`, `recoverDefect`, or `tapDefect`:
 ```typescript
 result.match({
   ok: (v) => v,
-  errCases: (m) => m.with(tag("@temporal-contract/WorkflowFailedError"), handle),
+  errCases: (m) => m.with(P.tag("@temporal-contract/WorkflowFailedError"), handle),
   defect: (cause) => {
     if (cause instanceof RuntimeClientError) return report(cause);
     throw cause;

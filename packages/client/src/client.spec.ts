@@ -11,7 +11,7 @@ import {
   TypedSearchAttributes,
   WorkflowNotFoundError as TemporalWorkflowNotFoundError,
 } from "@temporalio/common";
-import { tag } from "unthrown";
+import { P } from "unthrown";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
 
@@ -794,11 +794,11 @@ describe("TypedClient", () => {
         },
         errCases: (matcher) =>
           matcher.with(
-            tag("@temporal-contract/WorkflowNotFoundError"),
-            tag("@temporal-contract/WorkflowValidationError"),
-            tag("@temporal-contract/WorkflowAlreadyStartedError"),
-            tag("@temporal-contract/WorkflowFailedError"),
-            tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+            P.tag("@temporal-contract/WorkflowNotFoundError"),
+            P.tag("@temporal-contract/WorkflowValidationError"),
+            P.tag("@temporal-contract/WorkflowAlreadyStartedError"),
+            P.tag("@temporal-contract/WorkflowFailedError"),
+            P.tag("@temporal-contract/WorkflowExecutionNotFoundError"),
             () => {
               throw new Error("Should not be called");
             },

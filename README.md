@@ -93,8 +93,8 @@ result.match({
   ok: (output) => console.log(output.transactionId),
   errCases: (matcher) =>
     matcher.with(
-      tag("@temporal-contract/WorkflowValidationError"),
-      tag("@temporal-contract/WorkflowFailedError"),
+      P.tag("@temporal-contract/WorkflowValidationError"),
+      P.tag("@temporal-contract/WorkflowFailedError"),
       // ...exhaustive — a missing tag is a compile error
       (error) => console.error(error.message),
     ),

@@ -54,15 +54,15 @@ describes a compatible set. Do not mix versions.
 These are peers, not dependencies, because they appear in the packages' public
 types. Your code and the library must resolve to the _same_ copy.
 
-| Peer                   | Required by              | Range           |
-| ---------------------- | ------------------------ | --------------- |
-| `unthrown`             | contract, worker, client | `^5.0.0-beta.7` |
-| `@temporalio/common`   | worker, client           | `^1`            |
-| `@temporalio/worker`   | worker, testing          | `^1`            |
-| `@temporalio/workflow` | worker                   | `^1`            |
-| `@temporalio/client`   | client, testing          | `^1`            |
-| `@temporalio/testing`  | testing                  | `^1`            |
-| `vitest`               | testing                  | `^4`            |
+| Peer                   | Required by              | Range    |
+| ---------------------- | ------------------------ | -------- |
+| `unthrown`             | contract, worker, client | `^5.0.0` |
+| `@temporalio/common`   | worker, client           | `^1`     |
+| `@temporalio/worker`   | worker, testing          | `^1`     |
+| `@temporalio/workflow` | worker                   | `^1`     |
+| `@temporalio/client`   | client, testing          | `^1`     |
+| `@temporalio/testing`  | testing                  | `^1`     |
+| `vitest`               | testing                  | `^4`     |
 
 Plus a [Standard Schema](https://standardschema.dev/) library to write your
 schemas with — Zod, Valibot, or ArkType.

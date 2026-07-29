@@ -4,7 +4,7 @@ import {
   type OrderSchema,
 } from "@temporal-contract/sample-order-processing-contract";
 import { Client, Connection } from "@temporalio/client";
-import { tag } from "unthrown";
+import { P } from "unthrown";
 import type { z } from "zod";
 
 import { logger } from "./logger.js";
@@ -127,28 +127,28 @@ async function run() {
       },
       errCases: (matcher) =>
         matcher
-          .with(tag("@temporal-contract/WorkflowNotFoundError"), (err) =>
+          .with(P.tag("@temporal-contract/WorkflowNotFoundError"), (err) =>
             logger.error({ error: err, orderId: order.orderId }, "❌ Workflow not found"),
           )
-          .with(tag("@temporal-contract/WorkflowValidationError"), (err) =>
+          .with(P.tag("@temporal-contract/WorkflowValidationError"), (err) =>
             logger.error({ error: err, orderId: order.orderId }, "❌ Workflow validation failed"),
           )
           // Idempotent fast-path: a workflow with this ID is already running (or in
           // retention). Production callers can re-fetch the existing handle; here we
           // just log and move on.
-          .with(tag("@temporal-contract/WorkflowAlreadyStartedError"), (err) =>
+          .with(P.tag("@temporal-contract/WorkflowAlreadyStartedError"), (err) =>
             logger.warn(
               { error: err, orderId: order.orderId },
               "⏭️  Workflow already started — skipping",
             ),
           )
-          .with(tag("@temporal-contract/WorkflowFailedError"), (err) =>
+          .with(P.tag("@temporal-contract/WorkflowFailedError"), (err) =>
             logger.error(
               { error: err, orderId: order.orderId, cause: err.cause },
               "❌ Workflow completed with failure",
             ),
           )
-          .with(tag("@temporal-contract/WorkflowExecutionNotFoundError"), (err) =>
+          .with(P.tag("@temporal-contract/WorkflowExecutionNotFoundError"), (err) =>
             logger.error(
               { error: err, orderId: order.orderId },
               "❌ Workflow execution not found in namespace",
@@ -200,19 +200,19 @@ async function run() {
     },
     errCases: (matcher) =>
       matcher
-        .with(tag("@temporal-contract/WorkflowNotFoundError"), (err) =>
+        .with(P.tag("@temporal-contract/WorkflowNotFoundError"), (err) =>
           logger.error({ error: err }, "❌ Workflow not found"),
         )
-        .with(tag("@temporal-contract/WorkflowValidationError"), (err) =>
+        .with(P.tag("@temporal-contract/WorkflowValidationError"), (err) =>
           logger.error({ error: err }, "❌ Validation failed"),
         )
-        .with(tag("@temporal-contract/WorkflowAlreadyStartedError"), (err) =>
+        .with(P.tag("@temporal-contract/WorkflowAlreadyStartedError"), (err) =>
           logger.warn({ error: err }, "⏭️  Workflow already started"),
         )
-        .with(tag("@temporal-contract/WorkflowFailedError"), (err) =>
+        .with(P.tag("@temporal-contract/WorkflowFailedError"), (err) =>
           logger.error({ error: err, cause: err.cause }, "❌ Workflow completed with failure"),
         )
-        .with(tag("@temporal-contract/WorkflowExecutionNotFoundError"), (err) =>
+        .with(P.tag("@temporal-contract/WorkflowExecutionNotFoundError"), (err) =>
           logger.error({ error: err }, "❌ Workflow execution not found in namespace"),
         ),
     // A defect is an unmodeled failure (a bug) — including technical/

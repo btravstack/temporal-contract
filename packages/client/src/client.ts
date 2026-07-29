@@ -393,8 +393,8 @@ export class TypedClient<TContract extends ContractDefinition> {
    *   ok: async (handle) => { await handle.pause("maintenance"); },
    *   errCases: (matcher) =>
    *     matcher.with(
-   *       tag("@temporal-contract/WorkflowNotFoundError"),
-   *       tag("@temporal-contract/WorkflowValidationError"),
+   *       P.tag("@temporal-contract/WorkflowNotFoundError"),
+   *       P.tag("@temporal-contract/WorkflowValidationError"),
    *       (error) => console.error("schedule create failed", error),
    *     ),
    *   defect: (cause) => console.error("unexpected failure", cause),
@@ -530,9 +530,9 @@ export class TypedClient<TContract extends ContractDefinition> {
    *   },
    *   errCases: (matcher) =>
    *     matcher.with(
-   *       tag('@temporal-contract/WorkflowNotFoundError'),
-   *       tag('@temporal-contract/WorkflowValidationError'),
-   *       tag('@temporal-contract/WorkflowAlreadyStartedError'),
+   *       P.tag('@temporal-contract/WorkflowNotFoundError'),
+   *       P.tag('@temporal-contract/WorkflowValidationError'),
+   *       P.tag('@temporal-contract/WorkflowAlreadyStartedError'),
    *       (error) => console.error('Failed to start:', error),
    *     ),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
@@ -623,10 +623,10 @@ export class TypedClient<TContract extends ContractDefinition> {
    *   ok: (handle) => console.log('signaled run', handle.signaledRunId),
    *   errCases: (matcher) =>
    *     matcher.with(
-   *       tag('@temporal-contract/WorkflowNotFoundError'),
-   *       tag('@temporal-contract/WorkflowValidationError'),
-   *       tag('@temporal-contract/SignalValidationError'),
-   *       tag('@temporal-contract/WorkflowAlreadyStartedError'),
+   *       P.tag('@temporal-contract/WorkflowNotFoundError'),
+   *       P.tag('@temporal-contract/WorkflowValidationError'),
+   *       P.tag('@temporal-contract/SignalValidationError'),
+   *       P.tag('@temporal-contract/WorkflowAlreadyStartedError'),
    *       (error) => console.error('signalWithStart failed', error),
    *     ),
    *   defect: (cause) => console.error('unexpected failure', cause),
@@ -755,12 +755,12 @@ export class TypedClient<TContract extends ContractDefinition> {
    *   ok: (output) => console.log('Order processed:', output.status),
    *   errCases: (matcher) =>
    *     matcher.with(
-   *       tag('@temporal-contract/ContractError'),
-   *       tag('@temporal-contract/WorkflowNotFoundError'),
-   *       tag('@temporal-contract/WorkflowValidationError'),
-   *       tag('@temporal-contract/WorkflowAlreadyStartedError'),
-   *       tag('@temporal-contract/WorkflowFailedError'),
-   *       tag('@temporal-contract/WorkflowExecutionNotFoundError'),
+   *       P.tag('@temporal-contract/ContractError'),
+   *       P.tag('@temporal-contract/WorkflowNotFoundError'),
+   *       P.tag('@temporal-contract/WorkflowValidationError'),
+   *       P.tag('@temporal-contract/WorkflowAlreadyStartedError'),
+   *       P.tag('@temporal-contract/WorkflowFailedError'),
+   *       P.tag('@temporal-contract/WorkflowExecutionNotFoundError'),
    *       (error) => console.error('Processing failed:', error),
    *     ),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
@@ -896,7 +896,7 @@ export class TypedClient<TContract extends ContractDefinition> {
    *   },
    *   errCases: (matcher) =>
    *     matcher.with(
-   *       tag('@temporal-contract/WorkflowNotFoundError'),
+   *       P.tag('@temporal-contract/WorkflowNotFoundError'),
    *       (error) => console.error('Failed to get handle:', error),
    *     ),
    *   defect: (cause) => console.error('Unexpected failure:', cause),

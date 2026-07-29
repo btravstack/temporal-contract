@@ -70,6 +70,7 @@ Execute child workflows with type-safe `AsyncResult`. Supports both same-contrac
 ```typescript
 // workflows.ts
 import { declareWorkflow } from "@temporal-contract/worker/workflow";
+import { P } from "unthrown";
 
 export const parentWorkflow = declareWorkflow({
   workflowName: "parentWorkflow",
@@ -86,9 +87,9 @@ export const parentWorkflow = declareWorkflow({
       ok: (output) => console.log("Payment processed:", output),
       errCases: (matcher) =>
         matcher.with(
-          tag("@temporal-contract/ChildWorkflowError"),
-          tag("@temporal-contract/ChildWorkflowCancelledError"),
-          tag("@temporal-contract/ChildWorkflowNotFoundError"),
+          P.tag("@temporal-contract/ChildWorkflowError"),
+          P.tag("@temporal-contract/ChildWorkflowCancelledError"),
+          P.tag("@temporal-contract/ChildWorkflowNotFoundError"),
           (error) => console.error("Payment failed:", error),
         ),
       defect: (cause) => console.error("Unexpected failure:", cause),
@@ -118,9 +119,9 @@ export const parentWorkflow = declareWorkflow({
       },
       errCases: (matcher) =>
         matcher.with(
-          tag("@temporal-contract/ChildWorkflowError"),
-          tag("@temporal-contract/ChildWorkflowCancelledError"),
-          tag("@temporal-contract/ChildWorkflowNotFoundError"),
+          P.tag("@temporal-contract/ChildWorkflowError"),
+          P.tag("@temporal-contract/ChildWorkflowCancelledError"),
+          P.tag("@temporal-contract/ChildWorkflowNotFoundError"),
           (error) => console.error("Failed to start:", error),
         ),
       defect: (cause) => console.error("Unexpected failure:", cause),

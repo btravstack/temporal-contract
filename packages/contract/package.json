@@ -87,7 +87,7 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "unthrown": "^5.0.0-beta.7"
+    "unthrown": "^5.0.0"
   },
   "peerDependenciesMeta": {
     "unthrown": {

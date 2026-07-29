@@ -129,7 +129,7 @@ Declaring errors on an activity **changes its workflow-side call signature.**
 So an errors-declaring activity is awaited as a result, not a plain value:
 
 ```typescript
-import { tag } from "unthrown";
+import { P } from "unthrown";
 
 implementation: async (context, order) => {
   const charged = await context.activities.chargeCard({
@@ -141,7 +141,7 @@ implementation: async (context, order) => {
     ok: (payment) => ({ status: "completed" as const, transactionId: payment.transactionId }),
     errCases: (matcher) =>
       matcher
-        .with(tag("@temporal-contract/ContractError"), (error) => {
+        .with(P.tag("@temporal-contract/ContractError"), (error) => {
           // error.errorName narrows; error.data is typed from the schema
           if (error.errorName === "CardDeclined") {
             return { status: "failed" as const, reason: error.data.reason };
@@ -149,8 +149,8 @@ implementation: async (context, order) => {
           return { status: "failed" as const, reason: error.errorName };
         })
         .with(
-          tag("@temporal-contract/ActivityError"),
-          tag("@temporal-contract/ActivityCancelledError"),
+          P.tag("@temporal-contract/ActivityError"),
+          P.tag("@temporal-contract/ActivityCancelledError"),
           (error) => ({ status: "failed" as const, reason: error.message }),
         ),
     defect: (cause) => ({
@@ -179,7 +179,7 @@ A workflow whose declared error caused the failure surfaces it as a
 `WorkflowFailedError`:
 
 ```typescript
-import { tag } from "unthrown";
+import { P } from "unthrown";
 
 const result = await client.executeWorkflow("processOrder", {
   workflowId: "order-1",
@@ -190,7 +190,7 @@ result.match({
   ok: (output) => console.log("done:", output),
   errCases: (matcher) =>
     matcher
-      .with(tag("@temporal-contract/ContractError"), (error) => {
+      .with(P.tag("@temporal-contract/ContractError"), (error) => {
         switch (error.errorName) {
           case "EmptyOrder":
             return console.error("no items on order", error.data.orderId);
@@ -199,11 +199,11 @@ result.match({
         }
       })
       .with(
-        tag("@temporal-contract/WorkflowNotFoundError"),
-        tag("@temporal-contract/WorkflowValidationError"),
-        tag("@temporal-contract/WorkflowAlreadyStartedError"),
-        tag("@temporal-contract/WorkflowFailedError"),
-        tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+        P.tag("@temporal-contract/WorkflowNotFoundError"),
+        P.tag("@temporal-contract/WorkflowValidationError"),
+        P.tag("@temporal-contract/WorkflowAlreadyStartedError"),
+        P.tag("@temporal-contract/WorkflowFailedError"),
+        P.tag("@temporal-contract/WorkflowExecutionNotFoundError"),
         (error) => console.error("failed:", error.message),
       ),
   defect: (cause) => console.error("unexpected:", cause),
