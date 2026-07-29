@@ -126,7 +126,6 @@ const approve = defineSignal({
 });
 
 const getStatus = defineQuery({
-  input: z.object({}),
   output: z.object({ state: z.enum(["pending", "approved", "shipped"]) }),
 });
 
@@ -145,8 +144,11 @@ const processOrder = defineWorkflow({
 });
 ```
 
-Signals have `input` only. Queries and updates have both `input` and `output`.
-A no-argument query takes `input: z.object({})`.
+Signals have `input` only. Queries and updates have `input` and `output`. On
+all three, `input` is optional: omit it for a no-payload signal
+(`defineSignal()`) or a no-argument query/update (`defineQuery({ output })`,
+`defineUpdate({ output })`) — the handler then receives `undefined`, and the
+client-side payload argument becomes omittable.
 
 See [Use signals, queries, and updates](/how-to/use-signals-queries-and-updates)
 for handling them.
@@ -172,8 +174,9 @@ const chargeCard = defineActivity({
 ```
 
 The error's key becomes the `ApplicationFailure.type` on the wire, `data` is
-validated on both sides of the boundary, and `nonRetryable` drives Temporal's
-retry policy straight from the contract.
+validated when the error is raised and parsed when it is rehydrated on the
+consuming side, and `nonRetryable` drives Temporal's retry policy straight
+from the contract.
 
 Workflows declare errors the same way. See
 [Model domain errors](/how-to/model-domain-errors).

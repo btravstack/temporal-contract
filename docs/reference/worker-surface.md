@@ -33,10 +33,17 @@ function declareWorkflow<TContract, TWorkflowName>(
 `activityOptions` may be omitted only if every reachable activity is covered by
 a contract-level `defaultOptions` or an `activityOptionsByName` entry.
 Otherwise `declareWorkflow` throws at declaration time, listing the uncovered
-activities.
+activities. An unknown `workflowName` also fails at declaration time, listing
+the contract's available workflow names.
 
 The returned function carries `name === workflowName`, which is how Temporal
 derives the workflow type.
+
+Workflow input is **parsed on receive** here — the client validated the args
+but transmitted the caller's original value, so a transforming schema applies
+exactly once. The return value is validated before completion and transmitted
+as-is; the client parses it on receive. See
+[Validation boundaries](/explanation/validation-boundaries).
 
 ### `WorkflowContext`
 
@@ -75,6 +82,10 @@ Empty object when the workflow declares no errors.
 (signalName: K, handler: (args: Input) => void | Promise<void>) => void;
 ```
 
+An incoming signal whose payload fails the schema is **dropped and logged**
+(`log.warn` with the signal name and issues) — it never fails the execution.
+A signal is fire-and-forget; any stale client can send one.
+
 #### `defineQuery(name, handler)`
 
 ```typescript
@@ -90,7 +101,13 @@ Must be synchronous.
 ```
 
 Names are constrained to what the contract declares. Register handlers inside
-the implementation so they can close over workflow state.
+the implementation so they can close over workflow state. For an input-less
+definition (`defineSignal()`, `defineQuery({ output })`,
+`defineUpdate({ output })`) the handler receives `undefined`.
+
+Binding a name the contract does not declare — possible only from untyped
+code — throws `ContractMisuseError`, failing the execution terminally instead
+of hanging it in Workflow Task retries.
 
 #### `startChildWorkflow(contract, workflowName, options)`
 
@@ -101,8 +118,19 @@ the implementation so they can close over workflow state.
    >
 ```
 
-`TypedChildWorkflowHandle` exposes `workflowId` and
-`result(): AsyncResult<Output, ChildWorkflowError | ChildWorkflowCancelledError>`.
+`TypedChildWorkflowHandle` exposes:
+
+| Member                | Type                                                                                                 |
+| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| `workflowId`          | `string`                                                                                             |
+| `firstExecutionRunId` | `string` — anchor of the child's execution chain, stable across continue-as-new                      |
+| `signals`             | `Record<SignalName, (args) => AsyncResult<void, ChildWorkflowError \| ChildWorkflowCancelledError>>` |
+| `result()`            | `AsyncResult<Output, ChildWorkflowError \| ChildWorkflowCancelledError>`                             |
+
+The `signals` map mirrors the client handle's: one sender per signal declared
+on the child's contract entry. The payload is validated before sending — an
+invalid payload fails early as `Err(ChildWorkflowError)` — and the child
+parses it on receive.
 
 #### `executeChildWorkflow(contract, workflowName, options)`
 
@@ -153,11 +181,14 @@ Never returns normally.
 `ActivityError`, `ActivityCancelledError`, `ActivityInputValidationError`,
 `ActivityOutputValidationError`, `ChildWorkflowError`,
 `ChildWorkflowCancelledError`, `ChildWorkflowNotFoundError`,
-`ContractErrorDataValidationError`, `QueryInputValidationError`,
-`QueryOutputValidationError`, `SignalInputValidationError`,
+`ContractErrorDataValidationError`, `ContractMisuseError`,
+`QueryInputValidationError`, `QueryOutputValidationError`,
 `UpdateInputValidationError`, `UpdateOutputValidationError`, `ValidationError`,
 `WorkflowCancelledError`, `WorkflowInputValidationError`,
 `WorkflowOutputValidationError`
+
+There is no `SignalInputValidationError` — an invalid signal payload is
+dropped and logged, never thrown (see `defineSignal` above).
 
 Plus `ContractError`, `AnyContractError`, `ContractErrorConstructors`,
 `ContractErrorOptions`, `ContractErrorUnion`.
@@ -181,10 +212,15 @@ function declareActivitiesHandler<TContract, TContext>(
 
 **The input map is nested; the returned handler is flat.** Global activities sit
 at the root of the map you write; workflow-scoped ones nest under their
-workflow's name, mirroring the contract. The returned object is flat because
+workflow's name, mirroring the contract. A workflow that declares no
+activities needs no entry at all. The returned object is flat because
 Temporal resolves one namespace at runtime.
 
-TypeScript requires every activity in the contract to be implemented.
+TypeScript requires every activity in the contract to be implemented, and the
+declaration **fails fast** at runtime too: a declared activity with no
+implementation throws at declaration time (listing the missing names), and a
+stray key — an implementation the contract never declared — throws
+`ActivityDefinitionNotFoundError`.
 
 ### Activity implementation signature
 
@@ -197,22 +233,25 @@ TypeScript requires every activity in the contract to be implemented.
 
 The `helpers` argument is optional to consume.
 
+`args` is **parsed on receive** — the calling side validated the payload but
+transmitted the original value, so a transforming schema applies exactly once.
+
 What the wrapper does with your result:
 
-| You return                | Temporal sees                                                                                                                    |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `Ok(value)`               | `value`, validated against the output schema                                                                                     |
-| `Err(ApplicationFailure)` | the failure thrown; retry policy applies                                                                                         |
-| `Err(contractError)`      | `data` validated, thrown as `ApplicationFailure` with `type` = error name, `details[0]` = data, `nonRetryable` from the contract |
-| a defect                  | the original cause re-thrown                                                                                                     |
+| You return                | Temporal sees                                                                                                                                 |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Ok(value)`               | your original `value`, validated against the output schema (the consuming side parses it on receive)                                          |
+| `Err(ApplicationFailure)` | the failure thrown; retry policy applies                                                                                                      |
+| `Err(contractError)`      | `data` validated, thrown as `ApplicationFailure` with `type` = error name, `details[0]` = the original data, `nonRetryable` from the contract |
+| a defect                  | the original cause re-thrown                                                                                                                  |
 
 The wrapper does not hide `@temporalio/activity` — `Context.current()`,
 `activityInfo()`, and heartbeats are all still available inside the body.
 
-### `qualify(type, options?)`
+### `qualifyFailure(type, options?)`
 
 ```typescript
-function qualify(
+function qualifyFailure(
   type: string,
   options?: { message?: string; nonRetryable?: boolean; details?: unknown[] },
 ): (error: unknown) => ApplicationFailure;
@@ -299,7 +338,12 @@ function createWorker<TContract>(
 ```
 
 `CreateWorkerOptions` is Temporal's `WorkerOptions` without `taskQueue` (taken
-from the contract), plus `contract` and `activities`.
+from the contract), plus `contract` and an optional `activities`.
+
+**`activities` is optional.** Omit it for a workflow-only worker — one that
+polls exclusively for Workflow Tasks, leaving activities to a separate worker
+process on the same task queue. See
+[Configure a worker](/how-to/configure-a-worker#run-a-workflow-only-worker).
 
 **No modeled error.** Bundling failures, bad connections, and invalid options are
 technical faults on the **defect** channel with a `TechnicalError` cause.

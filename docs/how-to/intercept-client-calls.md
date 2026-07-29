@@ -13,11 +13,13 @@ smuggle unvalidated data past the contract.
 import { TypedClient, type ClientInterceptor } from "@temporal-contract/client";
 
 const client = await TypedClient.create({
-  contract: orderContract,
   client: temporalClient,
   interceptors: [tracing, retryTransient], // first entry is outermost
 }).get();
 ```
+
+Interceptors live on the connection-scoped root, so every contract-bound
+client obtained via `client.for(contract)` inherits the same chain.
 
 ## Which operations are wrapped
 
@@ -91,7 +93,7 @@ const retryTransient: ClientInterceptor = (args, next) =>
   });
 ```
 
-Modeled domain errors (`WorkflowNotFoundError`, a `ContractError`, a validation
+Modeled domain errors (`WorkflowNotInContractError`, a `ContractError`, a validation
 failure) stay on the `err` channel. Branch on those with `flatMapErrCases`:
 
 ```typescript

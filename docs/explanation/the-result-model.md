@@ -17,7 +17,7 @@ three.
 | `defect` | A failure you did **not** model | `result.cause` |
 
 An `err` is a value you produced on purpose — `Err(...)`, or a rejection mapped
-through `fromPromise(promise, qualify(...))`. It is part of your type signature,
+through `fromPromise(promise, qualifyFailure(...))`. It is part of your type signature,
 and callers are expected to branch on it.
 
 A `defect` is what happens when something throws that you never modeled: a
@@ -57,7 +57,7 @@ anticipated failure modes_. Everything that can go wrong is a defect.
 
 ```typescript
 // `.get()` rethrows a defect's original cause — the right behaviour at startup
-const client = await TypedClient.create({ contract, client: temporalClient }).get();
+const client = await TypedClient.create({ client: temporalClient }).get();
 ```
 
 ## The shapes at each boundary

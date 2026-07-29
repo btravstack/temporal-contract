@@ -68,7 +68,7 @@ pnpm --filter @temporal-contract/sample-order-processing-worker test
 | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | [`contract.ts`](https://github.com/btravstack/temporal-contract/blob/main/examples/order-processing-contract/src/contract.ts)               | The global vs workflow-scoped activity split                    |
 | [`workflows.ts`](https://github.com/btravstack/temporal-contract/blob/main/examples/order-processing-worker/src/application/workflows.ts)   | Compensation logic, cancellation handling, per-activity options |
-| [`activities.ts`](https://github.com/btravstack/temporal-contract/blob/main/examples/order-processing-worker/src/application/activities.ts) | The nested implementation map, `fromPromise` + `qualify`        |
+| [`activities.ts`](https://github.com/btravstack/temporal-contract/blob/main/examples/order-processing-worker/src/application/activities.ts) | The nested implementation map, `fromPromise` + `qualifyFailure` |
 
 ## Smaller, focused examples
 

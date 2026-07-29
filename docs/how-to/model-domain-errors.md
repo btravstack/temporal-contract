@@ -47,7 +47,7 @@ contract instead of being scattered across worker configuration.
 Implementations receive typed constructors as `errors` in the second argument:
 
 ```typescript
-import { declareActivitiesHandler, qualify } from "@temporal-contract/worker/activity";
+import { declareActivitiesHandler, qualifyFailure } from "@temporal-contract/worker/activity";
 import { Err, fromPromise, Ok } from "unthrown";
 
 export const activities = declareActivitiesHandler({
@@ -55,7 +55,7 @@ export const activities = declareActivitiesHandler({
   activities: {
     processOrder: {
       chargeCard: ({ customerId, amount }, { errors }) =>
-        fromPromise(gateway.charge(customerId, amount), qualify("CHARGE_FAILED")).flatMap(
+        fromPromise(gateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED")).flatMap(
           (charge) =>
             charge.declined
               ? // Typed on the caller's side; `nonRetryable` comes from the contract.
@@ -199,7 +199,7 @@ result.match({
         }
       })
       .with(
-        P.tag("@temporal-contract/WorkflowNotFoundError"),
+        P.tag("@temporal-contract/WorkflowNotInContractError"),
         P.tag("@temporal-contract/WorkflowValidationError"),
         P.tag("@temporal-contract/WorkflowAlreadyStartedError"),
         P.tag("@temporal-contract/WorkflowFailedError"),
@@ -256,7 +256,7 @@ rather than letting a malformed failure cross the wire.
 ## When not to use this
 
 Declared errors are for failures the _caller_ branches on. For technical faults
-— a timeout, a connection reset, a bug — use `qualify` and a plain
+— a timeout, a connection reset, a bug — use `qualifyFailure` and a plain
 `ApplicationFailure`. Retries handle those, and the caller has no meaningful
 decision to make.
 

@@ -119,7 +119,7 @@ contract covers its input and output again, at the cost of an extra hop:
 processOrder: {
   chargeViaNexus: ({ customerId, amount }) =>
     fromPromise(nexusClient.executeOperation("charge", { customerId, amount }),
-      qualify("NEXUS_CHARGE_FAILED")),
+      qualifyFailure("NEXUS_CHARGE_FAILED")),
 }
 ```
 

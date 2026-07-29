@@ -96,7 +96,10 @@ export const activities = declareActivitiesHandler({
     processOrder: {
       chargeCard: ({ customerId, amount }, { context }) =>
         // context.tenantId: string
-        fromPromise(gateway.charge(context.tenantId, customerId, amount), qualify("CHARGE_FAILED")),
+        fromPromise(
+          gateway.charge(context.tenantId, customerId, amount),
+          qualifyFailure("CHARGE_FAILED"),
+        ),
     },
   },
 });
@@ -144,7 +147,7 @@ export const activities = declareActivitiesHandler({
   activities: {
     processOrder: {
       chargeCard: ({ customerId, amount }, { context }) =>
-        fromPromise(context.gateway.charge(customerId, amount), qualify("CHARGE_FAILED")),
+        fromPromise(context.gateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED")),
     },
   },
 });

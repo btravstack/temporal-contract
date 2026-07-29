@@ -104,16 +104,16 @@ From `@temporal-contract/client`.
 `_tag: "@temporal-contract/RuntimeClientError"` · channel: **defect only**
 
 A technical failure with no more specific class — an unrecognized Temporal
-rejection, a transport error, an unknown schedule id.
+rejection, a transport error.
 
 | Property    | Type                      |
 | ----------- | ------------------------- |
 | `operation` | the operation that failed |
 | `cause`     | the underlying failure    |
 
-### `WorkflowNotFoundError`
+### `WorkflowNotInContractError`
 
-`_tag: "@temporal-contract/WorkflowNotFoundError"` · channel: `err`
+`_tag: "@temporal-contract/WorkflowNotInContractError"` · channel: `err`
 
 The workflow name is not on the **contract**. A programming error, not a runtime
 condition.
@@ -131,7 +131,7 @@ From `startWorkflow`, `executeWorkflow`, `signalWithStart`, `getHandle`,
 `_tag: "@temporal-contract/WorkflowExecutionNotFoundError"` · channel: `err`
 
 The targeted **execution** does not exist in the namespace. Distinct from
-`WorkflowNotFoundError` above.
+`WorkflowNotInContractError` above.
 
 | Property     | Type                  |
 | ------------ | --------------------- |
@@ -157,6 +157,30 @@ rejecting a duplicate while a previous run is still in retention.
 
 Branch on this to make a start idempotent — fetch the existing handle and
 continue.
+
+### `ScheduleAlreadyExistsError`
+
+`_tag: "@temporal-contract/ScheduleAlreadyExistsError"` · channel: `err`
+
+`schedule.create` collided with an existing (running, not deleted) schedule
+under the same id. Branch on it for create-if-absent semantics.
+
+| Property     | Type      |
+| ------------ | --------- |
+| `scheduleId` | `string`  |
+| `cause`      | `unknown` |
+
+### `ScheduleNotFoundError`
+
+`_tag: "@temporal-contract/ScheduleNotFoundError"` · channel: `err`
+
+The schedule id is unknown to the Temporal server — wrong id, or the schedule
+was deleted. From every `TypedScheduleHandle` method.
+
+| Property     | Type      |
+| ------------ | --------- |
+| `scheduleId` | `string`  |
+| `cause`      | `unknown` |
 
 ### `WorkflowFailedError`
 
@@ -188,12 +212,12 @@ From `executeWorkflow` and `handle.result()`.
 
 All `TaggedError`s on the `err` channel, all carrying `issues`.
 
-| Class                     | Tag suffix                | Extra properties                                 |
-| ------------------------- | ------------------------- | ------------------------------------------------ |
-| `WorkflowValidationError` | `WorkflowValidationError` | `workflowName`, `direction: "input" \| "output"` |
-| `QueryValidationError`    | `QueryValidationError`    | `queryName`, `direction`                         |
-| `SignalValidationError`   | `SignalValidationError`   | `signalName`                                     |
-| `UpdateValidationError`   | `UpdateValidationError`   | `updateName`, `direction`                        |
+| Class                     | Tag suffix                | Extra properties                                               |
+| ------------------------- | ------------------------- | -------------------------------------------------------------- |
+| `WorkflowValidationError` | `WorkflowValidationError` | `workflowName`, `direction: "input" \| "output"`, `workflowId` |
+| `QueryValidationError`    | `QueryValidationError`    | `queryName`, `direction`                                       |
+| `SignalValidationError`   | `SignalValidationError`   | `signalName`                                                   |
+| `UpdateValidationError`   | `UpdateValidationError`   | `updateName`, `direction`                                      |
 
 ## Worker errors
 
@@ -210,15 +234,30 @@ They are thrown, not returned.
 | `WorkflowOutputValidationError`    | Workflow return value fails its schema                                                |
 | `ActivityInputValidationError`     | Activity input fails its schema, or a middleware substitution does                    |
 | `ActivityOutputValidationError`    | Activity return value fails its schema                                                |
-| `SignalInputValidationError`       | Signal payload fails its schema                                                       |
 | `QueryInputValidationError`        | Query payload fails its schema                                                        |
 | `QueryOutputValidationError`       | Query return value fails its schema                                                   |
 | `UpdateInputValidationError`       | Update payload fails its schema                                                       |
 | `UpdateOutputValidationError`      | Update return value fails its schema                                                  |
 | `ContractErrorDataValidationError` | A contract error's `data` fails its schema, **or** an undeclared error name is raised |
+| `ContractMisuseError`              | Workflow-sandbox code misuses the contract — see below                                |
 
 `ValidationError` itself is exported as the abstract base, for `instanceof`
 checks across all of them.
+
+There is **no** `SignalInputValidationError`: a signal payload failing its
+schema is dropped and logged (`log.warn`), never thrown — a fire-and-forget
+message must not be able to kill the execution.
+
+### `ContractMisuseError`
+
+Extends `ValidationError` (non-retryable `ApplicationFailure`), with an empty
+`issues` array — the misuse is structural, not a payload failure. Thrown when
+workflow-sandbox code misuses the contract surface: binding a
+signal/query/update handler for an undeclared name, using an async-validating
+schema where Temporal requires synchronous validation, or reaching an activity
+no options cover. Failing terminally is the point — a plain `Error` thrown
+from sandbox code would be retried as a Workflow Task failure forever, leaving
+the execution silently `Running`.
 
 ### `ActivityDefinitionNotFoundError`
 
@@ -308,20 +347,21 @@ the defect channel instead.
 
 ### Client
 
-| Operation                                       | `err` channel                                                                                              |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `TypedClient.create`                            | `never`                                                                                                    |
-| `startWorkflow`                                 | `WorkflowNotFoundError \| WorkflowValidationError \| WorkflowAlreadyStartedError`                          |
-| `executeWorkflow`                               | the above, plus `WorkflowFailedError \| WorkflowExecutionNotFoundError \| ContractErrorUnion`              |
-| `signalWithStart`                               | `WorkflowNotFoundError \| WorkflowValidationError \| SignalValidationError \| WorkflowAlreadyStartedError` |
-| `getHandle`                                     | `WorkflowNotFoundError`                                                                                    |
-| `handle.queries.*`                              | `QueryValidationError \| WorkflowExecutionNotFoundError`                                                   |
-| `handle.signals.*`                              | `SignalValidationError \| WorkflowExecutionNotFoundError`                                                  |
-| `handle.updates.*`                              | `UpdateValidationError \| WorkflowExecutionNotFoundError`                                                  |
-| `handle.result()`                               | `ContractErrorUnion \| WorkflowValidationError \| WorkflowFailedError \| WorkflowExecutionNotFoundError`   |
-| `handle.terminate/cancel/describe/fetchHistory` | `WorkflowExecutionNotFoundError`                                                                           |
-| `schedule.create`                               | `WorkflowNotFoundError \| WorkflowValidationError`                                                         |
-| `schedule` handle methods                       | `never`                                                                                                    |
+| Operation                                       | `err` channel                                                                                                   |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `TypedClient.create`                            | `never`                                                                                                         |
+| `startWorkflow`                                 | `WorkflowNotInContractError \| WorkflowValidationError \| WorkflowAlreadyStartedError`                          |
+| `executeWorkflow`                               | the above, plus `WorkflowFailedError \| WorkflowExecutionNotFoundError \| ContractErrorUnion`                   |
+| `signalWithStart`                               | `WorkflowNotInContractError \| WorkflowValidationError \| SignalValidationError \| WorkflowAlreadyStartedError` |
+| `getHandle` (sync `Result`)                     | `WorkflowNotInContractError`                                                                                    |
+| `handle.queries.*`                              | `QueryValidationError \| WorkflowExecutionNotFoundError`                                                        |
+| `handle.signals.*`                              | `SignalValidationError \| WorkflowExecutionNotFoundError`                                                       |
+| `handle.updates.*`                              | `UpdateValidationError \| WorkflowExecutionNotFoundError`                                                       |
+| `handle.startUpdate` / update-handle `result()` | `UpdateValidationError \| WorkflowExecutionNotFoundError`                                                       |
+| `handle.result()`                               | `ContractErrorUnion \| WorkflowValidationError \| WorkflowFailedError \| WorkflowExecutionNotFoundError`        |
+| `handle.terminate/cancel/describe/fetchHistory` | `WorkflowExecutionNotFoundError`                                                                                |
+| `schedule.create`                               | `WorkflowNotInContractError \| WorkflowValidationError \| ScheduleAlreadyExistsError`                           |
+| `schedule` handle methods                       | `ScheduleNotFoundError`                                                                                         |
 
 ### Worker
 
@@ -333,6 +373,7 @@ the defect channel instead.
 | `startChildWorkflow`                       | `ChildWorkflowError \| ChildWorkflowCancelledError \| ChildWorkflowNotFoundError` |
 | `executeChildWorkflow`                     | same                                                                              |
 | child `handle.result()`                    | `ChildWorkflowError \| ChildWorkflowCancelledError`                               |
+| child `handle.signals.*`                   | `ChildWorkflowError \| ChildWorkflowCancelledError`                               |
 | `cancellableScope` / `nonCancellableScope` | `WorkflowCancelledError`                                                          |
 
 An empty `err` channel (`never`) means every failure is a defect.

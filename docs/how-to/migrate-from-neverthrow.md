@@ -125,7 +125,7 @@ into one branch is compact:
 
 ```typescript
 matcher.with(
-  P.tag("@temporal-contract/WorkflowNotFoundError"),
+  P.tag("@temporal-contract/WorkflowNotInContractError"),
   P.tag("@temporal-contract/WorkflowValidationError"),
   P.tag("@temporal-contract/WorkflowFailedError"),
   (error) => report(error),
@@ -214,17 +214,18 @@ const chargeCard = ({ customerId, amount }) =>
 ```typescript
 // after — unthrown
 import { Err, Ok, fromPromise } from "unthrown";
-import { qualify } from "@temporal-contract/worker/activity";
+import { qualifyFailure } from "@temporal-contract/worker/activity";
 
 const chargeCard = ({ customerId, amount }) =>
-  fromPromise(gateway.charge(customerId, amount), qualify("CHARGE_FAILED")).flatMap((charge) =>
-    charge.declined
-      ? Err(ApplicationFailure.create({ type: "DECLINED", nonRetryable: true }))
-      : Ok({ transactionId: charge.id }),
+  fromPromise(gateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED")).flatMap(
+    (charge) =>
+      charge.declined
+        ? Err(ApplicationFailure.create({ type: "DECLINED", nonRetryable: true }))
+        : Ok({ transactionId: charge.id }),
   );
 ```
 
-`qualify` is a temporal-contract helper that collapses the hand-written
+`qualifyFailure` is a temporal-contract helper that collapses the hand-written
 `ApplicationFailure.create` mapper into one call.
 
 ## Combining results

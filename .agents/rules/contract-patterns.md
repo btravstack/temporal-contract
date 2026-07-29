@@ -50,8 +50,9 @@ const processOrder = defineWorkflow({
     cancel: defineSignal({ input: z.object({ reason: z.string() }) }),
   },
   queries: {
+    // `input` is optional on signals/queries/updates — omit it for an
+    // argument-less definition (handler gets `undefined`).
     getStatus: defineQuery({
-      input: z.object({}),
       output: z.object({ status: z.string() }),
     }),
   },
@@ -101,4 +102,4 @@ Any Standard Schema compatible library works:
   - `errors` — same shape as workflow errors; produced via the `errors` constructors in the implementation's helpers argument, and rehydrated as a typed `AsyncResult` error union on the workflow side
   - `defaultOptions` — contract-level `ActivityOptions` defaults (timeouts, retry). Merge precedence at the worker: `declareWorkflow` `activityOptions` < `defaultOptions` < `activityOptionsByName`
 
-`defineContract` rejects collisions between workflow-local and global activity names at runtime — `defineContract` runs a Zod validation pass and throws a descriptive error. Activities share a single flat namespace at the worker level, so two activities can't share a name even across workflows. See `packages/contract/src/builder.ts:441` for the validation schema.
+`defineContract` validates the contract's structure at runtime with a hand-rolled structural validator (no zod runtime dependency) and throws a descriptive error: strict root keys (only `taskQueue`/`workflows`/`activities`), identifier-safe names, Standard Schema slots, and collision checks. Activities share a single flat namespace at the worker level, so two _different_ definitions can't share a name even across workflows — but reusing the **same definition object** across workflows is allowed (it's one activity), and the collision message recommends hoisting shared activities to the global `activities` block. A workflow name colliding with a global activity name is also rejected (they share the root of the worker implementations map). See `packages/contract/src/builder.ts` (`validateContractDefinition`).

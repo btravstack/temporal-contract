@@ -49,7 +49,7 @@ raw failure on `result.cause` and re-throws when unwrapped, so genuine bugs
 surface loudly. See [The result model](/explanation/the-result-model).
 
 **Qualification** — turning an untyped rejection into a modeled error at a
-boundary. `fromPromise(promise, qualify("TYPE"))` is the common form.
+boundary. `fromPromise(promise, qualifyFailure("TYPE"))` is the common form.
 
 **`TaggedError`** — unthrown's base for error classes, stamping a `_tag`
 discriminant. temporal-contract namespaces its tags with the package scope
@@ -102,7 +102,7 @@ history bounded. See [Continue as new](/how-to/continue-as-new).
 `nonRetryable` flag.
 
 **`nonRetryable`** — marks a failure permanent so Temporal stops retrying
-immediately. Settable per instance via `qualify`, or per declared error on the
+immediately. Settable per instance via `qualifyFailure`, or per declared error on the
 contract.
 
 **Cancellation scope** — a region of workflow code that can be cancelled as a

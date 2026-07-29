@@ -141,7 +141,7 @@ non-deterministic. In temporal-contract they return an `AsyncResult` from
 Create `src/activities.ts`:
 
 ```typescript
-import { declareActivitiesHandler, qualify } from "@temporal-contract/worker/activity";
+import { declareActivitiesHandler, qualifyFailure } from "@temporal-contract/worker/activity";
 import { fromPromise } from "unthrown";
 
 import { orderContract } from "./contract.js";
@@ -169,22 +169,22 @@ export const activities = declareActivitiesHandler({
     // mirroring the contract.
     processOrder: {
       chargeCard: ({ customerId, amount }) =>
-        fromPromise(paymentGateway.charge(customerId, amount), qualify("CHARGE_FAILED")).map(
+        fromPromise(paymentGateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED")).map(
           (charge) => ({ transactionId: charge.id }),
         ),
 
       sendReceipt: ({ customerId, transactionId }) =>
-        fromPromise(mailer.send(customerId, transactionId), qualify("RECEIPT_FAILED")),
+        fromPromise(mailer.send(customerId, transactionId), qualifyFailure("RECEIPT_FAILED")),
     },
   },
 });
 ```
 
-`fromPromise(promise, qualify(...))` is the shape you will write most often. It
+`fromPromise(promise, qualifyFailure(...))` is the shape you will write most often. It
 takes a promise that might reject and turns it into an `AsyncResult`:
 
 - if the promise resolves, you get the value on the `ok` channel;
-- if it rejects, `qualify("CHARGE_FAILED")` wraps the rejection in a Temporal
+- if it rejects, `qualifyFailure("CHARGE_FAILED")` wraps the rejection in a Temporal
   `ApplicationFailure` whose `type` is `"CHARGE_FAILED"`.
 
 That `type` is what Temporal's retry policies key on, which is why it is worth
@@ -303,11 +303,13 @@ import { orderContract } from "./contract.js";
 const connection = await Connection.connect({ address: "localhost:7233" });
 
 const client = await TypedClient.create({
-  contract: orderContract,
   client: new Client({ connection }),
 }).get();
 
-const result = await client.executeWorkflow("processOrder", {
+// Bind the contract — synchronous, infallible, free to call anywhere.
+const orders = client.for(orderContract);
+
+const result = await orders.executeWorkflow("processOrder", {
   workflowId: `order-${Date.now()}`,
   args: {
     orderId: "ORD-1",
@@ -322,7 +324,7 @@ result.match({
   },
   errCases: (matcher) =>
     matcher.with(
-      P.tag("@temporal-contract/WorkflowNotFoundError"),
+      P.tag("@temporal-contract/WorkflowNotInContractError"),
       P.tag("@temporal-contract/WorkflowValidationError"),
       P.tag("@temporal-contract/WorkflowAlreadyStartedError"),
       P.tag("@temporal-contract/WorkflowFailedError"),
