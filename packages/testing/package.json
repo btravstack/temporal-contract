@@ -1,6 +1,6 @@
 {
   "name": "@temporal-contract/testing",
-  "version": "8.0.0-beta.2",
+  "version": "8.0.0-beta.3",
   "description": "Temporal testing utilities",
   "keywords": [
     "contract",
