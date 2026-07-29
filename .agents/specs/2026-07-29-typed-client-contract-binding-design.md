@@ -1,4 +1,4 @@
-# Design: bind a second contract to an existing `TypedClient`
+# Design: decouple the client from the contract
 
 - **Date:** 2026-07-29
 - **Status:** approved, not yet implemented
@@ -47,16 +47,32 @@ async refreshDeclaration(declarationId: string): Promise<void> {
    handler.
 2. **Part of the pain is a version artifact.** The consumer pins
    `catalog:temporalContract7`. On 8.0 `create` returns
-   `AsyncResult<TypedClient<TContract>, never>`, so the `mapErr` /
+   `AsyncResult<..., never>`, so the `mapErr` /
    `tag("@temporal-contract/TechnicalError")` ceremony above does not compile and
    collapses to `.get()`.
-3. **The multi-contract burden is currently theoretical.** Across the millenium
-   monorepo, temporal-contract is consumed by `applications/plato` (one contract)
-   and, in this POC, `service-lease-accounting` (`leaseAccountingComputeContract`).
-   One contract per application; no process binds two today.
+3. **The multi-contract case is not yet present.** Across the millenium monorepo,
+   temporal-contract is consumed by `applications/plato` (one contract) and, in
+   this POC, `service-lease-accounting` (`leaseAccountingComputeContract`). One
+   contract per application; no process binds two today. The driver for this
+   change is therefore separation of concerns, not contract count — see Rationale.
 4. **Precedent exists for contract-per-call.** The worker's
    `context.startChildWorkflow(contract, name, options)` takes the contract as a
    required first parameter.
+
+## Rationale
+
+A client is a **connection**. A contract is a **schema**. Coupling them means a
+connection cannot be established without first choosing a schema, which is
+backwards: the connection is the scarce, fallible, process-lifetime resource, and
+the schema is a free compile-time artifact.
+
+The practical consequences of the current coupling:
+
+- Establishing a connection requires naming a contract, so an application with
+  two contracts opens two clients and runs `ensureConnected()` twice.
+- The fallible, async step cannot be hoisted to process start without also fixing
+  the contract there, which is what pushed construction into a request handler in
+  the originating MR.
 
 ## Non-goals
 
@@ -65,108 +81,147 @@ async refreshDeclaration(declarationId: string): Promise<void> {
   (`53dfb80`, 2026-03-01) to "simplify the project scope and reduce maintenance
   burden". The consumer additionally has its own in-house `@emeria/nestjs-temporal`
   (`@ContractActivitiesHandler()`, activity explorer), so the need is already met
-  outside this repo. Re-adding it would reverse a deliberate decision to solve a
-  problem the consumer has already solved. The removed provider was also
-  one-module-per-contract, so it would not have addressed this complaint anyway.
-- **Moving the contract to the call site** (`client.startWorkflow(contract, name,
-options)`). Rejected: it taxes every call site to serve a case that does not
-  exist yet, and `client.schedule` would need the contract threaded through
-  `TypedScheduleClient` as well.
+  outside this repo. The removed provider was also one-module-per-contract, so it
+  would not have addressed this complaint anyway.
+- **Moving the contract onto every call** (`client.startWorkflow(contract, name,
+options)`). Rejected: it taxes every call site, and `client.schedule` would need
+  the contract threaded through `TypedScheduleClient` as well. Binding once via
+  `for()` gives the same decoupling without the per-call cost.
 
 ## Decision
 
-Add one synchronous instance method to `TypedClient`.
+Split the class in two.
 
 ```ts
-class TypedClient<TContract extends ContractDefinition> {
-  /**
-   * Bind another contract, reusing this client's connection and interceptors.
-   * Synchronous, infallible, memoized per contract identity.
-   */
-  for<TOther extends ContractDefinition>(contract: TOther): TypedClient<TOther>;
+/** Connection-scoped. No contract, no type parameter. */
+export class TypedClient {
+  static create(options: {
+    client: Client;
+    interceptors?: readonly ClientInterceptor[];
+  }): AsyncResult<TypedClient, never>;
+
+  /** Bind a contract. Synchronous, infallible, memoized per contract identity. */
+  for<TContract extends ContractDefinition>(contract: TContract): ContractClient<TContract>;
+}
+
+/** Contract-scoped. Everything TypedClient<TContract> exposes today. */
+export class ContractClient<TContract extends ContractDefinition> {
+  startWorkflow(...): ...;
+  executeWorkflow(...): ...;
+  signalWithStart(...): ...;
+  getHandle(...): ...;
+  readonly schedule: TypedScheduleClient<TContract>;
 }
 ```
 
 ```ts
-const client = (await TypedClient.create({ contract: leaseContract, client: temporal })).get();
+const client = await TypedClient.create({ client: temporal }).get(); // once, at startup
 
-await client.startWorkflow("computeOneLessorTaxDeclarationWorkflow", { workflowId, args });
+await client.for(leaseContract).startWorkflow("computeOneLessorTaxDeclarationWorkflow", {
+  workflowId,
+  args,
+});
 await client.for(platoContract).startWorkflow("someOtherWorkflow", { workflowId, args });
 ```
 
-Existing call sites are untouched, nothing is renamed, and no new type is exported.
+No contract is privileged; every contract is reached the same way.
 
 ### Semantics
 
-- **Infallible.** The private constructor's only `throw` is the missing
-  `client.schedule` check (`@temporalio/client` < 1.16). `for()` reuses the same
-  `Client` that already passed that check during `create()`, so it cannot fail. It
-  returns `TypedClient<TOther>` directly — no `AsyncResult` wrapper. This is the
+- **`for()` is infallible.** The `@temporalio/client >= 1.16` check (a missing
+  `client.schedule`) moves to `TypedClient.create`, where it belongs — it is a
+  property of the connection, not of any contract. `for()` therefore returns
+  `ContractClient<TContract>` directly, with no `AsyncResult` wrapper. This is the
   ergonomic win: binding is a plain expression, valid in a field initializer.
 - **Memoized and identity-stable.** A
-  `WeakMap<ContractDefinition, TypedClient<ContractDefinition>>` seeded with
-  `[this.contract, this]`, so `client.for(ownContract) === client` and repeated
-  `for(c)` returns the same instance instead of rebuilding `TypedScheduleClient`.
-  The map erases the type parameter, so storing and reading each cross a cast —
-  contained to the two lines inside `for()`.
-- **Inherits `client` and `interceptors`.** No per-call interceptor override —
-  YAGNI, and addable later without a break.
-- **Never reconnects.** `ensureConnected()` stays a `create()`-time concern.
+  `WeakMap<ContractDefinition, ContractClient<ContractDefinition>>` on the root, so
+  repeated `for(c)` returns the same instance rather than rebuilding
+  `TypedScheduleClient`. The map erases the type parameter, so the store and the
+  read each require a cast, contained to the two lines inside `for()`.
+- **`ContractClient` inherits `client` and `interceptors` from the root.** No
+  per-call interceptor override — YAGNI, and addable later without a break.
+- **`create` still awaits `ensureConnected()`**, once per process rather than once
+  per contract.
 
-### Known wart
+## Breaking changes
 
-The bootstrap contract is privileged: contract B is reached _through_ contract A's
-client. Accepted for now — see Follow-up.
+8.0 has not shipped, so these land inside the existing beta line rather than
+forcing a new major.
+
+| Before                                             | After                                          |
+| -------------------------------------------------- | ---------------------------------------------- |
+| `TypedClient.create({ contract, client })`         | `TypedClient.create({ client }).for(contract)` |
+| `TypedClient<typeof contract>` (type annotation)   | `ContractClient<typeof contract>`              |
+| `TypedClient.createOrThrow(contract, client, ...)` | removed                                        |
+
+`create({ contract, client })` is **not** retained as a deprecated alias: keeping
+it would preserve exactly the contract dependency this change removes.
+`createOrThrow` is already `@deprecated` and takes a contract positionally, so it
+goes at the same time.
+
+Roughly 15 references to `TypedClient<...>` exist in-repo (tests, examples,
+`docs/reference/client-surface.md`); about 6 are `TypedClient<typeof X>`
+annotations that become `ContractClient<typeof X>`.
 
 ## Implementation
 
-Single file: `packages/client/src/client.ts`.
+`packages/client/src/client.ts`.
 
-1. Add a private `bound` field:
-   `WeakMap<ContractDefinition, TypedClient<ContractDefinition>>`.
-2. Seed it with `this.contract -> this` at the end of the private constructor.
-3. Add the public `for<TOther>(contract: TOther): TypedClient<TOther>` method:
-   look up the memo, otherwise construct via the private constructor with
-   `(contract, this.client, this.interceptors)`, store, return.
-4. Add a TSDoc `@example` including `import { P } from "unthrown";` where the
-   example matches on errors — per the convention that every standalone example
-   block shows where its symbols come from.
+1. Rename `class TypedClient<TContract>` to `ContractClient<TContract>`, keeping
+   every member as-is. Its constructor stays private.
+2. Move the `client.schedule` presence check out of that constructor into the new
+   root's `create`.
+3. Add `class TypedClient` holding `client`, `interceptors`, and the memo
+   `WeakMap`; `static create({ client, interceptors })` performs the schedule check
+   and `ensureConnected()`, returning `AsyncResult<TypedClient, never>`.
+4. Add `TypedClient#for(contract)`: read the memo, otherwise construct a
+   `ContractClient` with `(contract, this.client, this.interceptors)`, store,
+   return.
+5. Delete `createOrThrow` and `CreateTypedClientOptions`'s `contract` field.
+6. Export `ContractClient` from the package entry point.
+7. Add a TSDoc `@example` to both `create` and `for`, each showing its imports —
+   per the convention that a standalone example block names where its symbols come
+   from.
 
-The private constructor is reachable from `for()` because both live on the same
-class, so no visibility change is needed.
+`ContractClient` must be constructible from `TypedClient#for`. Since they are
+separate classes, the constructor cannot stay `private`; make it `internal` by
+convention (a documented `@internal` TSDoc tag plus omission from the public
+surface docs) rather than exporting a factory.
+
+> `client.ts` is already ~1100 lines. Splitting `ContractClient` into its own
+> module is tempting but would balloon the diff and obscure the rename in review.
+> Keep both classes in `client.ts` for this change; split separately if it grows.
 
 ## Testing
 
-| Level       | File                                          | Cases                                                                                                                                                                                                                                                                  |
-| ----------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Type        | `packages/client/src/types-inference.spec.ts` | `for(other).startWorkflow("nameFromOther")` compiles; a workflow name from the bootstrap contract is rejected on the derived client. This is where the real risk lives.                                                                                                |
-| Unit        | `packages/client/src/client.spec.ts`          | `for(own) === client`; `for(c)` twice returns the same instance; the derived client uses the derived contract's `taskQueue`; input/output validation runs against the derived contract's schemas; interceptors are inherited; `ensureConnected()` is not called again. |
-| Integration | `packages/client/src/__tests__/`              | New `second.contract.ts` + `second.workflows.ts` fixtures and a second `Worker` on the second task queue; one case proving `client.for(secondContract).executeWorkflow(...)` is routed to that queue against a live server.                                            |
+| Level       | File                                          | Cases                                                                                                                                                                                                                                                                      |
+| ----------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Type        | `packages/client/src/types-inference.spec.ts` | `for(c).startWorkflow(name)` accepts only `c`'s workflow names; two different contracts yield mutually incompatible `ContractClient` types. This is where the real risk lives.                                                                                             |
+| Unit        | `packages/client/src/client.spec.ts`          | `for(c)` twice returns the same instance; two contracts yield distinct instances; each uses its own `taskQueue` and validates against its own schemas; interceptors are inherited; `ensureConnected()` runs once per root; `create` rejects a `Client` without `schedule`. |
+| Integration | `packages/client/src/__tests__/`              | New `second.contract.ts` + `second.workflows.ts` fixtures and a second `Worker` on the second task queue; one case proving one root drives both contracts and that `for(secondContract).executeWorkflow(...)` is routed to the second queue against a live server.         |
 
-The integration fixture mirrors the existing `worker` vitest fixture in
-`__tests__/client.spec.ts` (`Worker.create` with `taskQueue`, `workflowsPath`,
-`{ auto: true }`, shutdown in teardown).
+Existing suites need their `TypedClient<typeof X>` fixtures retyped to
+`ContractClient<typeof X>` and their construction updated to
+`create({ client }).for(contract)`. The integration fixture mirrors the existing
+`worker` vitest fixture in `__tests__/client.spec.ts` (`Worker.create` with
+`taskQueue`, `workflowsPath`, `{ auto: true }`, shutdown in teardown).
 
 ## Documentation
 
-- `docs/reference/client-surface.md` — add the `for()` entry.
-- TSDoc `@example` on the method, which renders into the generated API docs.
-- No new how-to page: a page for a single method is thin, and the reference entry
-  plus the example carries it.
+- `docs/reference/client-surface.md` — document both classes and `for()`.
+- `docs/how-to/upgrade-to-v8.md` — a migration section for the three breaking
+  changes in the table above.
+- Every `TypedClient.create({ contract, client })` occurrence across `docs/`,
+  `README.md`, `packages/*/README.md` and `examples/` updated to the two-step
+  form.
+- TSDoc `@example` on `create` and `for`, which render into the generated API docs.
 
 ## Release
 
-A `minor` changeset on `@temporal-contract/client`. The repo is in changesets pre
-mode on the `beta` tag, so it folds into the next `8.0.0-beta.N`; the fixed group
-bumps all four packages together.
-
-## Follow-up (not in scope)
-
-If a process ever binds three or more contracts, or the privileged bootstrap
-contract causes a real ordering problem, introduce an unbound connection-scoped
-root that mints contract-bound clients (`root.for(contract)`), keeping
-`TypedClient.create({ contract, client })` as sugar. `for()` semantics are
-identical, so call sites do not change.
+A `major` changeset on `@temporal-contract/client` — the change is breaking. The
+repo is in changesets pre mode on the `beta` tag, so it folds into the next
+`8.0.0-beta.N` rather than opening a 9.0 line; the fixed group bumps all four
+packages together.
 
 ## Unrelated defect found while investigating
 
