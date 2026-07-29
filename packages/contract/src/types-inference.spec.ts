@@ -18,13 +18,15 @@ import {
   defineWorkflow,
 } from "./builder.js";
 import type {
+  ClientInferInput,
+  ClientInferOutput,
   InferActivityNames,
-  InferContractWorkflows,
   InferWorkflowNames,
   QueryNamesOf,
   SearchAttributeKindToType,
   SignalNamesOf,
   UpdateNamesOf,
+  WorkerInferInput,
 } from "./types.js";
 
 const contract = defineContract({
@@ -73,14 +75,6 @@ describe("contract inference utilities", () => {
       },
     });
     expectTypeOf<InferActivityNames<typeof noActivities>>().toEqualTypeOf<never>();
-  });
-
-  it("InferContractWorkflows preserves workflow definitions", () => {
-    type Workflows = InferContractWorkflows<typeof contract>;
-    expectTypeOf<keyof Workflows>().toEqualTypeOf<"processOrder" | "sendNotification">();
-    expectTypeOf<Workflows["processOrder"]["input"]>().toEqualTypeOf<
-      (typeof contract)["workflows"]["processOrder"]["input"]
-    >();
   });
 
   it("defineActivity preserves the literal schema types", () => {
@@ -246,6 +240,45 @@ describe("Signal/query/update name helpers (audit fix #3)", () => {
         bump: defineUpdate({ input: z.object({}), output: z.number() }),
       },
     });
+    expectTypeOf<UpdateNamesOf<typeof wf>>().toEqualTypeOf<"bump">();
+  });
+});
+
+describe("input-less signal/query/update definitions", () => {
+  it("defineSignal() infers the handler input as undefined on both faces", () => {
+    const shutdown = defineSignal();
+    expectTypeOf<WorkerInferInput<typeof shutdown>>().toEqualTypeOf<undefined>();
+    expectTypeOf<ClientInferInput<typeof shutdown>>().toEqualTypeOf<undefined>();
+  });
+
+  it("defineSignal({}) behaves like defineSignal()", () => {
+    const shutdown = defineSignal({});
+    expectTypeOf<WorkerInferInput<typeof shutdown>>().toEqualTypeOf<undefined>();
+  });
+
+  it("defineQuery without input infers input undefined and keeps the output type", () => {
+    const getStatus = defineQuery({ output: z.string() });
+    expectTypeOf<WorkerInferInput<typeof getStatus>>().toEqualTypeOf<undefined>();
+    expectTypeOf<ClientInferInput<typeof getStatus>>().toEqualTypeOf<undefined>();
+    expectTypeOf<ClientInferOutput<typeof getStatus>>().toEqualTypeOf<string>();
+  });
+
+  it("defineUpdate without input infers input undefined and keeps the output type", () => {
+    const bump = defineUpdate({ output: z.number() });
+    expectTypeOf<WorkerInferInput<typeof bump>>().toEqualTypeOf<undefined>();
+    expectTypeOf<ClientInferOutput<typeof bump>>().toEqualTypeOf<number>();
+  });
+
+  it("input-less definitions still satisfy the workflow definition constraints", () => {
+    const wf = defineWorkflow({
+      input: z.object({}),
+      output: z.object({}),
+      signals: { shutdown: defineSignal() },
+      queries: { getStatus: defineQuery({ output: z.string() }) },
+      updates: { bump: defineUpdate({ output: z.number() }) },
+    });
+    expectTypeOf<SignalNamesOf<typeof wf>>().toEqualTypeOf<"shutdown">();
+    expectTypeOf<QueryNamesOf<typeof wf>>().toEqualTypeOf<"getStatus">();
     expectTypeOf<UpdateNamesOf<typeof wf>>().toEqualTypeOf<"bump">();
   });
 });

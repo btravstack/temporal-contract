@@ -12,6 +12,7 @@ export { formatIssue, summarizeIssues } from "./format.js";
 
 export type {
   AnySchema,
+  UndefinedInputSchema,
   ActivityDefinition,
   SignalDefinition,
   QueryDefinition,
@@ -35,7 +36,6 @@ export type {
   // Contract utility types
   InferWorkflowNames,
   InferActivityNames,
-  InferContractWorkflows,
   // Direction-aware schema inference primitives (shared by worker + client)
   WorkerInferInput,
   WorkerInferOutput,

@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { defineContract } from "./builder.js";
+import {
+  defineActivity,
+  defineContract,
+  defineQuery,
+  defineSignal,
+  defineUpdate,
+  defineWorkflow,
+} from "./builder.js";
 
 describe("Contract Builder", () => {
   describe("defineContract", () => {
@@ -404,7 +411,7 @@ describe("Contract Builder", () => {
           },
         }),
       ).toThrow(
-        'workflow "processOrder" has activity "sendEmail" that conflicts with a global activity. Consider renaming the workflow-specific activity or removing the global activity "sendEmail".',
+        'workflow "processOrder" has activity "sendEmail" that conflicts with a different global activity of the same name. Activities share a single flat namespace at runtime — reference the shared definition from the contract\'s global "activities" block, or rename one of them.',
       );
     });
 
@@ -436,8 +443,127 @@ describe("Contract Builder", () => {
           },
         }),
       ).toThrow(
-        'workflow "processRefund" has activity "charge" that conflicts with the same-named activity in workflow "processOrder". Activities share a single flat namespace at runtime — rename one of them.',
+        'workflow "processRefund" has activity "charge" that conflicts with a different same-named activity in workflow "processOrder". Activities share a single flat namespace at runtime — hoist the shared activity to the contract\'s global "activities" block, or rename one of them.',
       );
+    });
+
+    it("should allow the same activity object to be shared by two workflows", () => {
+      const charge = defineActivity({
+        input: z.object({ amount: z.number() }),
+        output: z.object({ transactionId: z.string() }),
+      });
+
+      expect(() =>
+        defineContract({
+          taskQueue: "test",
+          workflows: {
+            processOrder: {
+              input: z.object({}),
+              output: z.object({}),
+              activities: { charge },
+            },
+            processRefund: {
+              input: z.object({}),
+              output: z.object({}),
+              activities: { charge },
+            },
+          },
+        }),
+      ).not.toThrow();
+    });
+
+    it("should allow a workflow to reference the same object as a global activity", () => {
+      const sendEmail = defineActivity({
+        input: z.object({ to: z.string() }),
+        output: z.object({ sent: z.boolean() }),
+      });
+
+      expect(() =>
+        defineContract({
+          taskQueue: "test",
+          workflows: {
+            processOrder: {
+              input: z.object({}),
+              output: z.object({}),
+              activities: { sendEmail },
+            },
+          },
+          activities: { sendEmail },
+        }),
+      ).not.toThrow();
+    });
+
+    it("should throw when a global activity has the same name as a workflow", () => {
+      expect(() =>
+        defineContract({
+          taskQueue: "test",
+          workflows: {
+            processOrder: {
+              input: z.object({}),
+              output: z.object({}),
+            },
+          },
+          activities: {
+            processOrder: {
+              input: z.object({}),
+              output: z.object({}),
+            },
+          },
+        }),
+      ).toThrow(
+        'global activity "processOrder" has the same name as a workflow. Workflows and global activities share the root of the worker implementations map — rename one of them.',
+      );
+    });
+
+    it("should throw when a workflow has the same name as a global activity", () => {
+      // Same collision, declared the other way around: the activity name
+      // comes first alphabetically and the workflow map holds several keys.
+      expect(() =>
+        defineContract({
+          taskQueue: "test",
+          workflows: {
+            aWorkflow: {
+              input: z.object({}),
+              output: z.object({}),
+            },
+            sendEmail: {
+              input: z.object({}),
+              output: z.object({}),
+            },
+          },
+          activities: {
+            sendEmail: {
+              input: z.object({}),
+              output: z.object({}),
+            },
+          },
+        }),
+      ).toThrow(
+        'global activity "sendEmail" has the same name as a workflow. Workflows and global activities share the root of the worker implementations map — rename one of them.',
+      );
+    });
+
+    it("should allow a workflow-local activity to share a workflow's name", () => {
+      // Workflow-local activity implementations nest under their owning
+      // workflow in the worker implementations map, so they never collide
+      // with workflow names at the root.
+      expect(() =>
+        defineContract({
+          taskQueue: "test",
+          workflows: {
+            processOrder: {
+              input: z.object({}),
+              output: z.object({}),
+              activities: {
+                processOrder: {
+                  input: z.object({}),
+                  output: z.object({}),
+                },
+              },
+            },
+          },
+        }),
+      ).not.toThrow();
     });
 
     it("should not misclassify a workflow named 'global' as the global activity scope", () => {
@@ -470,7 +596,7 @@ describe("Contract Builder", () => {
           },
         }),
       ).toThrow(
-        'workflow "other" has activity "send" that conflicts with the same-named activity in workflow "global". Activities share a single flat namespace at runtime — rename one of them.',
+        'workflow "other" has activity "send" that conflicts with a different same-named activity in workflow "global". Activities share a single flat namespace at runtime — hoist the shared activity to the contract\'s global "activities" block, or rename one of them.',
       );
     });
 
@@ -593,6 +719,43 @@ describe("Contract Builder", () => {
               input: z.object({}),
               output: z.object({}),
             },
+          },
+        }),
+      ).not.toThrow();
+    });
+
+    it("should throw on an unknown top-level key (strict root)", () => {
+      expect(() =>
+        defineContract({
+          taskQueue: "test",
+          workflows: {
+            test: {
+              input: z.object({}),
+              output: z.object({}),
+            },
+          },
+          // Deliberate typo of `activities` — TypeScript's generic inference
+          // absorbs the extra key, which is exactly why the runtime root
+          // check is strict.
+          activites: {},
+        }),
+      ).toThrow(
+        'contract has unknown key "activites" — allowed keys are "taskQueue", "workflows", "activities"',
+      );
+    });
+
+    it("should accept input-less signal/query/update definitions from the helpers", () => {
+      expect(() =>
+        defineContract({
+          taskQueue: "test",
+          workflows: {
+            wf: defineWorkflow({
+              input: z.object({}),
+              output: z.object({}),
+              signals: { shutdown: defineSignal() },
+              queries: { getStatus: defineQuery({ output: z.string() }) },
+              updates: { bump: defineUpdate({ output: z.number() }) },
+            }),
           },
         }),
       ).not.toThrow();

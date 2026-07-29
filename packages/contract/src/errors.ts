@@ -77,8 +77,9 @@ export class ContractError<TName extends string = string, TData = unknown> exten
   data: TData;
   cause?: unknown;
 }> {
-  // unthrown 4 reserves `message` (and `name`) in the TaggedError payload;
-  // accept it as a constructor argument and assign it post-`super` instead.
+  // unthrown 5 reserves `name`, `message`, and `stack` in the TaggedError
+  // payload; accept `message` as a constructor argument and assign it
+  // post-`super` instead.
   constructor(args: { errorName: TName; data: TData; message: string; cause?: unknown }) {
     const { message, ...payload } = args;
     super(payload);

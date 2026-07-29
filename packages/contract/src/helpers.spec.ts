@@ -50,6 +50,26 @@ describe("Helper Functions", () => {
         }),
       );
     });
+
+    it("should materialize an undefined-input schema when input is omitted", async () => {
+      const signal = defineSignal();
+
+      expect(signal.input["~standard"].vendor).toBe("temporal-contract");
+      expect(await signal.input["~standard"].validate(undefined)).toEqual({ value: undefined });
+      // `null` is accepted defensively — JSON payload converters cannot
+      // represent `undefined` and may round-trip it as `null`.
+      expect(await signal.input["~standard"].validate(null)).toEqual({ value: undefined });
+
+      const rejected = await signal.input["~standard"].validate({ some: "payload" });
+      expect(rejected.issues).toBeDefined();
+    });
+
+    it("should treat an empty definition object like an omitted input", async () => {
+      const signal = defineSignal({});
+
+      expect(signal.input["~standard"].vendor).toBe("temporal-contract");
+      expect(await signal.input["~standard"].validate(undefined)).toEqual({ value: undefined });
+    });
   });
 
   describe("defineQuery", () => {
@@ -80,6 +100,19 @@ describe("Helper Functions", () => {
         }),
       );
     });
+
+    it("should materialize an undefined-input schema when input is omitted", async () => {
+      const query = defineQuery({
+        output: z.object({ count: z.number() }),
+      });
+
+      expect(query.input["~standard"].vendor).toBe("temporal-contract");
+      expect(query.output["~standard"].vendor).toBe("zod");
+      expect(await query.input["~standard"].validate(undefined)).toEqual({ value: undefined });
+
+      const rejected = await query.input["~standard"].validate("unexpected");
+      expect(rejected.issues).toBeDefined();
+    });
   });
 
   describe("defineUpdate", () => {
@@ -95,6 +128,18 @@ describe("Helper Functions", () => {
           output: expect.any(Object),
         }),
       );
+    });
+
+    it("should materialize an undefined-input schema when input is omitted", async () => {
+      const update = defineUpdate({
+        output: z.object({ restocked: z.boolean() }),
+      });
+
+      expect(update.input["~standard"].vendor).toBe("temporal-contract");
+      expect(await update.input["~standard"].validate(undefined)).toEqual({ value: undefined });
+
+      const rejected = await update.input["~standard"].validate(42);
+      expect(rejected.issues).toBeDefined();
     });
   });
 

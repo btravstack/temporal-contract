@@ -10,7 +10,6 @@ import type {
   UpdateDefinition,
   InferWorkflowNames,
   InferActivityNames,
-  InferContractWorkflows,
 } from "./types.js";
 
 describe("Core Types", () => {
@@ -283,7 +282,7 @@ describe("Core Types", () => {
         },
       } satisfies ContractDefinition;
 
-      type Workflows = InferContractWorkflows<typeof contract>;
+      type Workflows = (typeof contract)["workflows"];
       const workflows: Workflows = contract.workflows;
 
       expect(workflows).toEqual(
