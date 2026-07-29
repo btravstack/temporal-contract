@@ -6,15 +6,15 @@
 
 ### [order-processing-contract](./order-processing-contract)
 
-Shared contract package — domain schemas and the workflow/activity definitions imported by both the worker and the client
+Shared contract package — domain schemas plus the workflow, activity, signal, query, and typed-error definitions imported by both the worker and the client (composition-first with the `define*` helpers)
 
 ### [order-processing-worker](./order-processing-worker)
 
-Worker with Clean Architecture; activities return `AsyncResult` from unthrown
+Worker with Clean Architecture; activities return `AsyncResult` from unthrown, the workflow handles signals/queries via `context.defineSignal`/`defineQuery`, and a schedule-driven cleanup workflow shows the activity-less workflow shape
 
 ### [order-processing-client](./order-processing-client)
 
-Standalone client demonstrating interaction with the shared contract
+Standalone client demonstrating the `TypedClient.create({ client }).for(contract)` split: typed signals (with and without payload), an argument-less query, a typed `PaymentDeclined` contract error matched with `P.tag`, and a recurring schedule with the create-if-absent idiom
 
 **Note**: The client example works with the worker implementation seamlessly through the shared contract (`orderProcessingContract`).
 

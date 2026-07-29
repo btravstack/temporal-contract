@@ -1,4 +1,4 @@
-import type { PaymentResult } from "../../domain/entities/order.schema.js";
+import type { PaymentOutcome } from "../../domain/entities/order.schema.js";
 import type { PaymentPort } from "../../domain/ports/payment.port.js";
 import { logger } from "../../logger.js";
 
@@ -8,7 +8,7 @@ import { logger } from "../../logger.js";
  * Concrete implementation of PaymentPort for testing/demo purposes
  */
 export class MockPaymentAdapter implements PaymentPort {
-  async processPayment(customerId: string, amount: number): Promise<PaymentResult> {
+  async processPayment(customerId: string, amount: number): Promise<PaymentOutcome> {
     logger.info(
       { customerId, amount },
       `💳 Processing payment of $${amount} for customer ${customerId}`,
@@ -16,11 +16,11 @@ export class MockPaymentAdapter implements PaymentPort {
 
     // Simulate payment processing
     // In real implementation, this would call a payment gateway API
-    const success = Math.random() > 0.1; // 10% failure rate
+    const approved = Math.random() > 0.1; // 10% decline rate
 
-    if (success) {
-      const result: PaymentResult = {
-        status: "success" as const,
+    if (approved) {
+      const result: PaymentOutcome = {
+        status: "approved" as const,
         transactionId: `TXN${Date.now()}`,
         paidAmount: amount,
       };
@@ -32,11 +32,15 @@ export class MockPaymentAdapter implements PaymentPort {
 
       return result;
     } else {
-      const result: PaymentResult = {
-        status: "failed" as const,
+      // A decline is a modeled business outcome, not an exception — the
+      // activity boundary converts it into the `PaymentDeclined` contract
+      // error.
+      const result: PaymentOutcome = {
+        status: "declined" as const,
+        reason: "insufficient_funds",
       };
 
-      logger.error(`❌ Payment failed`);
+      logger.warn(`❌ Payment declined: ${result.reason}`);
 
       return result;
     }

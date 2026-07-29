@@ -1,7 +1,12 @@
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { TypedClient, WorkflowValidationError } from "@temporal-contract/client";
+import {
+  ContractError,
+  TypedClient,
+  WorkflowValidationError,
+  type ContractClient,
+} from "@temporal-contract/client";
 import {
   orderProcessingContract,
   type OrderSchema,
@@ -19,7 +24,7 @@ type Order = z.infer<typeof OrderSchema>;
 
 const it = baseIt.extend<{
   worker: Worker;
-  client: TypedClient<typeof orderProcessingContract>;
+  client: ContractClient<typeof orderProcessingContract>;
 }>({
   worker: [
     async ({ workerConnection }, use) => {
@@ -48,35 +53,30 @@ const it = baseIt.extend<{
     { auto: true },
   ],
   client: async ({ clientConnection }, use) => {
-    // Create typed client
     const rawClient = new Client({
       connection: clientConnection,
       namespace: "default",
     });
-    const clientResult = await TypedClient.create({
-      contract: orderProcessingContract,
-      client: rawClient,
-    });
-    if (!clientResult.isOk()) {
-      throw clientResult.isErr() ? clientResult.error : clientResult.cause;
-    }
+    // Connection-scoped root (E = never, so `.get()` unwraps directly),
+    // then bind the contract for the typed, contract-scoped surface.
+    const typedClient = await TypedClient.create({ client: rawClient }).get();
 
-    await use(clientResult.value);
+    await use(typedClient.for(orderProcessingContract));
   },
 });
 
 describe("Order Processing Workflow - Integration Tests", () => {
   beforeEach(() => {
-    // Mock payment adapter to always succeed for deterministic tests
+    // Mock payment adapter to always approve for deterministic tests
     vi.spyOn(paymentAdapter, "processPayment").mockResolvedValue({
+      status: "approved",
       transactionId: "TXN-MOCK-123",
-      status: "success",
       paidAmount: 0, // Will be overridden by actual call
     });
   });
 
   it("should process an order successfully", async ({ client }) => {
-    // GIVEN
+    // GIVEN — below the $100 approval threshold, so no signal is needed
     const order: Order = {
       orderId: `ORD-TEST-${Date.now()}`,
       customerId: "CUST-TEST-001",
@@ -84,7 +84,7 @@ describe("Order Processing Workflow - Integration Tests", () => {
         {
           productId: "PROD-001",
           quantity: 2,
-          price: 29.99,
+          price: 19.99,
         },
         {
           productId: "PROD-002",
@@ -92,7 +92,7 @@ describe("Order Processing Workflow - Integration Tests", () => {
           price: 49.99,
         },
       ],
-      totalAmount: 109.97,
+      totalAmount: 89.97,
     };
 
     // WHEN
@@ -173,8 +173,9 @@ describe("Order Processing Workflow - Integration Tests", () => {
       args: order,
     });
 
-    // THEN
-    const handleResult = await client.getHandle("processOrder", order.orderId);
+    // THEN — getHandle is synchronous: the only failure mode is a workflow
+    // name missing from the contract, surfaced as a sync Result Err.
+    const handleResult = client.getHandle("processOrder", order.orderId);
 
     expect(handleResult).toBeOk();
     if (!handleResult.isOk()) throw new Error("Expected Ok result");
@@ -202,10 +203,10 @@ describe("Order Processing Workflow - Integration Tests", () => {
         {
           productId: "PROD-005",
           quantity: 1,
-          price: 149.99,
+          price: 49.99,
         },
       ],
-      totalAmount: 149.99,
+      totalAmount: 49.99,
     };
 
     // WHEN
@@ -271,10 +272,107 @@ describe("Order Processing Workflow - Integration Tests", () => {
     }
   });
 
-  it("should handle payment failure", async ({ client }) => {
-    // GIVEN - Mock payment to fail
+  it("should wait for approval on high-value orders (query + signal)", async ({ client }) => {
+    // GIVEN — above the $100 approval threshold
+    const order: Order = {
+      orderId: `ORD-TEST-${Date.now()}`,
+      customerId: "CUST-TEST-007",
+      items: [
+        {
+          productId: "PROD-008",
+          quantity: 2,
+          price: 74.99,
+        },
+      ],
+      totalAmount: 149.98,
+    };
+
+    const handleResult = await client.startWorkflow("processOrder", {
+      workflowId: order.orderId,
+      args: order,
+    });
+    expect(handleResult).toBeOk();
+    if (!handleResult.isOk()) throw new Error("Expected Ok result");
+    const handle = handleResult.value;
+
+    // WHEN — the argument-less query reports the approval gate
+    const statusReport = await handle.queries.getOrderStatus();
+    expect(statusReport).toBeOk();
+    if (statusReport.isOk()) {
+      expect(statusReport.value).toEqual({ status: "awaiting_approval" });
+    }
+
+    // ... and the approval signal (payload validated by the contract) lets
+    // the workflow proceed
+    const signalResult = await handle.signals.approveOrder({
+      approvedBy: "qa@example.com",
+      note: "Approved in integration test",
+    });
+    expect(signalResult).toBeOk();
+
+    // THEN
+    const result = await handle.result();
+    expect(result).toBeOk();
+    if (result.isOk()) {
+      expect(result.value).toEqual({
+        orderId: order.orderId,
+        status: "completed",
+        transactionId: expect.any(String),
+        trackingNumber: expect.any(String),
+      });
+    }
+  });
+
+  it("should cancel a pending order via the payload-less signal", async ({ client }) => {
+    // GIVEN — above the threshold, so the workflow parks at the approval gate
+    const order: Order = {
+      orderId: `ORD-TEST-${Date.now()}`,
+      customerId: "CUST-TEST-008",
+      items: [
+        {
+          productId: "PROD-009",
+          quantity: 1,
+          price: 199.99,
+        },
+      ],
+      totalAmount: 199.99,
+    };
+
+    await client.startWorkflow("processOrder", {
+      workflowId: order.orderId,
+      args: order,
+    });
+
+    const handleResult = client.getHandle("processOrder", order.orderId);
+    expect(handleResult).toBeOk();
+    if (!handleResult.isOk()) throw new Error("Expected Ok result");
+    const handle = handleResult.value;
+
+    // WHEN — `cancelRequested` is declared with `defineSignal()` (no input
+    // schema), so it is sent without arguments
+    const signalResult = await handle.signals.cancelRequested();
+    expect(signalResult).toBeOk();
+
+    // THEN
+    const result = await handle.result();
+    expect(result).toBeOk();
+    if (result.isOk()) {
+      expect(result.value).toEqual({
+        orderId: order.orderId,
+        status: "cancelled",
+        failureReason: "Cancellation requested by the customer",
+        errorCode: "CANCELLED",
+      });
+    }
+  });
+
+  it("should surface a declined payment as the typed PaymentDeclined contract error", async ({
+    client,
+  }) => {
+    // GIVEN - Mock payment to decline
     vi.spyOn(paymentAdapter, "processPayment").mockResolvedValue({
-      status: "failed",
+      status: "declined",
+      reason: "insufficient_funds",
     });
 
     const order: Order = {
@@ -296,15 +394,16 @@ describe("Order Processing Workflow - Integration Tests", () => {
       args: order,
     });
 
-    // THEN - Should return failed status
-    expect(result).toBeOk();
-    if (result.isOk()) {
-      expect(result.value).toEqual({
-        status: "failed",
-        errorCode: "PAYMENT_FAILED",
-        failureReason: "Payment was declined",
-        orderId: order.orderId,
-      });
+    // THEN — the decline travels typed end-to-end: the activity produced
+    // `Err(errors.PaymentDeclined(...))`, the workflow rethrew it via
+    // `context.errors.PaymentDeclined`, and the client rehydrated it into a
+    // `ContractError` with the schema-validated data payload.
+    expect(result).toBeErr();
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(ContractError);
+      const contractError = result.error as ContractError;
+      expect(contractError.errorName).toBe("PaymentDeclined");
+      expect(contractError.data).toEqual({ reason: "insufficient_funds" });
     }
   });
 });

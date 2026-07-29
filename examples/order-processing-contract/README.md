@@ -27,8 +27,15 @@ This package is designed to be shared between:
 
 ## What's included
 
-- Contract definition with workflow and activity signatures
-- Domain schemas (Order, PaymentResult, etc.)
+- Contract definition (composition-first with the `define*` helpers):
+  - `processOrder` workflow with workflow-local activities, signals
+    (`approveOrder` with a payload, `cancelRequested` via the payload-less
+    `defineSignal()` form), an argument-less `getOrderStatus` query
+    (`defineQuery({ output })`), and a typed `PaymentDeclined` contract error
+    declared on both the `processPayment` activity and the workflow
+  - `cleanupExpiredOrders` — an activity-less workflow designed to run on a
+    Temporal Schedule, using only the global `purgeExpiredOrders` activity
+- Domain schemas (Order, PaymentResult, OrderStatus, etc.)
 
 ## Usage
 
@@ -51,22 +58,21 @@ export const processOrder = declareWorkflow({
 ### In Client Application
 
 ```typescript
-import {
-  orderProcessingContract,
-  Order,
-} from "@temporal-contract/sample-order-processing-contract";
+import { orderProcessingContract } from "@temporal-contract/sample-order-processing-contract";
 import { TypedClient } from "@temporal-contract/client";
 
-// Create type-safe client — creation returns AsyncResult<_, never>; setup
+// Connection-scoped root — creation returns AsyncResult<_, never>; setup
 // faults ride the defect channel (a TechnicalError cause), so `get()` panics
 // (rethrowing that cause) on failure.
-const client = await TypedClient.create({
-  contract: orderProcessingContract,
+const typedClient = await TypedClient.create({
   client: new Client({ connection, namespace: "default" }),
 }).get();
 
+// Contract-scoped client — binding is synchronous, infallible, and memoized.
+const orders = typedClient.for(orderProcessingContract);
+
 // Start workflow with full type safety
-const handle = await client.startWorkflow("processOrder", {
+const handleResult = await orders.startWorkflow("processOrder", {
   workflowId: order.orderId,
   args: order,
 });

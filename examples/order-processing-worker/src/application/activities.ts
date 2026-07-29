@@ -1,10 +1,11 @@
 import { orderProcessingContract } from "@temporal-contract/sample-order-processing-contract";
-import { declareActivitiesHandler, qualify } from "@temporal-contract/worker/activity";
-import { fromPromise } from "unthrown";
+import { declareActivitiesHandler, qualifyFailure } from "@temporal-contract/worker/activity";
+import { Err, Ok, fromPromise } from "unthrown";
 
 import {
   sendNotificationUseCase,
   processPaymentUseCase,
+  purgeExpiredOrdersUseCase,
   reserveInventoryUseCase,
   releaseInventoryUseCase,
   createShipmentUseCase,
@@ -16,20 +17,18 @@ import {
  *
  * Instead of throwing exceptions, activities return:
  *   - Ok(value).toAsync() for success
- *   - Err(ApplicationFailure).toAsync() for failures (or a `fromPromise`
- *     chain that qualifies a rejection into an `ApplicationFailure`).
+ *   - Err(ApplicationFailure).toAsync() for technical failures (or a
+ *     `fromPromise` chain whose `qualifyFailure` wraps a rejection into an
+ *     `ApplicationFailure`)
+ *   - Err(errors.X(data)).toAsync() for *declared* contract errors — the
+ *     typed constructors arrive in the implementation's second (helpers)
+ *     argument and surface to the calling workflow as typed `ContractError`s.
  *
  * All technical exceptions MUST be caught and wrapped in `ApplicationFailure`
  * (Temporal's first-class failure shape, re-exported from
- * `@temporal-contract/worker/activity` for convenience). Per-instance
- * `nonRetryable: true` opts a specific failure out of the configured
- * retry policy.
- *
- * Benefits:
- *   - Explicit error types in function signatures
- *   - Per-instance `nonRetryable` flag for permanent failures
- *   - Functional composition with map/flatMap/match
- *   - Native Temporal serialization across the activity → workflow boundary
+ * `@temporal-contract/worker/activity`). Per-instance `nonRetryable: true`
+ * opts a specific failure out of the configured retry policy; for contract
+ * errors, retryability comes from the contract's `errors` declaration.
  */
 
 // ============================================================================
@@ -39,11 +38,11 @@ import {
 /**
  * Create the activities handler with unthrown's AsyncResult pattern.
  * Activities are thin wrappers that delegate to use cases.
- * All activities return `AsyncResult<T, ApplicationFailure>`.
  *
- * Domain errors are wrapped in `ApplicationFailure` so Temporal applies the
- * configured retry policy. Set `nonRetryable: true` for permanent failures
- * (e.g. validation rejections, insufficient funds).
+ * The implementation map mirrors the contract's structure: global activities
+ * at the root, workflow-local activities nested under their workflow's name.
+ * `cleanupExpiredOrders` declares no workflow-local activities, so it needs
+ * no entry here — not even an empty `{}` placeholder.
  */
 export const activities = declareActivitiesHandler({
   contract: orderProcessingContract,
@@ -51,38 +50,58 @@ export const activities = declareActivitiesHandler({
     sendNotification: ({ customerId, subject, message }) =>
       fromPromise(
         sendNotificationUseCase.execute(customerId, subject, message),
-        qualify("NOTIFICATION_FAILED", { message: "Failed to send notification" }),
+        qualifyFailure("NOTIFICATION_FAILED", { message: "Failed to send notification" }),
       ),
 
+    purgeExpiredOrders: ({ olderThanDays }) =>
+      fromPromise(
+        purgeExpiredOrdersUseCase.execute(olderThanDays),
+        qualifyFailure("ORDER_PURGE_FAILED", { message: "Order purge failed" }),
+      ).map((purgedCount) => ({ purgedCount })),
+
     processOrder: {
-      processPayment: ({ customerId, amount }) =>
+      // The second (helpers) argument carries `errors` — typed constructors
+      // for this activity's contract-declared `errors` map. A declined
+      // payment is a *modeled* domain outcome: it becomes
+      // `Err(errors.PaymentDeclined({ reason }))`, which crosses the wire as
+      // an `ApplicationFailure(type: "PaymentDeclined")` and rehydrates as a
+      // typed `ContractError` on the workflow side. Only gateway faults ride
+      // the generic `ApplicationFailure` path.
+      processPayment: ({ customerId, amount }, { errors }) =>
         fromPromise(
           processPaymentUseCase.execute(customerId, amount),
-          qualify("PAYMENT_FAILED", { message: "Payment processing failed" }),
-        ),
+          qualifyFailure("PAYMENT_GATEWAY_ERROR", { message: "Payment gateway call failed" }),
+        ).flatMap((outcome) => {
+          if (outcome.status === "declined") {
+            return Err(errors.PaymentDeclined({ reason: outcome.reason }));
+          }
+          return Ok({ transactionId: outcome.transactionId, paidAmount: outcome.paidAmount });
+        }),
 
       reserveInventory: (items) =>
         fromPromise(
           reserveInventoryUseCase.execute(items),
-          qualify("INVENTORY_RESERVATION_FAILED", { message: "Inventory reservation failed" }),
+          qualifyFailure("INVENTORY_RESERVATION_FAILED", {
+            message: "Inventory reservation failed",
+          }),
         ),
 
       releaseInventory: (reservationId) =>
         fromPromise(
           releaseInventoryUseCase.execute(reservationId),
-          qualify("INVENTORY_RELEASE_FAILED", { message: "Inventory release failed" }),
+          qualifyFailure("INVENTORY_RELEASE_FAILED", { message: "Inventory release failed" }),
         ),
 
       createShipment: ({ orderId, customerId }) =>
         fromPromise(
           createShipmentUseCase.execute(orderId, customerId),
-          qualify("SHIPMENT_CREATION_FAILED", { message: "Shipment creation failed" }),
+          qualifyFailure("SHIPMENT_CREATION_FAILED", { message: "Shipment creation failed" }),
         ),
 
       refundPayment: (transactionId) =>
         fromPromise(
           refundPaymentUseCase.execute(transactionId),
-          qualify("REFUND_FAILED", { message: "Refund failed" }),
+          qualifyFailure("REFUND_FAILED", { message: "Refund failed" }),
         ),
     },
   },
