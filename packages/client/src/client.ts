@@ -281,13 +281,12 @@ export type TypedWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
 /**
  * Result of {@link resolveDefinitionAndValidateInput} — the contract-side
  * pre-call ritual the start/signal-with-start/execute methods share. Holds
- * the resolved workflow definition, the schema-validated input, and the
- * translated typed search attributes (or `undefined` when the workflow
- * declared none / the caller passed none).
+ * the resolved workflow definition and the translated typed search
+ * attributes (or `undefined` when the workflow declared none / the caller
+ * passed none).
  */
 type ResolvedWorkflow<TWorkflow extends AnyWorkflowDefinition> = {
   definition: TWorkflow;
-  validatedInput: unknown;
   typedSearchAttributes: TypedSearchAttributes | undefined;
 };
 
@@ -303,9 +302,14 @@ type ResolvedWorkflow<TWorkflow extends AnyWorkflowDefinition> = {
  *   5. Translate any caller-supplied `searchAttributes` into Temporal's
  *      `TypedSearchAttributes` shape (or `undefined`).
  *
+ * Step 3 validates to fail early with a typed error, but the parsed value is
+ * deliberately DISCARDED: the caller transmits the original `args`, and the
+ * worker parses them on receive, so a transforming schema is applied exactly
+ * once per boundary (never here on the sending side).
+ *
  * `getHandle` deliberately keeps its own three-line lookup — it doesn't
  * accept `args` or `searchAttributes`, so it can't share this helper. The
- * call-specific extras (signal validation, post-call output validation,
+ * call-specific extras (signal validation, post-call output parsing,
  * extended error classification) stay at the call site — those are the
  * differentiators that make each method distinct.
  */
@@ -340,7 +344,6 @@ async function resolveDefinitionAndValidateInput<
 
   return Ok({
     definition: definition as TContract["workflows"][TWorkflowName],
-    validatedInput: inputResult.value,
     typedSearchAttributes,
   });
 }
@@ -567,13 +570,16 @@ export class TypedClient<TContract extends ContractDefinition> {
         // The resolver only ever builds ok/err; assert away the impossible defect.
         assertNoDefect(resolved);
         if (resolved.isErr()) return Err(resolved.error);
-        const { definition, validatedInput, typedSearchAttributes } = resolved.value;
+        const { definition, typedSearchAttributes } = resolved.value;
 
         try {
+          // Transmit the caller's ORIGINAL args — the input was validated
+          // above (fail early), but the worker parses on receive, so the
+          // parsed value must not cross the wire (D1).
           const handle = await this.client.workflow.start(workflowName, {
             ...temporalOptions,
             taskQueue: this.contract.taskQueue,
-            args: [validatedInput],
+            args: [currentInput],
             ...(typedSearchAttributes ? { typedSearchAttributes } : {}),
           });
           return Ok(this.createTypedHandle(handle, workflowName, definition) as Ok);
@@ -679,9 +685,11 @@ export class TypedClient<TContract extends ContractDefinition> {
         // The resolver only ever builds ok/err; assert away the impossible defect.
         assertNoDefect(resolved);
         if (resolved.isErr()) return Err(resolved.error);
-        const { definition, validatedInput, typedSearchAttributes } = resolved.value;
+        const { definition, typedSearchAttributes } = resolved.value;
 
-        // Validate signal input — call-site-specific, kept inline.
+        // Validate signal input — call-site-specific, kept inline. Like the
+        // workflow input, the parsed value is discarded: the signal handler
+        // parses on receive, so the original signal args go over the wire.
         const signalDef = (definition.signals as Record<string, SignalDefinition> | undefined)?.[
           signalName
         ];
@@ -705,9 +713,9 @@ export class TypedClient<TContract extends ContractDefinition> {
           const handle = await this.client.workflow.signalWithStart(workflowName, {
             ...temporalOptions,
             taskQueue: this.contract.taskQueue,
-            args: [validatedInput],
+            args: [currentInput],
             signal: signalName,
-            signalArgs: [signalInputResult.value],
+            signalArgs: [currentSignalInput],
             ...(typedSearchAttributes ? { typedSearchAttributes } : {}),
           });
           const typed = this.createTypedHandle(
@@ -810,19 +818,24 @@ export class TypedClient<TContract extends ContractDefinition> {
         // The resolver only ever builds ok/err; assert away the impossible defect.
         assertNoDefect(resolved);
         if (resolved.isErr()) return Err(resolved.error);
-        const { definition, validatedInput, typedSearchAttributes } = resolved.value;
+        const { definition, typedSearchAttributes } = resolved.value;
 
         try {
+          // Transmit the caller's ORIGINAL args (validated above, parsed by
+          // the worker on receive — D1).
           const result = await this.client.workflow.execute(workflowName, {
             ...temporalOptions,
             taskQueue: this.contract.taskQueue,
-            args: [validatedInput],
+            args: [currentInput],
             ...(typedSearchAttributes ? { typedSearchAttributes } : {}),
           });
 
-          // Output validation runs *after* the Temporal call returns — kept
+          // Output parsing runs *after* the Temporal call returns — kept
           // inline because it's specific to executeWorkflow's start-and-wait
-          // shape; the helper only handles pre-call concerns.
+          // shape; the helper only handles pre-call concerns. This is the
+          // RECEIVING side of the result boundary: the worker validated and
+          // transmitted its original return value, so the parse (and any
+          // schema transform) happens exactly once, here.
           const outputResult = await definition.output["~standard"].validate(result);
           if (outputResult.issues) {
             return Err(createWorkflowValidationError(workflowName, "output", outputResult.issues));
@@ -952,7 +965,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       interceptors: this.interceptors,
       makeValidationError: (name, direction, issues) =>
         new QueryValidationError(name, direction, issues),
-      invoke: (name, validated) => workflowHandle.query(name, validated),
+      invoke: (name, input) => workflowHandle.query(name, input),
       validateOutput: (def) => def.output,
     }) as TypedWorkflowHandle<TWorkflow>["queries"];
 
@@ -963,8 +976,8 @@ export class TypedClient<TContract extends ContractDefinition> {
       workflowId: workflowHandle.workflowId,
       interceptors: this.interceptors,
       makeValidationError: (name, _direction, issues) => new SignalValidationError(name, issues),
-      invoke: async (name, validated) => {
-        await workflowHandle.signal(name, validated);
+      invoke: async (name, input) => {
+        await workflowHandle.signal(name, input);
         return undefined;
       },
       validateOutput: () => null,
@@ -978,7 +991,7 @@ export class TypedClient<TContract extends ContractDefinition> {
       interceptors: this.interceptors,
       makeValidationError: (name, direction, issues) =>
         new UpdateValidationError(name, direction, issues),
-      invoke: (name, validated) => workflowHandle.executeUpdate(name, { args: [validated] }),
+      invoke: (name, input) => workflowHandle.executeUpdate(name, { args: [input] }),
       validateOutput: (def) => def.output,
     }) as TypedWorkflowHandle<TWorkflow>["updates"];
 
@@ -1106,10 +1119,15 @@ type ProxyOptions<TDef extends DefWithInput, TValidationError extends Error> = {
     direction: "input" | "output",
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) => TValidationError;
-  readonly invoke: (name: string, validatedInput: unknown) => Promise<unknown>;
   /**
-   * Returns the schema to validate the invoke result against, or `null` to skip
-   * output validation (used by signals, which don't return a value).
+   * Dispatch the call to Temporal. Receives the caller's ORIGINAL input —
+   * validated against the contract, but untransformed: the workflow-side
+   * handler parses the payload on receive (D1).
+   */
+  readonly invoke: (name: string, input: unknown) => Promise<unknown>;
+  /**
+   * Returns the schema to parse the invoke result against, or `null` to skip
+   * output parsing (used by signals, which don't return a value).
    */
   readonly validateOutput: (def: TDef) => StandardSchemaV1 | null;
 };
@@ -1117,9 +1135,11 @@ type ProxyOptions<TDef extends DefWithInput, TValidationError extends Error> = {
 /**
  * Build a `{ name: (args) => AsyncResult<...> }` proxy for a contract's
  * queries/signals/updates. The three call sites differ only in how they
- * invoke Temporal and whether they validate output, so the shared
- * input-validate → invoke → output-validate → wrap-Result pipeline lives
- * here once.
+ * invoke Temporal and whether they parse output, so the shared
+ * input-validate → invoke(original) → output-parse → wrap-Result pipeline
+ * lives here once. Per the wire-format contract (D1), input validation only
+ * gates the call — the original value is transmitted and the worker parses
+ * it — while the result is parsed here on the receiving side.
  */
 function buildValidatedProxy<TDef extends DefWithInput, TValidationError extends Error>({
   defs,
@@ -1147,7 +1167,8 @@ function buildValidatedProxy<TDef extends DefWithInput, TValidationError extends
         }
 
         try {
-          const result = await invoke(name, inputResult.value);
+          // Send the ORIGINAL input — the worker parses on receive (D1).
+          const result = await invoke(name, currentInput);
           const outputSchema = validateOutput(def);
           if (!outputSchema) {
             return Ok(result);

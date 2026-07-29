@@ -125,9 +125,12 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
    * workflow with validated args.
    *
    * Validates `args` against the workflow's input schema before dispatching
-   * the create request to Temporal. The workflow's `taskQueue` and
-   * `workflowType` are pulled from the contract automatically; the typed
-   * options shape omits them so call sites don't have to repeat themselves.
+   * the create request to Temporal — but transmits the caller's ORIGINAL
+   * args (the worker parses them when each scheduled run starts, so a
+   * transforming schema applies exactly once, on the receiving side). The
+   * workflow's `taskQueue` and `workflowType` are pulled from the contract
+   * automatically; the typed options shape omits them so call sites don't
+   * have to repeat themselves.
    */
   create<TWorkflowName extends keyof TContract["workflows"] & string>(
     workflowName: TWorkflowName,
@@ -166,7 +169,9 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
           type: "startWorkflow",
           workflowType: workflowName,
           taskQueue: this.contract.taskQueue,
-          args: [inputResult.value] as never,
+          // Original args on the wire — validated above, parsed by the
+          // worker when each run starts (D1).
+          args: [options.args] as never,
           ...(typedSearchAttributes ? { typedSearchAttributes } : {}),
           ...(overrides.workflowId !== undefined ? { workflowId: overrides.workflowId } : {}),
           ...(overrides.workflowExecutionTimeout !== undefined

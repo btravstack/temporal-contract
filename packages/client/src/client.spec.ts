@@ -1320,6 +1320,201 @@ describe("TypedClient", () => {
   });
 });
 
+describe("TypedClient — wire format (validate on send, parse on receive)", () => {
+  // D1: each payload boundary parses exactly once, on the receiving side.
+  // The client validates what it sends (failing early with the typed
+  // validation error) but transmits the caller's ORIGINAL value; parsed
+  // results are only used on the receive side (workflow/query/update
+  // results). Transforming schemas make the two sides observable.
+  const transformContract = defineContract({
+    taskQueue: "wire-q",
+    workflows: {
+      transformer: defineWorkflow({
+        // Asymmetric transform: input type is `string`, parsed type is `number`.
+        input: z.string().transform((s) => s.length),
+        output: z.number().transform((n) => n * 2),
+        signals: {
+          ping: { input: z.string().transform((s) => s.length) },
+        },
+        queries: {
+          peek: {
+            input: z.string().transform((s) => s.length),
+            output: z.number().transform((n) => n * 2),
+          },
+        },
+        updates: {
+          poke: {
+            input: z.string().transform((s) => s.length),
+            output: z.number().transform((n) => n * 2),
+          },
+        },
+      }),
+    },
+  });
+
+  let wireClient: TypedClient<typeof transformContract>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    const rawClient = { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client;
+    wireClient = TypedClient.createOrThrow(transformContract, rawClient);
+  });
+
+  it("startWorkflow transmits the ORIGINAL args, not the parsed value", async () => {
+    mockWorkflow.start.mockResolvedValue({ workflowId: "wf-1" });
+
+    const result = await wireClient.startWorkflow("transformer", {
+      workflowId: "wf-1",
+      args: "hello",
+    });
+
+    expect(result).toBeOk();
+    expect(mockWorkflow.start).toHaveBeenCalledWith("transformer", {
+      workflowId: "wf-1",
+      taskQueue: "wire-q",
+      args: ["hello"], // original string — not 5 (the parsed length)
+    });
+  });
+
+  it("startWorkflow still rejects invalid input before dispatch", async () => {
+    const result = await wireClient.startWorkflow("transformer", {
+      workflowId: "wf-1",
+      // @ts-expect-error testing runtime validation
+      args: 42,
+    });
+
+    expect(result).toBeErr();
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(WorkflowValidationError);
+    }
+    expect(mockWorkflow.start).not.toHaveBeenCalled();
+  });
+
+  it("executeWorkflow transmits the ORIGINAL args and parses the result exactly once", async () => {
+    // The wire carries the producer's original (pre-transform) value; the
+    // client applies the output transform on receive.
+    mockWorkflow.execute.mockResolvedValue(21);
+
+    const result = await wireClient.executeWorkflow("transformer", {
+      workflowId: "wf-2",
+      args: "hello",
+    });
+
+    expect(mockWorkflow.execute).toHaveBeenCalledWith("transformer", {
+      workflowId: "wf-2",
+      taskQueue: "wire-q",
+      args: ["hello"],
+    });
+    expect(result).toBeOk();
+    if (result.isOk()) {
+      expect(result.value).toBe(42); // 21 doubled once — not 84
+    }
+  });
+
+  it("signalWithStart transmits the ORIGINAL workflow and signal args", async () => {
+    mockWorkflow.signalWithStart.mockResolvedValue({
+      workflowId: "wf-3",
+      signaledRunId: "run-1",
+    });
+
+    const result = await wireClient.signalWithStart("transformer", {
+      workflowId: "wf-3",
+      args: "hello",
+      signalName: "ping",
+      signalArgs: "hey",
+    });
+
+    expect(result).toBeOk();
+    expect(mockWorkflow.signalWithStart).toHaveBeenCalledWith("transformer", {
+      workflowId: "wf-3",
+      taskQueue: "wire-q",
+      args: ["hello"],
+      signal: "ping",
+      signalArgs: ["hey"], // original string — not 3
+    });
+  });
+
+  it("handle.result() parses what the handle returns (receive side)", async () => {
+    const rawHandle = {
+      workflowId: "wf-4",
+      result: vi.fn().mockResolvedValue(21),
+      query: vi.fn(),
+      signal: vi.fn(),
+      executeUpdate: vi.fn(),
+    };
+    mockWorkflow.getHandle.mockReturnValue(rawHandle);
+
+    const handleResult = await wireClient.getHandle("transformer", "wf-4");
+    if (!handleResult.isOk()) throw new Error("expected Ok");
+    const result = await handleResult.value.result();
+
+    expect(result).toBeOk();
+    if (result.isOk()) {
+      expect(result.value).toBe(42);
+    }
+  });
+
+  it("handle.signals.* transmits the ORIGINAL signal args", async () => {
+    const rawHandle = {
+      workflowId: "wf-5",
+      result: vi.fn(),
+      query: vi.fn(),
+      signal: vi.fn().mockResolvedValue(undefined),
+      executeUpdate: vi.fn(),
+    };
+    mockWorkflow.getHandle.mockReturnValue(rawHandle);
+
+    const handleResult = await wireClient.getHandle("transformer", "wf-5");
+    if (!handleResult.isOk()) throw new Error("expected Ok");
+    const result = await handleResult.value.signals.ping("hey");
+
+    expect(result).toBeOk();
+    expect(rawHandle.signal).toHaveBeenCalledWith("ping", "hey");
+  });
+
+  it("handle.queries.* transmits the ORIGINAL input and parses the result once", async () => {
+    const rawHandle = {
+      workflowId: "wf-6",
+      result: vi.fn(),
+      query: vi.fn().mockResolvedValue(21),
+      signal: vi.fn(),
+      executeUpdate: vi.fn(),
+    };
+    mockWorkflow.getHandle.mockReturnValue(rawHandle);
+
+    const handleResult = await wireClient.getHandle("transformer", "wf-6");
+    if (!handleResult.isOk()) throw new Error("expected Ok");
+    const result = await handleResult.value.queries.peek("hey");
+
+    expect(rawHandle.query).toHaveBeenCalledWith("peek", "hey");
+    expect(result).toBeOk();
+    if (result.isOk()) {
+      expect(result.value).toBe(42);
+    }
+  });
+
+  it("handle.updates.* transmits the ORIGINAL input and parses the result once", async () => {
+    const rawHandle = {
+      workflowId: "wf-7",
+      result: vi.fn(),
+      query: vi.fn(),
+      signal: vi.fn(),
+      executeUpdate: vi.fn().mockResolvedValue(21),
+    };
+    mockWorkflow.getHandle.mockReturnValue(rawHandle);
+
+    const handleResult = await wireClient.getHandle("transformer", "wf-7");
+    if (!handleResult.isOk()) throw new Error("expected Ok");
+    const result = await handleResult.value.updates.poke("hey");
+
+    expect(rawHandle.executeUpdate).toHaveBeenCalledWith("poke", { args: ["hey"] });
+    expect(result).toBeOk();
+    if (result.isOk()) {
+      expect(result.value).toBe(42);
+    }
+  });
+});
+
 describe("TypedClient — workflow contract errors", () => {
   const erroredContract = defineContract({
     taskQueue: "test-queue",

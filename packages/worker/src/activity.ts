@@ -634,8 +634,9 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  * thrown; `Err(ContractError)` → data validated against the declared schema
  * and thrown as an `ApplicationFailure` with `type` = error name,
  * `details[0]` = data, `nonRetryable` from the contract; `Ok(...)` → output
- * validated against the contract and resolved; `defect` → original cause
- * re-thrown). It does **not** hide Temporal's
+ * validated against the contract, then resolved with the implementation's
+ * original value — the calling side parses it on receive; `defect` →
+ * original cause re-thrown). It does **not** hide Temporal's
  * `@temporalio/activity` runtime: inside the body you can still call
  * `Context.current()` from `@temporalio/activity` to access heartbeats
  * (`heartbeat(details)`, `heartbeatDetails`), activity info (attempt
@@ -678,7 +679,10 @@ export function declareActivitiesHandler<
     return async (...args: unknown[]) => {
       const input = extractHandlerInput(args);
 
-      // Validate input
+      // Parse input. This is the RECEIVING side of the boundary: the
+      // workflow-side proxy (or typed client) validated the payload but
+      // transmitted the caller's original value, so the parse (and any
+      // schema transform) happens exactly once, here.
       const inputResult = await activityDef.input["~standard"].validate(input);
       if (inputResult.issues) {
         throw new ActivityInputValidationError(label, inputResult.issues);
@@ -737,11 +741,15 @@ export function declareActivitiesHandler<
       // not a domain error).
       return result.match({
         ok: async (value) => {
+          // Validate the output, but hand Temporal the implementation's
+          // ORIGINAL value — the consuming side (workflow proxy / typed
+          // client) parses the result, so a transforming output schema is
+          // applied exactly once, on receive.
           const outputResult = await activityDef.output["~standard"].validate(value);
           if (outputResult.issues) {
             throw new ActivityOutputValidationError(label, outputResult.issues);
           }
-          return outputResult.value;
+          return value;
         },
         // Convert Err(...) payload to thrown ApplicationFailure for Temporal.
         // Temporal recognizes this class natively and applies the configured

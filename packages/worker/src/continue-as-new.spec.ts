@@ -106,6 +106,26 @@ describe("context.continueAsNew", () => {
     expect(captured).toHaveLength(0);
   });
 
+  it("transmits the ORIGINAL args, not the parsed value (D1 wire format)", async () => {
+    // continueAsNew is a sending side: it validates (fail early) but the new
+    // run's `declareWorkflow` parses on receive, so a transforming schema
+    // must not be applied here.
+    const transformContract = defineContract({
+      taskQueue: "tq-transform",
+      workflows: {
+        transformer: defineWorkflow({
+          input: z.object({ text: z.string().transform((s) => `${s}!`) }),
+          output: z.object({}),
+        }),
+      },
+    });
+    const continueAsNew = createContinueAsNew(transformContract, "transformer");
+
+    await expect(continueAsNew({ text: "hi" })).rejects.toThrow("__STUB_CONTINUE_AS_NEW__");
+
+    expect(captured[0]?.args).toEqual([{ text: "hi" }]); // not [{ text: "hi!" }]
+  });
+
   it("cross-contract: pulls workflowType and taskQueue from the destination contract", async () => {
     const continueAsNew = createContinueAsNew(contract, "counter");
 

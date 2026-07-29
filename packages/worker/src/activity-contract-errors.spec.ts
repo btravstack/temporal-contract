@@ -94,6 +94,39 @@ describe("declareActivitiesHandler — contract errors", () => {
     });
   });
 
+  it("transmits the ORIGINAL error data, not the parsed value (D1 wire format)", async () => {
+    // The producer validates the payload (fail early) but `details[0]`
+    // carries the original value — the consuming side (client / workflow
+    // proxy rehydration) parses it against the declared schema exactly once.
+    const transformingContract = defineContract({
+      taskQueue: "test-queue",
+      workflows: {
+        noop: { input: z.object({}), output: z.object({}) },
+      },
+      activities: {
+        flaky: {
+          input: z.object({}),
+          output: z.object({}),
+          errors: {
+            Nope: { data: z.object({ reason: z.string().transform((s) => `${s}!`) }) },
+          },
+        },
+      },
+    });
+    const activities = declareActivitiesHandler({
+      contract: transformingContract,
+      activities: {
+        noop: {},
+        flaky: (_args, { errors }) => errAsync(errors.Nope({ reason: "declined" })),
+      },
+    });
+
+    await expect(activities.flaky({})).rejects.toMatchObject({
+      type: "Nope",
+      details: [{ reason: "declined" }], // not [{ reason: "declined!" }]
+    });
+  });
+
   it("fails fast when the error data does not validate against its schema", async () => {
     const activities = declareActivitiesHandler({
       contract,

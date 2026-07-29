@@ -96,8 +96,12 @@ export function bindSignalHandler(
 }
 
 /**
- * Bind a typed query handler to the running workflow. Validates input
- * and output against the contract synchronously.
+ * Bind a typed query handler to the running workflow. Parses the input
+ * (receive side of the boundary — the client validated but transmitted
+ * the caller's original value) and validates the output, returning the
+ * handler's ORIGINAL return value to Temporal — the client parses the
+ * query result on receive, so a transforming output schema applies
+ * exactly once. Both run synchronously.
  *
  * Temporal's query API requires a synchronous handler — async
  * validation breaks replay determinism. The handler trips a clear error
@@ -146,7 +150,9 @@ export function bindQueryHandler(
       throw new QueryOutputValidationError(queryName, outputResult.issues);
     }
 
-    return outputResult.value;
+    // Validated, but the handler's ORIGINAL return goes over the wire —
+    // the client parses the query result on receive (D1).
+    return result;
   });
 }
 
@@ -174,7 +180,10 @@ export function bindQueryHandler(
  * Output validation continues to run inside the handler body. Update
  * outputs are *not* admission-gated — the handler must execute to
  * produce a value to validate against — so the async-allowed shape is
- * preserved.
+ * preserved. As with every payload boundary, the handler's ORIGINAL
+ * return value is what crosses the wire: the client parses the update
+ * result on receive, so a transforming output schema applies exactly
+ * once.
  */
 export function bindUpdateHandler(
   workflowDefinition: AnyWorkflowDefinition,
@@ -196,12 +205,15 @@ export function bindUpdateHandler(
   setHandler(
     update,
     async (...args: unknown[]) => {
-      // The validator already accepted the payload — re-parse here so the
-      // handler receives the schema's transformed value (Standard Schema
-      // may rewrite shapes during validation, e.g. Zod `.transform`). This
-      // is sync because the validator already proved the schema is sync;
-      // any async result here would mean the schema changed under us,
-      // which is a programmer error worth surfacing.
+      // The validator already accepted the payload (its parsed value is
+      // discarded — it only gates admission). This is the boundary's single
+      // receive-side parse: it always starts from the raw wire payload, so
+      // the handler receives the schema's transformed value (Standard
+      // Schema may rewrite shapes during validation, e.g. Zod `.transform`)
+      // with the transform applied exactly once. It is sync because the
+      // validator already proved the schema is sync; any async result here
+      // would mean the schema changed under us, which is a programmer error
+      // worth surfacing.
       const input = extractHandlerInput(args);
       const inputResult = updateDef.input["~standard"].validate(input);
       if (inputResult instanceof Promise) {
@@ -224,7 +236,9 @@ export function bindUpdateHandler(
         throw new UpdateOutputValidationError(updateName, outputResult.issues);
       }
 
-      return outputResult.value;
+      // Validated, but the handler's ORIGINAL return goes over the wire —
+      // the client parses the update result on receive (D1).
+      return result;
     },
     {
       validator: (...args: unknown[]) => {

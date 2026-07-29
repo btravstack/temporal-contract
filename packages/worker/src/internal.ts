@@ -52,8 +52,10 @@ export {
  * Extract the single payload from a Temporal handler's `...args` array.
  *
  * Temporal invokes handlers with whatever was passed via `args: [...]` at the
- * call site. The typed-contract layer always sends `args: [validatedInput]`,
- * so the common case is a one-element array containing the wrapped input.
+ * call site. The typed-contract layer always sends `args: [input]` — the
+ * caller's original (validated but untransformed) value, which the receiving
+ * handler parses — so the common case is a one-element array containing the
+ * wrapped input.
  *
  * If a non-typed-contract caller passes multiple positional arguments
  * (`args: [a, b, c]`), we surface the whole array as the input — the schema
@@ -219,7 +221,9 @@ export type TypedContinueAsNewOptions = Omit<ContinueAsNewOptions, "workflowType
  * On failure, throws a `WorkflowInputValidationError` (matching the behaviour
  * of `declareWorkflow`'s incoming-input validation), which surfaces back to
  * Temporal as a workflow failure rather than silently proceeding with an
- * invalid run.
+ * invalid run. As a SENDING side of the input boundary, the parsed value is
+ * discarded: the original args go over the wire, and the new run's
+ * `declareWorkflow` parses them on receive (transforms apply exactly once).
  *
  * Temporal's `continueAsNew` never returns — it throws a `ContinueAsNew`
  * exception that the runtime intercepts. The returned function preserves
@@ -293,7 +297,9 @@ export function createContinueAsNew(
       ...options,
     });
 
-    await fn(inputResult.value);
+    // Transmit the ORIGINAL args — validated above, parsed by the new run's
+    // `declareWorkflow` on receive (D1).
+    await fn(rawArgs);
     // Unreachable — Temporal's continueAsNew throws to terminate the run.
     /* c8 ignore next */
     return undefined as never;

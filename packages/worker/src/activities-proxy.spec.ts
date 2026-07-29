@@ -55,6 +55,69 @@ describe("createValidatedActivities — activities without declared errors", () 
   });
 });
 
+describe("createValidatedActivities — wire format (validate on send, parse on receive)", () => {
+  // D1: the workflow-side proxy is the SENDING side of the activity-input
+  // boundary — it validates (fail early) but transmits the caller's ORIGINAL
+  // value; the activity worker parses it once on receive. For the result it
+  // is the RECEIVING side — the activity returned its original value, so the
+  // proxy applies the output transform exactly once.
+  const transformDefinition = {
+    input: z.object({ text: z.string().transform((s: string) => `${s}!`) }),
+    output: z.object({ n: z.number().transform((n: number) => n * 2) }),
+  } as unknown as ActivityDefinition;
+
+  const transformErroredDefinition = {
+    ...transformDefinition,
+    errors: {
+      SomethingDeclined: { data: z.object({ reason: z.string() }) },
+    },
+  } as unknown as ActivityDefinition;
+
+  it("throwing shape: sends the ORIGINAL input over the wire and parses the output once", async () => {
+    const seen: unknown[] = [];
+    const activities = createValidatedActivities(
+      {
+        transformer: async (input: unknown) => {
+          seen.push(input);
+          return { n: 21 };
+        },
+      },
+      { transformer: transformDefinition },
+      undefined,
+    ) as unknown as Record<string, (input: unknown) => Promise<unknown>>;
+
+    const result = await activities["transformer"]!({ text: "hi" });
+
+    // The raw Temporal proxy received the caller's original value, not the
+    // parsed `{ text: "hi!" }` — the activity worker parses on receive.
+    expect(seen).toEqual([{ text: "hi" }]);
+    // The activity's wire value (pre-transform) is parsed exactly once here.
+    expect(result).toEqual({ n: 42 });
+  });
+
+  it("Result shape: sends the ORIGINAL input over the wire and parses the output once", async () => {
+    const seen: unknown[] = [];
+    const activities = createValidatedActivities(
+      {
+        transformer: async (input: unknown) => {
+          seen.push(input);
+          return { n: 21 };
+        },
+      },
+      { transformer: transformErroredDefinition },
+      undefined,
+    ) as unknown as Record<string, (input: unknown) => AsyncResult<unknown, unknown>>;
+
+    const result = await activities["transformer"]!({ text: "hi" });
+
+    expect(seen).toEqual([{ text: "hi" }]);
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ n: 42 });
+    }
+  });
+});
+
 describe("createValidatedActivities — activities with declared errors", () => {
   it("returns Ok with the validated output on success", async () => {
     const activities = buildProxy(async () => ({ transactionId: "tx" }));
