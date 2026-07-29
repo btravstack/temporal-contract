@@ -1,59 +1,75 @@
 # Validation boundaries
 
-Where schemas run, why some data is validated twice, and what that buys.
+Where schemas run, why both sides of a hop run one, and what that buys.
 
 ## The map
+
+Every boundary follows one rule: **validate on send, parse on receive.** The
+sender runs the schema to fail early but transmits the caller's _original_
+value; the receiver parses, and the parsed value is what the handler sees.
 
 ```
 ┌─ Client process ───────────────────────────────────────┐
 │  executeWorkflow(args)                                  │
 │      │                                                  │
-│      ├─▶ ① workflow input schema                        │
+│      ├─▶ ① validate workflow input   (send original)    │
 │      ▼                                                  │
 └──────┼──────────────────────────────────────────────────┘
        │  network
 ┌──────▼─── Worker process ──────────────────────────────┐
 │  workflow function                                      │
-│      ├─▶ ② workflow input schema (again)               │
+│      ├─▶ ② parse workflow input     (handler gets it)   │
 │      │                                                  │
 │      │   context.activities.chargeCard(input)           │
-│      │       ├─▶ ③ activity input schema                │
+│      │       ├─▶ ③ validate activity input (send orig.) │
 │      │       ▼   network                                │
 │      │   activity implementation                        │
-│      │       ├─▶ ④ activity input schema (again)        │
+│      │       ├─▶ ④ parse activity input                 │
 │      │       │   ... your code ...                      │
-│      │       ├─▶ ⑤ activity output schema               │
+│      │       ├─▶ ⑤ validate activity output (send orig.)│
 │      │       ▼   network                                │
-│      │       └─▶ ⑥ activity output schema (again)       │
+│      │       └─▶ ⑥ parse activity output                │
 │      │                                                  │
-│      └─▶ ⑦ workflow output schema                       │
+│      └─▶ ⑦ validate workflow output  (send original)    │
 └──────┼──────────────────────────────────────────────────┘
        │  network
 ┌──────▼─── Client process ──────────────────────────────┐
-│      └─▶ ⑧ workflow output schema (again)               │
+│      └─▶ ⑧ parse workflow output                        │
 └─────────────────────────────────────────────────────────┘
 ```
 
-Signals, queries, and updates follow the same pattern: validated on the client
-before dispatch and on the worker before the handler runs.
+Signals, queries, updates, and child workflows follow the same pattern:
+validated on the sending side before dispatch, parsed on the receiving side
+before the handler (or caller) sees the value.
 
-## Why validate twice
+## Why both sides run the schema
 
-Points ①/② and ③/④ look redundant. They are not.
+Points ①/② and ③/④ look redundant. They are not — they do different jobs.
 
-**The caller-side check is for diagnostics.** It catches bad data _before_ it
+**The send-side check is for diagnostics.** It catches bad data _before_ it
 crosses the network, so you get a descriptive schema error naming the offending
 field, at the call site, with a stack trace pointing at your code. Without it,
 the same mistake surfaces as a deserialization failure inside a worker you may
-not even own.
+not even own. Its parsed result is deliberately **discarded** — the wire
+carries the original value.
 
-**The callee-side check is authoritative.** The worker cannot assume its caller
-used this library. A workflow may be started by the Temporal CLI, the Web UI,
-another SDK, or an older version of your own client. The contract is only a
-real guarantee if the side that enforces it is the side that runs the code.
+**The receive-side parse is authoritative.** The worker cannot assume its
+caller used this library. A workflow may be started by the Temporal CLI, the
+Web UI, another SDK, or an older version of your own client. The contract is
+only a real guarantee if the side that enforces it is the side that runs the
+code.
 
-The cost is a schema parse against data that already passed one — negligible
-next to a network round-trip.
+**Parsing once is what keeps transforms correct.** Schemas can transform —
+`z.coerce.date()`, `.transform(...)`, `.default(...)`. If both sides applied
+the parse and the wire carried the parsed value, every transform would run
+twice, silently corrupting data (a date coerced twice, a default applied to an
+already-defaulted object). Because the sender transmits the original and only
+the receiver's parse "counts", **each transform applies exactly once per
+boundary**. It also means what travels the wire — and what you see in the
+Temporal Web UI or a raw history export — is the sender's original value.
+
+The cost is one extra schema run per hop — negligible next to a network round
+trip.
 
 ## Fail fast, fail nowhere
 
@@ -100,12 +116,21 @@ disagreeing.
 | Worker, entering a workflow          | `WorkflowInputValidationError`                                                                      | Thrown; terminal              |
 | Worker, leaving a workflow           | `WorkflowOutputValidationError`                                                                     | Thrown; terminal              |
 | Worker, entering/leaving an activity | `ActivityInputValidationError`, `ActivityOutputValidationError`                                     | Thrown; terminal              |
+| Worker, receiving a signal           | —                                                                                                   | Signal dropped; `log.warn`    |
 | Contract error payload               | `ContractErrorDataValidationError`                                                                  | Thrown; terminal              |
 
 Worker-side validation errors extend Temporal's `ApplicationFailure` and are
 marked **non-retryable**. This is the right default: a schema mismatch is
 deterministic. Retrying the same payload against the same schema will fail
 identically, so retrying would only burn attempts and delay the real signal.
+
+The signal row is the deliberate exception. A signal is a fire-and-forget
+message any stale client can send; failing the whole execution over one
+malformed payload would let any sender kill any workflow. The worker drops the
+signal and logs a warning (via `@temporalio/workflow`'s replay-aware
+`log.warn`, with the signal name and the schema issues) — the execution
+continues untouched. Client-side, a malformed signal still fails early with
+`SignalValidationError` before dispatch.
 
 All of them carry `issues` — the raw Standard Schema issue array — for
 programmatic inspection, and a human-readable summary in `message`:
@@ -121,17 +146,32 @@ if (result.isErr() && result.error instanceof WorkflowValidationError) {
 ## Structure is validated too
 
 `defineContract` validates the contract itself, at call time — not the data, the
-_shape_:
+_shape_ (a hand-rolled structural check; the contract package has no runtime
+schema-library dependency):
 
 - `taskQueue` present and non-empty
 - at least one workflow
+- no unknown keys at the contract root (strict — only `taskQueue`,
+  `workflows`, `activities`)
 - every name a valid JavaScript identifier
 - every schema slot Standard Schema compatible
-- no activity-name collisions in the flat runtime namespace
+- no activity-name collisions in the flat runtime namespace — reusing the
+  _same_ definition object across workflows is fine (that is one activity, not
+  a collision); two different definitions under one name is rejected, with a
+  hint to hoist the shared activity to the global `activities` block
+- no workflow name colliding with a global activity name (they share the root
+  of the worker's implementations map)
 - no unknown keys in `defaultOptions`
 
 Because this runs at import time, a malformed contract fails when the process
 starts rather than when a workflow first executes.
+
+Inside the workflow sandbox, contract misuse — binding a handler for an
+undeclared signal/query/update, an async-validating query schema, an activity
+no options cover — throws `ContractMisuseError`, a non-retryable
+`ApplicationFailure`. It fails the execution terminally instead of hanging it
+in an infinite Workflow Task retry loop, which is what a plain `Error` thrown
+from sandbox code would cause.
 
 ## Where middleware and interceptors sit
 

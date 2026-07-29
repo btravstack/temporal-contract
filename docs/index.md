@@ -25,7 +25,7 @@ hero:
 features:
   - icon: { src: /icons/shield-check.svg }
     title: Validated at every boundary
-    details: Schemas run on both sides of every network hop. A malformed call is rejected before a workflow is ever started — no history, no partial state.
+    details: Validated on send, parsed on receive — every network hop is checked and transforms apply exactly once. A malformed call is rejected before a workflow is ever started — no history, no partial state.
 
   - icon: { src: /icons/target.svg }
     title: Failures as typed values
@@ -66,7 +66,7 @@ export const orderContract = defineContract({
 ```
 
 ```typescript [2. Activities]
-import { declareActivitiesHandler, qualify } from "@temporal-contract/worker/activity";
+import { declareActivitiesHandler, qualifyFailure } from "@temporal-contract/worker/activity";
 import { fromPromise } from "unthrown";
 
 import { orderContract } from "./contract.js";
@@ -77,9 +77,11 @@ export const activities = declareActivitiesHandler({
     // Workflow-scoped activities nest under their workflow, mirroring the contract.
     processOrder: {
       chargeCard: ({ customerId, amount }) =>
-        fromPromise(gateway.charge(customerId, amount), qualify("CHARGE_FAILED")).map((charge) => ({
-          transactionId: charge.id,
-        })),
+        fromPromise(gateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED")).map(
+          (charge) => ({
+            transactionId: charge.id,
+          }),
+        ),
     },
   },
 });
@@ -116,11 +118,10 @@ import { orderContract } from "./contract.js";
 const connection = await Connection.connect({ address: "localhost:7233" });
 
 const client = await TypedClient.create({
-  contract: orderContract,
   client: new Client({ connection }),
 }).get();
 
-const result = await client.executeWorkflow("processOrder", {
+const result = await client.for(orderContract).executeWorkflow("processOrder", {
   workflowId: "order-123",
   args: { orderId: "ORD-123", customerId: "CUST-456", amount: 99.99 },
 });
@@ -129,7 +130,7 @@ result.match({
   ok: (output) => console.log(output.transactionId), // ✅ typed
   errCases: (matcher) =>
     matcher.with(
-      P.tag("@temporal-contract/WorkflowNotFoundError"),
+      P.tag("@temporal-contract/WorkflowNotInContractError"),
       P.tag("@temporal-contract/WorkflowValidationError"),
       P.tag("@temporal-contract/WorkflowAlreadyStartedError"),
       P.tag("@temporal-contract/WorkflowFailedError"),

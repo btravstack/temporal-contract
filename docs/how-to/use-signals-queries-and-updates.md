@@ -23,7 +23,7 @@ import {
 import { z } from "zod";
 
 const getProgress = defineQuery({
-  input: z.object({}), // no arguments
+  // no `input` — an argument-less query
   output: z.object({ completed: z.number(), total: z.number() }),
 });
 
@@ -44,6 +44,11 @@ export const importCatalog = defineWorkflow({
   updates: { addItems },
 });
 ```
+
+`input` is optional on all three. Omit it — `defineSignal()`,
+`defineQuery({ output })`, `defineUpdate({ output })` — and the handler
+receives `undefined` while the client-side payload argument becomes
+omittable. No `z.void()` ceremony.
 
 ::: warning Query schemas must validate synchronously
 Temporal requires query handlers to complete synchronously, so a query's input
@@ -123,10 +128,13 @@ if (!approvedInTime) {
 
 ## Call them from the client
 
-Get a handle, then use the generated `queries`, `signals`, and `updates` maps:
+Bind the contract, get a handle, then use the generated `queries`, `signals`,
+and `updates` maps:
 
 ```typescript
-const started = await client.startWorkflow("importCatalog", {
+const catalog = typedClient.for(catalogContract);
+
+const started = await catalog.startWorkflow("importCatalog", {
   workflowId: "import-2024",
   args: { catalogId: "cat-1" },
 });
@@ -136,8 +144,8 @@ if (started.isErr()) {
 }
 const handle = started.value;
 
-// Query
-const progress = await handle.queries.getProgress({});
+// Query — the payload argument is omittable for an input-less definition
+const progress = await handle.queries.getProgress();
 if (progress.isOk()) {
   console.log(`${progress.value.completed}/${progress.value.total}`);
 }
@@ -171,24 +179,59 @@ simply never receives the signal. Unwrap with `.getOrThrow()`, or branch on
 `isErr()` / `isDefect()`.
 :::
 
-## Reach an existing workflow
+::: info What happens to an invalid signal on the worker
+Client-side validation catches a malformed payload before dispatch. If an
+invalid signal payload reaches the worker anyway — a stale client, another
+SDK — the worker **drops the signal and logs a warning** (`log.warn`, with
+the signal name and issues). It never fails the execution: a fire-and-forget
+message must not be able to kill a workflow. Queries and updates instead
+reject that one call.
+:::
 
-You do not need to have started it. `getHandle` binds to a running execution by
-id. It returns an `AsyncResult` — the error channel covers a workflow name that
-is not on the contract:
+## Start an update without waiting
+
+The `updates` map executes and waits. To fire an update and collect its
+result later, use `startUpdate` — it returns a typed update handle:
 
 ```typescript
-const bound = await client.getHandle("importCatalog", "import-2024");
+const startedUpdate = await handle.startUpdate("addItems", {
+  args: { skus: ["SKU-11"] },
+  updateId: "add-sku-11", // optional dedupe key
+});
+
+if (startedUpdate.isOk()) {
+  // ... do other work ...
+  const outcome = await startedUpdate.value.result();
+  console.log(outcome.getOrThrow().total);
+}
+```
+
+The handle carries `updateId`, `workflowId`, and `workflowRunId`; `options`
+is omittable for an argument-less update (`defineUpdate({ output })`).
+
+## Reach an existing workflow
+
+You do not need to have started it. `getHandle` binds to a running execution
+by id. It is **synchronous** — no I/O is involved — and returns a `Result`
+whose error channel covers a workflow name that is not on the contract:
+
+```typescript
+const bound = catalog.getHandle("importCatalog", "import-2024");
 if (bound.isErr()) {
   throw bound.error;
 }
 const handle = bound.value;
 
-const progress = await handle.queries.getProgress({});
+const progress = await handle.queries.getProgress();
 console.log(progress.getOrThrow());
 
 (await handle.signals.cancelRequested({ reason: "budget exhausted" })).getOrThrow();
 ```
+
+Pass options to pin a run or interlock the chain:
+`catalog.getHandle("importCatalog", "import-2024", { runId })` binds a
+specific execution; `{ firstExecutionRunId }` makes mutating methods refuse
+to cross into another execution chain.
 
 ## Signal-with-start
 
@@ -196,7 +239,7 @@ To signal a workflow that may not exist yet, `signalWithStart` starts it if
 needed and delivers the signal either way — one round trip, no race:
 
 ```typescript
-const result = await client.signalWithStart("importCatalog", {
+const result = await catalog.signalWithStart("importCatalog", {
   workflowId: "import-2024",
   args: { catalogId: "cat-1" },
   signalName: "cancelRequested",

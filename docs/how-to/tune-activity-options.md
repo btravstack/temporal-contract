@@ -142,14 +142,14 @@ retry: {
 ```
 
 `nonRetryableErrorTypes` matches the `type` on the `ApplicationFailure` — the
-same string you pass to [`qualify`](/how-to/implement-activities), or the key
+same string you pass to [`qualifyFailure`](/how-to/implement-activities), or the key
 of a [declared contract error](/how-to/model-domain-errors).
 
 Two ways to make a failure permanent:
 
 ```typescript
 // Per call site — this instance is permanent.
-qualify("CARD_DECLINED", { nonRetryable: true });
+qualifyFailure("CARD_DECLINED", { nonRetryable: true });
 
 // From the contract — every instance of this declared error is permanent.
 errors: {

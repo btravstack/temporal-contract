@@ -65,7 +65,7 @@ Implement the activities — note that workflow-scoped activities nest under the
 workflow, mirroring the contract:
 
 ```typescript
-import { declareActivitiesHandler, qualify } from "@temporal-contract/worker/activity";
+import { declareActivitiesHandler, qualifyFailure } from "@temporal-contract/worker/activity";
 import { fromPromise } from "unthrown";
 
 export const activities = declareActivitiesHandler({
@@ -73,9 +73,11 @@ export const activities = declareActivitiesHandler({
   activities: {
     processOrder: {
       chargeCard: ({ customerId, amount }) =>
-        fromPromise(gateway.charge(customerId, amount), qualify("CHARGE_FAILED")).map((charge) => ({
-          transactionId: charge.id,
-        })),
+        fromPromise(gateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED")).map(
+          (charge) => ({
+            transactionId: charge.id,
+          }),
+        ),
     },
   },
 });
@@ -112,7 +114,8 @@ partial state, nothing to unwind.
 - **End-to-end type safety** — workflows, activities, signals, queries, updates,
   errors, and search attributes all derive from one contract
 - **Validation at every boundary** — Standard Schema (Zod, Valibot, ArkType) runs
-  on both sides of every network hop
+  on both sides of every network hop: validated on send, parsed on receive, so
+  transforms apply exactly once
 - **Typed domain errors** — declare failures on the contract; consume them as
   schema-validated values with an exhaustive matcher
 - **Explicit error handling** — `Result` / `AsyncResult` from

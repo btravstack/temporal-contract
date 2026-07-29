@@ -98,7 +98,7 @@ instance into a typed partial object:
 ```typescript
 import { readTypedSearchAttributes } from "@temporal-contract/client";
 
-const bound = await client.getHandle("processOrder", "order-123");
+const bound = client.getHandle("processOrder", "order-123"); // synchronous Result
 if (bound.isErr()) {
   throw bound.error;
 }

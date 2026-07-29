@@ -283,7 +283,7 @@ retry: {
 ```
 
 ```typescript
-qualify("CARD_DECLINED", { nonRetryable: true });
+qualifyFailure("CARD_DECLINED", { nonRetryable: true });
 ```
 
 ### An activity is not retried at all
@@ -291,7 +291,7 @@ qualify("CARD_DECLINED", { nonRetryable: true });
 Something upstream set `nonRetryable: true`, or the type is listed in
 `retry.nonRetryableErrorTypes`.
 
-Watch for `qualify` masking an inner failure: it always wraps, so an inner
+Watch for `qualifyFailure` masking an inner failure: it always wraps, so an inner
 `ApplicationFailure`'s own `nonRetryable: true` is overridden by the wrapper's.
 Pass `{ nonRetryable: true }` explicitly if it must stay permanent.
 

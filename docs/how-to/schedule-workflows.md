@@ -1,14 +1,19 @@
 # Schedule workflows
 
 Temporal schedules start workflows on a recurring spec, with catch-up policies,
-pause/resume, and manual triggers. `client.schedule` is the typed wrapper — the
-workflow type and task queue come from the contract, and `args` are validated
-against its input schema before the schedule is created.
+pause/resume, and manual triggers. `schedule` on a contract-bound client is
+the typed wrapper — the workflow type and task queue come from the contract,
+and `args` are validated against its input schema before the schedule is
+created:
+
+```typescript
+const ledger = typedClient.for(ledgerContract);
+```
 
 ## Create a schedule
 
 ```typescript
-const created = await client.schedule.create("reconcileLedger", {
+const created = await ledger.schedule.create("reconcileLedger", {
   scheduleId: "nightly-reconcile",
   spec: {
     cronExpressions: ["0 2 * * *"], // 02:00 daily
@@ -23,10 +28,39 @@ if (created.isErr()) {
 }
 ```
 
-The `err` channel is narrow: `WorkflowNotFoundError` (the name is not on the
-contract) or `WorkflowValidationError` (the args failed the schema). Technical
-faults — a duplicate schedule id, a transport error — ride the defect channel
-with a `RuntimeClientError` cause.
+The `err` channel is narrow: `WorkflowNotInContractError` (the name is not on
+the contract), `WorkflowValidationError` (the args failed the schema), or
+`ScheduleAlreadyExistsError` (a running schedule already owns this id).
+Technical faults — a transport error, an unrecognized rejection — ride the
+defect channel with a `RuntimeClientError` cause.
+
+## Create-if-absent
+
+`ScheduleAlreadyExistsError` is a typed branch, so idempotent setup is a
+match away — bind to the existing schedule instead of failing:
+
+```typescript
+import { P } from "unthrown";
+
+const schedule = created.match({
+  ok: (handle) => handle,
+  errCases: (matcher) =>
+    matcher
+      .with(P.tag("@temporal-contract/ScheduleAlreadyExistsError"), () =>
+        ledger.schedule.getHandle("nightly-reconcile"),
+      )
+      .with(
+        P.tag("@temporal-contract/WorkflowNotInContractError"),
+        P.tag("@temporal-contract/WorkflowValidationError"),
+        (error) => {
+          throw error; // programming errors — fail loudly
+        },
+      ),
+  defect: (cause) => {
+    throw cause;
+  },
+});
+```
 
 ## Write the spec
 
@@ -61,7 +95,7 @@ DST shifts will surprise you otherwise.
 ## Control overlap and catch-up
 
 ```typescript
-await client.schedule
+await ledger.schedule
   .create("reconcileLedger", {
     scheduleId: "nightly-reconcile",
     spec: { cronExpressions: ["0 2 * * *"] },
@@ -84,7 +118,7 @@ will happily run twenty copies at once after an outage.
 ## Start paused
 
 ```typescript
-await client.schedule
+await ledger.schedule
   .create("reconcileLedger", {
     scheduleId: "nightly-reconcile",
     spec: { cronExpressions: ["0 2 * * *"] },
@@ -104,7 +138,7 @@ await client.schedule
 `action` carries workflow-level overrides for each run:
 
 ```typescript
-await client.schedule
+await ledger.schedule
   .create("reconcileLedger", {
     scheduleId: "nightly-reconcile",
     spec: { cronExpressions: ["0 2 * * *"] },
@@ -130,7 +164,7 @@ are nested separately.
 ## Index the spawned runs
 
 ```typescript
-await client.schedule
+await ledger.schedule
   .create("reconcileLedger", {
     scheduleId: "nightly-reconcile",
     spec: { cronExpressions: ["0 2 * * *"] },
@@ -152,7 +186,7 @@ attributes](/how-to/index-workflows-with-search-attributes).
 The handle mirrors Temporal's lifecycle methods, wrapped in `AsyncResult`:
 
 ```typescript
-const created = await client.schedule.create("reconcileLedger", {/* ... */});
+const created = await ledger.schedule.create("reconcileLedger", {/* ... */});
 if (created.isErr()) throw created.error;
 
 const schedule = created.value;
@@ -167,7 +201,9 @@ await schedule.trigger().get();
 
 // Inspect current state.
 const described = await schedule.describe();
-if (described.isDefect()) {
+if (described.isErr()) {
+  console.error("schedule is gone:", described.error.scheduleId);
+} else if (described.isDefect()) {
   console.error("describe failed:", described.cause);
 } else {
   console.log(described.value.state.paused, described.value.info.nextActionTimes);
@@ -176,26 +212,72 @@ if (described.isDefect()) {
 await schedule.delete().get();
 ```
 
-Every method returns `AsyncResult<T, never>` — there is no modeled error. An
-unknown schedule id or a transport failure is a technical fault on the defect
-channel.
+Every method returns `AsyncResult<T, ScheduleNotFoundError>` — the one
+anticipated failure, a schedule the server no longer knows, is a typed `Err`.
+Anything else (a transport failure, an unrecognized rejection) is a technical
+fault on the defect channel.
 
 ::: warning `await` alone does not surface the failure
 `AsyncResult` is a success-only thenable: awaiting it yields a `Result`, and the
 underlying promise never rejects. `await schedule.pause(...)` therefore discards
-a defect silently. Chain `.get()` (which rethrows the original cause) or branch
-on `isDefect()` — the same applies to every `AsyncResult` in this library.
+a failure silently. Chain `.get()` (which rethrows an `Err` or a defect's
+original cause) or branch on `isErr()` / `isDefect()` — the same applies to
+every `AsyncResult` in this library.
 :::
+
+## Update or backfill a schedule
+
+`update` is fetch-modify-persist: Temporal hands your function the current
+description and persists what it returns. It may be invoked more than once on
+conflict — keep it pure:
+
+```typescript
+await schedule
+  .update((previous) => ({
+    ...previous,
+    spec: { cronExpressions: ["0 3 * * *"] }, // move to 03:00
+  }))
+  .get();
+```
+
+The action's `workflowType` / `taskQueue` / `args` are **not** re-validated
+against the contract here — for contract-level changes, prefer delete +
+`create`.
+
+`backfill` runs the schedule's action over historical time ranges, as if the
+schedule had been active then:
+
+```typescript
+await schedule
+  .backfill({
+    start: new Date("2026-07-01T00:00:00Z"),
+    end: new Date("2026-07-08T00:00:00Z"),
+    overlap: "ALLOW_ALL",
+  })
+  .get();
+```
 
 ## Reach an existing schedule
 
-`client.schedule` wraps creation. To bind to a schedule this process did not
-create, use the underlying SDK client and wrap it yourself, or keep the handle
-from `create`:
+`getHandle` binds to a schedule this process did not create. It is
+synchronous and does no server round-trip — a wrong id surfaces as
+`Err(ScheduleNotFoundError)` from the handle's methods:
 
 ```typescript
-const handle = temporalClient.schedule.getHandle("nightly-reconcile");
-await handle.pause("manual intervention");
+const handle = ledger.schedule.getHandle("nightly-reconcile");
+await handle.pause("manual intervention").get();
+```
+
+## List schedules
+
+`list` is a passthrough of Temporal's `ScheduleClient.list` — an
+`AsyncIterable` of summaries across the namespace (not filtered to the
+contract):
+
+```typescript
+for await (const summary of ledger.schedule.list()) {
+  console.log(summary.scheduleId, summary.action);
+}
 ```
 
 ## Schedules or `sleep`?

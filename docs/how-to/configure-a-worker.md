@@ -89,7 +89,35 @@ src/
 The rule: **`workflows.ts` may import `contract.ts` and nothing with side
 effects.** See [Architecture](/explanation/architecture).
 
-## Tune concurrency
+## Run a workflow-only worker
+
+`activities` is optional. Omit it and the worker registers no activities and
+polls exclusively for Workflow Tasks:
+
+```typescript
+import { createWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
+import { NativeConnection } from "@temporalio/worker";
+
+import { orderContract } from "./contract.js";
+
+const connection = await NativeConnection.connect({ address: "localhost:7233" });
+
+const worker = await createWorker({
+  contract: orderContract,
+  connection,
+  workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
+  // no `activities`
+}).get();
+
+await worker.run();
+```
+
+This is the split-deployment pattern: workflows are deterministic and
+CPU-light, activities do the heavy I/O, and the two often deserve different
+scaling profiles. Run one workflow-only worker process and a separate
+activity worker process (a `createWorker` call _with_ `activities`) on the
+same task queue — Temporal routes each task kind to whichever worker polls
+for it.
 
 ```typescript
 const worker = await createWorker({

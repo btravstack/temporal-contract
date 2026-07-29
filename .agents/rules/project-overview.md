@@ -31,6 +31,6 @@
 
 - **Contract** — defines task queue, workflows, activities, signals, queries, updates, search attributes with schemas. See [contract-patterns.md](./contract-patterns.md).
 - **Worker** — `declareWorkflow` + `declareActivitiesHandler` with automatic validation. See [handlers.md](./handlers.md).
-- **Client** — `TypedClient.create()` returns `AsyncResult<T, E>` for all operations.
+- **Client** — `TypedClient.create({ client })` is connection-scoped; `client.for(contract)` hands out a contract-bound `ContractClient` whose operations return `AsyncResult<T, E>`.
 - **Result** — `Result<T, E>` and `AsyncResult<T, E>` from unthrown for explicit error handling, plus a third `defect` channel for unanticipated failures.
 - **Determinism** — workflow code runs in Temporal's replay sandbox. See [workflow-determinism.md](./workflow-determinism.md).

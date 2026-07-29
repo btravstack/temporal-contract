@@ -47,8 +47,7 @@ import { z } from "zod";
 // ... chargeCard and sendReceipt as before ...
 
 const getStatus = defineQuery({
-  // No parameters — an empty object schema, not `z.void()`.
-  input: z.object({}),
+  // No parameters — just omit `input`.
   output: z.object({
     state: z.enum(["awaiting-approval", "charging", "done"]),
     amount: z.number(),
@@ -194,11 +193,10 @@ import { orderContract } from "./contract.js";
 const connection = await Connection.connect({ address: "localhost:7233" });
 
 const client = await TypedClient.create({
-  contract: orderContract,
   client: new Client({ connection }),
 }).get();
 
-const started = await client.startWorkflow("processOrder", {
+const started = await client.for(orderContract).startWorkflow("processOrder", {
   workflowId: `order-${Date.now()}`,
   args: {
     orderId: "ORD-2",
@@ -215,7 +213,8 @@ if (started.isErr()) {
 const handle = started.value;
 
 // 1. Query the current state. The workflow is parked on `condition`.
-const before = await handle.queries.getStatus({});
+//    (The payload argument is omittable — `getStatus` declares no input.)
+const before = await handle.queries.getStatus();
 console.log("status:", before.getOrThrow()); // { state: 'awaiting-approval', amount: 42.5 }
 
 // 2. Update the amount and get confirmation back.
@@ -263,8 +262,9 @@ charge activity ran.
 
 `handle.queries`, `handle.signals`, and `handle.updates` are generated from the
 contract. Autocomplete lists exactly the operations this workflow declares, with
-the right argument and return types, and every payload is validated on both
-sides of the wire.
+the right argument and return types. Every payload is validated before it is
+sent and parsed by the worker on receive, so a transforming schema applies
+exactly once.
 
 ## Step 4 — See a validation failure
 

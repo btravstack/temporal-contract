@@ -7,7 +7,7 @@ produces the plain object Temporal's worker expects.
 ## The basic shape
 
 ```typescript
-import { declareActivitiesHandler, qualify } from "@temporal-contract/worker/activity";
+import { declareActivitiesHandler, qualifyFailure } from "@temporal-contract/worker/activity";
 import { fromPromise } from "unthrown";
 
 import { orderContract } from "./contract.js";
@@ -17,14 +17,16 @@ export const activities = declareActivitiesHandler({
   activities: {
     // Global activity — declared on the contract, so it sits at the root.
     sendNotification: ({ customerId, message }) =>
-      fromPromise(mailer.send(customerId, message), qualify("NOTIFICATION_FAILED")),
+      fromPromise(mailer.send(customerId, message), qualifyFailure("NOTIFICATION_FAILED")),
 
     // Workflow-scoped activities nest under their workflow's name.
     processOrder: {
       chargeCard: ({ customerId, amount }) =>
-        fromPromise(gateway.charge(customerId, amount), qualify("CHARGE_FAILED")).map((c) => ({
-          transactionId: c.id,
-        })),
+        fromPromise(gateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED")).map(
+          (c) => ({
+            transactionId: c.id,
+          }),
+        ),
     },
   },
 });
@@ -44,10 +46,10 @@ Activities return `AsyncResult` instead of throwing. `fromPromise` is the
 bridge:
 
 ```typescript
-fromPromise(promise, qualify("SOMETHING_FAILED"));
+fromPromise(promise, qualifyFailure("SOMETHING_FAILED"));
 ```
 
-`qualify(type)` builds the error mapper. When the promise rejects it wraps the
+`qualifyFailure(type)` builds the error mapper. When the promise rejects it wraps the
 rejection in a Temporal `ApplicationFailure`:
 
 - an `Error` rejection keeps its own message and is preserved as `cause`, so
@@ -55,15 +57,15 @@ rejection in a Temporal `ApplicationFailure`:
 - anything else falls back to `options.message`, or `String(error)`.
 
 ```typescript
-qualify("CARD_DECLINED", {
+qualifyFailure("CARD_DECLINED", {
   message: "Payment gateway rejected the charge", // used when the rejection isn't an Error
   nonRetryable: true, // Temporal stops retrying immediately
   details: [{ gateway: "stripe" }], // structured payload for the workflow
 });
 ```
 
-::: warning `qualify` always wraps
-Even when the rejection is _already_ an `ApplicationFailure`, `qualify` wraps
+::: warning `qualifyFailure` always wraps
+Even when the rejection is _already_ an `ApplicationFailure`, `qualifyFailure` wraps
 it, so the resulting `type` is guaranteed to be the one you declared — retry
 policies keyed on `nonRetryableErrorTypes` can rely on that.
 
@@ -72,7 +74,7 @@ The flip side: an inner `ApplicationFailure`'s own `type` and
 pass `{ nonRetryable: true }` yourself or write a custom mapper.
 :::
 
-For full control, skip `qualify` and write the mapper by hand:
+For full control, skip `qualifyFailure` and write the mapper by hand:
 
 ```typescript
 fromPromise(gateway.charge(customerId, amount), (error) =>
@@ -95,11 +97,11 @@ so you do not need a separate `@temporalio/common` import.
 ```typescript
 processOrder: {
   chargeCard: ({ customerId, amount }) =>
-    fromPromise(riskEngine.score(customerId), qualify("RISK_CHECK_FAILED"))
+    fromPromise(riskEngine.score(customerId), qualifyFailure("RISK_CHECK_FAILED"))
       .flatMap((score) =>
         score > 0.9
           ? Err(ApplicationFailure.create({ type: "HIGH_RISK", nonRetryable: true })).toAsync()
-          : fromPromise(gateway.charge(customerId, amount), qualify("CHARGE_FAILED")),
+          : fromPromise(gateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED")),
       )
       .map((charge) => ({ transactionId: charge.id })),
 }
@@ -125,9 +127,10 @@ export const activities = declareActivitiesHandler({
   activities: {
     processOrder: {
       chargeCard: ({ customerId, amount }, { context }) =>
-        fromPromise(context.gateway.charge(customerId, amount), qualify("CHARGE_FAILED")).map(
-          (c) => ({ transactionId: c.id }),
-        ),
+        fromPromise(
+          context.gateway.charge(customerId, amount),
+          qualifyFailure("CHARGE_FAILED"),
+        ).map((c) => ({ transactionId: c.id })),
     },
   },
 });
@@ -173,7 +176,7 @@ processOrder: {
 
         return { synced: true, attempts: attempt };
       })(),
-      qualify("CATALOG_SYNC_FAILED"),
+      qualifyFailure("CATALOG_SYNC_FAILED"),
     ),
 }
 ```

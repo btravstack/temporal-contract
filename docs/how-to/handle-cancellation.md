@@ -7,7 +7,7 @@ for completed steps, and record why it ended.
 ## Request cancellation from the client
 
 ```typescript
-const bound = await client.getHandle("processOrder", "order-123");
+const bound = client.getHandle("processOrder", "order-123"); // synchronous Result
 if (bound.isErr()) {
   throw bound.error;
 }

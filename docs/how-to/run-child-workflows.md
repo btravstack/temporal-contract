@@ -81,7 +81,40 @@ implementation: async (context, order) => {
 };
 ```
 
-The handle exposes `workflowId` and `result()`.
+The handle exposes `workflowId`, `firstExecutionRunId` (the anchor of the
+child's execution chain, stable across continue-as-new), a typed `signals`
+map, and `result()`.
+
+## Signal a running child
+
+The handle's `signals` map mirrors the client handle's — one sender per
+signal the child's contract entry declares, fully typed:
+
+```typescript
+implementation: async (context, order) => {
+  const started = await context.startChildWorkflow(orderContract, "collectPayment", {
+    workflowId: `payment-${order.orderId}`,
+    args: { customerId: order.customerId, amount: order.total },
+  });
+
+  if (started.isErr()) {
+    return { status: "failed", reason: started.error.message };
+  }
+
+  // Typed: the payload is checked against the child's signal schema.
+  const signaled = await started.value.signals.applyDiscount({ percent: 10 });
+  if (signaled.isErr()) {
+    // ChildWorkflowError (incl. a payload failing validation before send)
+    // or ChildWorkflowCancelledError.
+  }
+
+  const payment = await started.value.result();
+  return { status: payment.isOk() ? "completed" : "failed" };
+};
+```
+
+The payload is validated before sending and parsed by the child on receive;
+for a payload-less signal (`defineSignal()`), the argument is omittable.
 
 ## Run children in parallel
 

@@ -22,14 +22,22 @@ function defineContract<T extends ContractDefinition>(definition: T): T;
 | `workflows`  | `Record<string, WorkflowDefinition>` | yes      | At least one entry                                   |
 | `activities` | `Record<string, ActivityDefinition>` | no       | Global activities, reachable from every workflow     |
 
-**Throws** `Error` when the structure is invalid. Checked at call time:
+**Throws** `Error` when the structure is invalid. The check is a hand-rolled
+structural validator — the contract package has no runtime schema-library
+dependency. Checked at call time:
 
 - `taskQueue` empty or missing
 - `workflows` empty
+- an unknown key at the contract root (strict — only the three fields above)
 - any key that is not a valid JavaScript identifier (`/^[a-zA-Z_$][a-zA-Z0-9_$]*$/`)
 - an `input`, `output`, or error `data` that is not Standard Schema compatible
 - an activity name that collides across the flat namespace — global vs
-  workflow-scoped, or between two workflows
+  workflow-scoped, or two _different_ definitions under one name across
+  workflows. Reusing the **same definition object** across workflows is
+  allowed (one activity, not a collision); the collision message recommends
+  hoisting shared activities to the global `activities` block
+- a workflow name colliding with a global activity name (they share the root
+  of the worker's implementations map)
 - unknown keys inside `defaultOptions`
 
 ### `defineWorkflow(definition)`
@@ -54,38 +62,44 @@ function defineContract<T extends ContractDefinition>(definition: T): T;
 | `errors`         | `Record<string, ErrorDefinition>` | no       |
 | `defaultOptions` | `ActivityDefaultOptions`          | no       |
 
-### `defineSignal(definition)`
+### `defineSignal(definition?)`
 
 | Field   | Type        | Required |
 | ------- | ----------- | -------- |
-| `input` | `AnySchema` | yes      |
+| `input` | `AnySchema` | no       |
 
 Signals return nothing, so there is no `output`.
+
+Omit `input` (or the whole argument: `defineSignal()`) for a payload-less
+signal — the definition then carries an `UndefinedInputSchema`, the handler
+receives `undefined`, and the client-side payload argument is omittable.
 
 ### `defineQuery(definition)`
 
 | Field    | Type        | Required |
 | -------- | ----------- | -------- |
-| `input`  | `AnySchema` | yes      |
+| `input`  | `AnySchema` | no       |
 | `output` | `AnySchema` | yes      |
 
 ::: warning Synchronous validation only
 Temporal requires query handlers to complete synchronously, so both schemas
 must validate synchronously. Async refinements are not supported. Standard
 Schema does not expose the distinction at the type level, so the worker checks
-at runtime and throws if `~standard.validate` returns a `Promise`.
+at runtime and fails the execution with a `ContractMisuseError` if
+`~standard.validate` returns a `Promise`.
 :::
 
-Use `input: z.object({})` for a query with no parameters.
+Use `defineQuery({ output })` for a query with no parameters.
 
 ### `defineUpdate(definition)`
 
 | Field    | Type        | Required |
 | -------- | ----------- | -------- |
-| `input`  | `AnySchema` | yes      |
+| `input`  | `AnySchema` | no       |
 | `output` | `AnySchema` | yes      |
 
-Update handlers may be asynchronous.
+Update handlers may be asynchronous. `defineUpdate({ output })` declares an
+argument-less update.
 
 ### `defineSearchAttribute(definition)`
 
@@ -188,10 +202,14 @@ See the [errors reference](/reference/errors).
 
 ### Contract shapes
 
-`AnySchema`, `ActivityDefinition`, `SignalDefinition`, `QueryDefinition`,
-`UpdateDefinition`, `WorkflowDefinition`, `AnyWorkflowDefinition`,
-`ContractDefinition`, `SearchAttributeDefinition`, `SearchAttributeKind`,
-`SearchAttributeKindToType`
+`AnySchema`, `UndefinedInputSchema`, `ActivityDefinition`, `SignalDefinition`,
+`QueryDefinition`, `UpdateDefinition`, `WorkflowDefinition`,
+`AnyWorkflowDefinition`, `ContractDefinition`, `SearchAttributeDefinition`,
+`SearchAttributeKind`, `SearchAttributeKindToType`
+
+`UndefinedInputSchema` is the Standard Schema type materialized by
+`defineSignal` / `defineQuery` / `defineUpdate` when `input` is omitted —
+validation only accepts `undefined`.
 
 ### Error inference
 
@@ -203,8 +221,8 @@ shape — what a producer passes to the constructor.
 
 ### Name extraction
 
-`InferWorkflowNames`, `InferActivityNames`, `InferContractWorkflows`,
-`SignalNamesOf`, `QueryNamesOf`, `UpdateNamesOf`
+`InferWorkflowNames`, `InferActivityNames`, `SignalNamesOf`, `QueryNamesOf`,
+`UpdateNamesOf`
 
 ### Direction-aware inference
 

@@ -80,7 +80,7 @@ it("rejects an invalid amount", async () => {
 `createContext` is the seam. Build the handler with fakes:
 
 ```typescript
-import { declareActivitiesHandler, qualify } from "@temporal-contract/worker/activity";
+import { declareActivitiesHandler, qualifyFailure } from "@temporal-contract/worker/activity";
 import { fromPromise } from "unthrown";
 
 export const makeActivities = (deps: { gateway: PaymentGateway }) =>
@@ -90,9 +90,10 @@ export const makeActivities = (deps: { gateway: PaymentGateway }) =>
     activities: {
       processOrder: {
         chargeCard: ({ customerId, amount }, { context }) =>
-          fromPromise(context.gateway.charge(customerId, amount), qualify("CHARGE_FAILED")).map(
-            (c) => ({ transactionId: c.id }),
-          ),
+          fromPromise(
+            context.gateway.charge(customerId, amount),
+            qualifyFailure("CHARGE_FAILED"),
+          ).map((c) => ({ transactionId: c.id })),
       },
     },
   });
@@ -131,12 +132,11 @@ it("processes an order", async ({ testEnv }) => {
   }).get();
 
   const client = await TypedClient.create({
-    contract: orderContract,
     client: testEnv.client,
   }).get();
 
   await worker.runUntil(async () => {
-    const result = await client.executeWorkflow("processOrder", {
+    const result = await client.for(orderContract).executeWorkflow("processOrder", {
       workflowId: "order-test-1",
       args: { orderId: "ORD-1", customerId: "CUST-1", amount: 42 },
     });
@@ -187,7 +187,7 @@ it("expires an unapproved order after 24 hours", async ({ testEnv }) => {
   // ... worker + client setup ...
 
   await worker.runUntil(async () => {
-    const started = await client.startWorkflow("processOrder", {
+    const started = await client.for(orderContract).startWorkflow("processOrder", {
       workflowId: "order-expiry",
       args: { orderId: "ORD-1", customerId: "CUST-1", amount: 42 },
     });
@@ -238,12 +238,11 @@ it("indexes the order by customer", async ({ clientConnection, workerConnection 
   }).get();
 
   const client = await TypedClient.create({
-    contract: orderContract,
     client: new Client({ connection: clientConnection }),
   }).get();
 
   await worker.runUntil(async () => {
-    const result = await client.executeWorkflow("processOrder", {
+    const result = await client.for(orderContract).executeWorkflow("processOrder", {
       workflowId: "order-search-1",
       args: { orderId: "ORD-1", customerId: "CUST-1", amount: 42 },
       searchAttributes: { customerId: "CUST-1" },
