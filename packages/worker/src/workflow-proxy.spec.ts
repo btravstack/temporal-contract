@@ -38,6 +38,7 @@ vi.mock("@temporalio/workflow", async () => {
 
 // Import *after* the mock so the helper module sees our stub.
 const { buildRawActivitiesProxy } = await import("./internal.js");
+const { ContractMisuseError } = await import("./errors.js");
 const { declareWorkflow } = await import("./workflow.js");
 
 const activityDef = (input: z.ZodTypeAny, output: z.ZodTypeAny): ActivityDefinition =>
@@ -152,11 +153,14 @@ describe("buildRawActivitiesProxy", () => {
     // A typo in `activityOptionsByName` is caught by the type system at
     // declaration sites, but a raw call (or a stale options bag from a
     // renamed activity) shouldn't silently spin up a proxy for a name that
-    // can never be invoked. Surface a clear error instead.
+    // can never be invoked. Surface a clear error instead — a
+    // ContractMisuseError (non-retryable ApplicationFailure), since this
+    // runs in the workflow sandbox where a plain Error would hang the
+    // execution in infinite Workflow Task retries (D3).
     const def: Record<string, ActivityDefinition> = {
       knownActivity: activityDef(z.object({}), z.object({})),
     };
-    expect(() =>
+    const build = () =>
       buildRawActivitiesProxy(
         def,
         undefined,
@@ -164,8 +168,18 @@ describe("buildRawActivitiesProxy", () => {
         {
           nonExistent: { startToCloseTimeout: "1 second" },
         },
-      ),
-    ).toThrow(/nonExistent/);
+      );
+    expect(build).toThrow(ContractMisuseError);
+    expect(build).toThrow(/nonExistent/);
+  });
+
+  it("throws ContractMisuseError when activityOptions is omitted and an activity has no options of its own", () => {
+    const def: Record<string, ActivityDefinition> = {
+      uncovered: activityDef(z.object({}), z.object({})),
+    };
+    const build = () => buildRawActivitiesProxy(def, undefined, undefined, undefined);
+    expect(build).toThrow(ContractMisuseError);
+    expect(build).toThrow(/uncovered/);
   });
 
   it("merges workflow-local and global activities into one lookup space", () => {

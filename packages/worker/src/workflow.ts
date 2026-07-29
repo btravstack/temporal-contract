@@ -40,6 +40,7 @@ import {
   type ChildWorkflowCancelledError,
   type ChildWorkflowError,
   type ChildWorkflowNotFoundError,
+  ContractMisuseError,
   type WorkflowCancelledError,
   WorkflowInputValidationError,
   WorkflowOutputValidationError,
@@ -61,6 +62,9 @@ import {
 import {
   type ClientInferInput,
   type ClientInferOutput,
+  type QueryDefOf,
+  type SignalDefOf,
+  type UpdateDefOf,
   type WorkerInferInput,
   type WorkerInferOutput,
 } from "./types.js";
@@ -74,9 +78,9 @@ export {
   ChildWorkflowError,
   ChildWorkflowNotFoundError,
   ContractErrorDataValidationError,
+  ContractMisuseError,
   QueryInputValidationError,
   QueryOutputValidationError,
-  SignalInputValidationError,
   UpdateInputValidationError,
   UpdateOutputValidationError,
   ValidationError,
@@ -166,12 +170,15 @@ export {
  * import { activities } from './activities.js';
  * import myContract from './contract.js';
  *
- * const worker = await createWorker({
+ * const workerResult = await createWorker({
  *   contract: myContract,
  *   connection,
  *   workflowsPath: workflowsPathFromURL(import.meta.url, './workflows.js'),
  *   activities,
- * }).getOrThrow();
+ * });
+ * // `createWorker` returns AsyncResult<Worker, never> — setup failures ride
+ * // the defect channel, so `.get()` narrows the ok channel directly.
+ * const worker = workerResult.get();
  * ```
  */
 export function declareWorkflow<
@@ -186,8 +193,22 @@ export function declareWorkflow<
 }: DeclareWorkflowOptions<TContract, TWorkflowName>): (
   ...args: unknown[]
 ) => Promise<WorkerInferOutput<TContract["workflows"][TWorkflowName]>> {
-  // Get the workflow definition from the contract
-  const definition = contract.workflows[workflowName] as TContract["workflows"][TWorkflowName];
+  // Get the workflow definition from the contract. The runtime guard covers
+  // JavaScript callers and stale casts the type system can't see — without
+  // it, a typo'd `workflowName` would crash later with an opaque
+  // `Cannot read properties of undefined (reading 'activities')`. This runs
+  // at declaration time in the workflow bundle (sandbox code), so the error
+  // is a ContractMisuseError — a non-retryable ApplicationFailure — rather
+  // than a plain Error that Temporal would retry forever (D3).
+  const definition = contract.workflows[workflowName] as
+    | TContract["workflows"][TWorkflowName]
+    | undefined;
+  if (!definition) {
+    const available = Object.keys(contract.workflows).join(", ") || "none";
+    throw new ContractMisuseError(
+      `declareWorkflow: workflow "${String(workflowName)}" is not declared on the supplied contract. Available workflows: ${available}`,
+    );
+  }
 
   // Build the activities proxy *once* at declaration time, not per workflow
   // invocation. Temporal's `proxyActivities` is documented as a module-scope
@@ -539,16 +560,7 @@ type WorkflowContext<
    */
   defineSignal: <K extends SignalNamesOf<TContract["workflows"][TWorkflowName]>>(
     signalName: K,
-    handler: SignalHandlerImplementation<
-      NonNullable<TContract["workflows"][TWorkflowName]["signals"]> extends Record<
-        string,
-        SignalDefinition
-      >
-        ? NonNullable<TContract["workflows"][TWorkflowName]["signals"]>[K] extends SignalDefinition
-          ? NonNullable<TContract["workflows"][TWorkflowName]["signals"]>[K]
-          : never
-        : never
-    >,
+    handler: SignalHandlerImplementation<SignalDefOf<TContract["workflows"][TWorkflowName], K>>,
   ) => void;
 
   /**
@@ -570,16 +582,7 @@ type WorkflowContext<
    */
   defineQuery: <K extends QueryNamesOf<TContract["workflows"][TWorkflowName]>>(
     queryName: K,
-    handler: QueryHandlerImplementation<
-      NonNullable<TContract["workflows"][TWorkflowName]["queries"]> extends Record<
-        string,
-        QueryDefinition
-      >
-        ? NonNullable<TContract["workflows"][TWorkflowName]["queries"]>[K] extends QueryDefinition
-          ? NonNullable<TContract["workflows"][TWorkflowName]["queries"]>[K]
-          : never
-        : never
-    >,
+    handler: QueryHandlerImplementation<QueryDefOf<TContract["workflows"][TWorkflowName], K>>,
   ) => void;
 
   /**
@@ -602,24 +605,18 @@ type WorkflowContext<
    */
   defineUpdate: <K extends UpdateNamesOf<TContract["workflows"][TWorkflowName]>>(
     updateName: K,
-    handler: UpdateHandlerImplementation<
-      NonNullable<TContract["workflows"][TWorkflowName]["updates"]> extends Record<
-        string,
-        UpdateDefinition
-      >
-        ? NonNullable<TContract["workflows"][TWorkflowName]["updates"]>[K] extends UpdateDefinition
-          ? NonNullable<TContract["workflows"][TWorkflowName]["updates"]>[K]
-          : never
-        : never
-    >,
+    handler: UpdateHandlerImplementation<UpdateDefOf<TContract["workflows"][TWorkflowName], K>>,
   ) => void;
 
   /**
    * Start a child workflow and return a typed handle with AsyncResult pattern
    *
-   * Supports both same-contract and cross-contract child workflows:
-   * - Same contract: Pass workflowName from current contract
-   * - Cross-contract: Pass contract and workflowName to invoke workflows from other workers
+   * The `contract` argument is always required — it identifies the task
+   * queue and workflow definition the child runs against:
+   * - Same-contract child: pass this worker's own contract and one of its
+   *   workflow names.
+   * - Cross-contract child: pass another worker's contract to invoke a
+   *   workflow it serves (the child's task queue comes from that contract).
    *
    * @example
    * ```ts
@@ -668,9 +665,12 @@ type WorkflowContext<
   /**
    * Execute a child workflow (start and wait for result) with AsyncResult pattern
    *
-   * Supports both same-contract and cross-contract child workflows:
-   * - Same contract: Pass workflowName from current contract
-   * - Cross-contract: Pass contract and workflowName to invoke workflows from other workers
+   * The `contract` argument is always required — it identifies the task
+   * queue and workflow definition the child runs against:
+   * - Same-contract child: pass this worker's own contract and one of its
+   *   workflow names.
+   * - Cross-contract child: pass another worker's contract to invoke a
+   *   workflow it serves (the child's task queue comes from that contract).
    *
    * @example
    * ```ts

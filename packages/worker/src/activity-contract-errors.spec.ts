@@ -116,7 +116,6 @@ describe("declareActivitiesHandler — contract errors", () => {
     const activities = declareActivitiesHandler({
       contract: transformingContract,
       activities: {
-        noop: {},
         flaky: (_args, { errors }) => errAsync(errors.Nope({ reason: "declined" })),
       },
     });

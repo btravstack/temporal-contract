@@ -1,7 +1,11 @@
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { TypedClient, WorkflowValidationError } from "@temporal-contract/client";
+import {
+  TypedClient,
+  WorkflowValidationError,
+  type ContractClient,
+} from "@temporal-contract/client";
 import { it as baseIt } from "@temporal-contract/testing/extension";
 import { Client, WorkflowFailedError } from "@temporalio/client";
 import { type Worker } from "@temporalio/worker";
@@ -22,7 +26,7 @@ const errAsync = <E>(error: E): AsyncResult<never, E> => Err(error).toAsync();
 
 const it = baseIt.extend<{
   worker: Worker;
-  client: TypedClient<typeof testContract>;
+  client: ContractClient<typeof testContract>;
 }>({
   worker: [
     async ({ workerConnection }, use) => {
@@ -55,17 +59,14 @@ const it = baseIt.extend<{
     { auto: true },
   ],
   client: async ({ clientConnection }, use) => {
-    // Create typed client
+    // Create the connection-scoped root, then bind the contract.
     const rawClient = new Client({
       connection: clientConnection,
       namespace: "default",
     });
-    const clientResult = await TypedClient.create({ contract: testContract, client: rawClient });
-    if (!clientResult.isOk()) {
-      throw clientResult.isErr() ? clientResult.error : clientResult.cause;
-    }
+    const root = (await TypedClient.create({ client: rawClient })).get();
 
-    await use(clientResult.value);
+    await use(root.for(testContract));
   },
 });
 
@@ -78,8 +79,8 @@ const logMessages: string[] = [];
 const activities = declareActivitiesHandler({
   contract: testContract,
   activities: {
-    simpleWorkflow: {},
-
+    // Workflows without declared activities (simpleWorkflow,
+    // interactiveWorkflow, parentWorkflow, ...) no longer need `{}` entries.
     workflowWithActivities: {
       processPayment: ({ amount }) => {
         return okAsync({
@@ -94,14 +95,6 @@ const activities = declareActivitiesHandler({
         });
       },
     },
-
-    interactiveWorkflow: {},
-
-    parentWorkflow: {},
-
-    childWorkflow: {},
-
-    workflowWithFailableActivity: {},
 
     logMessage: ({ message }) => {
       logMessages.push(message);
@@ -190,8 +183,8 @@ describe("Worker Package - Integration Tests", () => {
         args: input,
       });
 
-      // WHEN
-      const handleResult = await client.getHandle("simpleWorkflow", workflowId);
+      // WHEN — getHandle is synchronous in the new client surface
+      const handleResult = client.getHandle("simpleWorkflow", workflowId);
 
       // THEN
       expect(handleResult).toBeOk();

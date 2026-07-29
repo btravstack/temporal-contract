@@ -17,6 +17,8 @@ pnpm add @temporal-contract/worker @temporal-contract/contract @temporalio/workf
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
 import { fromPromise } from "unthrown";
 
+import { myContract } from "./contract.js";
+
 export const activities = declareActivitiesHandler({
   contract: myContract,
   activities: {
@@ -25,14 +27,19 @@ export const activities = declareActivitiesHandler({
         ApplicationFailure.create({
           type: "EMAIL_FAILED",
           message: error instanceof Error ? error.message : "Failed to send email",
-          cause: error,
+          // Omit `cause` entirely for non-Error rejections — don't pass undefined.
+          ...(error instanceof Error ? { cause: error } : {}),
         }),
       ).map(() => ({ sent: true })),
   },
 });
+```
 
+```typescript
 // workflows.ts
 import { declareWorkflow } from "@temporal-contract/worker/workflow";
+
+import { myContract } from "./contract.js";
 
 export const processOrder = declareWorkflow({
   workflowName: "processOrder",
@@ -44,23 +51,48 @@ export const processOrder = declareWorkflow({
     return { success: true };
   },
 });
+```
 
+```typescript
 // worker.ts
-import { Worker } from "@temporalio/worker";
-import { activities } from "./activities";
-import myContract from "./contract";
+import { NativeConnection } from "@temporalio/worker";
+import { createWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
 
-async function run() {
-  const worker = await Worker.create({
-    workflowsPath: require.resolve("./workflows"),
-    activities,
-    taskQueue: myContract.taskQueue,
-  });
+import { activities } from "./activities.js";
+import { myContract } from "./contract.js";
 
-  await worker.run();
+const connection = await NativeConnection.connect({ address: "localhost:7233" });
+
+// The task queue comes from the contract; the workflows path is resolved
+// from this module's URL (ESM — include the extension explicitly).
+const workerResult = await createWorker({
+  contract: myContract,
+  connection,
+  workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
+  activities,
+});
+if (workerResult.isDefect()) {
+  // Bundling / connection failure — a TechnicalError-caused defect, not thrown.
+  console.error("worker setup failed", workerResult.cause);
+  process.exit(1);
 }
 
-run().catch(console.error);
+await workerResult.value.run();
+```
+
+### Workflow-only workers
+
+`activities` is optional on `createWorker`. Omit it to run a worker that only
+executes workflows — useful when workflow code and activity code are deployed
+and scaled as separate processes on the same task queue:
+
+```typescript
+const workerResult = await createWorker({
+  contract: myContract,
+  connection,
+  workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
+  // no `activities` — this process polls for Workflow Tasks only
+});
 ```
 
 ### Child Workflows

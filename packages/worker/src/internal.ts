@@ -18,6 +18,7 @@ import type { ActivityOptions, ContinueAsNewOptions } from "@temporalio/workflow
 import {
   ChildWorkflowCancelledError,
   ChildWorkflowError,
+  ContractMisuseError,
   WorkflowInputValidationError,
 } from "./errors.js";
 
@@ -57,11 +58,17 @@ export {
  * handler parses — so the common case is a one-element array containing the
  * wrapped input.
  *
+ * Zero arguments map to `undefined`, not `[]`: a payload-less send (e.g. a
+ * signal declared without an `input` schema, whose materialized
+ * `UndefinedInputSchema` only accepts `undefined`/`null`) must parse as "no
+ * payload", and an empty array would be rejected by that schema.
+ *
  * If a non-typed-contract caller passes multiple positional arguments
  * (`args: [a, b, c]`), we surface the whole array as the input — the schema
  * will then reject it unless the contract specifically modeled a tuple.
  */
 export function extractHandlerInput(args: unknown[]): unknown {
+  if (args.length === 0) return undefined;
   return args.length === 1 ? args[0] : args;
 }
 
@@ -125,7 +132,10 @@ export function buildRawActivitiesProxy(
       })
       .map(([name]) => name);
     if (uncovered.length > 0) {
-      throw new Error(
+      // ContractMisuseError (a non-retryable ApplicationFailure), not a plain
+      // Error: this runs inside the workflow sandbox, where a plain Error
+      // would be retried as a Workflow Task failure forever (D3).
+      throw new ContractMisuseError(
         `declareWorkflow: \`activityOptions\` was omitted but the following activities declare ` +
           `no contract-level \`defaultOptions\` and have no \`activityOptionsByName\` entry: ` +
           `${uncovered.join(", ")}. Provide \`activityOptions\` or per-activity options.`,
@@ -150,7 +160,7 @@ export function buildRawActivitiesProxy(
     : [];
   for (const [name] of overrideEntries) {
     if (!(name in allDefinitions)) {
-      throw new Error(
+      throw new ContractMisuseError(
         `activityOptionsByName entry "${name}" does not match any declared activity. Available: ${Object.keys(allDefinitions).join(", ") || "none"}.`,
       );
     }
@@ -339,8 +349,9 @@ function looksLikeCrossContractCall(arg1: unknown, arg2: unknown): boolean {
 
 /**
  * Map a thrown error from `startChild` / `executeChild` / `handle.result()`
- * (the worker-side child-workflow API) into the discriminated union surfaced
- * by the typed worker. Mirrors the client's `classifyResultError`:
+ * / `handle.signal(...)` (the worker-side child-workflow API) into the
+ * discriminated union surfaced by the typed worker. Mirrors the client's
+ * `classifyResultError`:
  *
  * - Cancellation (detected via `@temporalio/workflow`'s `isCancellation`,
  *   which sees through nested `ChildWorkflowFailure → CancelledFailure`
@@ -364,7 +375,7 @@ function looksLikeCrossContractCall(arg1: unknown, arg2: unknown): boolean {
  * missing on the contract, before any Temporal call happens.
  */
 export function classifyChildWorkflowError(
-  operation: "startChild" | "executeChild" | "result",
+  operation: "startChild" | "executeChild" | "result" | "signal",
   error: unknown,
   childWorkflowName: string,
 ): ChildWorkflowError | ChildWorkflowCancelledError {
@@ -397,7 +408,7 @@ export function classifyChildWorkflowError(
 }
 
 function describeChildWorkflowOperation(
-  operation: "startChild" | "executeChild" | "result",
+  operation: "startChild" | "executeChild" | "result" | "signal",
   childWorkflowName: string,
 ): string {
   switch (operation) {
@@ -407,5 +418,7 @@ function describeChildWorkflowOperation(
       return `Failed to execute child workflow "${childWorkflowName}"`;
     case "result":
       return `Child workflow "${childWorkflowName}" execution failed`;
+    case "signal":
+      return `Failed to signal child workflow "${childWorkflowName}"`;
   }
 }

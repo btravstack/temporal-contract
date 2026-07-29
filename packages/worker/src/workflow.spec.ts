@@ -11,7 +11,7 @@ import { defineContract, defineWorkflow } from "@temporal-contract/contract";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { declareWorkflow } from "./workflow.js";
+import { ContractMisuseError, declareWorkflow } from "./workflow.js";
 
 const contract = defineContract({
   taskQueue: "tq",
@@ -63,5 +63,24 @@ describe("declareWorkflow", () => {
     });
 
     expect(Object.getOwnPropertyDescriptor(fn, "name")?.configurable).toBe(true);
+  });
+
+  it("throws ContractMisuseError at declaration time for an unknown workflow name", () => {
+    // Covers JavaScript callers / stale casts the type system can't see.
+    // Without the guard this crashed later with an opaque `Cannot read
+    // properties of undefined (reading 'activities')`.
+    const declare = () =>
+      declareWorkflow({
+        // Runtime-only typo — the cast models a JavaScript caller.
+        workflowName: "notDeclared" as "processOrder",
+        contract,
+        implementation: async () => ({}),
+        activityOptions: { startToCloseTimeout: "1 minute" },
+      });
+
+    expect(declare).toThrow(ContractMisuseError);
+    expect(declare).toThrow(
+      /workflow "notDeclared" is not declared on the supplied contract\. Available workflows: processOrder, cancelOrder/,
+    );
   });
 });

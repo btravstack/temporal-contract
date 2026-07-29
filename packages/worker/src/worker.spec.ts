@@ -120,6 +120,42 @@ describe("Worker Entry Point", () => {
       ).rejects.toBe(bundleError);
     });
 
+    it("supports workflow-only workers: omitting `activities` omits the key entirely", async () => {
+      // GIVEN — a deployment where activities run on a separate worker
+      // process; this one only executes workflows.
+      const contract = {
+        taskQueue: "test-queue",
+        workflows: {
+          testWorkflow: {
+            input: z.object({ value: z.string() }),
+            output: z.object({ result: z.string() }),
+          },
+        },
+      } satisfies ContractDefinition;
+
+      const mockConnection = { close: vi.fn() } as unknown as NativeConnection;
+      const mockWorker = { run: vi.fn() } as unknown as Worker;
+      vi.mocked(Worker.create).mockResolvedValue(mockWorker);
+
+      // WHEN — no `activities` in the options
+      const workerResult = await createWorker({
+        contract,
+        connection: mockConnection,
+        workflowsPath: "/path/to/workflows",
+      });
+
+      // THEN — Worker.create is called WITHOUT an `activities` key (not with
+      // `activities: undefined` — exactOptionalPropertyTypes discipline).
+      expect(Worker.create).toHaveBeenCalledWith({
+        connection: mockConnection,
+        taskQueue: "test-queue",
+        workflowsPath: "/path/to/workflows",
+      });
+      const callArg = vi.mocked(Worker.create).mock.calls[0]![0];
+      expect(Object.keys(callArg)).not.toContain("activities");
+      expect(workerResult).toBeOkWith(mockWorker);
+    });
+
     it("should use provided connection", async () => {
       // GIVEN
       const contract = {

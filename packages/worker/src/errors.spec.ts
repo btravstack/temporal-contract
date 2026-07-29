@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 import {
   ActivityInputValidationError,
   ActivityOutputValidationError,
-  SignalInputValidationError,
+  ContractMisuseError,
   UpdateOutputValidationError,
   ValidationError,
   WorkflowInputValidationError,
@@ -214,7 +214,7 @@ describe("validation errors are terminal Temporal failures (#251)", () => {
     () => new WorkflowOutputValidationError("wf", [issue("bad")]),
     () => new ActivityInputValidationError("act", [issue("bad")]),
     () => new ActivityOutputValidationError("act", [issue("bad")]),
-    () => new SignalInputValidationError("sig", [issue("bad")]),
+    () => new ContractMisuseError("misused"),
     () => new UpdateOutputValidationError("upd", [issue("bad")]),
   ];
 
@@ -247,6 +247,21 @@ describe("validation errors are terminal Temporal failures (#251)", () => {
     // code can still reassign it without throwing.
     error.name = "Wrapped";
     expect(error.name).toBe("Wrapped");
+  });
+
+  it("keeps `name` non-enumerable, matching plain-Error semantics", () => {
+    // A serialized / spread / Object.keys'd error must not carry a stray
+    // `name` data property — plain `Error` keeps it on the prototype.
+    const error = new WorkflowInputValidationError("wf", [issue("bad")]);
+    expect(Object.prototype.propertyIsEnumerable.call(error, "name")).toBe(false);
+    expect(Object.keys(error)).not.toContain("name");
+  });
+
+  it("ContractMisuseError carries the misuse message and empty issues", () => {
+    const error = new ContractMisuseError('Signal "x" not found in workflow "wf" contract');
+    expect(error.message).toBe('Signal "x" not found in workflow "wf" contract');
+    expect(error.type).toBe("ContractMisuseError");
+    expect(error.issues).toEqual([]);
   });
 
   it("still narrow to their concrete subclass in-process", () => {

@@ -15,12 +15,13 @@ import type {
   SignalDefinition,
   UpdateDefinition,
 } from "@temporal-contract/contract";
-import { defineQuery, defineSignal, defineUpdate, setHandler } from "@temporalio/workflow";
+import { summarizeIssues } from "@temporal-contract/contract";
+import { defineQuery, defineSignal, defineUpdate, log, setHandler } from "@temporalio/workflow";
 
 import {
+  ContractMisuseError,
   QueryInputValidationError,
   QueryOutputValidationError,
-  SignalInputValidationError,
   UpdateInputValidationError,
   UpdateOutputValidationError,
 } from "./errors.js";
@@ -58,15 +59,38 @@ export type UpdateHandlerImplementation<TUpdate extends UpdateDefinition> = (
 ) => Promise<WorkerInferOutput<TUpdate>>;
 
 /**
+ * The (verbatim-shared) message for the update input schema's sync-only
+ * requirement — Temporal's update validator slot is synchronous, and the
+ * same schema is re-run inside the handler body, so both call sites must
+ * report the identical constraint.
+ */
+function updateInputMustBeSynchronousMessage(updateName: string): string {
+  return (
+    `Update "${updateName}" input validation must be synchronous. Use a schema library that ` +
+    `supports synchronous validation for update inputs (Temporal's update validator slot is synchronous).`
+  );
+}
+
+/**
  * Bind a typed signal handler to the running workflow. Validates the
  * signal payload against the contract's input schema before invoking the
  * user-supplied handler.
+ *
+ * An invalid payload is **dropped and logged** (`log.warn` via
+ * `@temporalio/workflow`'s workflow-safe logger), never thrown: signals are
+ * fire-and-forget messages that any stale or non-typed client can send, and
+ * throwing a non-retryable failure from the signal handler would terminally
+ * kill the whole workflow execution over a message the workflow never asked
+ * for.
  *
  * The runtime guard against a missing `signals` block — and an unknown
  * signal name within it — covers the union-typed-`workflowName` case
  * where the type system's keyset constraint collapses; without the
  * check, a caller would see `Cannot read properties of undefined`
- * instead of a controlled error.
+ * instead of a controlled error. Both guards throw
+ * {@link ContractMisuseError} (a non-retryable `ApplicationFailure`) so the
+ * programming bug fails the execution terminally instead of hanging it in
+ * an infinite Workflow Task retry loop.
  */
 export function bindSignalHandler(
   workflowDefinition: AnyWorkflowDefinition,
@@ -75,13 +99,15 @@ export function bindSignalHandler(
   handler: SignalHandlerImplementation<SignalDefinition>,
 ): void {
   if (!workflowDefinition.signals) {
-    throw new Error(
+    throw new ContractMisuseError(
       `Signal "${signalName}" cannot be defined: workflow "${workflowName}" has no signals in its contract`,
     );
   }
   const signalDef = (workflowDefinition.signals as Record<string, SignalDefinition>)[signalName];
   if (!signalDef) {
-    throw new Error(`Signal "${signalName}" not found in workflow "${workflowName}" contract`);
+    throw new ContractMisuseError(
+      `Signal "${signalName}" not found in workflow "${workflowName}" contract`,
+    );
   }
 
   const signal = defineSignal(signalName);
@@ -89,7 +115,13 @@ export function bindSignalHandler(
     const input = extractHandlerInput(args);
     const inputResult = await signalDef.input["~standard"].validate(input);
     if (inputResult.issues) {
-      throw new SignalInputValidationError(signalName, inputResult.issues);
+      // Drop-and-log policy (fire-and-forget semantics): an invalid payload
+      // must not fail the execution. `log.warn` is replay-aware, so the
+      // warning is emitted once, not on every replay.
+      log.warn(
+        `Dropped signal "${signalName}": input validation failed: ${summarizeIssues(inputResult.issues)}`,
+      );
+      return;
     }
     await handler(inputResult.value);
   });
@@ -104,9 +136,10 @@ export function bindSignalHandler(
  * exactly once. Both run synchronously.
  *
  * Temporal's query API requires a synchronous handler — async
- * validation breaks replay determinism. The handler trips a clear error
- * if the schema library returns a Promise from `validate(...)`, instead
- * of letting the async path silently corrupt query semantics.
+ * validation breaks replay determinism. The handler trips a clear
+ * {@link ContractMisuseError} if the schema library returns a Promise from
+ * `validate(...)`, instead of letting the async path silently corrupt query
+ * semantics.
  */
 export function bindQueryHandler(
   workflowDefinition: AnyWorkflowDefinition,
@@ -115,13 +148,15 @@ export function bindQueryHandler(
   handler: QueryHandlerImplementation<QueryDefinition>,
 ): void {
   if (!workflowDefinition.queries) {
-    throw new Error(
+    throw new ContractMisuseError(
       `Query "${queryName}" cannot be defined: workflow "${workflowName}" has no queries in its contract`,
     );
   }
   const queryDef = (workflowDefinition.queries as Record<string, QueryDefinition>)[queryName];
   if (!queryDef) {
-    throw new Error(`Query "${queryName}" not found in workflow "${workflowName}" contract`);
+    throw new ContractMisuseError(
+      `Query "${queryName}" not found in workflow "${workflowName}" contract`,
+    );
   }
 
   const query = defineQuery(queryName);
@@ -130,7 +165,7 @@ export function bindQueryHandler(
     const inputResult = queryDef.input["~standard"].validate(input);
 
     if (inputResult instanceof Promise) {
-      throw new Error(
+      throw new ContractMisuseError(
         `Query "${queryName}" validation must be synchronous. Use a schema library that supports synchronous validation for queries.`,
       );
     }
@@ -142,7 +177,7 @@ export function bindQueryHandler(
 
     const outputResult = queryDef.output["~standard"].validate(result);
     if (outputResult instanceof Promise) {
-      throw new Error(
+      throw new ContractMisuseError(
         `Query "${queryName}" output validation must be synchronous. Use a schema library that supports synchronous validation for queries.`,
       );
     }
@@ -171,11 +206,12 @@ export function bindQueryHandler(
  *
  * Because the validator slot is synchronous, the input schema must also
  * validate synchronously. Standard Schema is allowed to be async (Zod's
- * `.refine(async)` is the typical case), but we trip a clear error when
- * that happens rather than silently breaking admission semantics — same
- * approach as `bindQueryHandler`. Users who need async input checks
- * should run them inside the handler body and accept the post-admission
- * failure mode, or restructure their schema.
+ * `.refine(async)` is the typical case), but we trip a clear
+ * {@link ContractMisuseError} when that happens rather than silently
+ * breaking admission semantics — same approach as `bindQueryHandler`.
+ * Users who need async input checks should run them inside the handler
+ * body and accept the post-admission failure mode, or restructure their
+ * schema.
  *
  * Output validation continues to run inside the handler body. Update
  * outputs are *not* admission-gated — the handler must execute to
@@ -192,13 +228,15 @@ export function bindUpdateHandler(
   handler: UpdateHandlerImplementation<UpdateDefinition>,
 ): void {
   if (!workflowDefinition.updates) {
-    throw new Error(
+    throw new ContractMisuseError(
       `Update "${updateName}" cannot be defined: workflow "${workflowName}" has no updates in its contract`,
     );
   }
   const updateDef = (workflowDefinition.updates as Record<string, UpdateDefinition>)[updateName];
   if (!updateDef) {
-    throw new Error(`Update "${updateName}" not found in workflow "${workflowName}" contract`);
+    throw new ContractMisuseError(
+      `Update "${updateName}" not found in workflow "${workflowName}" contract`,
+    );
   }
 
   const update = defineUpdate(updateName);
@@ -217,9 +255,7 @@ export function bindUpdateHandler(
       const input = extractHandlerInput(args);
       const inputResult = updateDef.input["~standard"].validate(input);
       if (inputResult instanceof Promise) {
-        throw new Error(
-          `Update "${updateName}" input validation must be synchronous. Use a schema library that supports synchronous validation for update inputs (Temporal's update validator slot is synchronous).`,
-        );
+        throw new ContractMisuseError(updateInputMustBeSynchronousMessage(updateName));
       }
       if (inputResult.issues) {
         // The validator should have caught this; if we reach here, the
@@ -246,9 +282,7 @@ export function bindUpdateHandler(
         const inputResult = updateDef.input["~standard"].validate(input);
 
         if (inputResult instanceof Promise) {
-          throw new Error(
-            `Update "${updateName}" input validation must be synchronous. Use a schema library that supports synchronous validation for update inputs (Temporal's update validator slot is synchronous).`,
-          );
+          throw new ContractMisuseError(updateInputMustBeSynchronousMessage(updateName));
         }
         if (inputResult.issues) {
           throw new UpdateInputValidationError(updateName, inputResult.issues);

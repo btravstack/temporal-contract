@@ -3,7 +3,7 @@ import { Ok, Err, fromSafePromise, type AsyncResult } from "unthrown";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { ApplicationFailure, declareActivitiesHandler, qualify } from "./activity.js";
+import { ApplicationFailure, declareActivitiesHandler, qualifyFailure } from "./activity.js";
 import {
   ActivityDefinitionNotFoundError,
   ActivityInputValidationError,
@@ -34,11 +34,11 @@ describe("Worker unthrown Package", () => {
         },
       } satisfies ContractDefinition;
 
-      // WHEN
+      // WHEN — `testWorkflow` declares no activities, so no `testWorkflow: {}`
+      // placeholder entry is needed (or accepted) in the implementations map.
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          testWorkflow: {},
           sendEmail: () => okAsync({ sent: true }),
         },
       });
@@ -322,6 +322,136 @@ describe("Worker unthrown Package", () => {
         });
       }).toThrowError(new ActivityDefinitionNotFoundError("unknownActivity", ["validActivity"]));
     });
+
+    it("rejects stray root-level keys even when the contract has no global activities", () => {
+      // Previously the stray-key check only ran when `contract.activities`
+      // existed — an unknown root key on an activity-less contract was
+      // silently ignored.
+      const contract = {
+        taskQueue: "test-queue",
+        workflows: {
+          noopWorkflow: {
+            input: z.object({}),
+            output: z.object({}),
+          },
+        },
+      } satisfies ContractDefinition;
+
+      expect(() => {
+        declareActivitiesHandler({
+          contract,
+          // The implementations type collapses to `{}` here (no globals, no
+          // workflow activities), which TypeScript can't flag excess keys
+          // against — the runtime check is the only guard.
+          activities: {
+            strayActivity: (_args: unknown) => okAsync({}),
+          },
+        });
+      }).toThrowError(new ActivityDefinitionNotFoundError("strayActivity", []));
+    });
+
+    it("fails fast when a declared global activity has no implementation", () => {
+      const contract = {
+        taskQueue: "test-queue",
+        workflows: {},
+        activities: {
+          implemented: {
+            input: z.object({}),
+            output: z.object({}),
+          },
+          forgotten: {
+            input: z.object({}),
+            output: z.object({}),
+          },
+        },
+      } satisfies ContractDefinition;
+
+      expect(() => {
+        declareActivitiesHandler({
+          contract,
+          // @ts-expect-error - intentionally omitting a declared implementation
+          activities: {
+            implemented: (_args: unknown) => okAsync({}),
+          },
+        });
+      }).toThrow(/missing implementation for declared activity: forgotten/);
+    });
+
+    it("fails fast when a declared workflow-local activity has no implementation", () => {
+      const contract = {
+        taskQueue: "test-queue",
+        workflows: {
+          orderWorkflow: {
+            input: z.object({}),
+            output: z.object({}),
+            activities: {
+              validateOrder: {
+                input: z.object({}),
+                output: z.object({}),
+              },
+              shipOrder: {
+                input: z.object({}),
+                output: z.object({}),
+              },
+            },
+          },
+        },
+      } satisfies ContractDefinition;
+
+      // Namespace present but incomplete — the missing key is reported with
+      // its owning workflow.
+      expect(() => {
+        declareActivitiesHandler({
+          contract,
+          activities: {
+            // @ts-expect-error - intentionally omitting a declared implementation
+            orderWorkflow: {
+              validateOrder: (_args: unknown) => okAsync({}),
+            },
+          },
+        });
+      }).toThrow(/missing implementation for declared activity: orderWorkflow\.shipOrder/);
+
+      // Namespace absent entirely — every declared activity is reported.
+      expect(() => {
+        declareActivitiesHandler({
+          contract,
+          // @ts-expect-error - intentionally omitting the whole namespace
+          activities: {},
+        });
+      }).toThrow(
+        /missing implementations for declared activities: orderWorkflow\.validateOrder, orderWorkflow\.shipOrder/,
+      );
+    });
+
+    it("throws on a workflow-name/global-activity-name collision (defense-in-depth)", () => {
+      // `defineContract` rejects this shape too; the handler re-checks for
+      // contracts built as raw literals that never went through it.
+      const contract = {
+        taskQueue: "test-queue",
+        workflows: {
+          conflicted: {
+            input: z.object({}),
+            output: z.object({}),
+          },
+        },
+        activities: {
+          conflicted: {
+            input: z.object({}),
+            output: z.object({}),
+          },
+        },
+      } satisfies ContractDefinition;
+
+      expect(() => {
+        declareActivitiesHandler({
+          contract,
+          activities: {
+            conflicted: (_args: unknown) => okAsync({}),
+          },
+        });
+      }).toThrow(/global activity "conflicted" has the same name as a workflow/);
+    });
   });
 
   describe("wire format (validate on send, parse on receive)", () => {
@@ -445,13 +575,13 @@ describe("Worker unthrown Package", () => {
     });
   });
 
-  describe("qualify", () => {
+  describe("qualifyFailure", () => {
     it("wraps an Error rejection in an ApplicationFailure with the given type", () => {
       // GIVEN
       const cause = new Error("connection refused");
 
       // WHEN
-      const failure = qualify("EMAIL_SEND_FAILED")(cause);
+      const failure = qualifyFailure("EMAIL_SEND_FAILED")(cause);
 
       // THEN
       expect(failure).toBeInstanceOf(ApplicationFailure);
@@ -463,7 +593,9 @@ describe("Worker unthrown Package", () => {
 
     it("uses the fallback message for a non-Error rejection", () => {
       // WHEN
-      const failure = qualify("PAYMENT_FAILED", { message: "Failed to charge card" })("boom");
+      const failure = qualifyFailure("PAYMENT_FAILED", { message: "Failed to charge card" })(
+        "boom",
+      );
 
       // THEN
       expect(failure.type).toBe("PAYMENT_FAILED");
@@ -473,7 +605,7 @@ describe("Worker unthrown Package", () => {
 
     it("stringifies a non-Error rejection when no fallback message is given", () => {
       // WHEN
-      const failure = qualify("PAYMENT_FAILED")({ code: 42 });
+      const failure = qualifyFailure("PAYMENT_FAILED")({ code: 42 });
 
       // THEN
       expect(failure.message).toBe("[object Object]");
@@ -482,7 +614,9 @@ describe("Worker unthrown Package", () => {
 
     it("prefers the rejection's own message over the fallback for Error rejections", () => {
       // WHEN
-      const failure = qualify("PAYMENT_FAILED", { message: "fallback" })(new Error("declined"));
+      const failure = qualifyFailure("PAYMENT_FAILED", { message: "fallback" })(
+        new Error("declined"),
+      );
 
       // THEN
       expect(failure.message).toBe("declined");
@@ -490,7 +624,7 @@ describe("Worker unthrown Package", () => {
 
     it("forwards nonRetryable and details to the failure", () => {
       // WHEN
-      const failure = qualify("INSUFFICIENT_FUNDS", {
+      const failure = qualifyFailure("INSUFFICIENT_FUNDS", {
         nonRetryable: true,
         details: [{ balance: 0 }],
       })(new Error("declined"));
@@ -505,7 +639,7 @@ describe("Worker unthrown Package", () => {
       const inner = ApplicationFailure.create({ type: "INNER", message: "already modeled" });
 
       // WHEN
-      const failure = qualify("OUTER")(inner);
+      const failure = qualifyFailure("OUTER")(inner);
 
       // THEN — callers can rely on `type` for retry policies; the original
       // failure is preserved as `cause`.

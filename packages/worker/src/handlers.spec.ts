@@ -1,15 +1,19 @@
-import { defineWorkflow } from "@temporal-contract/contract";
+import { defineSignal as defineContractSignal, defineWorkflow } from "@temporal-contract/contract";
 /**
  * Coverage for the hoisted signal/query/update bind helpers
  * (`bindSignalHandler`, `bindQueryHandler`, `bindUpdateHandler`).
  *
- * Mocks `@temporalio/workflow`'s `defineSignal/Query/Update` and
- * `setHandler` so the helpers are exercisable outside a real workflow
+ * Mocks `@temporalio/workflow`'s `defineSignal/Query/Update`, `setHandler`,
+ * and `log` so the helpers are exercisable outside a real workflow
  * context. Asserts that:
  *
- * - missing-block runtime guards fire with a clear error,
- * - unknown-name runtime guards fire with a clear error,
- * - validation failures throw the right typed error class,
+ * - missing-block runtime guards fire with a `ContractMisuseError` (a
+ *   non-retryable ApplicationFailure — a plain Error would hang the
+ *   execution in infinite Workflow Task retries),
+ * - unknown-name runtime guards fire the same way,
+ * - invalid *signal* payloads are dropped and logged (`log.warn`), never
+ *   thrown — signals are fire-and-forget (D2),
+ * - query/update validation failures throw the right typed error class,
  * - the handler receives the *validated* (parsed) input — the worker is the
  *   receiving side of the input boundary, so the parse happens exactly once
  *   here (the client validated but transmitted the caller's original value),
@@ -34,6 +38,7 @@ vi.mock("@temporalio/workflow", () => ({
   defineSignal: vi.fn((name: string) => ({ kind: "signal", name }) as const),
   defineQuery: vi.fn((name: string) => ({ kind: "query", name }) as const),
   defineUpdate: vi.fn((name: string) => ({ kind: "update", name }) as const),
+  log: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn(), trace: vi.fn() },
   setHandler: vi.fn(
     (
       handle: { kind: string; name: string },
@@ -50,11 +55,12 @@ vi.mock("@temporalio/workflow", () => ({
   ),
 }));
 
+const { log } = await import("@temporalio/workflow");
 const { bindSignalHandler, bindQueryHandler, bindUpdateHandler } = await import("./handlers.js");
 const {
+  ContractMisuseError,
   QueryInputValidationError,
   QueryOutputValidationError,
-  SignalInputValidationError,
   UpdateInputValidationError,
   UpdateOutputValidationError,
 } = await import("./errors.js");
@@ -100,30 +106,60 @@ describe("bindSignalHandler", () => {
     expect(handler).toHaveBeenCalledWith([{ reason: "user requested" }]);
   });
 
-  it("throws SignalInputValidationError when the payload doesn't match the contract", async () => {
+  it("drops the signal and logs a warning when the payload doesn't match the contract (D2)", async () => {
     captured.length = 0;
-    bindSignalHandler(workflow, "probe", "cancel", vi.fn() as never);
+    vi.mocked(log.warn).mockClear();
+    const handler = vi.fn();
+    bindSignalHandler(workflow, "probe", "cancel", handler as never);
     const entry = captured.find((c) => c.kind === "signal" && c.name === "cancel")!;
-    // Wrong shape — missing `reason`.
-    await expect(entry.impl([{ wrongField: 1 }])).rejects.toBeInstanceOf(
-      SignalInputValidationError,
-    );
+
+    // Wrong shape — missing `reason`. Signals are fire-and-forget: an
+    // invalid payload must never fail the execution, so the handler resolves
+    // without throwing, the user handler is never invoked, and the drop is
+    // logged with the signal name plus an issues summary.
+    await expect(entry.impl([{ wrongField: 1 }])).resolves.toBeUndefined();
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(log.warn).toHaveBeenCalledTimes(1);
+    const message = vi.mocked(log.warn).mock.calls[0]![0] as string;
+    expect(message).toContain('Dropped signal "cancel"');
+    expect(message).toContain("input validation failed");
   });
 
-  it("throws a clear error when the workflow has no signals block", () => {
+  it("throws ContractMisuseError when the workflow has no signals block", () => {
     const noSignals = defineWorkflow({
       input: z.object({}),
       output: z.object({}),
     });
-    expect(() => bindSignalHandler(noSignals, "probe", "cancel", vi.fn() as never)).toThrow(
-      /workflow "probe" has no signals/,
-    );
+    const bind = () => bindSignalHandler(noSignals, "probe", "cancel", vi.fn() as never);
+    expect(bind).toThrow(ContractMisuseError);
+    expect(bind).toThrow(/workflow "probe" has no signals/);
   });
 
-  it("throws a clear error when the signal name isn't declared", () => {
-    expect(() => bindSignalHandler(workflow, "probe", "nope", vi.fn() as never)).toThrow(
-      /Signal "nope" not found/,
-    );
+  it("throws ContractMisuseError when the signal name isn't declared", () => {
+    const bind = () => bindSignalHandler(workflow, "probe", "nope", vi.fn() as never);
+    expect(bind).toThrow(ContractMisuseError);
+    expect(bind).toThrow(/Signal "nope" not found/);
+  });
+
+  it("maps a zero-argument send to `undefined` for payload-less signals", async () => {
+    // Pairs with the contract change: `defineSignal()` (no input schema)
+    // materializes an UndefinedInputSchema that only accepts undefined/null.
+    // A zero-arg Temporal dispatch must therefore extract to `undefined`,
+    // not `[]`.
+    captured.length = 0;
+    const handler = vi.fn();
+    const wfWithPayloadlessSignal = defineWorkflow({
+      input: z.object({}),
+      output: z.object({}),
+      signals: { shutdown: defineContractSignal() },
+    });
+    bindSignalHandler(wfWithPayloadlessSignal, "probe", "shutdown", handler as never);
+    const entry = captured.find((c) => c.kind === "signal" && c.name === "shutdown")!;
+
+    await entry.impl(); // zero args — Temporal dispatch of a payload-less signal
+
+    expect(handler).toHaveBeenCalledWith(undefined);
   });
 });
 
@@ -160,7 +196,7 @@ describe("bindQueryHandler", () => {
     expect(() => entry.impl([])).toThrow(QueryOutputValidationError);
   });
 
-  it("throws a clear error when input validation is async (Temporal queries must be sync)", () => {
+  it("throws ContractMisuseError when input validation is async (Temporal queries must be sync)", () => {
     captured.length = 0;
     const wfWithAsyncQuery = defineWorkflow({
       input: z.object({}),
@@ -171,10 +207,11 @@ describe("bindQueryHandler", () => {
     });
     bindQueryHandler(wfWithAsyncQuery, "probe", "progress", vi.fn().mockReturnValue(1) as never);
     const entry = captured.find((c) => c.kind === "query" && c.name === "progress")!;
+    expect(() => entry.impl(["x"])).toThrow(ContractMisuseError);
     expect(() => entry.impl(["x"])).toThrow(/validation must be synchronous/);
   });
 
-  it("throws a clear error when output validation is async", () => {
+  it("throws ContractMisuseError when output validation is async", () => {
     captured.length = 0;
     const wfWithAsyncOutput = defineWorkflow({
       input: z.object({}),
@@ -185,17 +222,24 @@ describe("bindQueryHandler", () => {
     });
     bindQueryHandler(wfWithAsyncOutput, "probe", "progress", vi.fn().mockReturnValue("x") as never);
     const entry = captured.find((c) => c.kind === "query" && c.name === "progress")!;
+    expect(() => entry.impl([])).toThrow(ContractMisuseError);
     expect(() => entry.impl([])).toThrow(/output validation must be synchronous/);
   });
 
-  it("throws a clear error when the workflow has no queries block", () => {
+  it("throws ContractMisuseError when the workflow has no queries block", () => {
     const noQueries = defineWorkflow({
       input: z.object({}),
       output: z.object({}),
     });
-    expect(() => bindQueryHandler(noQueries, "probe", "progress", vi.fn() as never)).toThrow(
-      /workflow "probe" has no queries/,
-    );
+    const bind = () => bindQueryHandler(noQueries, "probe", "progress", vi.fn() as never);
+    expect(bind).toThrow(ContractMisuseError);
+    expect(bind).toThrow(/workflow "probe" has no queries/);
+  });
+
+  it("throws ContractMisuseError when the query name isn't declared", () => {
+    const bind = () => bindQueryHandler(workflow, "probe", "nope", vi.fn() as never);
+    expect(bind).toThrow(ContractMisuseError);
+    expect(bind).toThrow(/Query "nope" not found/);
   });
 });
 
@@ -242,7 +286,7 @@ describe("bindUpdateHandler", () => {
     expect(() => entry.validator!([7])).not.toThrow();
   });
 
-  it("validator throws a clear error when the input schema is async (Temporal validators must be sync)", () => {
+  it("validator throws ContractMisuseError when the input schema is async (Temporal validators must be sync)", () => {
     // Temporal's update validator slot is documented as synchronous —
     // returning a Promise from the validator silently breaks admission
     // semantics. Standard Schema permits async validate(), so the typical
@@ -261,6 +305,7 @@ describe("bindUpdateHandler", () => {
       attempt: 1,
     })) as never);
     const entry = captured.find((c) => c.kind === "update" && c.name === "bumpAttempt")!;
+    expect(() => entry.validator!(["x"])).toThrow(ContractMisuseError);
     expect(() => entry.validator!(["x"])).toThrow(/input validation must be synchronous/);
   });
 
@@ -285,14 +330,20 @@ describe("bindUpdateHandler", () => {
     await expect(entry.impl([1])).rejects.toBeInstanceOf(UpdateOutputValidationError);
   });
 
-  it("throws a clear error when the workflow has no updates block", () => {
+  it("throws ContractMisuseError when the workflow has no updates block", () => {
     const noUpdates = defineWorkflow({
       input: z.object({}),
       output: z.object({}),
     });
-    expect(() => bindUpdateHandler(noUpdates, "probe", "bumpAttempt", vi.fn() as never)).toThrow(
-      /workflow "probe" has no updates/,
-    );
+    const bind = () => bindUpdateHandler(noUpdates, "probe", "bumpAttempt", vi.fn() as never);
+    expect(bind).toThrow(ContractMisuseError);
+    expect(bind).toThrow(/workflow "probe" has no updates/);
+  });
+
+  it("throws ContractMisuseError when the update name isn't declared", () => {
+    const bind = () => bindUpdateHandler(workflow, "probe", "nope", vi.fn() as never);
+    expect(bind).toThrow(ContractMisuseError);
+    expect(bind).toThrow(/Update "nope" not found/);
   });
 });
 

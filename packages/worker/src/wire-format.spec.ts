@@ -20,9 +20,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 type ChildCall = { workflowName: string; options: Record<string, unknown> };
+type SignalCall = { signalName: string; args: unknown[] };
 
 const executeChildCalls: ChildCall[] = [];
 const startChildCalls: ChildCall[] = [];
+const childSignalCalls: SignalCall[] = [];
 let childResultValue: unknown;
 
 vi.mock("@temporalio/workflow", async () => {
@@ -39,6 +41,10 @@ vi.mock("@temporalio/workflow", async () => {
       startChildCalls.push({ workflowName, options });
       return {
         workflowId: "child-1",
+        firstExecutionRunId: "run-1",
+        signal: async (signalName: string, ...args: unknown[]) => {
+          childSignalCalls.push({ signalName, args });
+        },
         result: async () => childResultValue,
       };
     },
@@ -56,12 +62,20 @@ const contract = defineContract({
       input: z.object({ text: z.string().transform((s) => `${s}!`) }),
       output: z.object({ n: z.number().transform((n) => n * 2) }),
     }),
+    signalful: defineWorkflow({
+      input: z.object({}),
+      output: z.object({ n: z.number() }),
+      signals: {
+        note: { input: z.object({ text: z.string().transform((s) => `${s}!`) }) },
+      },
+    }),
   },
 });
 
 afterEach(() => {
   executeChildCalls.length = 0;
   startChildCalls.length = 0;
+  childSignalCalls.length = 0;
   childResultValue = undefined;
 });
 
@@ -155,5 +169,53 @@ describe("child workflows — wire format", () => {
         expect(result.value).toEqual({ n: 42 });
       }
     }
+  });
+});
+
+describe("typed child workflow handle — signals and identifiers", () => {
+  it("exposes firstExecutionRunId from the underlying handle", async () => {
+    const handleResult = await createStartChildWorkflow(contract, "signalful", {
+      workflowId: "child-1",
+      args: {},
+    });
+
+    expect(handleResult.isOk()).toBe(true);
+    if (handleResult.isOk()) {
+      expect(handleResult.value.workflowId).toBe("child-1");
+      expect(handleResult.value.firstExecutionRunId).toBe("run-1");
+    }
+  });
+
+  it("signals validate the args but transmit the ORIGINAL value (D1)", async () => {
+    const handleResult = await createStartChildWorkflow(contract, "signalful", {
+      workflowId: "child-1",
+      args: {},
+    });
+    expect(handleResult.isOk()).toBe(true);
+    if (!handleResult.isOk()) return;
+
+    const sent = await handleResult.value.signals.note({ text: "hi" });
+
+    expect(sent.isOk()).toBe(true);
+    // Validated (transform would yield "hi!") but the ORIGINAL value crosses
+    // the wire — the child's signal handler parses on receive.
+    expect(childSignalCalls).toEqual([{ signalName: "note", args: [{ text: "hi" }] }]);
+  });
+
+  it("signals surface a validation failure as Err(ChildWorkflowError) without sending", async () => {
+    const handleResult = await createStartChildWorkflow(contract, "signalful", {
+      workflowId: "child-1",
+      args: {},
+    });
+    expect(handleResult.isOk()).toBe(true);
+    if (!handleResult.isOk()) return;
+
+    const sent = await handleResult.value.signals.note({ text: 42 } as never);
+
+    expect(sent.isErr()).toBe(true);
+    if (sent.isErr()) {
+      expect(sent.error.message).toContain('signal "note" input validation failed');
+    }
+    expect(childSignalCalls).toEqual([]);
   });
 });

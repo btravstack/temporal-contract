@@ -26,9 +26,17 @@ export type CreateWorkerOptions<TContract extends ContractDefinition> = Omit<
   contract: TContract;
 
   /**
-   * Activities handler for this worker
+   * Activities handler for this worker, built with
+   * `declareActivitiesHandler`.
+   *
+   * Optional — omit it for a **workflow-only worker**. When absent, no
+   * `activities` are registered with the underlying Temporal Worker, so it
+   * only polls for Workflow Tasks. This supports the split-deployment
+   * pattern where workflow code and activity code scale independently: one
+   * worker process runs the (deterministic, CPU-light) workflows while a
+   * separate worker process on the same task queue registers the activities.
    */
-  activities: ActivitiesHandler<TContract>;
+  activities?: ActivitiesHandler<TContract>;
 };
 
 /**
@@ -78,10 +86,14 @@ export function createWorker<TContract extends ContractDefinition>(
   // workflow-bundle compilation errors, bad connections, and invalid
   // options — all *technical* faults, routed to the defect channel with a
   // `TechnicalError` cause (never a modeled `Err`).
+  //
+  // `activities` is spread conditionally: a workflow-only worker must not
+  // pass the key at all (exactOptionalPropertyTypes discipline — and Temporal
+  // treats an absent map as "don't poll for Activity Tasks").
   return fromPromise(
     Worker.create({
       ...workerOptions,
-      activities,
+      ...(activities !== undefined ? { activities } : {}),
       taskQueue: contract.taskQueue,
     }),
     (cause, defect) =>
