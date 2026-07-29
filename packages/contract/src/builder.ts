@@ -1,14 +1,15 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { z } from "zod";
 
 import type {
   ActivityDefinition,
+  AnySchema,
   AnyWorkflowDefinition,
   ContractDefinition,
   QueryDefinition,
   SearchAttributeDefinition,
   SearchAttributeKind,
   SignalDefinition,
+  UndefinedInputSchema,
   UpdateDefinition,
 } from "./types.js";
 
@@ -75,6 +76,10 @@ export function defineActivity<TActivity extends ActivityDefinition>(
  * @param definition - The signal definition containing input schema
  * @returns The same definition with preserved types for type inference
  *
+ * `input` may be omitted for payload-less signals: the definition then
+ * carries a materialized schema whose validated value is always `undefined`,
+ * so the handler input infers as `undefined` — no `z.void()` ceremony.
+ *
  * @example
  * ```typescript
  * import { defineSignal } from '@temporal-contract/contract';
@@ -86,10 +91,19 @@ export function defineActivity<TActivity extends ActivityDefinition>(
  *     approvedBy: z.string(),
  *   }),
  * });
+ *
+ * // Payload-less signal — the handler input is `undefined`.
+ * export const shutdown = defineSignal();
  * ```
  */
-export function defineSignal<TSignal extends SignalDefinition>(definition: TSignal): TSignal {
-  return definition;
+export function defineSignal<TSignal extends SignalDefinition>(definition: TSignal): TSignal;
+export function defineSignal(definition?: {
+  input?: undefined;
+}): SignalDefinition<UndefinedInputSchema>;
+export function defineSignal(
+  definition?: SignalDefinition | { input?: undefined },
+): SignalDefinition {
+  return definition?.input ? (definition as SignalDefinition) : { input: undefinedInputSchema };
 }
 
 /**
@@ -110,6 +124,10 @@ export function defineSignal<TSignal extends SignalDefinition>(definition: TSign
  * @param definition - The query definition containing input and output schemas
  * @returns The same definition with preserved types for type inference
  *
+ * `input` may be omitted for argument-less queries: the definition then
+ * carries a materialized schema whose validated value is always `undefined`,
+ * so the handler input infers as `undefined` — no `z.void()` ceremony.
+ *
  * @example
  * ```typescript
  * import { defineQuery } from '@temporal-contract/contract';
@@ -122,10 +140,24 @@ export function defineSignal<TSignal extends SignalDefinition>(definition: TSign
  *     updatedAt: z.date(),
  *   }),
  * });
+ *
+ * // Argument-less query — the handler input is `undefined`.
+ * export const getProgress = defineQuery({
+ *   output: z.object({ percent: z.number() }),
+ * });
  * ```
  */
-export function defineQuery<TQuery extends QueryDefinition>(definition: TQuery): TQuery {
-  return definition;
+export function defineQuery<TQuery extends QueryDefinition>(definition: TQuery): TQuery;
+export function defineQuery<TOutput extends AnySchema>(definition: {
+  input?: undefined;
+  output: TOutput;
+}): QueryDefinition<UndefinedInputSchema, TOutput>;
+export function defineQuery(
+  definition: QueryDefinition | { input?: undefined; output: AnySchema },
+): QueryDefinition {
+  return definition.input
+    ? (definition as QueryDefinition)
+    : { input: undefinedInputSchema, output: definition.output };
 }
 
 /**
@@ -138,6 +170,10 @@ export function defineQuery<TQuery extends QueryDefinition>(definition: TQuery):
  * @template TUpdate - The update definition type with input/output schemas
  * @param definition - The update definition containing input and output schemas
  * @returns The same definition with preserved types for type inference
+ *
+ * `input` may be omitted for argument-less updates: the definition then
+ * carries a materialized schema whose validated value is always `undefined`,
+ * so the handler input infers as `undefined` — no `z.void()` ceremony.
  *
  * @example
  * ```typescript
@@ -154,10 +190,24 @@ export function defineQuery<TQuery extends QueryDefinition>(definition: TQuery):
  *     totalPrice: z.number(),
  *   }),
  * });
+ *
+ * // Argument-less update — the handler input is `undefined`.
+ * export const restock = defineUpdate({
+ *   output: z.object({ restocked: z.boolean() }),
+ * });
  * ```
  */
-export function defineUpdate<TUpdate extends UpdateDefinition>(definition: TUpdate): TUpdate {
-  return definition;
+export function defineUpdate<TUpdate extends UpdateDefinition>(definition: TUpdate): TUpdate;
+export function defineUpdate<TOutput extends AnySchema>(definition: {
+  input?: undefined;
+  output: TOutput;
+}): UpdateDefinition<UndefinedInputSchema, TOutput>;
+export function defineUpdate(
+  definition: UpdateDefinition | { input?: undefined; output: AnySchema },
+): UpdateDefinition {
+  return definition.input
+    ? (definition as UpdateDefinition)
+    : { input: undefinedInputSchema, output: definition.output };
 }
 
 /**
@@ -254,8 +304,11 @@ export function defineWorkflow<TWorkflow extends AnyWorkflowDefinition>(
  * The contract validates the structure and ensures:
  * - Task queue is specified
  * - At least one workflow is defined
+ * - No unknown top-level keys (typo protection, like `defaultOptions`)
  * - Valid JavaScript identifiers are used
- * - No conflicts between global and workflow-specific activities
+ * - No ambiguous name collisions between workflows, global activities, and
+ *   workflow-specific activities (referencing the *same* activity definition
+ *   object from several scopes is allowed)
  * - All schemas implement the Standard Schema specification
  *
  * @template TContract - The contract definition type
@@ -303,14 +356,8 @@ export function defineWorkflow<TWorkflow extends AnyWorkflowDefinition>(
 export function defineContract<TContract extends ContractDefinition>(
   definition: TContract,
 ): TContract {
-  // Validate entire contract structure with Zod (including activity conflicts)
-  const validationResult = contractValidationSchema.safeParse(definition);
-
-  if (!validationResult.success) {
-    const cleanMessage = getCleanErrorMessage(validationResult.error);
-    throw new Error(`Contract validation failed: ${cleanMessage}`);
-  }
-
+  // Validate the entire contract structure (including name collisions)
+  validateContractDefinition(definition);
   return definition;
 }
 
@@ -338,142 +385,47 @@ function isStandardSchema(value: unknown): value is StandardSchemaV1 {
 }
 
 /**
- * Schema for validating JavaScript identifiers (workflow names, activity names, etc.)
+ * The materialized `input` schema for input-less signal/query/update
+ * definitions (see {@link UndefinedInputSchema}). Accepts only an absent
+ * payload — `undefined`, plus `null` defensively, because JSON-based payload
+ * converters cannot represent `undefined` and may round-trip it as `null` —
+ * and always yields `undefined`.
+ */
+const undefinedInputSchema: UndefinedInputSchema = {
+  "~standard": {
+    version: 1,
+    vendor: "temporal-contract",
+    validate: (value: unknown): StandardSchemaV1.Result<undefined> =>
+      value === undefined || value === null
+        ? { value: undefined }
+        : {
+            issues: [{ message: "expected no payload (this definition declares no input schema)" }],
+          },
+  },
+};
+
+/*
+ * STRUCTURAL CONTRACT VALIDATION
+ *
+ * Hand-rolled over `unknown` rather than delegated to a schema library:
+ * TypeScript already rejects wrong shapes for typed callers, but a JavaScript
+ * caller (or a cast) can pass misspelled keys or non-schema values that would
+ * otherwise be silently ignored until a worker or client trips over them.
+ * Validation is first-failure-wins: every helper throws a single-line
+ * `Contract validation failed: …` error naming the offending path.
+ */
+
+/**
+ * Contract names (workflow, activity, signal, query, update, search
+ * attribute, and error names) must be valid JavaScript identifiers — they
+ * become property accesses on typed maps.
  * Allows: letters, digits, underscore, dollar sign
  * Must start with: letter, underscore, or dollar sign
  */
-const identifierSchema = z
-  .string()
-  .min(1)
-  .regex(/^[a-zA-Z_$][a-zA-Z0-9_$]*$/, "must be a valid JavaScript identifier");
+const IDENTIFIER_PATTERN = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
 
-/**
- * Extract a clean, single-line error message from a Zod validation error.
- *
- * Uses `error.issues` directly (compatible with Zod v4+) rather than parsing
- * `error.message` as JSON, which was a Zod v3 implementation detail.
- */
-function getCleanErrorMessage(error: z.ZodError): string {
-  const issues = error.issues;
-  if (!issues || issues.length === 0) {
-    return error.message;
-  }
-
-  const firstIssue = issues[0];
-  if (!firstIssue) {
-    return error.message;
-  }
-
-  // For record key validation errors (invalid_key), surface the nested issue message
-  if (
-    firstIssue.code === "invalid_key" &&
-    "issues" in firstIssue &&
-    Array.isArray((firstIssue as { issues?: unknown[] }).issues) &&
-    (firstIssue as { issues: { message?: string }[] }).issues.length > 0
-  ) {
-    const nestedMessage = (firstIssue as { issues: { message?: string }[] }).issues[0]?.message;
-    if (nestedMessage) {
-      return nestedMessage;
-    }
-  }
-
-  return firstIssue.message ?? error.message;
-}
-
-/**
- * Schema for validating a single `errors` map entry. The `data` schema is
- * optional; when present it must be Standard Schema compatible like every
- * other schema slot on the contract.
- */
-const errorDefinitionSchema = z.object({
-  data: z
-    .custom<StandardSchemaV1>((val) => isStandardSchema(val), {
-      message: "data must be a Standard Schema compatible schema (e.g., Zod, Valibot, ArkType)",
-    })
-    .optional(),
-  message: z.string().optional(),
-  nonRetryable: z.boolean().optional(),
-});
-
-/**
- * Schema for a Temporal duration value (`ms`-formatted string or number of
- * milliseconds).
- */
-const durationValueSchema = z.union([z.string(), z.number()]);
-
-/**
- * Schema for validating contract-level activity `defaultOptions`. Strict
- * objects so a typo (`startToCloseTimeOut`) fails at `defineContract` time
- * instead of being silently ignored when the worker merges options.
- */
-const activityDefaultOptionsSchema = z.strictObject({
-  startToCloseTimeout: durationValueSchema.optional(),
-  scheduleToCloseTimeout: durationValueSchema.optional(),
-  scheduleToStartTimeout: durationValueSchema.optional(),
-  heartbeatTimeout: durationValueSchema.optional(),
-  retry: z
-    .strictObject({
-      initialInterval: durationValueSchema.optional(),
-      maximumInterval: durationValueSchema.optional(),
-      backoffCoefficient: z.number().optional(),
-      maximumAttempts: z.number().optional(),
-      nonRetryableErrorTypes: z.array(z.string()).optional(),
-    })
-    .optional(),
-});
-
-/**
- * Schema for validating activity definitions
- * Checks that input and output are Standard Schema compatible schemas
- */
-const activityDefinitionSchema = z.object({
-  input: z.custom<StandardSchemaV1>((val) => isStandardSchema(val), {
-    message: "input must be a Standard Schema compatible schema (e.g., Zod, Valibot, ArkType)",
-  }),
-  output: z.custom<StandardSchemaV1>((val) => isStandardSchema(val), {
-    message: "output must be a Standard Schema compatible schema (e.g., Zod, Valibot, ArkType)",
-  }),
-  errors: z.record(identifierSchema, errorDefinitionSchema).optional(),
-  defaultOptions: activityDefaultOptionsSchema.optional(),
-});
-
-/**
- * Schema for validating signal definitions
- */
-const signalDefinitionSchema = z.object({
-  input: z.custom<StandardSchemaV1>((val) => isStandardSchema(val), {
-    message: "input must be a Standard Schema compatible schema (e.g., Zod, Valibot, ArkType)",
-  }),
-});
-
-/**
- * Schema for validating query definitions
- */
-const queryDefinitionSchema = z.object({
-  input: z.custom<StandardSchemaV1>((val) => isStandardSchema(val), {
-    message: "input must be a Standard Schema compatible schema (e.g., Zod, Valibot, ArkType)",
-  }),
-  output: z.custom<StandardSchemaV1>((val) => isStandardSchema(val), {
-    message: "output must be a Standard Schema compatible schema (e.g., Zod, Valibot, ArkType)",
-  }),
-});
-
-/**
- * Schema for validating update definitions
- */
-const updateDefinitionSchema = z.object({
-  input: z.custom<StandardSchemaV1>((val) => isStandardSchema(val), {
-    message: "input must be a Standard Schema compatible schema (e.g., Zod, Valibot, ArkType)",
-  }),
-  output: z.custom<StandardSchemaV1>((val) => isStandardSchema(val), {
-    message: "output must be a Standard Schema compatible schema (e.g., Zod, Valibot, ArkType)",
-  }),
-});
-
-/**
- * Schema for validating search attribute definitions
- */
-const searchAttributeKindSchema = z.enum([
+/** The seven Temporal search attribute kinds (see {@link SearchAttributeKind}). */
+const SEARCH_ATTRIBUTE_KINDS: readonly string[] = [
   "TEXT",
   "KEYWORD",
   "INT",
@@ -481,84 +433,377 @@ const searchAttributeKindSchema = z.enum([
   "BOOL",
   "DATETIME",
   "KEYWORD_LIST",
-]);
+];
 
-const searchAttributeDefinitionSchema = z.object({
-  kind: searchAttributeKindSchema,
-});
+const DEFAULT_OPTIONS_KEYS = [
+  "startToCloseTimeout",
+  "scheduleToCloseTimeout",
+  "scheduleToStartTimeout",
+  "heartbeatTimeout",
+  "retry",
+] as const;
+
+const DEFAULT_OPTIONS_DURATION_KEYS = [
+  "startToCloseTimeout",
+  "scheduleToCloseTimeout",
+  "scheduleToStartTimeout",
+  "heartbeatTimeout",
+] as const;
+
+const RETRY_KEYS = [
+  "initialInterval",
+  "maximumInterval",
+  "backoffCoefficient",
+  "maximumAttempts",
+  "nonRetryableErrorTypes",
+] as const;
+
+/** Throw the canonical single-line contract validation error. */
+function fail(detail: string): never {
+  throw new Error(`Contract validation failed: ${detail}`);
+}
+
+/** Plain-object check — `null` and arrays don't qualify as definition maps. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function assertIdentifier(kind: string, name: string): void {
+  if (!IDENTIFIER_PATTERN.test(name)) {
+    fail(`${kind} name "${name}" must be a valid JavaScript identifier`);
+  }
+}
 
 /**
- * Schema for validating workflow definitions
+ * Reject unknown keys on a strict bag, listing both the offending and the
+ * allowed keys so a typo is a one-glance fix.
  */
-const workflowDefinitionSchema = z.object({
-  input: z.custom<StandardSchemaV1>((val) => isStandardSchema(val), {
-    message: "input must be a Standard Schema compatible schema (e.g., Zod, Valibot, ArkType)",
-  }),
-  output: z.custom<StandardSchemaV1>((val) => isStandardSchema(val), {
-    message: "output must be a Standard Schema compatible schema (e.g., Zod, Valibot, ArkType)",
-  }),
-  activities: z.record(identifierSchema, activityDefinitionSchema).optional(),
-  signals: z.record(identifierSchema, signalDefinitionSchema).optional(),
-  queries: z.record(identifierSchema, queryDefinitionSchema).optional(),
-  updates: z.record(identifierSchema, updateDefinitionSchema).optional(),
-  searchAttributes: z.record(identifierSchema, searchAttributeDefinitionSchema).optional(),
-  errors: z.record(identifierSchema, errorDefinitionSchema).optional(),
-});
+function assertKnownKeys(
+  context: string,
+  bag: Record<string, unknown>,
+  allowed: readonly string[],
+): void {
+  const unknown = Object.keys(bag).filter((key) => !allowed.includes(key));
+  if (unknown.length > 0) {
+    const offending = unknown.map((key) => `"${key}"`).join(", ");
+    const expected = allowed.map((key) => `"${key}"`).join(", ");
+    fail(
+      `${context} has unknown key${unknown.length > 1 ? "s" : ""} ${offending} — allowed keys are ${expected}`,
+    );
+  }
+}
+
+function assertSchema(context: string, slot: string, value: unknown): void {
+  if (!isStandardSchema(value)) {
+    fail(
+      `${context}: ${slot} must be a Standard Schema compatible schema (e.g., Zod, Valibot, ArkType)`,
+    );
+  }
+}
 
 /**
- * Schema for validating a contract definition structure
+ * A Temporal duration value: an `ms`-formatted string or a number of
+ * milliseconds. `undefined` (absent) is allowed — every duration slot on
+ * `defaultOptions` is optional.
  */
-const contractValidationSchema = z
-  .object({
-    taskQueue: z.string().trim().min(1, "taskQueue cannot be empty"),
-    workflows: z
-      .record(identifierSchema, workflowDefinitionSchema)
-      .refine((workflows) => Object.keys(workflows).length > 0, {
-        message: "at least one workflow is required",
-      }),
-    activities: z.record(identifierSchema, activityDefinitionSchema).optional(),
-  })
-  .superRefine((contract, ctx) => {
-    // Activities are registered in a single flat namespace at runtime, so any
-    // duplicate name silently clobbers another. Catch all collisions here:
-    // 1. workflow-specific vs. global, and
-    // 2. workflow-specific vs. other workflow-specific.
-    //
-    // The global owner is tracked with a Symbol rather than a sentinel string
-    // because workflow names are only validated as JS identifiers — a user
-    // could legitimately name a workflow "global", and a string sentinel would
-    // misclassify those collisions.
-    const GLOBAL_OWNER: unique symbol = Symbol("global");
-    type Owner = string | typeof GLOBAL_OWNER;
-    const owners = new Map<string, Owner>();
+function assertDuration(context: string, key: string, value: unknown): void {
+  if (value !== undefined && typeof value !== "string" && typeof value !== "number") {
+    fail(`${context}: ${key} must be an ms-formatted string or a number of milliseconds`);
+  }
+}
 
-    if (contract.activities) {
-      for (const activityName of Object.keys(contract.activities)) {
-        owners.set(activityName, GLOBAL_OWNER);
+/**
+ * Validate an `errors` map: identifier keys, and per entry an optional
+ * Standard Schema `data` (like every other schema slot on the contract),
+ * string `message`, and boolean `nonRetryable`.
+ */
+function validateErrorsMap(context: string, errors: unknown): void {
+  if (!isRecord(errors)) {
+    fail(`${context}: errors must be an object`);
+  }
+  for (const [errorName, definition] of Object.entries(errors)) {
+    assertIdentifier("error", errorName);
+    const errorContext = `${context} error "${errorName}"`;
+    if (!isRecord(definition)) {
+      fail(`${errorContext} must be an object`);
+    }
+    if (definition["data"] !== undefined) {
+      assertSchema(errorContext, "data", definition["data"]);
+    }
+    if (definition["message"] !== undefined && typeof definition["message"] !== "string") {
+      fail(`${errorContext}: message must be a string`);
+    }
+    if (
+      definition["nonRetryable"] !== undefined &&
+      typeof definition["nonRetryable"] !== "boolean"
+    ) {
+      fail(`${errorContext}: nonRetryable must be a boolean`);
+    }
+  }
+}
+
+/**
+ * Validate contract-level activity `defaultOptions`. Strict keys so a typo
+ * (`startToCloseTimeOut`) fails at `defineContract` time instead of being
+ * silently ignored when the worker merges options.
+ */
+function validateDefaultOptions(context: string, options: unknown): void {
+  if (!isRecord(options)) {
+    fail(`${context}: defaultOptions must be an object`);
+  }
+  assertKnownKeys(`${context} defaultOptions`, options, DEFAULT_OPTIONS_KEYS);
+  for (const key of DEFAULT_OPTIONS_DURATION_KEYS) {
+    assertDuration(`${context} defaultOptions`, key, options[key]);
+  }
+
+  const retry = options["retry"];
+  if (retry === undefined) return;
+  if (!isRecord(retry)) {
+    fail(`${context}: defaultOptions.retry must be an object`);
+  }
+  assertKnownKeys(`${context} defaultOptions.retry`, retry, RETRY_KEYS);
+  assertDuration(`${context} defaultOptions.retry`, "initialInterval", retry["initialInterval"]);
+  assertDuration(`${context} defaultOptions.retry`, "maximumInterval", retry["maximumInterval"]);
+  for (const key of ["backoffCoefficient", "maximumAttempts"] as const) {
+    if (retry[key] !== undefined && typeof retry[key] !== "number") {
+      fail(`${context}: defaultOptions.retry.${key} must be a number`);
+    }
+  }
+  const nonRetryableErrorTypes = retry["nonRetryableErrorTypes"];
+  if (
+    nonRetryableErrorTypes !== undefined &&
+    (!Array.isArray(nonRetryableErrorTypes) ||
+      nonRetryableErrorTypes.some((entry) => typeof entry !== "string"))
+  ) {
+    fail(`${context}: defaultOptions.retry.nonRetryableErrorTypes must be an array of strings`);
+  }
+}
+
+/**
+ * Validate an activity definition: Standard Schema `input`/`output`, plus
+ * optional `errors` and `defaultOptions`.
+ */
+function validateActivityDefinition(context: string, definition: unknown): void {
+  if (!isRecord(definition)) {
+    fail(`${context} must be an object`);
+  }
+  assertSchema(context, "input", definition["input"]);
+  assertSchema(context, "output", definition["output"]);
+  if (definition["errors"] !== undefined) {
+    validateErrorsMap(context, definition["errors"]);
+  }
+  if (definition["defaultOptions"] !== undefined) {
+    validateDefaultOptions(context, definition["defaultOptions"]);
+  }
+}
+
+/**
+ * Validate a signal (`input` only), query, or update (`input` + `output`)
+ * definition. `defineSignal`/`defineQuery`/`defineUpdate` materialize
+ * {@link undefinedInputSchema} when `input` is omitted, so by the time a
+ * definition reaches `defineContract` its `input` slot is always present.
+ */
+function validateMessageDefinition(context: string, definition: unknown, hasOutput: boolean): void {
+  if (!isRecord(definition)) {
+    fail(`${context} must be an object`);
+  }
+  assertSchema(context, "input", definition["input"]);
+  if (hasOutput) {
+    assertSchema(context, "output", definition["output"]);
+  }
+}
+
+/** Validate a search attribute definition: `kind` must be one of the seven Temporal kinds. */
+function validateSearchAttributeDefinition(context: string, definition: unknown): void {
+  if (!isRecord(definition)) {
+    fail(`${context} must be an object`);
+  }
+  const kind = definition["kind"];
+  if (typeof kind !== "string" || !SEARCH_ATTRIBUTE_KINDS.includes(kind)) {
+    const expected = SEARCH_ATTRIBUTE_KINDS.map((entry) => `"${entry}"`).join(", ");
+    fail(`${context}: kind must be one of ${expected}`);
+  }
+}
+
+/**
+ * Walk an optional `Record<name, definition>` slot of a workflow: the slot
+ * must be a plain object, every key a valid identifier, every value valid
+ * per `validateEntry`.
+ */
+function validateDefinitionMap(
+  context: string,
+  slot: string,
+  kind: string,
+  map: unknown,
+  validateEntry: (entryContext: string, definition: unknown) => void,
+): void {
+  if (map === undefined) return;
+  if (!isRecord(map)) {
+    fail(`${context}: ${slot} must be an object`);
+  }
+  for (const [name, definition] of Object.entries(map)) {
+    assertIdentifier(kind, name);
+    validateEntry(`${context} ${kind} "${name}"`, definition);
+  }
+}
+
+/**
+ * Validate a workflow definition: Standard Schema `input`/`output`, plus the
+ * optional activities/signals/queries/updates/searchAttributes/errors maps.
+ */
+function validateWorkflowDefinition(context: string, definition: unknown): void {
+  if (!isRecord(definition)) {
+    fail(`${context} must be an object`);
+  }
+  assertSchema(context, "input", definition["input"]);
+  assertSchema(context, "output", definition["output"]);
+  validateDefinitionMap(
+    context,
+    "activities",
+    "activity",
+    definition["activities"],
+    validateActivityDefinition,
+  );
+  validateDefinitionMap(
+    context,
+    "signals",
+    "signal",
+    definition["signals"],
+    (entryContext, entry) => validateMessageDefinition(entryContext, entry, false),
+  );
+  validateDefinitionMap(context, "queries", "query", definition["queries"], (entryContext, entry) =>
+    validateMessageDefinition(entryContext, entry, true),
+  );
+  validateDefinitionMap(
+    context,
+    "updates",
+    "update",
+    definition["updates"],
+    (entryContext, entry) => validateMessageDefinition(entryContext, entry, true),
+  );
+  validateDefinitionMap(
+    context,
+    "searchAttributes",
+    "search attribute",
+    definition["searchAttributes"],
+    validateSearchAttributeDefinition,
+  );
+  if (definition["errors"] !== undefined) {
+    validateErrorsMap(context, definition["errors"]);
+  }
+}
+
+/**
+ * Cross-cutting name-collision checks that the per-definition walk can't see.
+ *
+ * 1. Workflow names vs **global** activity names: at the worker, workflow
+ *    implementations and global activity implementations share the root of
+ *    the same implementations map, so a shared name is ambiguous.
+ * 2. Activity names across scopes: activities are registered in a single
+ *    flat namespace at runtime, so a duplicate name silently clobbers
+ *    another — unless every scope references the *same* definition object
+ *    (a shared `defineActivity` result), which flattens unambiguously and
+ *    is therefore allowed.
+ */
+function validateNameCollisions(
+  workflows: Record<string, unknown>,
+  globalActivities: Record<string, unknown> | undefined,
+): void {
+  if (globalActivities) {
+    for (const activityName of Object.keys(globalActivities)) {
+      if (Object.hasOwn(workflows, activityName)) {
+        fail(
+          `global activity "${activityName}" has the same name as a workflow. Workflows and global activities share the root of the worker implementations map — rename one of them.`,
+        );
       }
     }
+  }
 
-    for (const [workflowName, workflow] of Object.entries(contract.workflows)) {
-      if (!workflow.activities) {
+  // The global owner is tracked with a Symbol rather than a sentinel string
+  // because workflow names are only validated as JS identifiers — a user
+  // could legitimately name a workflow "global", and a string sentinel would
+  // misclassify those collisions.
+  const GLOBAL_OWNER: unique symbol = Symbol("global");
+  type Owner = { name: string | typeof GLOBAL_OWNER; definition: unknown };
+  const owners = new Map<string, Owner>();
+
+  if (globalActivities) {
+    for (const [activityName, definition] of Object.entries(globalActivities)) {
+      owners.set(activityName, { name: GLOBAL_OWNER, definition });
+    }
+  }
+
+  for (const [workflowName, workflow] of Object.entries(workflows)) {
+    // Structural validation already ran, so a present `activities` slot is a
+    // plain object of definitions.
+    const workflowActivities = (workflow as { activities?: unknown }).activities;
+    if (!isRecord(workflowActivities)) {
+      continue;
+    }
+    for (const [activityName, definition] of Object.entries(workflowActivities)) {
+      const previousOwner = owners.get(activityName);
+      if (!previousOwner) {
+        owners.set(activityName, { name: workflowName, definition });
         continue;
       }
-      for (const activityName of Object.keys(workflow.activities)) {
-        const previousOwner = owners.get(activityName);
-        if (previousOwner === GLOBAL_OWNER) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: `workflow "${workflowName}" has activity "${activityName}" that conflicts with a global activity. Consider renaming the workflow-specific activity or removing the global activity "${activityName}".`,
-          });
-          continue;
-        }
-        if (typeof previousOwner === "string") {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: `workflow "${workflowName}" has activity "${activityName}" that conflicts with the same-named activity in workflow "${previousOwner}". Activities share a single flat namespace at runtime — rename one of them.`,
-          });
-          continue;
-        }
-        owners.set(activityName, workflowName);
+      if (previousOwner.definition === definition) {
+        // Same definition object in both scopes — the flat namespace stays
+        // unambiguous, so sharing one `defineActivity` result is allowed.
+        continue;
       }
+      if (previousOwner.name === GLOBAL_OWNER) {
+        fail(
+          `workflow "${workflowName}" has activity "${activityName}" that conflicts with a different global activity of the same name. Activities share a single flat namespace at runtime — reference the shared definition from the contract's global "activities" block, or rename one of them.`,
+        );
+      }
+      fail(
+        `workflow "${workflowName}" has activity "${activityName}" that conflicts with a different same-named activity in workflow "${previousOwner.name}". Activities share a single flat namespace at runtime — hoist the shared activity to the contract's global "activities" block, or rename one of them.`,
+      );
     }
-  });
+  }
+}
+
+/**
+ * Validate a contract definition's structure. The root is strict — an
+ * unknown top-level key (e.g. a misspelled `workflow`) fails instead of
+ * being silently ignored, matching the strict `defaultOptions` behavior.
+ */
+function validateContractDefinition(definition: unknown): void {
+  if (!isRecord(definition)) {
+    fail("contract must be an object");
+  }
+  assertKnownKeys("contract", definition, ["taskQueue", "workflows", "activities"]);
+
+  const taskQueue = definition["taskQueue"];
+  if (typeof taskQueue !== "string") {
+    fail("taskQueue must be a string");
+  }
+  if (taskQueue.trim().length === 0) {
+    fail("taskQueue cannot be empty");
+  }
+
+  const workflows = definition["workflows"];
+  if (!isRecord(workflows)) {
+    fail("workflows must be an object");
+  }
+  if (Object.keys(workflows).length === 0) {
+    fail("at least one workflow is required");
+  }
+  for (const [workflowName, workflow] of Object.entries(workflows)) {
+    assertIdentifier("workflow", workflowName);
+    validateWorkflowDefinition(`workflow "${workflowName}"`, workflow);
+  }
+
+  const activities = definition["activities"];
+  if (activities !== undefined && !isRecord(activities)) {
+    fail("activities must be an object");
+  }
+  if (activities) {
+    for (const [activityName, activity] of Object.entries(activities)) {
+      assertIdentifier("global activity", activityName);
+      validateActivityDefinition(`global activity "${activityName}"`, activity);
+    }
+  }
+
+  validateNameCollisions(workflows, activities);
+}

@@ -8,6 +8,16 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 export type AnySchema = StandardSchemaV1;
 
 /**
+ * The Standard Schema type materialized by `defineSignal` / `defineQuery` /
+ * `defineUpdate` when their `input` is omitted: validation only accepts an
+ * absent payload and always yields `undefined`. Because both type faces are
+ * `undefined`, handler inputs infer as `undefined` on the worker side, and
+ * `undefined extends ClientInferInput<T>` lets the client detect
+ * payload-less sends at the type level.
+ */
+export type UndefinedInputSchema = StandardSchemaV1<undefined, undefined>;
+
+/**
  * Definition of a typed domain error on an activity or workflow.
  *
  * Declared under the `errors` map of `defineActivity` / `defineWorkflow`,
@@ -387,13 +397,3 @@ export type InferActivityNames<TContract extends ContractDefinition> =
   TContract["activities"] extends Record<string, ActivityDefinition>
     ? keyof TContract["activities"] & string
     : never;
-
-/**
- * Extract all workflows from a contract with their definitions
- *
- * @example
- * ```typescript
- * type MyWorkflows = InferContractWorkflows<typeof myContract>;
- * ```
- */
-export type InferContractWorkflows<TContract extends ContractDefinition> = TContract["workflows"];
