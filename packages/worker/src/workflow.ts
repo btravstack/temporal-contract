@@ -610,6 +610,8 @@ type WorkflowContext<
    *
    * @example
    * ```ts
+   * import { P } from "unthrown";
+   *
    * // Same contract child workflow
    * const childResult = await context.startChildWorkflow(myContract, 'processPayment', {
    *   workflowId: 'payment-123',
@@ -659,6 +661,8 @@ type WorkflowContext<
    *
    * @example
    * ```ts
+   * import { P } from "unthrown";
+   *
    * // Same contract child workflow
    * const result = await context.executeChildWorkflow(myContract, 'processPayment', {
    *   workflowId: 'payment-123',

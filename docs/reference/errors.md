@@ -11,6 +11,9 @@ exhaustive matcher. Tags are namespaced with the package scope
 (`"@temporal-contract/…"`) so they never collide with your own or another
 library's. `.name` stays the bare class name for readable logs.
 
+The snippets on this page are shape fragments, not runnable programs. `P` is
+unthrown's pattern namespace throughout — `import { P } from "unthrown"`.
+
 ```typescript
 matcher.with(P.tag("@temporal-contract/WorkflowFailedError"), (error) => ...);
 ```

@@ -383,6 +383,8 @@ export class TypedClient<TContract extends ContractDefinition> {
    *
    * @example
    * ```ts
+   * import { P } from "unthrown";
+   *
    * const result = await client.schedule.create("processOrder", {
    *   scheduleId: "daily-sweep",
    *   spec: { cronExpressions: ["0 2 * * *"] },
@@ -516,6 +518,8 @@ export class TypedClient<TContract extends ContractDefinition> {
    *
    * @example
    * ```ts
+   * import { P } from "unthrown";
+   *
    * const handleResult = await client.startWorkflow('processOrder', {
    *   workflowId: 'order-123',
    *   args: { orderId: 'ORD-123' },
@@ -612,6 +616,8 @@ export class TypedClient<TContract extends ContractDefinition> {
    *
    * @example
    * ```ts
+   * import { P } from "unthrown";
+   *
    * const result = await client.signalWithStart('processOrder', {
    *   workflowId: 'order-123',
    *   args: { orderId: 'ORD-123', customerId: 'CUST-1' },
@@ -744,6 +750,8 @@ export class TypedClient<TContract extends ContractDefinition> {
    *
    * @example
    * ```ts
+   * import { P } from "unthrown";
+   *
    * const result = await client.executeWorkflow('processOrder', {
    *   workflowId: 'order-123',
    *   args: { orderId: 'ORD-123' },
@@ -888,6 +896,8 @@ export class TypedClient<TContract extends ContractDefinition> {
    *
    * @example
    * ```ts
+   * import { P } from "unthrown";
+   *
    * const handleResult = await client.getHandle('processOrder', 'order-123');
    * await handleResult.match({
    *   ok: async (handle) => {

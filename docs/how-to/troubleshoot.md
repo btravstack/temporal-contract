@@ -250,6 +250,8 @@ Since 8.0, `TechnicalError` and `RuntimeClientError` ride the defect channel.
 Handle them in `defect`, `recoverDefect`, or `tapDefect`:
 
 ```typescript
+import { P } from "unthrown";
+
 result.match({
   ok: (v) => v,
   errCases: (m) => m.with(P.tag("@temporal-contract/WorkflowFailedError"), handle),
