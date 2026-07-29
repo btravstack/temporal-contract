@@ -1,4 +1,4 @@
-import type { PaymentResult } from "../entities/order.schema.js";
+import type { PaymentOutcome } from "../entities/order.schema.js";
 import type { PaymentPort } from "../ports/payment.port.js";
 
 /**
@@ -9,7 +9,7 @@ import type { PaymentPort } from "../ports/payment.port.js";
 export class ProcessPaymentUseCase {
   constructor(private readonly paymentPort: PaymentPort) {}
 
-  async execute(customerId: string, amount: number): Promise<PaymentResult> {
+  async execute(customerId: string, amount: number): Promise<PaymentOutcome> {
     // Business validation
     if (amount <= 0) {
       throw new Error("Payment amount must be positive");

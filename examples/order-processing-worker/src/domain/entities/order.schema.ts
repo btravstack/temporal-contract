@@ -17,3 +17,13 @@ export type OrderItem = z.infer<typeof OrderItemSchema>;
 export type PaymentResult = z.infer<typeof PaymentResultSchema>;
 export type InventoryReservation = z.infer<typeof InventoryReservationSchema>;
 export type ShippingResult = z.infer<typeof ShippingResultSchema>;
+
+/**
+ * Domain-level payment outcome. A decline is a *modeled* business outcome of
+ * the payment gateway — the activity boundary maps it onto the contract's
+ * `PaymentDeclined` typed error (see application/activities.ts), so it never
+ * travels as an untyped exception.
+ */
+export type PaymentOutcome =
+  | ({ status: "approved" } & PaymentResult)
+  | { status: "declined"; reason: string };

@@ -6,11 +6,19 @@ This sample demonstrates that a single client can interact with any worker imple
 
 ## Overview
 
-This client package demonstrates that:
+This client package demonstrates:
 
-- The `order-processing-worker` implements the **unified contract**
-- The client works with the worker implementation through the shared contract
-- Workers handle errors internally using the Result/Future pattern with ApplicationFailure
+- The `TypedClient.create({ client })` (connection-scoped root) +
+  `.for(contract)` (contract-scoped client) split
+- Typed signals through the workflow handle — `approveOrder` with a validated
+  payload, and the payload-less `cancelRequested` sent with no arguments
+- An argument-less query (`getOrderStatus`) reading live workflow state
+- The synchronous `getHandle`, returning a `Result` whose only Err is
+  `WorkflowNotInContractError`
+- A typed contract error (`PaymentDeclined`) rehydrated from a failed
+  execution and matched exhaustively with unthrown's `match` + `P.tag`
+- A recurring cleanup schedule via `schedule.create(...)`, with the
+  `ScheduleAlreadyExistsError` branch implementing the create-if-absent idiom
 
 ## Running the Sample
 
@@ -47,17 +55,15 @@ pnpm dev
 
 ## Testing
 
-The client includes integration tests that verify:
-
-- Workflow execution through the contract
-- Proper input validation via contract schema
-- Correct output types matching contract schema
-- Workflow history and metadata access
-
-Run tests:
+Integration tests live in the worker package
+(`../order-processing-worker/src/integration.spec.ts`) and cover the same
+surface this client demonstrates — start/execute, the approval signal + status
+query, the payload-less cancellation signal, input validation, and the typed
+`PaymentDeclined` contract error:
 
 ```bash
-pnpm test
+cd ../order-processing-worker
+pnpm test:integration # requires Docker (testcontainers)
 ```
 
 ## What to Notice
@@ -73,15 +79,21 @@ pnpm test
 
 The unified contract (`orderProcessingContract`) defines:
 
-- Global activities: `log`, `sendNotification`
+- Global activities: `sendNotification`, `purgeExpiredOrders`
 - Workflow: `processOrder`
-  - Activities: `processPayment`, `reserveInventory`, `releaseInventory`, `createShipment`, `refundPayment`
+  - Activities: `processPayment` (with the `PaymentDeclined` typed error), `reserveInventory`, `releaseInventory`, `createShipment`, `refundPayment`
+  - Signals: `approveOrder` (payload), `cancelRequested` (payload-less)
+  - Query: `getOrderStatus` (argument-less)
+  - Errors: `PaymentDeclined`
+- Workflow: `cleanupExpiredOrders` (activity-less; started by the schedule)
 
 ### Worker Implementation
 
 The worker (`examples/order-processing-worker`) uses `@temporal-contract/worker` with:
 
-- Activities using the Result/Future pattern with ApplicationFailure
+- Activities returning unthrown `AsyncResult` values (never throwing), with
+  `ApplicationFailure` for technical faults and typed constructors for
+  contract errors
 - Clean Architecture with dependency injection
 - Standalone TypeScript application
 
