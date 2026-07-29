@@ -1,10 +1,8 @@
 import type {
-  ActivityDefinition,
-  AnyWorkflowDefinition,
   SignalDefinition,
   QueryDefinition,
   UpdateDefinition,
-  ContractDefinition,
+  AnyWorkflowDefinition,
 } from "@temporal-contract/contract";
 import type { AsyncResult } from "unthrown";
 
@@ -17,79 +15,48 @@ import type { ClientInferInput, ClientInferOutput } from "@temporal-contract/con
 
 /**
  * CLIENT PERSPECTIVE
- * Client sends z.output and receives z.input
+ *
+ * The client sits on the *sending* side of the input boundary and the
+ * *receiving* side of the output boundary: it sends a schema's input type
+ * (`z.input`, pre-transform — the worker parses on receive) and receives
+ * the output type (`z.output`, post-transform — the client parses results
+ * on receive).
  */
 
 /**
- * Infer workflow function signature from client perspective
- * Client sends z.output and receives z.input
- */
-export type ClientInferWorkflow<TWorkflow extends AnyWorkflowDefinition> = (
-  args: ClientInferInput<TWorkflow>,
-) => Promise<ClientInferOutput<TWorkflow>>;
-
-/**
- * Infer activity function signature from client perspective
- * Client sends z.output and receives z.input
- */
-export type ClientInferActivity<TActivity extends ActivityDefinition> = (
-  args: ClientInferInput<TActivity>,
-) => Promise<ClientInferOutput<TActivity>>;
-
-/**
- * Infer signal handler signature from client perspective
- * Client sends z.output and returns AsyncResult<void, Error>
+ * Infer signal handler signature from client perspective.
+ * Client sends the signal input type; the payload argument is omittable
+ * when the schema accepts `undefined` (e.g. payload-less `defineSignal()`).
  */
 export type ClientInferSignal<TSignal extends SignalDefinition> = (
-  args: ClientInferInput<TSignal>,
+  ...args: undefined extends ClientInferInput<TSignal>
+    ? [input?: ClientInferInput<TSignal>]
+    : [input: ClientInferInput<TSignal>]
 ) => AsyncResult<void, Error>;
 
 /**
- * Infer query handler signature from client perspective
- * Client sends z.output and receives z.input wrapped in AsyncResult<T, Error>
+ * Infer query handler signature from client perspective.
+ * Client sends the query input type and receives the output type wrapped in
+ * `AsyncResult<T, Error>`; the payload argument is omittable when the schema
+ * accepts `undefined` (e.g. argument-less `defineQuery({ output })`).
  */
 export type ClientInferQuery<TQuery extends QueryDefinition> = (
-  args: ClientInferInput<TQuery>,
+  ...args: undefined extends ClientInferInput<TQuery>
+    ? [input?: ClientInferInput<TQuery>]
+    : [input: ClientInferInput<TQuery>]
 ) => AsyncResult<ClientInferOutput<TQuery>, Error>;
 
 /**
- * Infer update handler signature from client perspective
- * Client sends z.output and receives z.input wrapped in AsyncResult<T, Error>
+ * Infer update handler signature from client perspective.
+ * Client sends the update input type and receives the output type wrapped in
+ * `AsyncResult<T, Error>`; the payload argument is omittable when the schema
+ * accepts `undefined` (e.g. argument-less `defineUpdate({ output })`).
  */
 export type ClientInferUpdate<TUpdate extends UpdateDefinition> = (
-  args: ClientInferInput<TUpdate>,
+  ...args: undefined extends ClientInferInput<TUpdate>
+    ? [input?: ClientInferInput<TUpdate>]
+    : [input: ClientInferInput<TUpdate>]
 ) => AsyncResult<ClientInferOutput<TUpdate>, Error>;
-
-/**
- * CLIENT PERSPECTIVE - Contract-level types
- */
-
-/**
- * Infer all workflows from a contract (client perspective)
- */
-export type ClientInferWorkflows<TContract extends ContractDefinition> = {
-  [K in keyof TContract["workflows"]]: ClientInferWorkflow<TContract["workflows"][K]>;
-};
-
-/**
- * Infer all activities from a contract (client perspective)
- */
-export type ClientInferActivities<TContract extends ContractDefinition> =
-  TContract["activities"] extends Record<string, ActivityDefinition>
-    ? {
-        [K in keyof TContract["activities"]]: ClientInferActivity<TContract["activities"][K]>;
-      }
-    : {};
-
-/**
- * Infer activities from a workflow definition (client perspective)
- */
-export type ClientInferWorkflowActivities<T extends AnyWorkflowDefinition> =
-  T["activities"] extends Record<string, ActivityDefinition>
-    ? {
-        [K in keyof T["activities"]]: ClientInferActivity<T["activities"][K]>;
-      }
-    : {};
 
 /**
  * Infer signals from a workflow definition (client perspective)
@@ -99,7 +66,7 @@ export type ClientInferWorkflowSignals<T extends AnyWorkflowDefinition> =
     ? {
         [K in keyof T["signals"]]: ClientInferSignal<T["signals"][K]>;
       }
-    : {};
+    : Record<never, never>;
 
 /**
  * Infer queries from a workflow definition (client perspective)
@@ -109,7 +76,7 @@ export type ClientInferWorkflowQueries<T extends AnyWorkflowDefinition> =
     ? {
         [K in keyof T["queries"]]: ClientInferQuery<T["queries"][K]>;
       }
-    : {};
+    : Record<never, never>;
 
 /**
  * Infer updates from a workflow definition (client perspective)
@@ -119,14 +86,4 @@ export type ClientInferWorkflowUpdates<T extends AnyWorkflowDefinition> =
     ? {
         [K in keyof T["updates"]]: ClientInferUpdate<T["updates"][K]>;
       }
-    : {};
-
-/**
- * Infer all activities available in a workflow context (client perspective)
- * Combines workflow-specific activities with global activities
- */
-export type ClientInferWorkflowContextActivities<
-  TContract extends ContractDefinition,
-  TWorkflowName extends keyof TContract["workflows"] & string,
-> = ClientInferWorkflowActivities<TContract["workflows"][TWorkflowName]> &
-  ClientInferActivities<TContract>;
+    : Record<never, never>;

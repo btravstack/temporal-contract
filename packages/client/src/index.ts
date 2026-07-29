@@ -1,12 +1,16 @@
 export {
+  ContractClient,
   readTypedSearchAttributes,
   TypedClient,
   type CreateTypedClientOptions,
+  type TypedGetHandleOptions,
   type TypedSearchAttributeMap,
   type TypedSignalWithStartOptions,
+  type TypedStartUpdateOptions,
   type TypedWorkflowHandle,
   type TypedWorkflowHandleWithSignaledRunId,
   type TypedWorkflowStartOptions,
+  type TypedWorkflowUpdateHandle,
   type WorkflowContractErrorsOf,
 } from "./client.js";
 export type {
@@ -15,8 +19,8 @@ export type {
   ClientInterceptorArgs,
   ClientInterceptorNext,
 } from "./interceptors.js";
-// Modeled creation failure — `TypedClient.create` surfaces it on the Err
-// channel instead of throwing.
+// Technical creation failure — `TypedClient.create` routes it to the Defect
+// channel (as the defect's cause) instead of throwing.
 export { TechnicalError } from "@temporal-contract/contract/errors";
 // Typed contract-error surface — a failed execution whose failure matches a
 // workflow's declared `errors` entry surfaces as a `ContractError` instead
@@ -34,10 +38,12 @@ export {
 } from "./schedule.js";
 export {
   RuntimeClientError,
+  ScheduleAlreadyExistsError,
+  ScheduleNotFoundError,
   WorkflowAlreadyStartedError,
   WorkflowExecutionNotFoundError,
   WorkflowFailedError,
-  WorkflowNotFoundError,
+  WorkflowNotInContractError,
   WorkflowValidationError,
   QueryValidationError,
   SignalValidationError,
@@ -47,16 +53,10 @@ export type { TemporalFailure } from "./errors.js";
 export type {
   ClientInferInput,
   ClientInferOutput,
-  ClientInferWorkflow,
-  ClientInferActivity,
   ClientInferSignal,
   ClientInferQuery,
   ClientInferUpdate,
-  ClientInferWorkflows,
-  ClientInferActivities,
-  ClientInferWorkflowActivities,
   ClientInferWorkflowSignals,
   ClientInferWorkflowQueries,
   ClientInferWorkflowUpdates,
-  ClientInferWorkflowContextActivities,
 } from "./types.js";

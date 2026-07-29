@@ -16,15 +16,21 @@ pnpm add @temporal-contract/client @temporal-contract/contract @temporalio/clien
 import { TypedClient } from "@temporal-contract/client";
 import { Connection, Client } from "@temporalio/client";
 
+import { myContract } from "./contract.js";
+
 const connection = await Connection.connect({ address: "localhost:7233" });
 const temporalClient = new Client({ connection });
-const client = await TypedClient.create({
-  contract: myContract,
-  client: temporalClient,
-}).getOrThrow();
+
+// One connection-scoped root per process. `create` returns
+// `AsyncResult<TypedClient, never>` — setup faults are defects, so `.get()`
+// unwraps directly.
+const client = await TypedClient.create({ client: temporalClient }).get();
+
+// Bind a contract — synchronous, infallible, memoized.
+const orders = client.for(myContract);
 
 // Execute workflow (fully typed!)
-const result = await client.executeWorkflow("processOrder", {
+const result = await orders.executeWorkflow("processOrder", {
   workflowId: "order-123",
   args: { orderId: "ORD-123" },
 });

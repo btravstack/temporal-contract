@@ -1,4 +1,11 @@
-import { defineContract, defineSearchAttribute, defineWorkflow } from "@temporal-contract/contract";
+import {
+  defineContract,
+  defineQuery,
+  defineSearchAttribute,
+  defineSignal,
+  defineUpdate,
+  defineWorkflow,
+} from "@temporal-contract/contract";
 import { ContractError, TechnicalError } from "@temporal-contract/contract/errors";
 import {
   type Client,
@@ -15,7 +22,7 @@ import { P } from "unthrown";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
 
-import { readTypedSearchAttributes, TypedClient } from "./client.js";
+import { ContractClient, readTypedSearchAttributes, TypedClient } from "./client.js";
 import {
   QueryValidationError,
   RuntimeClientError,
@@ -24,10 +31,29 @@ import {
   WorkflowAlreadyStartedError,
   WorkflowExecutionNotFoundError,
   WorkflowFailedError,
-  WorkflowNotFoundError,
+  WorkflowNotInContractError,
   WorkflowValidationError,
 } from "./errors.js";
 import type { ClientInterceptor } from "./interceptors.js";
+
+/**
+ * Test construction helper: build the connection-scoped root and bind the
+ * contract in one step. `create`'s Err channel is `never`, so `.get()`
+ * unwraps directly (a setup defect rethrows its cause).
+ */
+async function bindContract<TContract extends Parameters<TypedClient["for"]>[0]>(
+  contract: TContract,
+  rawClient: Client,
+  interceptors?: ClientInterceptor[],
+): Promise<ContractClient<TContract>> {
+  const root = (
+    await TypedClient.create({
+      client: rawClient,
+      ...(interceptors ? { interceptors } : {}),
+    })
+  ).get();
+  return root.for(contract);
+}
 
 // Create mock workflow object
 const createMockWorkflow = () => ({
@@ -80,10 +106,28 @@ vi.mock("@temporalio/client", () => {
       super(message);
     }
   }
+  class ScheduleAlreadyRunning extends Error {
+    constructor(
+      message: string,
+      public readonly scheduleId: string,
+    ) {
+      super(message);
+    }
+  }
+  class ScheduleNotFoundError extends Error {
+    constructor(
+      message: string,
+      public readonly scheduleId: string,
+    ) {
+      super(message);
+    }
+  }
   return {
     WorkflowHandle: vi.fn(),
     WorkflowExecutionAlreadyStartedError,
     WorkflowFailedError,
+    ScheduleAlreadyRunning,
+    ScheduleNotFoundError,
   };
 });
 
@@ -136,27 +180,33 @@ describe("TypedClient", () => {
     },
   });
 
-  let typedClient: TypedClient<typeof testContract>;
+  let typedClient: ContractClient<typeof testContract>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     const rawClient = { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client;
-    typedClient = TypedClient.createOrThrow(testContract, rawClient);
+    typedClient = await bindContract(testContract, rawClient);
   });
 
   describe("TypedClient.create", () => {
     it("returns Ok(TypedClient) for a capable client", async () => {
       const rawClient = { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client;
-      const created = await TypedClient.create({ contract: testContract, client: rawClient });
+      const created = await TypedClient.create({ client: rawClient });
       expect(created).toBeOk();
       if (created.isOk()) {
         expect(created.value).toBeInstanceOf(TypedClient);
       }
     });
 
+    it("exposes the underlying Client as the `raw` escape hatch", async () => {
+      const rawClient = { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client;
+      const created = (await TypedClient.create({ client: rawClient })).get();
+      expect(created.raw).toBe(rawClient);
+    });
+
     it("surfaces a missing Schedule API as a Defect(TechnicalError) instead of throwing", async () => {
       const oldClient = { workflow: mockWorkflow } as unknown as Client;
-      const created = await TypedClient.create({ contract: testContract, client: oldClient });
+      const created = await TypedClient.create({ client: oldClient });
       expect(created).toBeDefect();
       if (created.isDefect()) {
         const cause = created.cause;
@@ -173,7 +223,7 @@ describe("TypedClient", () => {
         schedule: mockSchedule,
         connection: { ensureConnected: vi.fn().mockRejectedValue(failing) },
       } as unknown as Client;
-      const created = await TypedClient.create({ contract: testContract, client: rawClient });
+      const created = await TypedClient.create({ client: rawClient });
       expect(created).toBeDefect();
       if (created.isDefect()) {
         const cause = created.cause;
@@ -181,6 +231,104 @@ describe("TypedClient", () => {
         expect((cause as TechnicalError)._tag).toBe("@temporal-contract/TechnicalError");
         expect((cause as TechnicalError).cause).toBe(failing);
       }
+    });
+
+    it("runs ensureConnected once per root, not once per contract binding", async () => {
+      const ensureConnected = vi.fn().mockResolvedValue(undefined);
+      const rawClient = {
+        workflow: mockWorkflow,
+        schedule: mockSchedule,
+        connection: { ensureConnected },
+      } as unknown as Client;
+      const root = (await TypedClient.create({ client: rawClient })).get();
+      root.for(testContract);
+      root.for(testContract);
+      expect(ensureConnected).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("TypedClient.for", () => {
+    const otherContract = defineContract({
+      taskQueue: "other-queue",
+      workflows: {
+        otherWorkflow: defineWorkflow({
+          input: z.object({ id: z.string() }),
+          output: z.object({ ok: z.boolean() }),
+        }),
+      },
+    });
+
+    it("is memoized: for(c) twice returns the same instance", async () => {
+      const rawClient = { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client;
+      const root = (await TypedClient.create({ client: rawClient })).get();
+      expect(root.for(testContract)).toBe(root.for(testContract));
+    });
+
+    it("yields distinct instances for distinct contracts", async () => {
+      const rawClient = { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client;
+      const root = (await TypedClient.create({ client: rawClient })).get();
+      const first = root.for(testContract);
+      const second = root.for(otherContract);
+      expect(first).not.toBe(second as unknown);
+      expect(first).toBeInstanceOf(ContractClient);
+      expect(second).toBeInstanceOf(ContractClient);
+    });
+
+    it("each binding uses its own contract's taskQueue and schemas", async () => {
+      const rawClient = { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client;
+      const root = (await TypedClient.create({ client: rawClient })).get();
+      mockWorkflow.start.mockResolvedValue({ workflowId: "x" });
+
+      await root.for(testContract).startWorkflow("testWorkflow", {
+        workflowId: "a",
+        args: { name: "n", value: 1 },
+      });
+      await root.for(otherContract).startWorkflow("otherWorkflow", {
+        workflowId: "b",
+        args: { id: "i" },
+      });
+
+      expect(mockWorkflow.start).toHaveBeenNthCalledWith(
+        1,
+        "testWorkflow",
+        expect.objectContaining({ taskQueue: "test-queue" }),
+      );
+      expect(mockWorkflow.start).toHaveBeenNthCalledWith(
+        2,
+        "otherWorkflow",
+        expect.objectContaining({ taskQueue: "other-queue" }),
+      );
+
+      // Each binding validates against its OWN schemas: testContract's
+      // input shape is rejected by otherContract's workflow.
+      const invalid = await root.for(otherContract).startWorkflow("otherWorkflow", {
+        workflowId: "c",
+        args: { name: "n", value: 1 } as unknown as { id: string },
+      });
+      expect(invalid).toBeErr();
+      if (invalid.isErr()) {
+        expect(invalid.error).toBeInstanceOf(WorkflowValidationError);
+      }
+    });
+
+    it("bindings inherit the root's interceptors", async () => {
+      const seen: string[] = [];
+      const observing: ClientInterceptor = (args, next) => {
+        seen.push(`${args.operation}:${args.workflowName}`);
+        return next();
+      };
+      const rawClient = { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client;
+      const root = (
+        await TypedClient.create({ client: rawClient, interceptors: [observing] })
+      ).get();
+      mockWorkflow.execute.mockResolvedValue({ result: "ok" });
+
+      await root.for(testContract).executeWorkflow("testWorkflow", {
+        workflowId: "wf-1",
+        args: { name: "n", value: 1 },
+      });
+
+      expect(seen).toEqual(["executeWorkflow:testWorkflow"]);
     });
   });
 
@@ -244,7 +392,7 @@ describe("TypedClient", () => {
 
       expect(result).toBeErr();
       if (result.isErr()) {
-        expect(result.error).toBeInstanceOf(WorkflowNotFoundError);
+        expect(result.error).toBeInstanceOf(WorkflowNotInContractError);
       }
     });
   });
@@ -351,7 +499,7 @@ describe("TypedClient", () => {
       });
     });
 
-    it("returns WorkflowNotFoundError when the workflow isn't declared", async () => {
+    it("returns WorkflowNotInContractError when the workflow isn't declared", async () => {
       const result = await typedClient.signalWithStart(
         // @ts-expect-error testing runtime validation
         "nonExistent",
@@ -365,7 +513,7 @@ describe("TypedClient", () => {
 
       expect(result).toBeErr();
       if (result.isErr()) {
-        expect(result.error).toBeInstanceOf(WorkflowNotFoundError);
+        expect(result.error).toBeInstanceOf(WorkflowNotInContractError);
       }
       expect(mockWorkflow.signalWithStart).not.toHaveBeenCalled();
     });
@@ -436,7 +584,7 @@ describe("TypedClient", () => {
 
       mockWorkflow.getHandle.mockReturnValue(mockHandle);
 
-      const result = await typedClient.getHandle("testWorkflow", "test-123");
+      const result = typedClient.getHandle("testWorkflow", "test-123");
 
       expect(result).toBeOk();
       if (result.isOk()) {
@@ -445,14 +593,14 @@ describe("TypedClient", () => {
     });
 
     it("should return Error result for non-existent workflow", async () => {
-      const result = await typedClient.getHandle(
+      const result = typedClient.getHandle(
         "nonExistentWorkflow" as unknown as "testWorkflow",
         "test-123",
       );
 
       expect(result).toBeErr();
       if (result.isErr()) {
-        expect(result.error).toBeInstanceOf(WorkflowNotFoundError);
+        expect(result.error).toBeInstanceOf(WorkflowNotInContractError);
       }
     });
   });
@@ -794,7 +942,7 @@ describe("TypedClient", () => {
         },
         errCases: (matcher) =>
           matcher.with(
-            P.tag("@temporal-contract/WorkflowNotFoundError"),
+            P.tag("@temporal-contract/WorkflowNotInContractError"),
             P.tag("@temporal-contract/WorkflowValidationError"),
             P.tag("@temporal-contract/WorkflowAlreadyStartedError"),
             P.tag("@temporal-contract/WorkflowFailedError"),
@@ -856,12 +1004,12 @@ describe("TypedClient", () => {
       },
     });
 
-    let searchClient: TypedClient<typeof searchContract>;
+    let searchClient: ContractClient<typeof searchContract>;
 
-    beforeEach(() => {
+    beforeEach(async () => {
       vi.clearAllMocks();
       const rawClient = { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client;
-      searchClient = TypedClient.createOrThrow(searchContract, rawClient);
+      searchClient = await bindContract(searchContract, rawClient);
     });
 
     it("translates declared searchAttributes into Temporal's typedSearchAttributes", async () => {
@@ -1187,7 +1335,7 @@ describe("TypedClient", () => {
       };
       mockWorkflow.getHandle.mockReturnValue(handle);
 
-      const handleResult = await typedClient.getHandle("testWorkflow", "test-123");
+      const handleResult = typedClient.getHandle("testWorkflow", "test-123");
       if (!handleResult.isOk()) throw new Error("getHandle should succeed");
       const result = await handleResult.value.result();
 
@@ -1224,7 +1372,7 @@ describe("TypedClient", () => {
       };
       mockWorkflow.getHandle.mockReturnValue(handle);
 
-      const handleResult = await typedClient.getHandle("testWorkflow", "test-123");
+      const handleResult = typedClient.getHandle("testWorkflow", "test-123");
       if (!handleResult.isOk()) throw new Error("getHandle should succeed");
       const result = await handleResult.value.cancel();
 
@@ -1254,7 +1402,7 @@ describe("TypedClient", () => {
       };
       mockWorkflow.getHandle.mockReturnValue(handle);
 
-      const handleResult = await typedClient.getHandle("testWorkflow", "test-123");
+      const handleResult = typedClient.getHandle("testWorkflow", "test-123");
       if (!handleResult.isOk()) throw new Error("getHandle should succeed");
       const result = await handleResult.value.terminate("done");
 
@@ -1280,7 +1428,7 @@ describe("TypedClient", () => {
       };
       mockWorkflow.getHandle.mockReturnValue(handle);
 
-      const handleResult = await typedClient.getHandle("testWorkflow", "test-123");
+      const handleResult = typedClient.getHandle("testWorkflow", "test-123");
       if (!handleResult.isOk()) throw new Error("getHandle should succeed");
       const result = await handleResult.value.signals.updateProgress([50]);
 
@@ -1306,7 +1454,7 @@ describe("TypedClient", () => {
       };
       mockWorkflow.getHandle.mockReturnValue(handle);
 
-      const handleResult = await typedClient.getHandle("testWorkflow", "test-123");
+      const handleResult = typedClient.getHandle("testWorkflow", "test-123");
       if (!handleResult.isOk()) throw new Error("getHandle should succeed");
       const result = await handleResult.value.describe();
 
@@ -1352,12 +1500,12 @@ describe("TypedClient — wire format (validate on send, parse on receive)", () 
     },
   });
 
-  let wireClient: TypedClient<typeof transformContract>;
+  let wireClient: ContractClient<typeof transformContract>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     const rawClient = { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client;
-    wireClient = TypedClient.createOrThrow(transformContract, rawClient);
+    wireClient = await bindContract(transformContract, rawClient);
   });
 
   it("startWorkflow transmits the ORIGINAL args, not the parsed value", async () => {
@@ -1444,7 +1592,7 @@ describe("TypedClient — wire format (validate on send, parse on receive)", () 
     };
     mockWorkflow.getHandle.mockReturnValue(rawHandle);
 
-    const handleResult = await wireClient.getHandle("transformer", "wf-4");
+    const handleResult = wireClient.getHandle("transformer", "wf-4");
     if (!handleResult.isOk()) throw new Error("expected Ok");
     const result = await handleResult.value.result();
 
@@ -1464,7 +1612,7 @@ describe("TypedClient — wire format (validate on send, parse on receive)", () 
     };
     mockWorkflow.getHandle.mockReturnValue(rawHandle);
 
-    const handleResult = await wireClient.getHandle("transformer", "wf-5");
+    const handleResult = wireClient.getHandle("transformer", "wf-5");
     if (!handleResult.isOk()) throw new Error("expected Ok");
     const result = await handleResult.value.signals.ping("hey");
 
@@ -1482,7 +1630,7 @@ describe("TypedClient — wire format (validate on send, parse on receive)", () 
     };
     mockWorkflow.getHandle.mockReturnValue(rawHandle);
 
-    const handleResult = await wireClient.getHandle("transformer", "wf-6");
+    const handleResult = wireClient.getHandle("transformer", "wf-6");
     if (!handleResult.isOk()) throw new Error("expected Ok");
     const result = await handleResult.value.queries.peek("hey");
 
@@ -1503,7 +1651,7 @@ describe("TypedClient — wire format (validate on send, parse on receive)", () 
     };
     mockWorkflow.getHandle.mockReturnValue(rawHandle);
 
-    const handleResult = await wireClient.getHandle("transformer", "wf-7");
+    const handleResult = wireClient.getHandle("transformer", "wf-7");
     if (!handleResult.isOk()) throw new Error("expected Ok");
     const result = await handleResult.value.updates.poke("hey");
 
@@ -1533,7 +1681,7 @@ describe("TypedClient — workflow contract errors", () => {
   });
 
   const createClient = () =>
-    TypedClient.createOrThrow(erroredContract, {
+    bindContract(erroredContract, {
       workflow: mockWorkflow,
       schedule: mockSchedule,
     } as unknown as Client);
@@ -1553,7 +1701,9 @@ describe("TypedClient — workflow contract errors", () => {
       new TemporalWorkflowFailedError("failed", failure, "NON_RETRYABLE_FAILURE"),
     );
 
-    const result = await createClient().executeWorkflow("processOrder", {
+    const result = await (
+      await createClient()
+    ).executeWorkflow("processOrder", {
       workflowId: "order-1",
       args: { orderId: "ORD-1" },
     });
@@ -1574,7 +1724,9 @@ describe("TypedClient — workflow contract errors", () => {
       new TemporalWorkflowFailedError("failed", failure, "NON_RETRYABLE_FAILURE"),
     );
 
-    const result = await createClient().executeWorkflow("processOrder", {
+    const result = await (
+      await createClient()
+    ).executeWorkflow("processOrder", {
       workflowId: "order-1",
       args: { orderId: "ORD-1" },
     });
@@ -1594,7 +1746,9 @@ describe("TypedClient — workflow contract errors", () => {
       new TemporalWorkflowFailedError("failed", failure, "NON_RETRYABLE_FAILURE"),
     );
 
-    const result = await createClient().executeWorkflow("processOrder", {
+    const result = await (
+      await createClient()
+    ).executeWorkflow("processOrder", {
       workflowId: "order-1",
       args: { orderId: "ORD-1" },
     });
@@ -1624,7 +1778,7 @@ describe("TypedClient — workflow contract errors", () => {
     };
     mockWorkflow.getHandle.mockReturnValue(rawHandle);
 
-    const handleResult = await createClient().getHandle("processOrder", "order-2");
+    const handleResult = (await createClient()).getHandle("processOrder", "order-2");
     expect(handleResult).toBeOk();
     if (!handleResult.isOk()) return;
 
@@ -1658,7 +1812,7 @@ describe("TypedClient — interceptors", () => {
   });
 
   const clientWith = (interceptors: ClientInterceptor[]) =>
-    TypedClient.createOrThrow(
+    bindContract(
       interceptedContract,
       { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client,
       interceptors,
@@ -1674,7 +1828,9 @@ describe("TypedClient — interceptors", () => {
         return next();
       };
 
-    const result = await clientWith([mk("outer"), mk("inner")]).executeWorkflow("testWorkflow", {
+    const result = await (
+      await clientWith([mk("outer"), mk("inner")])
+    ).executeWorkflow("testWorkflow", {
       workflowId: "wf-1",
       args: { name: "n", value: 1 },
     });
@@ -1691,7 +1847,9 @@ describe("TypedClient — interceptors", () => {
     const patching: ClientInterceptor = (_args, next) =>
       next({ input: { name: "patched", value: 42 } });
 
-    const result = await clientWith([patching]).executeWorkflow("testWorkflow", {
+    const result = await (
+      await clientWith([patching])
+    ).executeWorkflow("testWorkflow", {
       workflowId: "wf-2",
       args: { name: "original", value: 1 },
     });
@@ -1706,7 +1864,9 @@ describe("TypedClient — interceptors", () => {
   it("an invalid patched input is rejected by validation (no bypass)", async () => {
     const patching: ClientInterceptor = (_args, next) => next({ input: { name: 42 } });
 
-    const result = await clientWith([patching]).executeWorkflow("testWorkflow", {
+    const result = await (
+      await clientWith([patching])
+    ).executeWorkflow("testWorkflow", {
       workflowId: "wf-3",
       args: { name: "original", value: 1 },
     });
@@ -1728,7 +1888,9 @@ describe("TypedClient — interceptors", () => {
     // any genuinely-modeled `Err` still flows through untouched.
     const retryOnce: ClientInterceptor = (_args, next) => next().recoverDefect(() => next());
 
-    const result = await clientWith([retryOnce]).executeWorkflow("testWorkflow", {
+    const result = await (
+      await clientWith([retryOnce])
+    ).executeWorkflow("testWorkflow", {
       workflowId: "wf-4",
       args: { name: "n", value: 1 },
     });
@@ -1752,7 +1914,7 @@ describe("TypedClient — interceptors", () => {
       return next();
     };
 
-    const handleResult = await clientWith([observing]).getHandle("testWorkflow", "wf-5");
+    const handleResult = (await clientWith([observing])).getHandle("testWorkflow", "wf-5");
     expect(handleResult).toBeOk();
     if (!handleResult.isOk()) return;
     const query = await handleResult.value.queries.getStatus([]);
@@ -1767,5 +1929,444 @@ describe("TypedClient — interceptors", () => {
         input: [],
       },
     ]);
+  });
+});
+
+describe("ContractClient — handle identifiers and validation-error identity", () => {
+  const identityContract = defineContract({
+    taskQueue: "identity-q",
+    workflows: {
+      identityWorkflow: defineWorkflow({
+        input: z.object({ id: z.string() }),
+        output: z.object({ ok: z.boolean() }),
+      }),
+    },
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const createClient = () =>
+    bindContract(identityContract, {
+      workflow: mockWorkflow,
+      schedule: mockSchedule,
+    } as unknown as Client);
+
+  it("startWorkflow handles carry runId and firstExecutionRunId from the started run", async () => {
+    mockWorkflow.start.mockResolvedValue({
+      workflowId: "wf-1",
+      firstExecutionRunId: "run-first",
+    });
+
+    const handleResult = await (
+      await createClient()
+    ).startWorkflow("identityWorkflow", {
+      workflowId: "wf-1",
+      args: { id: "a" },
+    });
+
+    expect(handleResult).toBeOk();
+    if (handleResult.isOk()) {
+      expect(handleResult.value.firstExecutionRunId).toBe("run-first");
+      expect(handleResult.value.runId).toBe("run-first");
+    }
+  });
+
+  it("getHandle is synchronous, forwards runId + GetWorkflowHandleOptions, and carries the ids", async () => {
+    const rawHandle = { workflowId: "wf-2", result: vi.fn() };
+    mockWorkflow.getHandle.mockReturnValue(rawHandle);
+
+    const handleResult = (await createClient()).getHandle("identityWorkflow", "wf-2", {
+      runId: "run-9",
+      firstExecutionRunId: "run-0",
+      followRuns: false,
+    });
+
+    expect(handleResult).toBeOk();
+    if (handleResult.isOk()) {
+      expect(handleResult.value.runId).toBe("run-9");
+      expect(handleResult.value.firstExecutionRunId).toBe("run-0");
+    }
+    expect(mockWorkflow.getHandle).toHaveBeenCalledWith("wf-2", "run-9", {
+      firstExecutionRunId: "run-0",
+      followRuns: false,
+    });
+  });
+
+  it("getHandle returns a sync Err(WorkflowNotInContractError) for unknown workflow names", async () => {
+    const handleResult = (await createClient()).getHandle(
+      "nonExistent" as unknown as "identityWorkflow",
+      "wf-3",
+    );
+
+    expect(handleResult.isErr()).toBe(true);
+    if (handleResult.isErr()) {
+      expect(handleResult.error).toBeInstanceOf(WorkflowNotInContractError);
+    }
+    expect(mockWorkflow.getHandle).not.toHaveBeenCalled();
+  });
+
+  it("handle.result() output-validation error carries the workflow NAME and the workflowId", async () => {
+    // Regression (v8 review item 12): the workflowId used to be passed as
+    // the workflowName constructor argument.
+    const rawHandle = {
+      workflowId: "wf-4",
+      result: vi.fn().mockResolvedValue({ ok: "not-a-boolean" }),
+    };
+    mockWorkflow.getHandle.mockReturnValue(rawHandle);
+
+    const handleResult = (await createClient()).getHandle("identityWorkflow", "wf-4");
+    if (!handleResult.isOk()) throw new Error("expected Ok");
+    const result = await handleResult.value.result();
+
+    expect(result).toBeErr();
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(WorkflowValidationError);
+      const error = result.error as WorkflowValidationError;
+      expect(error.workflowName).toBe("identityWorkflow");
+      expect(error.workflowId).toBe("wf-4");
+      expect(error.direction).toBe("output");
+    }
+  });
+
+  it("executeWorkflow validation errors carry the workflowId too", async () => {
+    const client = await createClient();
+
+    const inputError = await client.executeWorkflow("identityWorkflow", {
+      workflowId: "wf-5",
+      args: { id: 42 } as unknown as { id: string },
+    });
+    expect(inputError).toBeErr();
+    if (inputError.isErr()) {
+      expect((inputError.error as WorkflowValidationError).workflowId).toBe("wf-5");
+      expect((inputError.error as WorkflowValidationError).direction).toBe("input");
+    }
+
+    mockWorkflow.execute.mockResolvedValue({ ok: "nope" });
+    const outputError = await client.executeWorkflow("identityWorkflow", {
+      workflowId: "wf-6",
+      args: { id: "a" },
+    });
+    expect(outputError).toBeErr();
+    if (outputError.isErr()) {
+      expect((outputError.error as WorkflowValidationError).workflowId).toBe("wf-6");
+      expect((outputError.error as WorkflowValidationError).direction).toBe("output");
+    }
+  });
+});
+
+describe("ContractClient — startUpdate", () => {
+  const updateContract = defineContract({
+    taskQueue: "update-q",
+    workflows: {
+      updatable: defineWorkflow({
+        input: z.object({ id: z.string() }),
+        output: z.object({ ok: z.boolean() }),
+        updates: {
+          adjust: {
+            input: z.object({ delta: z.number() }),
+            output: z.number().transform((n) => n * 2),
+          },
+        },
+      }),
+    },
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const getUpdatableHandle = async (rawHandle: Record<string, unknown>) => {
+    mockWorkflow.getHandle.mockReturnValue(rawHandle);
+    const client = await bindContract(updateContract, {
+      workflow: mockWorkflow,
+      schedule: mockSchedule,
+    } as unknown as Client);
+    const handleResult = client.getHandle("updatable", "wf-up");
+    if (!handleResult.isOk()) throw new Error("expected Ok");
+    return handleResult.value;
+  };
+
+  it("starts the update with options passthrough and returns a typed update handle", async () => {
+    const startUpdate = vi.fn().mockResolvedValue({
+      updateId: "upd-1",
+      workflowId: "wf-up",
+      workflowRunId: "run-1",
+      result: vi.fn().mockResolvedValue(21),
+    });
+    const handle = await getUpdatableHandle({ workflowId: "wf-up", startUpdate });
+
+    const updateHandleResult = await handle.startUpdate("adjust", {
+      args: { delta: 3 },
+      updateId: "upd-1",
+    });
+
+    expect(updateHandleResult).toBeOk();
+    expect(startUpdate).toHaveBeenCalledWith("adjust", {
+      args: [{ delta: 3 }],
+      waitForStage: "ACCEPTED",
+      updateId: "upd-1",
+    });
+    if (updateHandleResult.isOk()) {
+      const updateHandle = updateHandleResult.value;
+      expect(updateHandle.updateId).toBe("upd-1");
+      expect(updateHandle.workflowId).toBe("wf-up");
+      expect(updateHandle.workflowRunId).toBe("run-1");
+
+      // result() parses on receive (D1): the transform applies exactly once.
+      const result = await updateHandle.result();
+      expect(result).toBeOk();
+      if (result.isOk()) {
+        expect(result.value).toBe(42);
+      }
+    }
+  });
+
+  it("rejects invalid update input before dispatch", async () => {
+    const startUpdate = vi.fn();
+    const handle = await getUpdatableHandle({ workflowId: "wf-up", startUpdate });
+
+    const updateHandleResult = await handle.startUpdate("adjust", {
+      args: { delta: "nope" } as unknown as { delta: number },
+    });
+
+    expect(updateHandleResult).toBeErr();
+    if (updateHandleResult.isErr()) {
+      expect(updateHandleResult.error).toBeInstanceOf(UpdateValidationError);
+      expect((updateHandleResult.error as UpdateValidationError).direction).toBe("input");
+    }
+    expect(startUpdate).not.toHaveBeenCalled();
+  });
+
+  it("surfaces WorkflowExecutionNotFoundError when the execution is gone", async () => {
+    const startUpdate = vi
+      .fn()
+      .mockRejectedValue(new TemporalWorkflowNotFoundError("not found", "wf-up", undefined));
+    const handle = await getUpdatableHandle({ workflowId: "wf-up", startUpdate });
+
+    const updateHandleResult = await handle.startUpdate("adjust", { args: { delta: 1 } });
+
+    expect(updateHandleResult).toBeErr();
+    if (updateHandleResult.isErr()) {
+      expect(updateHandleResult.error).toBeInstanceOf(WorkflowExecutionNotFoundError);
+    }
+  });
+
+  it("routes unrecognized startUpdate failures to the defect channel", async () => {
+    const startUpdate = vi.fn().mockRejectedValue(new Error("network down"));
+    const handle = await getUpdatableHandle({ workflowId: "wf-up", startUpdate });
+
+    const updateHandleResult = await handle.startUpdate("adjust", { args: { delta: 1 } });
+
+    expect(updateHandleResult).toBeDefect();
+    if (updateHandleResult.isDefect()) {
+      expect(updateHandleResult.cause).toBeInstanceOf(RuntimeClientError);
+      expect((updateHandleResult.cause as RuntimeClientError).operation).toBe("startUpdate");
+    }
+  });
+});
+
+describe("ContractClient — omittable input-less payloads (runtime)", () => {
+  // Wave 1 made `defineSignal()` / `defineQuery({output})` /
+  // `defineUpdate({output})` materialize an UndefinedInputSchema. The
+  // client side: omitted payloads travel as EMPTY args, not `[undefined]`.
+  const omittableContract = defineContract({
+    taskQueue: "omit-q",
+    workflows: {
+      omittable: defineWorkflow({
+        input: z.object({ id: z.string() }),
+        output: z.object({ ok: z.boolean() }),
+        signals: {
+          stop: defineSignal(),
+        },
+        queries: {
+          progress: defineQuery({ output: z.number() }),
+        },
+        updates: {
+          refresh: defineUpdate({ output: z.boolean() }),
+        },
+      }),
+    },
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const getOmittableHandle = async (rawHandle: Record<string, unknown>) => {
+    mockWorkflow.getHandle.mockReturnValue(rawHandle);
+    const client = await bindContract(omittableContract, {
+      workflow: mockWorkflow,
+      schedule: mockSchedule,
+    } as unknown as Client);
+    const handleResult = client.getHandle("omittable", "wf-omit");
+    if (!handleResult.isOk()) throw new Error("expected Ok");
+    return handleResult.value;
+  };
+
+  it("payload-less signals send NO payload argument", async () => {
+    const signal = vi.fn().mockResolvedValue(undefined);
+    const handle = await getOmittableHandle({ workflowId: "wf-omit", signal });
+
+    const result = await handle.signals.stop();
+
+    expect(result).toBeOk();
+    expect(signal).toHaveBeenCalledTimes(1);
+    expect(signal).toHaveBeenCalledWith("stop");
+  });
+
+  it("argument-less queries send NO payload argument", async () => {
+    const query = vi.fn().mockResolvedValue(7);
+    const handle = await getOmittableHandle({ workflowId: "wf-omit", query });
+
+    const result = await handle.queries.progress();
+
+    expect(result).toBeOk();
+    if (result.isOk()) {
+      expect(result.value).toBe(7);
+    }
+    expect(query).toHaveBeenCalledWith("progress");
+  });
+
+  it("argument-less updates send EMPTY args", async () => {
+    const executeUpdate = vi.fn().mockResolvedValue(true);
+    const handle = await getOmittableHandle({ workflowId: "wf-omit", executeUpdate });
+
+    const result = await handle.updates.refresh();
+
+    expect(result).toBeOk();
+    expect(executeUpdate).toHaveBeenCalledWith("refresh", { args: [] });
+  });
+
+  it("startUpdate with an omitted options object sends EMPTY args", async () => {
+    const startUpdate = vi.fn().mockResolvedValue({
+      updateId: "upd-omit",
+      workflowId: "wf-omit",
+      workflowRunId: undefined,
+      result: vi.fn().mockResolvedValue(true),
+    });
+    const handle = await getOmittableHandle({ workflowId: "wf-omit", startUpdate });
+
+    const result = await handle.startUpdate("refresh");
+
+    expect(result).toBeOk();
+    expect(startUpdate).toHaveBeenCalledWith("refresh", {
+      args: [],
+      waitForStage: "ACCEPTED",
+    });
+  });
+
+  it("signalWithStart with an omitted signal payload sends EMPTY signalArgs", async () => {
+    mockWorkflow.signalWithStart.mockResolvedValue({
+      workflowId: "wf-omit",
+      signaledRunId: "run-om",
+    });
+    const client = await bindContract(omittableContract, {
+      workflow: mockWorkflow,
+      schedule: mockSchedule,
+    } as unknown as Client);
+
+    const result = await client.signalWithStart("omittable", {
+      workflowId: "wf-omit",
+      args: { id: "a" },
+      signalName: "stop",
+    });
+
+    expect(result).toBeOk();
+    expect(mockWorkflow.signalWithStart).toHaveBeenCalledWith("omittable", {
+      workflowId: "wf-omit",
+      taskQueue: "omit-q",
+      args: [{ id: "a" }],
+      signal: "stop",
+      signalArgs: [],
+    });
+  });
+});
+
+describe("ContractClient — search attribute VALUE validation (runtime)", () => {
+  const kindContract = defineContract({
+    taskQueue: "kinds-q",
+    workflows: {
+      kinds: defineWorkflow({
+        input: z.object({ id: z.string() }),
+        output: z.object({}),
+        searchAttributes: {
+          priority: defineSearchAttribute({ kind: "INT" }),
+          placedAt: defineSearchAttribute({ kind: "DATETIME" }),
+          tags: defineSearchAttribute({ kind: "KEYWORD_LIST" }),
+        },
+      }),
+    },
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("rejects values whose runtime type doesn't match the declared kind", async () => {
+    const client = await bindContract(kindContract, {
+      workflow: mockWorkflow,
+      schedule: mockSchedule,
+    } as unknown as Client);
+
+    const result = await client.startWorkflow("kinds", {
+      workflowId: "k-1",
+      args: { id: "a" },
+      searchAttributes: {
+        // INT declared, string provided — escaped the type system via cast.
+        priority: "high" as unknown as number,
+      },
+    });
+
+    expect(result).toBeDefect();
+    if (result.isDefect()) {
+      expect(result.cause).toBeInstanceOf(RuntimeClientError);
+      expect((result.cause as RuntimeClientError).operation).toBe("searchAttributes");
+      expect((result.cause as RuntimeClientError).message).toContain("priority");
+      expect((result.cause as RuntimeClientError).message).toContain("INT");
+    }
+    expect(mockWorkflow.start).not.toHaveBeenCalled();
+  });
+
+  it("accepts values matching their declared kinds", async () => {
+    mockWorkflow.start.mockResolvedValue({ workflowId: "k-2" });
+    const client = await bindContract(kindContract, {
+      workflow: mockWorkflow,
+      schedule: mockSchedule,
+    } as unknown as Client);
+
+    const result = await client.startWorkflow("kinds", {
+      workflowId: "k-2",
+      args: { id: "a" },
+      searchAttributes: {
+        priority: 3,
+        placedAt: new Date("2026-01-01T00:00:00Z"),
+        tags: ["a", "b"],
+      },
+    });
+
+    expect(result).toBeOk();
+  });
+
+  it("rejects non-string entries inside a KEYWORD_LIST", async () => {
+    const client = await bindContract(kindContract, {
+      workflow: mockWorkflow,
+      schedule: mockSchedule,
+    } as unknown as Client);
+
+    const result = await client.startWorkflow("kinds", {
+      workflowId: "k-3",
+      args: { id: "a" },
+      searchAttributes: {
+        tags: ["ok", 42] as unknown as string[],
+      },
+    });
+
+    expect(result).toBeDefect();
+    if (result.isDefect()) {
+      expect((result.cause as RuntimeClientError).message).toContain("tags");
+    }
+    expect(mockWorkflow.start).not.toHaveBeenCalled();
   });
 });
