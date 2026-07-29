@@ -11,6 +11,14 @@
 
 ## Install the packages
 
+::: warning 8.0 is currently a prerelease
+The 8.0 line — the API these docs describe — is published under the `beta`
+dist-tag, so a plain `npm install @temporal-contract/contract` still resolves
+7.x. Install the `@temporal-contract/*` packages with the explicit `@beta`
+tag, as the commands below do. The peer dependencies (`unthrown`,
+`@temporalio/*`) are stable releases.
+:::
+
 Pick the packages for what you are building. Most applications split across
 processes, so each process installs only what it uses.
 
@@ -18,30 +26,30 @@ processes, so each process installs only what it uses.
 
 ```bash [pnpm]
 # Shared — the contract, imported by every side
-pnpm add @temporal-contract/contract
+pnpm add @temporal-contract/contract@beta
 
 # Worker process
-pnpm add @temporal-contract/worker
+pnpm add @temporal-contract/worker@beta
 
 # Client process
-pnpm add @temporal-contract/client
+pnpm add @temporal-contract/client@beta
 
 # Tests
-pnpm add -D @temporal-contract/testing
+pnpm add -D @temporal-contract/testing@beta
 ```
 
 ```bash [npm]
-npm install @temporal-contract/contract
-npm install @temporal-contract/worker
-npm install @temporal-contract/client
-npm install -D @temporal-contract/testing
+npm install @temporal-contract/contract@beta
+npm install @temporal-contract/worker@beta
+npm install @temporal-contract/client@beta
+npm install -D @temporal-contract/testing@beta
 ```
 
 ```bash [yarn]
-yarn add @temporal-contract/contract
-yarn add @temporal-contract/worker
-yarn add @temporal-contract/client
-yarn add -D @temporal-contract/testing
+yarn add @temporal-contract/contract@beta
+yarn add @temporal-contract/worker@beta
+yarn add @temporal-contract/client@beta
+yarn add -D @temporal-contract/testing@beta
 ```
 
 :::

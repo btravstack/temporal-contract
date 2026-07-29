@@ -29,8 +29,9 @@ case, the worker package exports a `qualify(type, options?)` helper that builds
 that function — `fromPromise(inventoryService.check(orderId), qualify("INVENTORY_CHECK_FAILED"))`
 preserves an `Error` rejection's message and `cause`, with `options.nonRetryable`
 / `options.details` / `options.message` (non-`Error` fallback) available. For a
-value you already have, lift a sync result with `Ok(value).toAsync()` /
-`Err(failure).toAsync()` — unthrown has no `okAsync`/`errAsync`.
+value you already have, use `OkAsync(value)` / `ErrAsync(failure)`, or lift an
+existing sync `Result` with `Ok(value).toAsync()` / `Err(failure).toAsync()` —
+unthrown has no lowercase `okAsync`/`errAsync`.
 
 Canonical example: `examples/order-processing-worker/src/application/activities.ts`.
 
@@ -129,14 +130,12 @@ await workerResult.value.run();
 Workflows opt into cancellation control via `context.cancellableScope` / `context.nonCancellableScope`. They fold cancellation into the project's `AsyncResult` shape — callers branch on `Err(WorkflowCancelledError)` instead of catching `CancelledFailure`.
 
 ```typescript
-import { isErr } from "unthrown";
-
 implementation: async (context, args) => {
   const result = await context.cancellableScope(async () => {
     return context.activities.processStep(args);
   });
 
-  if (isErr(result)) {
+  if (result.isErr()) {
     // Workflow was cancelled. Cleanup that must not be cancelled itself
     // goes inside `nonCancellableScope`.
     await context.nonCancellableScope(async () => {
@@ -151,7 +150,7 @@ implementation: async (context, args) => {
 
 - `cancellableScope<T>(fn)` — returns `AsyncResult<T, WorkflowCancelledError>`. Cancels propagate from outside.
 - `nonCancellableScope<T>(fn)` — same shape; _outside_ cancels are ignored. Cancels raised _inside_ still surface as `Err(...)`. Use for graceful-shutdown cleanup.
-- Non-cancellation errors thrown by `fn` are _unmodeled_ failures: they ride unthrown's **`defect`** channel (inspectable via `isDefect(result)` / `result.cause`, re-thrown at the edge), not the modeled `err` channel.
+- Non-cancellation errors thrown by `fn` are _unmodeled_ failures: they ride unthrown's **`defect`** channel (inspectable via `result.isDefect()` / `result.cause`, re-thrown at the edge), not the modeled `err` channel.
 
 Canonical implementation: `packages/worker/src/cancellation.ts:38` (`cancellableScope`), `:75` (`nonCancellableScope`). Error class: `packages/worker/src/errors.ts:193`.
 

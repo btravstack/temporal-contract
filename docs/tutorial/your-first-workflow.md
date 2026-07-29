@@ -37,10 +37,17 @@ npm pkg set type=module
 Install temporal-contract and its peers:
 
 ```bash
-npm install @temporal-contract/contract @temporal-contract/worker @temporal-contract/client
+npm install @temporal-contract/contract@beta @temporal-contract/worker@beta @temporal-contract/client@beta
 npm install unthrown zod @temporalio/client @temporalio/common @temporalio/worker @temporalio/workflow
 npm install -D typescript @types/node tsx
 ```
+
+::: warning The `@beta` tag is required
+temporal-contract 8.0 — the API this tutorial teaches — is currently a
+prerelease published under the `beta` dist-tag. Without `@beta`, npm installs
+the 7.x line, and the code in this tutorial will not match. The peers
+(`unthrown`, `@temporalio/*`, `zod`) are stable releases.
+:::
 
 Create a `tsconfig.json`. The two settings that matter are `module: nodenext`
 (temporal-contract is ESM-only) and `strict` (the type inference depends on it):

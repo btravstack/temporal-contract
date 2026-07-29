@@ -4,13 +4,17 @@
 
 ## Available Examples
 
+### [order-processing-contract](./order-processing-contract)
+
+Shared contract package — domain schemas and the workflow/activity definitions imported by both the worker and the client
+
 ### [order-processing-worker](./order-processing-worker)
 
-Standard Promise-based worker with Clean Architecture
+Worker with Clean Architecture; activities return `AsyncResult` from unthrown
 
 ### [order-processing-client](./order-processing-client)
 
-Standalone client demonstrating interaction with the unified contract
+Standalone client demonstrating interaction with the shared contract
 
 **Note**: The client example works with the worker implementation seamlessly through the shared contract (`orderProcessingContract`).
 
