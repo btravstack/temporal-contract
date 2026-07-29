@@ -176,5 +176,11 @@ describe("classifyChildWorkflowError", () => {
       const result = classifyChildWorkflowError("result", new Error("boom"), "myChild");
       expect(result.message).toContain("execution failed");
     });
+
+    it("uses the signal phrasing for `signal`", () => {
+      const result = classifyChildWorkflowError("signal", new Error("boom"), "myChild");
+      expect(result.message).toContain("Failed to signal child workflow");
+      expect(result.message).toContain("myChild");
+    });
   });
 });

@@ -5,7 +5,9 @@ import { TaggedError } from "unthrown";
 
 /**
  * Base class for the contract's runtime validation failures — workflow and
- * activity input/output, plus signal/query/update payloads.
+ * activity input/output, plus query/update payloads. (Invalid *signal*
+ * payloads are not errors: signals are fire-and-forget, so the worker drops
+ * and logs them instead of failing the execution.)
  *
  * These extend Temporal's {@link ApplicationFailure} with `nonRetryable: true`
  * rather than a plain `Error`, and that distinction is load-bearing. The
@@ -45,11 +47,13 @@ export abstract class ValidationError extends ApplicationFailure {
     // and surface the concrete subclass name (matching `type`). `writable: true`
     // keeps the field reassignable, matching the previous `this.name = ...`
     // behaviour so consumers (e.g. error-wrapping code) can still adjust it.
+    // `enumerable: false` matches plain-`Error` semantics — `name` shouldn't
+    // show up in `Object.keys(...)` / spread / JSON serialization of the error.
     Object.defineProperty(this, "name", {
       value: type,
       writable: true,
       configurable: true,
-      enumerable: true,
+      enumerable: false,
     });
     // Maintains proper stack trace for where our error was thrown (only available on V8)
     if (Error.captureStackTrace) {
@@ -144,23 +148,6 @@ export class WorkflowOutputValidationError extends ValidationError {
 }
 
 /**
- * Error thrown when signal input validation fails
- */
-export class SignalInputValidationError extends ValidationError {
-  constructor(
-    public readonly signalName: string,
-    issues: ReadonlyArray<StandardSchemaV1.Issue>,
-  ) {
-    const message = summarizeIssues(issues);
-    super(
-      `Signal "${signalName}" input validation failed: ${message}`,
-      "SignalInputValidationError",
-      issues,
-    );
-  }
-}
-
-/**
  * Error thrown when query input validation fails
  */
 export class QueryInputValidationError extends ValidationError {
@@ -246,6 +233,30 @@ export class ContractErrorDataValidationError extends ValidationError {
       "ContractErrorDataValidationError",
       issues,
     );
+  }
+}
+
+/**
+ * Error thrown when workflow-sandbox code misuses the contract surface —
+ * binding a signal/query/update handler for a name the contract doesn't
+ * declare, using an async-validating schema where Temporal requires
+ * synchronous validation, or reaching an activity that no options cover.
+ *
+ * Extends {@link ValidationError} for the same load-bearing reason as its
+ * siblings: a plain `Error` thrown from *workflow* code is classified by the
+ * TypeScript SDK as a Workflow Task failure and retried indefinitely,
+ * leaving the execution silently `Running` forever. Contract misuse is a
+ * deterministic programming bug — it never becomes valid on replay — so it
+ * must fail the Workflow Execution terminally as a non-retryable
+ * `ApplicationFailure` with a clear message, not hang in an infinite
+ * Workflow Task retry loop.
+ *
+ * Carries no schema `issues` (the misuse is structural, not a payload
+ * validation failure), so the `issues` array is always empty.
+ */
+export class ContractMisuseError extends ValidationError {
+  constructor(message: string) {
+    super(message, "ContractMisuseError", []);
   }
 }
 

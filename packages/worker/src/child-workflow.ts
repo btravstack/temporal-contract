@@ -3,7 +3,13 @@
  * `workflow.ts` to keep that file focused on `declareWorkflow` and its
  * `WorkflowContext` type. Not part of the worker package's public exports.
  */
-import type { AnyWorkflowDefinition, ContractDefinition } from "@temporal-contract/contract";
+import type {
+  AnyWorkflowDefinition,
+  ContractDefinition,
+  SignalDefinition,
+  SignalNamesOf,
+} from "@temporal-contract/contract";
+import { summarizeIssues } from "@temporal-contract/contract";
 import {
   type ChildWorkflowHandle,
   type ChildWorkflowOptions,
@@ -24,7 +30,7 @@ import {
   formatChildWorkflowValidationMessage,
   makeAsyncResult,
 } from "./internal.js";
-import type { ClientInferInput, ClientInferOutput } from "./types.js";
+import type { ClientInferInput, ClientInferOutput, SignalDefOf } from "./types.js";
 
 /**
  * Options for starting a child workflow. `taskQueue` and `args` come from
@@ -36,6 +42,23 @@ export type TypedChildWorkflowOptions<
   TChildWorkflowName extends keyof TChildContract["workflows"] & string,
 > = Omit<ChildWorkflowOptions, "taskQueue" | "args"> & {
   args: ClientInferInput<TChildContract["workflows"][TChildWorkflowName]>;
+};
+
+/**
+ * Typed signal senders for a child workflow, keyed by the signal names
+ * declared on the child's contract entry. Mirrors the shape of the typed
+ * client handle's `signals` proxy: one function per declared signal, taking
+ * the signal's (client-perspective) input and returning an `AsyncResult`.
+ *
+ * Per the wire-format rule (D1), the sender validates `args` against the
+ * signal's input schema — failing early with `Err(ChildWorkflowError)` —
+ * but transmits the caller's ORIGINAL value; the child's signal handler
+ * parses it on receive, so a transforming schema applies exactly once.
+ */
+export type TypedChildWorkflowSignals<TWorkflow extends AnyWorkflowDefinition> = {
+  [K in SignalNamesOf<TWorkflow>]: (
+    args: ClientInferInput<SignalDefOf<TWorkflow, K>>,
+  ) => AsyncResult<void, ChildWorkflowError | ChildWorkflowCancelledError>;
 };
 
 /**
@@ -51,9 +74,22 @@ export type TypedChildWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = 
   >;
 
   /**
+   * Typed signal senders for the child's declared signals — see
+   * {@link TypedChildWorkflowSignals}. Empty when the child declares none.
+   */
+  signals: TypedChildWorkflowSignals<TWorkflow>;
+
+  /**
    * Child workflow ID.
    */
   workflowId: string;
+
+  /**
+   * Run ID of the child's first execution — the anchor of its execution
+   * chain (stable across continue-as-new), mirroring the field Temporal
+   * exposes on its own `ChildWorkflowHandle`.
+   */
+  firstExecutionRunId: string;
 };
 
 /**
@@ -127,6 +163,54 @@ async function getAndValidateChildWorkflow<
   });
 }
 
+/**
+ * Build the typed `signals` map for a child handle. One sender per signal
+ * declared on the child's contract entry: validates `args` (fail early with
+ * a descriptive `ChildWorkflowError`), then transmits the caller's ORIGINAL
+ * value via `handle.signal` — the child parses on receive (D1). Errors from
+ * the signal call itself are classified like the other child-workflow
+ * operations (cancellation → `ChildWorkflowCancelledError`).
+ */
+function createTypedChildSignals<TChildWorkflow extends AnyWorkflowDefinition>(
+  handle: ChildWorkflowHandle<Workflow>,
+  childDefinition: TChildWorkflow,
+  childWorkflowName: string,
+): TypedChildWorkflowSignals<TChildWorkflow> {
+  const signals: Record<
+    string,
+    (args: unknown) => AsyncResult<void, ChildWorkflowError | ChildWorkflowCancelledError>
+  > = {};
+
+  const signalDefs = (childDefinition.signals ?? {}) as Record<string, SignalDefinition>;
+  for (const [signalName, signalDef] of Object.entries(signalDefs)) {
+    signals[signalName] = (args: unknown) => {
+      const work = async (): Promise<
+        Result<void, ChildWorkflowError | ChildWorkflowCancelledError>
+      > => {
+        const inputResult = await signalDef.input["~standard"].validate(args);
+        if (inputResult.issues) {
+          return Err(
+            new ChildWorkflowError(
+              `Child workflow "${childWorkflowName}" signal "${signalName}" input validation failed: ${summarizeIssues(inputResult.issues)}`,
+            ),
+          );
+        }
+        try {
+          // Transmit the caller's ORIGINAL args — validated above, parsed by
+          // the child's signal handler on receive (D1).
+          await handle.signal(signalName, args);
+          return Ok(undefined);
+        } catch (error) {
+          return Err(classifyChildWorkflowError("signal", error, childWorkflowName));
+        }
+      };
+      return makeAsyncResult(work);
+    };
+  }
+
+  return signals as TypedChildWorkflowSignals<TChildWorkflow>;
+}
+
 function createTypedChildHandle<TChildWorkflow extends AnyWorkflowDefinition>(
   handle: ChildWorkflowHandle<Workflow>,
   childDefinition: TChildWorkflow,
@@ -134,6 +218,8 @@ function createTypedChildHandle<TChildWorkflow extends AnyWorkflowDefinition>(
 ): TypedChildWorkflowHandle<TChildWorkflow> {
   return {
     workflowId: handle.workflowId,
+    firstExecutionRunId: handle.firstExecutionRunId,
+    signals: createTypedChildSignals(handle, childDefinition, childWorkflowName),
     result: (): AsyncResult<
       ClientInferOutput<TChildWorkflow>,
       ChildWorkflowError | ChildWorkflowCancelledError

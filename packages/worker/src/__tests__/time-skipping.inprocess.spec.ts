@@ -80,13 +80,12 @@ describe("time-skipping TestWorkflowEnvironment", () => {
     const worker = workerResult.value;
 
     const clientResult = await TypedClient.create({
-      contract: inprocessContract,
       client: testEnv.client,
       interceptors: [recording],
     });
     expect(clientResult.isOk()).toBe(true);
     if (!clientResult.isOk()) return;
-    const client = clientResult.value;
+    const client = clientResult.value.for(inprocessContract);
 
     await worker.runUntil(async () => {
       // Happy path — the hour-long sleep is skipped, the accumulated

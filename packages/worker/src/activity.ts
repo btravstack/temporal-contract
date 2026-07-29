@@ -73,20 +73,20 @@ export {
  *
  * @example
  * ```ts
- * import { declareActivitiesHandler, qualify } from '@temporal-contract/worker/activity';
+ * import { declareActivitiesHandler, qualifyFailure } from '@temporal-contract/worker/activity';
  * import { fromPromise } from 'unthrown';
  *
  * export const activities = declareActivitiesHandler({
  *   contract: myContract,
  *   activities: {
  *     sendEmail: (args) =>
- *       fromPromise(emailService.send(args), qualify('EMAIL_SEND_FAILED'))
+ *       fromPromise(emailService.send(args), qualifyFailure('EMAIL_SEND_FAILED'))
  *         .map(() => ({ sent: true })),
  *     chargeCard: (args) =>
  *       fromPromise(
  *         paymentGateway.charge(args),
  *         // Permanent failure: opt out of the configured retry policy.
- *         qualify('CARD_DECLINED', { nonRetryable: true }),
+ *         qualifyFailure('CARD_DECLINED', { nonRetryable: true }),
  *       ),
  *   },
  * });
@@ -102,7 +102,7 @@ export {
  * `type`/`nonRetryable: true` is masked — pass `{ nonRetryable: true }` here (or
  * write a custom qualifier) if that inner failure should stay non-retryable.
  */
-export function qualify(
+export function qualifyFailure(
   type: string,
   options?: {
     /** Fallback message when the rejection is not an `Error` (default: `String(error)`). */
@@ -209,6 +209,10 @@ type ResultActivityImplementation<
  *
  * In short: write nested (mirror the contract); the wrapper flattens
  * for Temporal.
+ *
+ * Workflows that declare **no activities** are filtered out of the map via
+ * key remapping — they don't require (or accept) an empty `workflowName: {}`
+ * placeholder entry.
  */
 type ContractResultActivitiesImplementations<
   TContract extends ContractDefinition,
@@ -218,15 +222,35 @@ type ContractResultActivitiesImplementations<
   (TContract["activities"] extends Record<string, ActivityDefinition>
     ? ResultActivitiesImplementations<TContract["activities"], TContext>
     : {}) &
-    // All workflow-specific activities merged
+    // All workflow-specific activities merged; workflows without activities
+    // are remapped away entirely instead of demanding a `{}` entry.
     {
-      [TWorkflow in keyof TContract["workflows"]]: TContract["workflows"][TWorkflow]["activities"] extends Record<
+      [TWorkflow in keyof TContract["workflows"] as WorkflowHasActivities<
+        TContract["workflows"][TWorkflow]
+      > extends true
+        ? TWorkflow
+        : never]: TContract["workflows"][TWorkflow]["activities"] extends Record<
         string,
         ActivityDefinition
       >
         ? ResultActivitiesImplementations<TContract["workflows"][TWorkflow]["activities"], TContext>
-        : {};
+        : never;
     };
+
+/**
+ * `true` when a workflow definition declares a non-empty `activities` map.
+ * Drives the key remapping in {@link ContractResultActivitiesImplementations}
+ * so activity-less workflows don't demand placeholder `{}` entries in the
+ * implementations map. An absent map and an explicitly empty `activities: {}`
+ * both count as "no activities".
+ */
+type WorkflowHasActivities<TWorkflow> = TWorkflow extends {
+  activities: infer TActivities extends Record<string, ActivityDefinition>;
+}
+  ? [keyof TActivities] extends [never]
+    ? false
+    : true
+  : false;
 
 type ResultActivitiesImplementations<
   TActivities extends Record<string, ActivityDefinition>,
@@ -500,7 +524,16 @@ type DeclareActivitiesHandlerOptions<
   TInjected extends TContext = TContext,
 > = {
   contract: TContract;
-  activities: ContractResultActivitiesImplementations<TContract, TInjected>;
+  /**
+   * Nested implementations map mirroring the contract's structure — see
+   * {@link ContractResultActivitiesImplementations}.
+   *
+   * Wrapped in `NoInfer` so `TContract`/`TInjected` are inferred from
+   * `contract`/`middleware` only: letting TypeScript infer *into* the
+   * key-remapped mapped type breaks contextual typing of the implementation
+   * lambdas (their `args` degrade to implicit `any`).
+   */
+  activities: NoInfer<ContractResultActivitiesImplementations<TContract, TInjected>>;
   /**
    * Build the typed dependency context *seed* handed to the middleware
    * chain and, accumulated, to every implementation as `helpers.context`.
@@ -584,7 +617,7 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  * ```ts
  * import { declareActivitiesHandler, ApplicationFailure } from '@temporal-contract/worker/activity';
  * import { fromPromise, Ok, Err } from 'unthrown';
- * import myContract from './contract.js';
+ * import { myContract } from './contract.js';
  *
  * export const activities = declareActivitiesHandler({
  *   contract: myContract,
@@ -599,12 +632,14 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  *         (error) =>
  *           // Wrap technical errors in ApplicationFailure. `nonRetryable`
  *           // is per-instance: set it to true on permanent failures so
- *           // Temporal stops retrying immediately.
+ *           // Temporal stops retrying immediately. Note the conditional
+ *           // spread for `cause` — under `exactOptionalPropertyTypes`,
+ *           // omit the key entirely rather than passing `undefined`.
  *           ApplicationFailure.create({
  *             type: 'EMAIL_SEND_FAILED',
  *             message: 'Failed to send email',
  *             nonRetryable: false,
- *             cause: error instanceof Error ? error : undefined,
+ *             ...(error instanceof Error ? { cause: error } : {}),
  *           }),
  *       ).flatMap((outcome) =>
  *         outcome.accepted
@@ -616,14 +651,17 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  *   },
  * });
  *
- * // Use with Temporal Worker
- * import { Worker } from '@temporalio/worker';
- * import { workflowsPathFromURL } from '@temporal-contract/worker/worker';
+ * // Wire into a worker with this package's typed factory — the task queue
+ * // comes from the contract.
+ * import { NativeConnection } from '@temporalio/worker';
+ * import { createWorker, workflowsPathFromURL } from '@temporal-contract/worker/worker';
  *
- * const worker = await Worker.create({
+ * const connection = await NativeConnection.connect({ address: 'localhost:7233' });
+ * const workerResult = await createWorker({
+ *   contract: myContract,
+ *   connection,
  *   workflowsPath: workflowsPathFromURL(import.meta.url, './workflows.js'),
- *   activities: activities,
- *   taskQueue: contract.taskQueue,
+ *   activities,
  * });
  * ```
  *
@@ -788,17 +826,42 @@ export function declareActivitiesHandler<
     };
   }
 
-  // 1) Wrap global activities defined directly under contract.activities
-  if (contract.activities) {
-    for (const [activityName, impl] of Object.entries(activities)) {
-      // Skip workflow namespaces if present at root
-      if (contract.workflows && activityName in contract.workflows) {
-        continue;
-      }
+  type ErasedImplementation = (
+    args: unknown,
+    helpers: { errors: unknown; context: unknown },
+  ) => AsyncResult<unknown, ApplicationFailure | AnyContractError>;
 
-      const activityDef = contract.activities[activityName];
-      if (!activityDef) {
-        throw new ActivityDefinitionNotFoundError(activityName, Object.keys(contract.activities));
+  const implementationMap = activities as Record<string, unknown>;
+  const workflowDefs = contract.workflows ?? {};
+
+  // 0) Defense-in-depth: a global activity sharing a workflow's name makes
+  // the root of this implementations map ambiguous. `defineContract`
+  // rejects this too; the check is repeated here for contracts built as
+  // plain object literals (or from JavaScript) that never went through
+  // `defineContract`. The message is aligned with the contract-side one.
+  if (contract.activities) {
+    for (const activityName of Object.keys(contract.activities)) {
+      if (Object.hasOwn(workflowDefs, activityName)) {
+        throw new Error(
+          `global activity "${activityName}" has the same name as a workflow. Workflows and global activities share the root of the worker implementations map — rename one of them.`,
+        );
+      }
+    }
+  }
+
+  // Iterate the contract DEFINITIONS (not just the provided implementations)
+  // so a declared-but-missing implementation fails fast at declaration time
+  // with a clear error, instead of surfacing as an opaque "activity not
+  // registered" failure the first time Temporal dispatches a task for it.
+  const missingImplementations: string[] = [];
+
+  // 1) Global activities declared under contract.activities.
+  if (contract.activities) {
+    for (const [activityName, activityDef] of Object.entries(contract.activities)) {
+      const impl = implementationMap[activityName];
+      if (typeof impl !== "function") {
+        missingImplementations.push(activityName);
+        continue;
       }
 
       // Assign wrapped global activity
@@ -806,48 +869,62 @@ export function declareActivitiesHandler<
         activityName,
         { activityName, workflowName: undefined },
         activityDef,
-        impl as (
-          args: unknown,
-          helpers: { errors: unknown; context: unknown },
-        ) => AsyncResult<unknown, ApplicationFailure | AnyContractError>,
+        impl as ErasedImplementation,
       );
     }
   }
 
-  // 2) Wrap workflow-scoped activities at root level (flat)
-  if (contract.workflows) {
-    for (const [workflowName, workflowDef] of Object.entries(contract.workflows)) {
-      const wfActivitiesImpl = (activities as Record<string, unknown>)[workflowName] as
-        | Record<string, unknown>
-        | undefined;
-      if (!wfActivitiesImpl) {
-        // If no implementations provided for this workflow, skip (TypeScript typing should enforce completeness for declared ones)
+  // 2) Workflow-scoped activities, flattened to the root level.
+  for (const [workflowName, workflowDef] of Object.entries(workflowDefs)) {
+    const wfDefs = workflowDef.activities ?? {};
+    const wfActivitiesImpl = implementationMap[workflowName] as Record<string, unknown> | undefined;
+
+    for (const [activityName, activityDef] of Object.entries(wfDefs)) {
+      const impl = wfActivitiesImpl?.[activityName];
+      if (typeof impl !== "function") {
+        missingImplementations.push(`${workflowName}.${activityName}`);
         continue;
       }
 
-      const wfDefs = workflowDef.activities ?? {};
+      // Assign workflow activity directly at root level (flat structure)
+      (wrappedActivities as Record<string, unknown>)[activityName] = makeWrapped(
+        `${workflowName}.${activityName}`,
+        { activityName, workflowName },
+        activityDef,
+        impl as ErasedImplementation,
+      );
+    }
 
-      for (const [activityName, impl] of Object.entries(wfActivitiesImpl)) {
-        const activityDef = wfDefs[activityName];
-        if (!activityDef) {
+    // Stray keys inside a workflow namespace: implementations for activities
+    // the workflow never declared.
+    if (wfActivitiesImpl) {
+      for (const activityName of Object.keys(wfActivitiesImpl)) {
+        if (!Object.hasOwn(wfDefs, activityName)) {
           throw new ActivityDefinitionNotFoundError(
             `${workflowName}.${activityName}`,
             Object.keys(wfDefs),
           );
         }
-
-        // Assign workflow activity directly at root level (flat structure)
-        (wrappedActivities as Record<string, unknown>)[activityName] = makeWrapped(
-          `${workflowName}.${activityName}`,
-          { activityName, workflowName },
-          activityDef,
-          impl as (
-            args: unknown,
-            helpers: { errors: unknown; context: unknown },
-          ) => AsyncResult<unknown, ApplicationFailure | AnyContractError>,
-        );
       }
     }
+  }
+
+  if (missingImplementations.length > 0) {
+    throw new Error(
+      `declareActivitiesHandler: missing implementation${missingImplementations.length > 1 ? "s" : ""} ` +
+        `for declared activit${missingImplementations.length > 1 ? "ies" : "y"}: ` +
+        `${missingImplementations.join(", ")}. Every activity declared on the contract must be implemented.`,
+    );
+  }
+
+  // 3) Stray root-level keys: anything that is neither a declared global
+  // activity nor a workflow namespace is a typo (or a stale entry from a
+  // renamed activity). This check runs whether or not `contract.activities`
+  // exists — an unknown key is an error either way.
+  for (const key of Object.keys(implementationMap)) {
+    if (Object.hasOwn(workflowDefs, key)) continue; // workflow namespace, validated above
+    if (contract.activities && Object.hasOwn(contract.activities, key)) continue;
+    throw new ActivityDefinitionNotFoundError(key, Object.keys(contract.activities ?? {}));
   }
 
   return wrappedActivities;
