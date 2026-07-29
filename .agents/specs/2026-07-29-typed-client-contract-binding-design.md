@@ -83,10 +83,28 @@ The practical consequences of the current coupling:
   (`@ContractActivitiesHandler()`, activity explorer), so the need is already met
   outside this repo. The removed provider was also one-module-per-contract, so it
   would not have addressed this complaint anyway.
-- **Moving the contract onto every call** (`client.startWorkflow(contract, name,
-options)`). Rejected: it taxes every call site, and `client.schedule` would need
-  the contract threaded through `TypedScheduleClient` as well. Binding once via
-  `for()` gives the same decoupling without the per-call cost.
+- **Moving the contract onto every call**
+  (`client.startWorkflow(contract, name, options)`). Rejected: it taxes every
+  call site, and `client.schedule` would need the contract threaded through
+  `TypedScheduleClient` as well. Binding once via `for()` gives the same
+  decoupling without the per-call cost.
+- **Applying the same decoupling to the worker.** The client's contract coupling
+  was accidental — a connection and a schema have nothing to do with each other.
+  The worker's is essential: a Temporal `Worker` instance polls exactly one task
+  queue, and the contract is the worker's job description — it supplies the task
+  queue (`packages/worker/src/worker.ts` passes `taskQueue: contract.taskQueue`),
+  the workflows and activities to register, and the schemas to validate against.
+  An unbound worker would have nothing to poll and nothing to run, so
+  `createWorker({ contract, ... })` stays as-is. (The invariant is one `Worker`
+  _instance_ per task queue, not one worker process — Temporal scales
+  horizontally by running many processes on the same queue.) The client-side
+  principle — share the scarce connection — already holds on the worker side
+  without an API change: `createWorker` spreads its remaining options through to
+  `Worker.create`, so a process hosting two contracts runs two `Worker` instances
+  sharing one `NativeConnection`. The only gap is two contracts declaring the
+  _same_ `taskQueue` string, which would need one worker registering both
+  contracts' handlers; that is a design smell (two schema universes interleaved
+  on one queue) and stays unsupported until a real need appears.
 
 ## Decision
 
@@ -126,6 +144,16 @@ await client.for(platoContract).startWorkflow("someOtherWorkflow", { workflowId,
 
 No contract is privileged; every contract is reached the same way.
 
+### Naming
+
+`TypedClient` keeps its name even though the type parameter moves to
+`ContractClient`. Renaming the root (`TemporalClient`, `ClientRoot`, …) was
+considered — the unshipped beta is the only cheap window — and rejected:
+`TypedClient` is the package's documented entry point, every consumer and doc
+starts from it, and the change is easier to teach as "`TypedClient` now hands
+out contract-bound clients" than as two renames at once. The name stays honest
+enough: the root is what makes the client typed, via `for()`.
+
 ### Semantics
 
 - **`for()` is infallible.** The `@temporalio/client >= 1.16` check (a missing
@@ -137,7 +165,14 @@ No contract is privileged; every contract is reached the same way.
   `WeakMap<ContractDefinition, ContractClient<ContractDefinition>>` on the root, so
   repeated `for(c)` returns the same instance rather than rebuilding
   `TypedScheduleClient`. The map erases the type parameter, so the store and the
-  read each require a cast, contained to the two lines inside `for()`.
+  read each require a cast, contained to the two lines inside `for()`. Dropping
+  memoization was considered (construction is cheap, and the casts would go with
+  it) but identity stability keeps `for()` free to call in hot paths — the
+  natural consumer shape is `this.client.for(contract).startWorkflow(...)` per
+  request — without allocating a `TypedScheduleClient` per call. Note the
+  constraint this places on a future `for(contract, options)` overload: only the
+  option-less call could serve from the memo, so the `for(c) === for(c)`
+  guarantee is documented for the option-less form only.
 - **`ContractClient` inherits `client` and `interceptors` from the root.** No
   per-call interceptor override — YAGNI, and addable later without a break.
 - **`create` still awaits `ensureConnected()`**, once per process rather than once
@@ -194,11 +229,11 @@ surface docs) rather than exporting a factory.
 
 ## Testing
 
-| Level       | File                                          | Cases                                                                                                                                                                                                                                                                      |
-| ----------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Type        | `packages/client/src/types-inference.spec.ts` | `for(c).startWorkflow(name)` accepts only `c`'s workflow names; two different contracts yield mutually incompatible `ContractClient` types. This is where the real risk lives.                                                                                             |
-| Unit        | `packages/client/src/client.spec.ts`          | `for(c)` twice returns the same instance; two contracts yield distinct instances; each uses its own `taskQueue` and validates against its own schemas; interceptors are inherited; `ensureConnected()` runs once per root; `create` rejects a `Client` without `schedule`. |
-| Integration | `packages/client/src/__tests__/`              | New `second.contract.ts` + `second.workflows.ts` fixtures and a second `Worker` on the second task queue; one case proving one root drives both contracts and that `for(secondContract).executeWorkflow(...)` is routed to the second queue against a live server.         |
+| Level       | File                                          | Cases                                                                                                                                                                                                                                                                                                                             |
+| ----------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Type        | `packages/client/src/types-inference.spec.ts` | `for(c).startWorkflow(name)` accepts only `c`'s workflow names; two different contracts yield mutually incompatible `ContractClient` types; `TypedClient` accepts no type argument, so a stray 7.x-style `TypedClient<typeof x>` fails loudly during migration rather than resolving silently. This is where the real risk lives. |
+| Unit        | `packages/client/src/client.spec.ts`          | `for(c)` twice returns the same instance; two contracts yield distinct instances; each uses its own `taskQueue` and validates against its own schemas; interceptors are inherited; `ensureConnected()` runs once per root; `create` rejects a `Client` without `schedule`.                                                        |
+| Integration | `packages/client/src/__tests__/`              | New `second.contract.ts` + `second.workflows.ts` fixtures and a second `Worker` on the second task queue; one case proving one root drives both contracts and that `for(secondContract).executeWorkflow(...)` is routed to the second queue against a live server.                                                                |
 
 Existing suites need their `TypedClient<typeof X>` fixtures retyped to
 `ContractClient<typeof X>` and their construction updated to
