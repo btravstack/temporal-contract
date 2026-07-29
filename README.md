@@ -84,6 +84,8 @@ export const activities = declareActivitiesHandler({
 Call it — names, arguments, and results all typed, and validated at runtime:
 
 ```typescript
+import { P } from "unthrown";
+
 const result = await client.executeWorkflow("processOrder", {
   workflowId: "order-123",
   args: { orderId: "ORD-1", customerId: "CUST-1", amount: 99.99 },

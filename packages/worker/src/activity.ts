@@ -293,6 +293,9 @@ export type ActivityMiddlewareNext<
  *
  * @example Log every activity invocation and its outcome (read-only)
  * ```ts
+ * import { ApplicationFailure } from '@temporal-contract/worker/activity';
+ * import { P } from "unthrown";
+ *
  * const logging: ActivityMiddleware = ({ activityName, workflowName }, next) =>
  *   next().tapErrCases((matcher) =>
  *     matcher.with(

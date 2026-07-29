@@ -31,6 +31,8 @@ import { makeAsyncResult } from "./internal.js";
  *
  * @example
  * ```ts
+ * import { P } from "unthrown";
+ *
  * const result = await context.cancellableScope(async () => {
  *   return await context.activities.processStep(...);
  * });
