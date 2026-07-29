@@ -1,4 +1,3 @@
-import type { AnyContractError } from "@temporal-contract/contract/errors";
 /**
  * Client-side interceptors — the trace-propagation / retry / observability
  * seam of the typed client, mirroring amqp-contract's
@@ -10,12 +9,14 @@ import type { AnyContractError } from "@temporal-contract/contract/errors";
  *
  * Semantics (first entry is the outermost):
  * - **observe** — call `next()` and inspect the returned `AsyncResult`
- *   (`tapErr`, `map`, …);
+ *   (`tapErrCases`, `map`, …);
  * - **patch args** — `next({ input: ... })` shallow-merges the patch over the
  *   current invocation before it reaches validation;
- * - **retry** — call `next` again from a `flatMapErr` branch;
+ * - **retry** — call `next` again, e.g. from a `recoverDefect` branch for
+ *   transient technical faults;
  * - **short-circuit** — return your own `AsyncResult` without calling `next`.
  */
+import type { AnyContractError } from "@temporal-contract/contract/errors";
 import type { AsyncResult } from "unthrown";
 
 import type {
@@ -25,7 +26,7 @@ import type {
   WorkflowAlreadyStartedError,
   WorkflowExecutionNotFoundError,
   WorkflowFailedError,
-  WorkflowNotFoundError,
+  WorkflowNotInContractError,
   WorkflowValidationError,
 } from "./errors.js";
 
@@ -37,7 +38,7 @@ import type {
  * amqp-contract's `call()`).
  */
 export type ClientCallError =
-  | WorkflowNotFoundError
+  | WorkflowNotInContractError
   | WorkflowValidationError
   | WorkflowAlreadyStartedError
   | WorkflowFailedError
@@ -109,7 +110,7 @@ export type ClientInterceptorNext = (patch?: {
  *   });
  * ```
  *
- * Modeled domain errors (`WorkflowNotFoundError`, a `ContractError`, …) stay on
+ * Modeled domain errors (`WorkflowNotInContractError`, a `ContractError`, …) stay on
  * the `Err` channel — branch on those with `flatMapErrCases` / `match` as usual;
  * `recoverDefect` / `tapDefect` are for the technical faults on the defect channel.
  */

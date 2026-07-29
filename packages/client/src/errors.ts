@@ -48,15 +48,20 @@ export class RuntimeClientError extends TaggedError("@temporal-contract/RuntimeC
 }
 
 /**
- * Thrown when a workflow is not found in the contract
+ * Surfaced on the Err channel when a workflow name is not declared in the
+ * bound contract. This is a contract-level lookup failure (a typo, a stale
+ * contract) — distinct from Temporal's own `WorkflowNotFoundError`, which is
+ * about a missing *execution* and surfaces here as
+ * {@link WorkflowExecutionNotFoundError}.
  */
-export class WorkflowNotFoundError extends TaggedError("@temporal-contract/WorkflowNotFoundError", {
-  name: "WorkflowNotFoundError",
-})<{
+export class WorkflowNotInContractError extends TaggedError(
+  "@temporal-contract/WorkflowNotInContractError",
+  { name: "WorkflowNotInContractError" },
+)<{
   workflowName: string;
-  availableWorkflows: string[];
+  availableWorkflows: readonly string[];
 }> {
-  constructor(workflowName: string, availableWorkflows: string[]) {
+  constructor(workflowName: string, availableWorkflows: readonly string[]) {
     super({ workflowName, availableWorkflows });
     this.message = `Workflow "${workflowName}" not found in contract. Available workflows: ${availableWorkflows.join(", ")}`;
   }
@@ -91,7 +96,7 @@ export class WorkflowAlreadyStartedError extends TaggedError(
  * Discriminated variant of {@link RuntimeClientError} surfaced when an
  * operation targets a workflow execution that doesn't exist in the
  * namespace — Temporal's `WorkflowNotFoundError` (distinct from this
- * package's contract-level {@link WorkflowNotFoundError}).
+ * package's contract-level {@link WorkflowNotInContractError}).
  *
  * Returned from:
  * - handle methods: `signal`, `query`, `executeUpdate`, `result`,
@@ -152,7 +157,12 @@ export class WorkflowFailedError extends TaggedError("@temporal-contract/Workflo
 // at the top of this module.
 
 /**
- * Thrown when workflow input or output validation fails
+ * Surfaced on the Err channel when workflow input or output validation fails.
+ *
+ * `workflowId` identifies the targeted execution when the failing call knows
+ * it (start/execute/signalWithStart options, a handle's bound execution);
+ * it is absent for call sites without one (e.g. `schedule.create`, where
+ * runs are spawned later).
  */
 export class WorkflowValidationError extends TaggedError(
   "@temporal-contract/WorkflowValidationError",
@@ -161,19 +171,21 @@ export class WorkflowValidationError extends TaggedError(
   workflowName: string;
   direction: "input" | "output";
   issues: ReadonlyArray<StandardSchemaV1.Issue>;
+  workflowId?: string | undefined;
 }> {
   constructor(
     workflowName: string,
     direction: "input" | "output",
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
+    workflowId?: string,
   ) {
-    super({ workflowName, direction, issues });
+    super({ workflowName, direction, issues, workflowId });
     this.message = `Validation failed for workflow "${workflowName}" ${direction}: ${summarizeIssues(issues)}`;
   }
 }
 
 /**
- * Thrown when query input or output validation fails
+ * Surfaced on the Err channel when query input or output validation fails
  */
 export class QueryValidationError extends TaggedError("@temporal-contract/QueryValidationError", {
   name: "QueryValidationError",
@@ -193,7 +205,7 @@ export class QueryValidationError extends TaggedError("@temporal-contract/QueryV
 }
 
 /**
- * Thrown when signal input validation fails
+ * Surfaced on the Err channel when signal input validation fails
  */
 export class SignalValidationError extends TaggedError("@temporal-contract/SignalValidationError", {
   name: "SignalValidationError",
@@ -208,7 +220,7 @@ export class SignalValidationError extends TaggedError("@temporal-contract/Signa
 }
 
 /**
- * Thrown when update input or output validation fails
+ * Surfaced on the Err channel when update input or output validation fails
  */
 export class UpdateValidationError extends TaggedError("@temporal-contract/UpdateValidationError", {
   name: "UpdateValidationError",
@@ -224,5 +236,42 @@ export class UpdateValidationError extends TaggedError("@temporal-contract/Updat
   ) {
     super({ updateName, direction, issues });
     this.message = `Validation failed for update "${updateName}" ${direction}: ${summarizeIssues(issues)}`;
+  }
+}
+
+/**
+ * Surfaced on the Err channel when `schedule.create` collides with a
+ * running (not deleted) schedule bearing the same `scheduleId` — Temporal's
+ * `ScheduleAlreadyRunning`. Idempotent callers can branch on it explicitly
+ * (e.g. fetch the existing handle and continue).
+ */
+export class ScheduleAlreadyExistsError extends TaggedError(
+  "@temporal-contract/ScheduleAlreadyExistsError",
+  { name: "ScheduleAlreadyExistsError" },
+)<{
+  scheduleId: string;
+  cause?: unknown;
+}> {
+  constructor(scheduleId: string, cause?: unknown) {
+    super({ scheduleId, cause });
+    this.message = `Schedule "${scheduleId}" already exists (running, not deleted).`;
+  }
+}
+
+/**
+ * Surfaced on the Err channel when a schedule-handle operation targets a
+ * schedule ID unknown to the Temporal server — Temporal's
+ * `ScheduleNotFoundError`. Either the ID is wrong or the schedule was
+ * deleted.
+ */
+export class ScheduleNotFoundError extends TaggedError("@temporal-contract/ScheduleNotFoundError", {
+  name: "ScheduleNotFoundError",
+})<{
+  scheduleId: string;
+  cause?: unknown;
+}> {
+  constructor(scheduleId: string, cause?: unknown) {
+    super({ scheduleId, cause });
+    this.message = `Schedule "${scheduleId}" not found on the Temporal server.`;
   }
 }

@@ -1,5 +1,7 @@
 import type { ContractDefinition } from "@temporal-contract/contract";
 import type {
+  Backfill,
+  ListScheduleOptions,
   ScheduleClient,
   ScheduleDescription,
   ScheduleHandle,
@@ -7,12 +9,26 @@ import type {
   ScheduleOptionsStartWorkflowAction,
   ScheduleOverlapPolicy,
   ScheduleSpec,
+  ScheduleSummary,
+  ScheduleUpdateOptions,
+  Workflow,
 } from "@temporalio/client";
 import { type AsyncResult, type Result, Ok, Err, fromPromise } from "unthrown";
 
 import type { TypedSearchAttributeMap } from "./client.js";
-import { RuntimeClientError, WorkflowNotFoundError, WorkflowValidationError } from "./errors.js";
-import { makeAsyncResult, toTypedSearchAttributes } from "./internal.js";
+import {
+  RuntimeClientError,
+  type ScheduleAlreadyExistsError,
+  type ScheduleNotFoundError,
+  WorkflowNotInContractError,
+  WorkflowValidationError,
+} from "./errors.js";
+import {
+  classifyScheduleCreateError,
+  classifyScheduleHandleError,
+  makeAsyncResult,
+  toTypedSearchAttributes,
+} from "./internal.js";
 import type { ClientInferInput } from "./types.js";
 
 /**
@@ -83,38 +99,63 @@ export type TypedScheduleCreateOptions<
 
 /**
  * Typed handle to a schedule. Mirrors Temporal's `ScheduleHandle` lifecycle
- * methods (`pause`, `unpause`, `trigger`, `describe`, `delete`) wrapped in
- * the unthrown AsyncResult pattern so call sites match the rest of the
- * typed client.
+ * methods (`pause`, `unpause`, `trigger`, `update`, `backfill`, `describe`,
+ * `delete`) wrapped in the unthrown AsyncResult pattern so call sites match
+ * the rest of the typed client.
+ *
+ * Every method surfaces a missing schedule (Temporal's
+ * `ScheduleNotFoundError` — wrong ID, or the schedule was deleted) as the
+ * modeled {@link ScheduleNotFoundError} on the Err channel; any other
+ * failure is a *technical* fault routed to the Defect channel with a
+ * {@link RuntimeClientError} cause.
  */
 export type TypedScheduleHandle = {
   /** This schedule's identifier. */
   readonly scheduleId: string;
-  /**
-   * Pause the schedule. Optional note becomes part of the audit trail.
-   *
-   * Returns `AsyncResult<void, never>` — a failed schedule operation is a
-   * *technical* fault (an unknown schedule ID, a transport error, …), routed
-   * to the `Defect` channel with a {@link RuntimeClientError} cause rather
-   * than surfaced as a modeled `Err`.
-   */
-  pause: (note?: string) => AsyncResult<void, never>;
+  /** Pause the schedule. Optional note becomes part of the audit trail. */
+  pause: (note?: string) => AsyncResult<void, ScheduleNotFoundError>;
   /** Resume a paused schedule. */
-  unpause: (note?: string) => AsyncResult<void, never>;
+  unpause: (note?: string) => AsyncResult<void, ScheduleNotFoundError>;
   /** Fire the schedule's action immediately. */
-  trigger: (overlap?: ScheduleOverlapPolicy) => AsyncResult<void, never>;
+  trigger: (overlap?: ScheduleOverlapPolicy) => AsyncResult<void, ScheduleNotFoundError>;
+  /**
+   * Update the schedule definition: Temporal fetches the current
+   * description, hands it to `updateFn`, and persists the returned options.
+   * `updateFn` may be invoked more than once on conflict — keep it pure.
+   *
+   * Passthrough of Temporal's `ScheduleHandle.update`; the action's
+   * `workflowType`/`taskQueue`/`args` are not re-validated against the
+   * contract here — prefer delete + `create` for contract-level changes.
+   */
+  update: (
+    updateFn: (
+      previous: ScheduleDescription,
+    ) => ScheduleUpdateOptions<ScheduleOptionsStartWorkflowAction<Workflow>>,
+  ) => AsyncResult<void, ScheduleNotFoundError>;
+  /**
+   * Run the schedule's action for historical time ranges, as if the
+   * schedule had been active over them. Passthrough of Temporal's
+   * `ScheduleHandle.backfill`.
+   */
+  backfill: (options: Backfill | Backfill[]) => AsyncResult<void, ScheduleNotFoundError>;
   /** Delete the schedule. */
-  delete: () => AsyncResult<void, never>;
+  delete: () => AsyncResult<void, ScheduleNotFoundError>;
   /** Fetch the schedule's current description from the server. */
-  describe: () => AsyncResult<ScheduleDescription, never>;
+  describe: () => AsyncResult<ScheduleDescription, ScheduleNotFoundError>;
 };
 
 /**
  * Typed wrapper around Temporal's `ScheduleClient`. Exposed as
- * `typedClient.schedule` — keeps the typed-client surface organized the
+ * `contractClient.schedule` — keeps the typed-client surface organized the
  * same way Temporal's own `Client.schedule` does.
  */
 export class TypedScheduleClient<TContract extends ContractDefinition> {
+  /**
+   * Constructed exclusively by {@link ContractClient}'s constructor. Not
+   * part of the public API — reach it via `typedClient.for(contract).schedule`.
+   *
+   * @internal
+   */
   constructor(
     private readonly contract: TContract,
     private readonly scheduleClient: ScheduleClient,
@@ -131,17 +172,25 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
    * workflow's `taskQueue` and `workflowType` are pulled from the contract
    * automatically; the typed options shape omits them so call sites don't
    * have to repeat themselves.
+   *
+   * A colliding running schedule (same `scheduleId`, not deleted) surfaces
+   * as {@link ScheduleAlreadyExistsError} on the Err channel.
    */
   create<TWorkflowName extends keyof TContract["workflows"] & string>(
     workflowName: TWorkflowName,
     options: TypedScheduleCreateOptions<TContract, TWorkflowName>,
-  ): AsyncResult<TypedScheduleHandle, WorkflowNotFoundError | WorkflowValidationError> {
+  ): AsyncResult<
+    TypedScheduleHandle,
+    WorkflowNotInContractError | WorkflowValidationError | ScheduleAlreadyExistsError
+  > {
     type Ok = TypedScheduleHandle;
-    type Err = WorkflowNotFoundError | WorkflowValidationError;
+    type Err = WorkflowNotInContractError | WorkflowValidationError | ScheduleAlreadyExistsError;
     const work = async (): Promise<Result<Ok, Err>> => {
       const definition = this.contract.workflows[workflowName];
       if (!definition) {
-        return Err(new WorkflowNotFoundError(workflowName, Object.keys(this.contract.workflows)));
+        return Err(
+          new WorkflowNotInContractError(workflowName, Object.keys(this.contract.workflows)),
+        );
       }
 
       const inputResult = await definition.input["~standard"].validate(options.args);
@@ -203,7 +252,9 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
         });
         return Ok(wrapScheduleHandle(handle));
       } catch (error) {
-        // Technical failure creating the schedule — route to the defect channel.
+        const alreadyExists = classifyScheduleCreateError(error, options.scheduleId);
+        if (alreadyExists) return Err(alreadyExists);
+        // Unrecognized, technical failure — route to the defect channel.
         throw new RuntimeClientError("schedule.create", error);
       }
     };
@@ -212,36 +263,77 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
 
   /**
    * Get a typed handle to an existing schedule. Does not validate that the
-   * schedule exists — handle methods (`describe`, `pause`, etc.) will
-   * surface a `RuntimeClientError` if the underlying ID is unknown.
+   * schedule exists — handle methods (`describe`, `pause`, etc.) surface a
+   * {@link ScheduleNotFoundError} if the underlying ID is unknown.
    */
   getHandle(scheduleId: string): TypedScheduleHandle {
     return wrapScheduleHandle(this.scheduleClient.getHandle(scheduleId));
   }
+
+  /**
+   * List schedules in the namespace — a typed async-iterable passthrough of
+   * Temporal's `ScheduleClient.list`. Not filtered to this contract:
+   * Temporal's visibility API lists every schedule the namespace knows
+   * about (use a `query` option to narrow server-side).
+   */
+  list(options?: ListScheduleOptions): AsyncIterable<ScheduleSummary> {
+    return this.scheduleClient.list(options);
+  }
 }
 
 function wrapScheduleHandle(handle: ScheduleHandle): TypedScheduleHandle {
+  // Every lifecycle method shares the classify-or-defect tail: a missing
+  // schedule is the modeled Err; anything else rides the defect channel.
   return {
     scheduleId: handle.scheduleId,
     pause: (note) =>
-      fromPromise(handle.pause(note), (error, defect) =>
-        defect(new RuntimeClientError("schedule.pause", error)),
+      fromPromise(
+        handle.pause(note),
+        (error, defect) =>
+          classifyScheduleHandleError(error, handle.scheduleId) ??
+          defect(new RuntimeClientError("schedule.pause", error)),
       ).map(() => undefined),
     unpause: (note) =>
-      fromPromise(handle.unpause(note), (error, defect) =>
-        defect(new RuntimeClientError("schedule.unpause", error)),
+      fromPromise(
+        handle.unpause(note),
+        (error, defect) =>
+          classifyScheduleHandleError(error, handle.scheduleId) ??
+          defect(new RuntimeClientError("schedule.unpause", error)),
       ).map(() => undefined),
     trigger: (overlap) =>
-      fromPromise(handle.trigger(overlap), (error, defect) =>
-        defect(new RuntimeClientError("schedule.trigger", error)),
+      fromPromise(
+        handle.trigger(overlap),
+        (error, defect) =>
+          classifyScheduleHandleError(error, handle.scheduleId) ??
+          defect(new RuntimeClientError("schedule.trigger", error)),
+      ).map(() => undefined),
+    update: (updateFn) =>
+      fromPromise(
+        handle.update(updateFn),
+        (error, defect) =>
+          classifyScheduleHandleError(error, handle.scheduleId) ??
+          defect(new RuntimeClientError("schedule.update", error)),
+      ).map(() => undefined),
+    backfill: (options) =>
+      fromPromise(
+        handle.backfill(options),
+        (error, defect) =>
+          classifyScheduleHandleError(error, handle.scheduleId) ??
+          defect(new RuntimeClientError("schedule.backfill", error)),
       ).map(() => undefined),
     delete: () =>
-      fromPromise(handle.delete(), (error, defect) =>
-        defect(new RuntimeClientError("schedule.delete", error)),
+      fromPromise(
+        handle.delete(),
+        (error, defect) =>
+          classifyScheduleHandleError(error, handle.scheduleId) ??
+          defect(new RuntimeClientError("schedule.delete", error)),
       ).map(() => undefined),
     describe: () =>
-      fromPromise(handle.describe(), (error, defect) =>
-        defect(new RuntimeClientError("schedule.describe", error)),
+      fromPromise(
+        handle.describe(),
+        (error, defect) =>
+          classifyScheduleHandleError(error, handle.scheduleId) ??
+          defect(new RuntimeClientError("schedule.describe", error)),
       ),
   };
 }

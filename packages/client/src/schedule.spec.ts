@@ -10,8 +10,26 @@ import { TypedSearchAttributes } from "@temporalio/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { TypedClient } from "./client.js";
-import { RuntimeClientError, WorkflowNotFoundError, WorkflowValidationError } from "./errors.js";
+import { type ContractClient, TypedClient } from "./client.js";
+import {
+  RuntimeClientError,
+  ScheduleAlreadyExistsError,
+  ScheduleNotFoundError,
+  WorkflowNotInContractError,
+  WorkflowValidationError,
+} from "./errors.js";
+
+/**
+ * Test construction helper: build the connection-scoped root and bind the
+ * contract in one step (`create`'s Err channel is `never`, so `.get()`
+ * unwraps directly).
+ */
+async function bindContract<TContract extends Parameters<TypedClient["for"]>[0]>(
+  contract: TContract,
+  rawClient: Client,
+): Promise<ContractClient<TContract>> {
+  return (await TypedClient.create({ client: rawClient })).get().for(contract);
+}
 
 const createMockHandle = () => ({
   scheduleId: "daily-sweep",
@@ -31,9 +49,42 @@ const mockSchedule = {
   list: vi.fn(),
 };
 
-vi.mock("@temporalio/client", () => ({
-  WorkflowHandle: vi.fn(),
-}));
+// Constructable stand-ins for the Temporal error classes the typed client
+// discriminates with `instanceof` (see client.spec.ts for the rationale).
+vi.mock("@temporalio/client", () => {
+  class ScheduleAlreadyRunning extends Error {
+    constructor(
+      message: string,
+      public readonly scheduleId: string,
+    ) {
+      super(message);
+    }
+  }
+  class ScheduleNotFoundError extends Error {
+    constructor(
+      message: string,
+      public readonly scheduleId: string,
+    ) {
+      super(message);
+    }
+  }
+  class WorkflowExecutionAlreadyStartedError extends Error {}
+  class WorkflowFailedError extends Error {}
+  return {
+    WorkflowHandle: vi.fn(),
+    ScheduleAlreadyRunning,
+    ScheduleNotFoundError,
+    WorkflowExecutionAlreadyStartedError,
+    WorkflowFailedError,
+  };
+});
+
+// Import AFTER the mock declaration so the stand-in classes are used both
+// here (to construct rejection values) and inside the classify helpers.
+const {
+  ScheduleAlreadyRunning: MockScheduleAlreadyRunning,
+  ScheduleNotFoundError: MockTemporalScheduleNotFoundError,
+} = await import("@temporalio/client");
 
 describe("TypedClient.schedule", () => {
   const contract = defineContract({
@@ -46,31 +97,35 @@ describe("TypedClient.schedule", () => {
     },
   });
 
-  let client: TypedClient<typeof contract>;
+  let client: ContractClient<typeof contract>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     const rawClient = {
       workflow: { start: vi.fn(), execute: vi.fn(), getHandle: vi.fn() },
       schedule: mockSchedule,
     } as unknown as Client;
-    client = TypedClient.createOrThrow(contract, rawClient);
+    client = await bindContract(contract, rawClient);
   });
 
   describe("@temporalio/client < 1.16 guard", () => {
-    it("throws a clear error when the underlying Client is missing `schedule`", () => {
+    it("TypedClient.create surfaces a missing `schedule` as a Defect with a clear message", async () => {
       // Simulates a consumer who installed @temporalio/client < 1.16
       // (where the Schedule API didn't exist). The peer dep allows all of
       // ^1, so this is a supported install — it just shouldn't crash with a
-      // confusing `Cannot read properties of undefined`.
+      // confusing `Cannot read properties of undefined`. The check lives on
+      // the connection-scoped root (it's a property of the client, not of
+      // any contract).
       const oldClient = {
         workflow: { start: vi.fn(), execute: vi.fn(), getHandle: vi.fn() },
         // schedule intentionally absent
       } as unknown as Client;
 
-      expect(() => TypedClient.createOrThrow(contract, oldClient)).toThrow(
-        /requires @temporalio\/client >= 1\.16/,
-      );
+      const created = await TypedClient.create({ client: oldClient });
+      expect(created).toBeDefect();
+      if (created.isDefect()) {
+        expect((created.cause as Error).message).toMatch(/requires @temporalio\/client >= 1\.16/);
+      }
     });
   });
 
@@ -119,7 +174,7 @@ describe("TypedClient.schedule", () => {
         workflow: { start: vi.fn(), execute: vi.fn(), getHandle: vi.fn() },
         schedule: mockSchedule,
       } as unknown as Client;
-      const transformClient = TypedClient.createOrThrow(transformContract, rawClient);
+      const transformClient = await bindContract(transformContract, rawClient);
       mockSchedule.create.mockResolvedValue(createMockHandle());
 
       const result = await transformClient.schedule.create("transformer", {
@@ -138,7 +193,7 @@ describe("TypedClient.schedule", () => {
       );
     });
 
-    it("returns WorkflowNotFoundError when the workflow isn't declared", async () => {
+    it("returns WorkflowNotInContractError when the workflow isn't declared", async () => {
       const result = await client.schedule.create(
         // @ts-expect-error testing runtime validation
         "nonExistent",
@@ -151,7 +206,7 @@ describe("TypedClient.schedule", () => {
 
       expect(result).toBeErr();
       if (result.isErr()) {
-        expect(result.error).toBeInstanceOf(WorkflowNotFoundError);
+        expect(result.error).toBeInstanceOf(WorkflowNotInContractError);
       }
       expect(mockSchedule.create).not.toHaveBeenCalled();
     });
@@ -273,15 +328,15 @@ describe("TypedClient.schedule", () => {
       },
     });
 
-    let searchClient: TypedClient<typeof searchContract>;
+    let searchClient: ContractClient<typeof searchContract>;
 
-    beforeEach(() => {
+    beforeEach(async () => {
       vi.clearAllMocks();
       const rawClient = {
         workflow: { start: vi.fn(), execute: vi.fn(), getHandle: vi.fn() },
         schedule: mockSchedule,
       } as unknown as Client;
-      searchClient = TypedClient.createOrThrow(searchContract, rawClient);
+      searchClient = await bindContract(searchContract, rawClient);
     });
 
     it("translates declared searchAttributes into the action's typedSearchAttributes", async () => {
@@ -384,6 +439,117 @@ describe("TypedClient.schedule", () => {
       if (result.isOk()) {
         expect((result.value as { scheduleId: string }).scheduleId).toBe("daily-sweep");
       }
+    });
+
+    it("routes update through Temporal's ScheduleHandle.update", async () => {
+      const tempHandle = createMockHandle();
+      tempHandle.update.mockResolvedValue(undefined);
+      mockSchedule.getHandle.mockReturnValue(tempHandle);
+
+      const handle = client.schedule.getHandle("daily-sweep");
+      const updateFn = (previous: { spec?: unknown }) => ({ spec: previous.spec ?? {} });
+      const result = await handle.update(updateFn as never);
+
+      expect(result).toBeOk();
+      expect(tempHandle.update).toHaveBeenCalledWith(updateFn);
+    });
+
+    it("routes backfill through Temporal's ScheduleHandle.backfill", async () => {
+      const tempHandle = createMockHandle();
+      tempHandle.backfill.mockResolvedValue(undefined);
+      mockSchedule.getHandle.mockReturnValue(tempHandle);
+
+      const handle = client.schedule.getHandle("daily-sweep");
+      const range = {
+        start: new Date("2026-01-01T00:00:00Z"),
+        end: new Date("2026-01-02T00:00:00Z"),
+      };
+      const result = await handle.backfill(range);
+
+      expect(result).toBeOk();
+      expect(tempHandle.backfill).toHaveBeenCalledWith(range);
+    });
+  });
+
+  describe("typed schedule errors (parity with the workflow side)", () => {
+    it("create surfaces ScheduleAlreadyExistsError on Temporal's ScheduleAlreadyRunning", async () => {
+      mockSchedule.create.mockRejectedValue(
+        new MockScheduleAlreadyRunning("already running", "daily-sweep"),
+      );
+
+      const result = await client.schedule.create("processOrder", {
+        scheduleId: "daily-sweep",
+        spec: { cronExpressions: ["0 2 * * *"] },
+        args: { orderId: "sweep" },
+      });
+
+      expect(result).toBeErr();
+      if (result.isErr()) {
+        expect(result.error).toBeInstanceOf(ScheduleAlreadyExistsError);
+        const error = result.error as ScheduleAlreadyExistsError;
+        expect(error.scheduleId).toBe("daily-sweep");
+        expect(error.cause).toBeInstanceOf(MockScheduleAlreadyRunning);
+      }
+    });
+
+    it("handle methods surface ScheduleNotFoundError on Temporal's ScheduleNotFoundError", async () => {
+      const tempHandle = { ...createMockHandle(), scheduleId: "missing" };
+      tempHandle.pause.mockRejectedValue(
+        new MockTemporalScheduleNotFoundError("not found", "missing"),
+      );
+      tempHandle.delete.mockRejectedValue(new MockTemporalScheduleNotFoundError("not found", ""));
+      mockSchedule.getHandle.mockReturnValue(tempHandle);
+
+      const handle = client.schedule.getHandle("missing");
+
+      const paused = await handle.pause();
+      expect(paused).toBeErr();
+      if (paused.isErr()) {
+        expect(paused.error).toBeInstanceOf(ScheduleNotFoundError);
+        expect((paused.error as ScheduleNotFoundError).scheduleId).toBe("missing");
+      }
+
+      // Temporal normalizes a missing ID to the empty string; the handle's
+      // own scheduleId is the fallback so the error stays identifying.
+      const deleted = await handle.delete();
+      expect(deleted).toBeErr();
+      if (deleted.isErr()) {
+        expect((deleted.error as ScheduleNotFoundError).scheduleId).toBe("missing");
+      }
+    });
+
+    it("unrecognized create failures still ride the defect channel", async () => {
+      mockSchedule.create.mockRejectedValue(new Error("temporal down"));
+
+      const result = await client.schedule.create("processOrder", {
+        scheduleId: "daily-sweep",
+        spec: { cronExpressions: ["0 2 * * *"] },
+        args: { orderId: "sweep" },
+      });
+
+      expect(result).toBeDefect();
+      if (result.isDefect()) {
+        expect(result.cause).toBeInstanceOf(RuntimeClientError);
+      }
+    });
+  });
+
+  describe("list", () => {
+    it("is a typed async-iterable passthrough of ScheduleClient.list", async () => {
+      const summaries = [{ scheduleId: "a" }, { scheduleId: "b" }];
+      mockSchedule.list.mockReturnValue(
+        (async function* () {
+          for (const summary of summaries) yield summary;
+        })(),
+      );
+
+      const seen: string[] = [];
+      for await (const summary of client.schedule.list({ pageSize: 10 })) {
+        seen.push(summary.scheduleId);
+      }
+
+      expect(seen).toEqual(["a", "b"]);
+      expect(mockSchedule.list).toHaveBeenCalledWith({ pageSize: 10 });
     });
   });
 });

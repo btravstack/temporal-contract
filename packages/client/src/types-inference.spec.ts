@@ -1,26 +1,47 @@
-import { defineContract, defineSignal, defineWorkflow } from "@temporal-contract/contract";
 /**
  * Type-level tests for the typed-client surface.
  *
- * These tests pin the generic-preservation and name-narrowing behaviour
- * required by audit findings #2 and #3:
+ * Three groups of pins:
  *
- * - Workflow input/output generics are preserved through the contract so
- *   `client.startWorkflow("…", { args })` infers the correct argument
- *   shape instead of widening to `unknown`.
- * - Signal-name constraints narrow to the workflow's declared signals
- *   (or `never`), so a typo like `signalName: "typo"` on a workflow
- *   without signals is a compile-time error rather than a runtime
- *   failure.
+ * 1. Generic preservation and name narrowing (audit findings #2 and #3):
+ *    workflow input/output generics survive the contract so
+ *    `client.startWorkflow("…", { args })` infers the correct argument
+ *    shape, and signal names narrow to the workflow's declared signals.
+ * 2. The `TypedClient`/`ContractClient` split: `for(c)` constrains names to
+ *    `c`'s workflows, two contracts yield mutually incompatible
+ *    `ContractClient` types, and `TypedClient` accepts no type argument —
+ *    so a stray 7.x-style `TypedClient<typeof x>` fails loudly during
+ *    migration instead of resolving silently.
+ * 3. Method-level pins: error-union narrowing, the `searchAttributes` key
+ *    constraint, and omittable payloads for input-less
+ *    signals/queries/updates.
  *
- * Each `expectTypeOf(...)` call's assertion is purely compile-time; the
- * outer `it(...)` blocks merely cause the type-checker to visit this
- * file.
+ * Each `expectTypeOf(...)` / `@ts-expect-error` assertion is purely
+ * compile-time; call-shaped assertions live inside never-invoked functions
+ * so nothing hits a real connection at runtime.
  */
+import {
+  defineContract,
+  defineQuery,
+  defineSearchAttribute,
+  defineSignal,
+  defineUpdate,
+  defineWorkflow,
+} from "@temporal-contract/contract";
 import { describe, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 
-import type { TypedSignalWithStartOptions, TypedWorkflowStartOptions } from "./client.js";
+import type {
+  ContractClient,
+  TypedClient,
+  TypedSignalWithStartOptions,
+  TypedWorkflowStartOptions,
+} from "./client.js";
+import type {
+  WorkflowAlreadyStartedError,
+  WorkflowNotInContractError,
+  WorkflowValidationError,
+} from "./errors.js";
 
 const contractWithSignal = defineContract({
   taskQueue: "q",
@@ -41,6 +62,34 @@ const contractNoSignals = defineContract({
     bare: defineWorkflow({
       input: z.object({ a: z.string() }),
       output: z.string(),
+    }),
+  },
+});
+
+const richContract = defineContract({
+  taskQueue: "rich-q",
+  workflows: {
+    processOrder: defineWorkflow({
+      input: z.object({ orderId: z.string() }),
+      output: z.object({ status: z.string() }),
+      signals: {
+        // Payload-less signal — `defineSignal()` materializes an
+        // UndefinedInputSchema, so the client-side payload is omittable.
+        stop: defineSignal(),
+        setPriority: defineSignal({ input: z.object({ level: z.number() }) }),
+      },
+      queries: {
+        progress: defineQuery({ output: z.number() }),
+        itemStatus: defineQuery({ input: z.object({ sku: z.string() }), output: z.string() }),
+      },
+      updates: {
+        refresh: defineUpdate({ output: z.boolean() }),
+        adjust: defineUpdate({ input: z.object({ delta: z.number() }), output: z.number() }),
+      },
+      searchAttributes: {
+        customerId: defineSearchAttribute({ kind: "KEYWORD" }),
+        priority: defineSearchAttribute({ kind: "INT" }),
+      },
     }),
   },
 });
@@ -76,5 +125,184 @@ describe("signalWithStart name narrowing (audit fix #3)", () => {
       never
     >;
     expectTypeOf<Options["signalName"]>().toEqualTypeOf<never>();
+  });
+});
+
+describe("TypedClient/ContractClient split", () => {
+  it("TypedClient accepts no type argument — a stray 7.x-style annotation fails loudly", () => {
+    // @ts-expect-error — TypedClient is not generic anymore; the contract
+    // type parameter lives on ContractClient.
+    type Stray = TypedClient<typeof contractWithSignal>;
+    const _stray: Stray | undefined = undefined;
+    void _stray;
+  });
+
+  it("for(c) constrains startWorkflow to c's workflow names", () => {
+    // Never invoked — the body only exercises the type-checker.
+    const _pin = async (root: TypedClient) => {
+      const bound = root.for(contractWithSignal);
+      expectTypeOf(bound.startWorkflow).parameter(0).toEqualTypeOf<"hasSignal">();
+
+      // @ts-expect-error — "bare" belongs to the OTHER contract.
+      void bound.startWorkflow("bare", { workflowId: "x", args: { a: "s" } });
+
+      // @ts-expect-error — typos are compile-time errors.
+      void bound.startWorkflow("hasSignalTypo", { workflowId: "x", args: { a: "s" } });
+    };
+    void _pin;
+  });
+
+  it("two different contracts yield mutually incompatible ContractClient types", () => {
+    type A = ContractClient<typeof contractWithSignal>;
+    type B = ContractClient<typeof contractNoSignals>;
+    expectTypeOf<A>().not.toEqualTypeOf<B>();
+    expectTypeOf<A>().not.toMatchTypeOf<B>();
+    expectTypeOf<B>().not.toMatchTypeOf<A>();
+  });
+
+  it("for() preserves the contract's type through to the binding", () => {
+    const _pin = (root: TypedClient) => {
+      const bound = root.for(contractNoSignals);
+      expectTypeOf(bound).toEqualTypeOf<ContractClient<typeof contractNoSignals>>();
+    };
+    void _pin;
+  });
+});
+
+describe("method-level pins", () => {
+  it("executeWorkflow narrows the error union to the modeled client errors", () => {
+    const _pin = async (bound: ContractClient<typeof contractNoSignals>) => {
+      const result = await bound.executeWorkflow("bare", {
+        workflowId: "x",
+        args: { a: "s" },
+      });
+      if (result.isOk()) {
+        expectTypeOf(result.value).toEqualTypeOf<string>();
+      }
+      if (result.isErr()) {
+        // `bare` declares no contract errors, so the union is exactly the
+        // client-side kinds — no ContractError member, no widening to Error.
+        expectTypeOf(result.error).toMatchTypeOf<
+          | WorkflowNotInContractError
+          | WorkflowValidationError
+          | WorkflowAlreadyStartedError
+          | { workflowId: string }
+        >();
+        expectTypeOf(result.error).not.toBeAny();
+        expectTypeOf<(typeof result)["error"]>().not.toEqualTypeOf<Error>();
+      }
+    };
+    void _pin;
+  });
+
+  it("startWorkflow narrows the error union to start-phase errors only", () => {
+    const _pin = async (bound: ContractClient<typeof contractNoSignals>) => {
+      const result = await bound.startWorkflow("bare", { workflowId: "x", args: { a: "s" } });
+      if (result.isErr()) {
+        expectTypeOf(result.error).toEqualTypeOf<
+          WorkflowNotInContractError | WorkflowValidationError | WorkflowAlreadyStartedError
+        >();
+      }
+    };
+    void _pin;
+  });
+
+  it("searchAttributes keys are constrained to the declared attributes", () => {
+    const _pin = (bound: ContractClient<typeof richContract>) => {
+      void bound.startWorkflow("processOrder", {
+        workflowId: "x",
+        args: { orderId: "o" },
+        searchAttributes: { customerId: "c", priority: 1 },
+      });
+
+      void bound.startWorkflow("processOrder", {
+        workflowId: "x",
+        args: { orderId: "o" },
+        // @ts-expect-error — `unknownAttr` isn't declared on processOrder.
+        searchAttributes: { unknownAttr: "nope" },
+      });
+
+      void bound.startWorkflow("processOrder", {
+        workflowId: "x",
+        args: { orderId: "o" },
+        // @ts-expect-error — INT attribute values must be numbers.
+        searchAttributes: { priority: "high" },
+      });
+    };
+    void _pin;
+  });
+
+  it("input-less signal/query/update payloads are omittable on the typed handle", () => {
+    const _pin = async (bound: ContractClient<typeof richContract>) => {
+      const handleResult = bound.getHandle("processOrder", "id-1");
+      if (!handleResult.isOk()) return;
+      const handle = handleResult.value;
+
+      // Payload-less definitions: the argument can be omitted entirely.
+      void handle.signals.stop();
+      void handle.queries.progress();
+      void handle.updates.refresh();
+      void handle.startUpdate("refresh");
+
+      // Definitions WITH an input still require their payload.
+      // @ts-expect-error — setPriority requires { level: number }.
+      void handle.signals.setPriority();
+      // @ts-expect-error — itemStatus requires { sku: string }.
+      void handle.queries.itemStatus();
+      // @ts-expect-error — adjust requires { delta: number }.
+      void handle.updates.adjust();
+      // @ts-expect-error — adjust's startUpdate options require args.
+      void handle.startUpdate("adjust");
+      // @ts-expect-error — adjust's startUpdate args are non-optional.
+      void handle.startUpdate("adjust", {});
+
+      void handle.signals.setPriority({ level: 2 });
+      void handle.startUpdate("adjust", { args: { delta: 1 } });
+    };
+    void _pin;
+  });
+
+  it("payload-less signals are omittable through signalWithStart", () => {
+    const _pin = (bound: ContractClient<typeof richContract>) => {
+      // `stop` takes no payload — `signalArgs` can be omitted.
+      void bound.signalWithStart("processOrder", {
+        workflowId: "x",
+        args: { orderId: "o" },
+        signalName: "stop",
+      });
+
+      void bound.signalWithStart("processOrder", {
+        workflowId: "x",
+        args: { orderId: "o" },
+        signalName: "setPriority",
+        signalArgs: { level: 1 },
+      });
+
+      // @ts-expect-error — setPriority's signalArgs are required.
+      void bound.signalWithStart("processOrder", {
+        workflowId: "x",
+        args: { orderId: "o" },
+        signalName: "setPriority",
+      });
+    };
+    void _pin;
+  });
+
+  it("getHandle is synchronous and Err-narrows to WorkflowNotInContractError", () => {
+    const _pin = (bound: ContractClient<typeof richContract>) => {
+      const handleResult = bound.getHandle("processOrder", "id-1", {
+        runId: "run-1",
+        firstExecutionRunId: "run-0",
+        followRuns: true,
+      });
+      if (handleResult.isErr()) {
+        expectTypeOf(handleResult.error).toEqualTypeOf<WorkflowNotInContractError>();
+      }
+      if (handleResult.isOk()) {
+        expectTypeOf(handleResult.value.runId).toEqualTypeOf<string | undefined>();
+        expectTypeOf(handleResult.value.firstExecutionRunId).toEqualTypeOf<string | undefined>();
+      }
+    };
+    void _pin;
   });
 });

@@ -7,18 +7,23 @@ import { Worker } from "@temporalio/worker";
 import { P } from "unthrown";
 import { describe, expect, vi, beforeEach } from "vitest";
 
-import { TypedClient } from "../client.js";
+import { type ContractClient, TypedClient } from "../client.js";
 import { WorkflowValidationError } from "../errors.js";
+import { secondContract } from "./second.contract.js";
 import { testContract } from "./test.contract.js";
 
 // ============================================================================
 // Test Setup
 // ============================================================================
 
-const it = baseIt.extend<{
+type WorkerFixtures = {
   worker: Worker;
-  client: TypedClient<typeof testContract>;
-}>({
+  secondWorker: Worker;
+  root: TypedClient;
+  client: ContractClient<typeof testContract>;
+};
+
+const it = baseIt.extend<WorkerFixtures>({
   worker: [
     async ({ workerConnection }, use) => {
       // Create and start worker
@@ -57,19 +62,44 @@ const it = baseIt.extend<{
     },
     { auto: true },
   ],
-  client: async ({ clientConnection }, use) => {
-    // Create typed client
+  // Second worker on the second contract's task queue — proves one
+  // connection-scoped root drives multiple contracts (see the
+  // "multiple contracts, one root" suite).
+  secondWorker: [
+    async ({ workerConnection }, use) => {
+      const worker = await Worker.create({
+        connection: workerConnection,
+        namespace: "default",
+        taskQueue: secondContract.taskQueue,
+        workflowsPath: workflowPath("second.workflows"),
+      });
+
+      worker.run().catch((err) => {
+        console.error("Second worker failed:", err);
+      });
+
+      await vi.waitFor(() => worker.getState() === "RUNNING", { interval: 100 });
+
+      await use(worker);
+
+      await worker.shutdown();
+
+      await vi.waitFor(() => worker.getState() === "STOPPED", { interval: 100 });
+    },
+    { auto: true },
+  ],
+  root: async ({ clientConnection }, use) => {
+    // One connection-scoped root per process; contracts bind via `for()`.
     const rawClient = new Client({
       connection: clientConnection,
       namespace: "default",
     });
-    const clientResult = await TypedClient.create({ contract: testContract, client: rawClient });
-    if (!clientResult.isOk()) {
-      throw clientResult.isErr() ? clientResult.error : clientResult.cause;
-    }
-    const client = clientResult.value;
+    const root = (await TypedClient.create({ client: rawClient })).get();
 
-    await use(client);
+    await use(root);
+  },
+  client: async ({ root }, use) => {
+    await use(root.for(testContract));
   },
 });
 
@@ -142,8 +172,9 @@ describe("Client Package - Integration Tests", () => {
         args: input,
       });
 
-      // WHEN
-      const handleResult = await client.getHandle("simpleWorkflow", workflowId);
+      // WHEN — getHandle is synchronous: the only failure mode is a
+      // workflow name missing from the contract.
+      const handleResult = client.getHandle("simpleWorkflow", workflowId);
 
       // THEN
       expect(handleResult).toBeOk();
@@ -155,6 +186,56 @@ describe("Client Package - Integration Tests", () => {
       if (result.isOk()) {
         expect(result.value).toEqual({ result: "Processed: get-handle-test" });
       }
+    });
+  });
+
+  describe("Multiple contracts, one root", () => {
+    it("routes each contract's workflows to its own task queue through one root", async ({
+      root,
+      client,
+    }) => {
+      // GIVEN — the shared root, testContract already bound as `client`.
+      const second = root.for(secondContract);
+
+      // WHEN — drive both contracts through the same connection.
+      const first = await client.executeWorkflow("simpleWorkflow", {
+        workflowId: `multi-first-${Date.now()}`,
+        args: { value: "from-first" },
+      });
+      const echoed = await second.executeWorkflow("echoWorkflow", {
+        workflowId: `multi-second-${Date.now()}`,
+        args: { text: "from-second" },
+      });
+
+      // THEN — each contract's worker (polling its own queue) answered.
+      expect(first).toBeOk();
+      if (first.isOk()) {
+        expect(first.value).toEqual({ result: "Processed: from-first" });
+      }
+      expect(echoed).toBeOk();
+      if (echoed.isOk()) {
+        expect(echoed.value).toEqual({ echoed: "second-queue: from-second" });
+      }
+
+      // Binding is memoized — the same instance serves repeated `for()`.
+      expect(root.for(secondContract)).toBe(second);
+    });
+  });
+
+  describe("Handle identifiers", () => {
+    it("startWorkflow handles carry firstExecutionRunId and runId", async ({ client }) => {
+      const handleResult = await client.startWorkflow("simpleWorkflow", {
+        workflowId: `run-ids-${Date.now()}`,
+        args: { value: "ids" },
+      });
+
+      expect(handleResult).toBeOk();
+      if (!handleResult.isOk()) throw new Error("Expected Ok result");
+      const handle = handleResult.value;
+      expect(typeof handle.firstExecutionRunId).toBe("string");
+      expect(handle.runId).toBe(handle.firstExecutionRunId);
+
+      await handle.result();
     });
   });
 
@@ -317,6 +398,42 @@ describe("Client Package - Integration Tests", () => {
         expect(result.value).toEqual({ finalValue: 15 });
       }
     });
+
+    it("should start an update via startUpdate and await its result on the update handle", async ({
+      client,
+    }) => {
+      // GIVEN
+      const workflowId = `start-update-test-${Date.now()}`;
+      const handleResult = await client.startWorkflow("interactiveWorkflow", {
+        workflowId,
+        args: { initialValue: 4 },
+      });
+
+      expect(handleResult).toBeOk();
+      if (!handleResult.isOk()) throw new Error("Expected Ok result");
+      const handle = handleResult.value;
+
+      // WHEN — start the update without waiting for completion, then await
+      // its result through the typed update handle.
+      const updateHandleResult = await handle.startUpdate("multiply", {
+        args: { factor: 5 },
+      });
+
+      // THEN
+      expect(updateHandleResult).toBeOk();
+      if (!updateHandleResult.isOk()) throw new Error("Expected Ok result");
+      const updateHandle = updateHandleResult.value;
+      expect(updateHandle.workflowId).toBe(workflowId);
+      expect(typeof updateHandle.updateId).toBe("string");
+
+      const updateResult = await updateHandle.result();
+      expect(updateResult).toBeOk();
+      if (updateResult.isOk()) {
+        expect(updateResult.value).toEqual({ newValue: 20 }); // 4 * 5
+      }
+
+      await handle.result();
+    });
   });
 
   describe("Workflow Handle Operations", () => {
@@ -431,7 +548,7 @@ describe("Client Package - Integration Tests", () => {
         },
         errCases: (matcher) =>
           matcher.with(
-            P.tag("@temporal-contract/WorkflowNotFoundError"),
+            P.tag("@temporal-contract/WorkflowNotInContractError"),
             P.tag("@temporal-contract/WorkflowValidationError"),
             P.tag("@temporal-contract/WorkflowAlreadyStartedError"),
             P.tag("@temporal-contract/WorkflowFailedError"),

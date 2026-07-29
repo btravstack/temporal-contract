@@ -1,9 +1,3 @@
-import type { AnyWorkflowDefinition, SearchAttributeDefinition } from "@temporal-contract/contract";
-import {
-  _internal_rehydrateContractError,
-  type AnyContractError,
-} from "@temporal-contract/contract/errors";
-import { _internal_makeAsyncResult } from "@temporal-contract/contract/result-async";
 /**
  * Internal helpers shared across the client package's modules.
  *
@@ -11,8 +5,22 @@ import { _internal_makeAsyncResult } from "@temporal-contract/contract/result-as
  * `exports` map, so consumers can't import from `@temporal-contract/client/internal`.
  * In-package modules and tests import it directly via relative path.
  */
+import type {
+  AnyWorkflowDefinition,
+  SearchAttributeDefinition,
+  SearchAttributeKind,
+} from "@temporal-contract/contract";
+import {
+  _internal_rehydrateContractError,
+  type AnyContractError,
+} from "@temporal-contract/contract/errors";
+import { _internal_makeAsyncResult } from "@temporal-contract/contract/result-async";
 import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
 import { WorkflowFailedError as TemporalWorkflowFailedError } from "@temporalio/client";
+import {
+  ScheduleAlreadyRunning,
+  ScheduleNotFoundError as TemporalScheduleNotFoundError,
+} from "@temporalio/client";
 import {
   ApplicationFailure,
   defineSearchAttributeKey,
@@ -28,11 +36,39 @@ import { type AsyncResult, type Result } from "unthrown";
 export { _internal_assertNoDefect as assertNoDefect } from "@temporal-contract/contract/result-async";
 import {
   RuntimeClientError,
+  ScheduleAlreadyExistsError,
+  ScheduleNotFoundError,
   type TemporalFailure,
   WorkflowAlreadyStartedError,
   WorkflowExecutionNotFoundError,
   WorkflowFailedError,
 } from "./errors.js";
+
+/**
+ * Runtime `typeof`-per-kind check for a search attribute value. The
+ * TypeScript surface already constrains values on the happy path; this
+ * catches typed escape hatches (`as never`, raw-call interop) where a
+ * mistyped value would otherwise be rejected server-side (or silently
+ * coerced) long after the call site.
+ */
+const searchAttributeValueChecks: Record<
+  SearchAttributeKind,
+  { expected: string; check: (value: unknown) => boolean }
+> = {
+  TEXT: { expected: "a string", check: (v) => typeof v === "string" },
+  KEYWORD: { expected: "a string", check: (v) => typeof v === "string" },
+  INT: {
+    expected: "an integer number",
+    check: (v) => typeof v === "number" && Number.isInteger(v),
+  },
+  DOUBLE: { expected: "a number", check: (v) => typeof v === "number" && Number.isFinite(v) },
+  BOOL: { expected: "a boolean", check: (v) => typeof v === "boolean" },
+  DATETIME: { expected: "a Date", check: (v) => v instanceof Date },
+  KEYWORD_LIST: {
+    expected: "an array of strings",
+    check: (v) => Array.isArray(v) && v.every((entry) => typeof entry === "string"),
+  },
+};
 
 /**
  * Translate the contract's typed `searchAttributes` map (declared
@@ -43,7 +79,8 @@ import {
  * values) resolve to `undefined`, matching the Temporal SDK's
  * "absent ≠ empty" semantics.
  *
- * **Throws** a {@link RuntimeClientError} on unknown keys — a *technical*
+ * **Throws** a {@link RuntimeClientError} on unknown keys or on values that
+ * don't match the declared kind's runtime type — a *technical*
  * misconfiguration, not a modeled domain error, so it rides the defect
  * channel (this helper always runs inside a `makeAsyncResult` work thunk,
  * whose throw→defect net captures it). The TypeScript surface already gates
@@ -75,6 +112,16 @@ export function toTypedSearchAttributes(
         new Error(
           `Search attribute "${name}" is not declared on workflow "${workflowName}". ` +
             `Declared attributes: ${Object.keys(declared).join(", ") || "none"}.`,
+        ),
+      );
+    }
+    const { expected, check } = searchAttributeValueChecks[def.kind];
+    if (!check(value)) {
+      throw new RuntimeClientError(
+        "searchAttributes",
+        new Error(
+          `Search attribute "${name}" on workflow "${workflowName}" is declared as ` +
+            `${def.kind} and must be ${expected}; received ${typeof value}.`,
         ),
       );
     }
@@ -187,6 +234,62 @@ export function classifyResultError(
   }
   if (error instanceof TemporalWorkflowNotFoundError) {
     return new WorkflowExecutionNotFoundError(error.workflowId || workflowId, error.runId, error);
+  }
+  return undefined;
+}
+
+/**
+ * Shared rehydrate-then-classify tail for the two result-awaiting paths
+ * (`executeWorkflow` and `handle.result()`): a Temporal `WorkflowFailedError`
+ * whose cause matches one of the workflow's declared contract errors
+ * rehydrates into that typed error; everything else falls through to
+ * {@link classifyResultError}. Returns `undefined` for unrecognized errors —
+ * the caller routes those to the defect channel.
+ */
+export async function classifyExecutionResultError(
+  workflowDef: AnyWorkflowDefinition,
+  error: unknown,
+  workflowId: string,
+): Promise<AnyContractError | WorkflowFailedError | WorkflowExecutionNotFoundError | undefined> {
+  if (error instanceof TemporalWorkflowFailedError) {
+    const rehydrated = await rehydrateWorkflowContractError(workflowDef, error.cause);
+    if (rehydrated) return rehydrated;
+  }
+  return classifyResultError(error, workflowId);
+}
+
+/**
+ * Recognize a thrown error from `client.schedule.create` as the modeled
+ * {@link ScheduleAlreadyExistsError} (Temporal's `ScheduleAlreadyRunning`).
+ * Returns `undefined` for anything else — an unrecognized, *technical*
+ * failure the caller routes to the defect channel with a
+ * {@link RuntimeClientError} cause. Mirrors {@link classifyStartError} on the
+ * workflow side.
+ */
+export function classifyScheduleCreateError(
+  error: unknown,
+  fallbackScheduleId: string,
+): ScheduleAlreadyExistsError | undefined {
+  if (error instanceof ScheduleAlreadyRunning) {
+    return new ScheduleAlreadyExistsError(error.scheduleId || fallbackScheduleId, error);
+  }
+  return undefined;
+}
+
+/**
+ * Recognize a thrown error from a schedule handle method (pause, unpause,
+ * trigger, update, backfill, delete, describe) as the modeled
+ * {@link ScheduleNotFoundError} (Temporal's error of the same name). Returns
+ * `undefined` for anything else — an unrecognized, *technical* failure the
+ * caller routes to the defect channel with a {@link RuntimeClientError}
+ * cause. Mirrors {@link classifyHandleError} on the workflow side.
+ */
+export function classifyScheduleHandleError(
+  error: unknown,
+  fallbackScheduleId: string,
+): ScheduleNotFoundError | undefined {
+  if (error instanceof TemporalScheduleNotFoundError) {
+    return new ScheduleNotFoundError(error.scheduleId || fallbackScheduleId, error);
   }
   return undefined;
 }
