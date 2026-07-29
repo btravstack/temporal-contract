@@ -31,8 +31,10 @@ import type { ClientInferInput, ClientInferOutput } from "./types.js";
 /**
  * Activity function signature from workflow execution perspective.
  *
- * Workflows call activities with validated input (z.input parsed) and receive
- * validated output (z.output).
+ * Workflows call activities with the input schema's *input* type and receive
+ * the output schema's *output* (parsed) type: the workflow side validates
+ * the input but transmits the original value (the activity worker parses it
+ * on receive), and parses the activity's result on receive.
  *
  * The shape depends on whether the activity declares contract errors:
  *
@@ -92,9 +94,15 @@ export type WorkflowInferWorkflowContextActivities<
 
 /**
  * Wrap the raw activities proxy with input/output validation against the
- * Standard Schema definitions on the contract. The wrapper enforces data
- * integrity at the workflow → activity boundary in addition to the
- * activity-side validation that `declareActivitiesHandler` already runs.
+ * Standard Schema definitions on the contract. Per the wire-format contract
+ * (validate on send, parse on receive), the wrapper:
+ *
+ * - VALIDATES the input before dispatch — failing early with a typed error —
+ *   but transmits the caller's ORIGINAL value; `declareActivitiesHandler`
+ *   (activity worker side) parses it exactly once on receive.
+ * - PARSES the activity's result on receive — the activity side validated
+ *   its return and transmitted the original value — so a transforming
+ *   output schema is applied exactly once, here.
  *
  * Activities that declare contract errors additionally get failure
  * classification: their wrapper returns an `AsyncResult` whose error channel
@@ -141,8 +149,8 @@ export function createValidatedActivities<
 
 /**
  * Validation-only wrapper for activities without declared errors — the
- * historical shape: validate input, invoke, validate output, let failures
- * throw through to Temporal's native handling.
+ * historical shape: validate input (send the original), invoke, parse
+ * output, let failures throw through to Temporal's native handling.
  */
 function makeThrowingActivity(
   activityName: string,
@@ -155,7 +163,8 @@ function makeThrowingActivity(
       throw new ActivityInputValidationError(activityName, inputResult.issues);
     }
 
-    const result = await rawActivity(inputResult.value);
+    // Send the ORIGINAL input — the activity worker parses on receive.
+    const result = await rawActivity(input);
 
     const outputResult = await activityDef.output["~standard"].validate(result);
     if (outputResult.issues) {
@@ -201,7 +210,8 @@ function makeResultShapedActivity(
 
       let rawOutput: unknown;
       try {
-        rawOutput = await rawActivity(inputResult.value);
+        // Send the ORIGINAL input — the activity worker parses on receive.
+        rawOutput = await rawActivity(input);
       } catch (error) {
         return Err(await classifyActivityError(activityName, activityDef, error));
       }

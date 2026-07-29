@@ -158,6 +158,33 @@ describe("Client Package - Integration Tests", () => {
     });
   });
 
+  describe("Wire format (D1) — transforms apply exactly once per boundary", () => {
+    it("sends the original input, receiver parses once; output parsed once by the client", async ({
+      client,
+    }) => {
+      // GIVEN — input schema appends "!", output schema doubles. The client
+      // validates-and-discards on send; the workflow-side parse is the only
+      // input transform, and the client-side result parse is the only output
+      // transform. Double application would yield "hello!!" / 84.
+      const input = { text: "hello" };
+
+      // WHEN
+      const result = await client.executeWorkflow("transformWorkflow", {
+        workflowId: `transform-${Date.now()}`,
+        args: input,
+      });
+
+      // THEN
+      expect(result).toBeOk();
+      if (result.isOk()) {
+        expect(result.value).toEqual({
+          handlerSaw: "hello!", // exactly one "!" — parsed once, on receive
+          doubled: 42, // 21 doubled exactly once, by the client's parse
+        });
+      }
+    });
+  });
+
   describe("Workflow with Activities", () => {
     it("should execute workflow with activity", async ({ client }) => {
       // GIVEN

@@ -18,7 +18,10 @@ import { ContractErrorDataValidationError } from "./errors.js";
  *
  * - `type` = the declared error name (drives caller branching and
  *   `retry.nonRetryableErrorTypes`),
- * - `details[0]` = the data payload, validated against the declared schema,
+ * - `details[0]` = the ORIGINAL data payload. It is validated against the
+ *   declared schema (fail early on contract misuse), but the parsed value is
+ *   discarded — the consuming side (client / workflow-proxy rehydration)
+ *   parses it, so a transforming `data` schema applies exactly once,
  * - `nonRetryable` = the contract's declaration (default retryable),
  * - `cause` = the constructor-supplied cause, so stack traces survive.
  *
@@ -49,7 +52,8 @@ export async function contractErrorToApplicationFailure(
     if (validated.issues) {
       throw new ContractErrorDataValidationError(error.errorName, validated.issues);
     }
-    details = [validated.value];
+    // Transmit the ORIGINAL payload — the rehydrating side parses it (D1).
+    details = [error.data];
   }
 
   return ApplicationFailure.create({

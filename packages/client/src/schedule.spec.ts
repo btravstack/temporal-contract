@@ -103,6 +103,41 @@ describe("TypedClient.schedule", () => {
       );
     });
 
+    it("transmits the ORIGINAL args, not the parsed value (D1 wire format)", async () => {
+      // Sender validates and discards the parsed result; the worker parses
+      // on receive. A transforming input schema makes the difference visible.
+      const transformContract = defineContract({
+        taskQueue: "schedules-q",
+        workflows: {
+          transformer: defineWorkflow({
+            input: z.string().transform((s) => s.length),
+            output: z.number(),
+          }),
+        },
+      });
+      const rawClient = {
+        workflow: { start: vi.fn(), execute: vi.fn(), getHandle: vi.fn() },
+        schedule: mockSchedule,
+      } as unknown as Client;
+      const transformClient = TypedClient.createOrThrow(transformContract, rawClient);
+      mockSchedule.create.mockResolvedValue(createMockHandle());
+
+      const result = await transformClient.schedule.create("transformer", {
+        scheduleId: "transform-sweep",
+        spec: { cronExpressions: ["0 2 * * *"] },
+        args: "hello",
+      });
+
+      expect(result).toBeOk();
+      expect(mockSchedule.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: expect.objectContaining({
+            args: ["hello"], // original string — not 5 (the parsed length)
+          }),
+        }),
+      );
+    });
+
     it("returns WorkflowNotFoundError when the workflow isn't declared", async () => {
       const result = await client.schedule.create(
         // @ts-expect-error testing runtime validation

@@ -7,6 +7,8 @@ import {
   defineUpdate,
 } from "@temporalio/workflow";
 
+import { testContract } from "./test.contract.js";
+
 // Define activity types manually based on the contract
 type Activities = {
   logMessage(args: { message: string }): Promise<{}>;
@@ -53,6 +55,22 @@ export async function interactiveWorkflow(args: { initialValue: number }) {
 
   return {
     finalValue: currentValue,
+  };
+}
+
+// Mirrors what `@temporal-contract/worker`'s `declareWorkflow` does at the
+// D1 wire boundary: the client transmits the caller's ORIGINAL args, the
+// receiving side parses them exactly once, and the return value is handed to
+// Temporal untransformed (the client parses the output on receive).
+export async function transformWorkflow(args: { text: string }) {
+  const parsed = await testContract.workflows.transformWorkflow.input["~standard"].validate(args);
+  if (parsed.issues) {
+    throw new Error(`transformWorkflow input validation failed`);
+  }
+  const input = parsed.value as { text: string };
+  return {
+    handlerSaw: input.text,
+    doubled: 21,
   };
 }
 

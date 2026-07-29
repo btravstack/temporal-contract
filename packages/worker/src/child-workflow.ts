@@ -24,7 +24,7 @@ import {
   formatChildWorkflowValidationMessage,
   makeAsyncResult,
 } from "./internal.js";
-import type { ClientInferInput, ClientInferOutput, WorkerInferInput } from "./types.js";
+import type { ClientInferInput, ClientInferOutput } from "./types.js";
 
 /**
  * Options for starting a child workflow. `taskQueue` and `args` come from
@@ -56,6 +56,12 @@ export type TypedChildWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = 
   workflowId: string;
 };
 
+/**
+ * Parse a child workflow's result against its output schema. The parent is
+ * the RECEIVING side of the result boundary — the child validated its return
+ * and transmitted the original value, so the parse (and any schema
+ * transform) happens exactly once, here.
+ */
 async function validateChildWorkflowOutput<TChildWorkflow extends AnyWorkflowDefinition>(
   childDefinition: TChildWorkflow,
   result: unknown,
@@ -72,6 +78,13 @@ async function validateChildWorkflowOutput<TChildWorkflow extends AnyWorkflowDef
   return Ok(outputResult.value as ClientInferOutput<TChildWorkflow>);
 }
 
+/**
+ * Resolve the child-workflow definition and validate `args` against its
+ * input schema. The parent is the SENDING side of the input boundary, so
+ * the parsed value is discarded — the caller transmits the original `args`
+ * and the child's `declareWorkflow` parses them on receive, applying a
+ * transforming schema exactly once.
+ */
 async function getAndValidateChildWorkflow<
   TChildContract extends ContractDefinition,
   TChildWorkflowName extends keyof TChildContract["workflows"] & string,
@@ -83,7 +96,6 @@ async function getAndValidateChildWorkflow<
   Result<
     {
       definition: TChildContract["workflows"][TChildWorkflowName];
-      validatedInput: WorkerInferInput<TChildContract["workflows"][TChildWorkflowName]>;
       taskQueue: string;
     },
     ChildWorkflowError | ChildWorkflowNotFoundError
@@ -109,13 +121,8 @@ async function getAndValidateChildWorkflow<
     );
   }
 
-  const validatedInput = inputResult.value as WorkerInferInput<
-    TChildContract["workflows"][TChildWorkflowName]
-  >;
-
   return Ok({
     definition: childDefinition as TChildContract["workflows"][TChildWorkflowName],
-    validatedInput,
     taskQueue: childContract.taskQueue,
   });
 }
@@ -174,14 +181,16 @@ export function createStartChildWorkflow<
       return Err(validationResult.error);
     }
 
-    const { definition: childDefinition, validatedInput, taskQueue } = validationResult.value;
+    const { definition: childDefinition, taskQueue } = validationResult.value;
 
     try {
-      const { args: _args, ...temporalOptions } = options;
+      // Transmit the caller's ORIGINAL args — validated above, parsed by
+      // the child workflow on receive (D1).
+      const { args: childArgs, ...temporalOptions } = options;
       const handle = await startChild(childWorkflowName, {
         ...temporalOptions,
         taskQueue,
-        args: [validatedInput],
+        args: [childArgs],
       });
 
       const typedHandle = createTypedChildHandle(handle, childDefinition, childWorkflowName) as Ok;
@@ -220,14 +229,16 @@ export function createExecuteChildWorkflow<
       return Err(validationResult.error);
     }
 
-    const { definition: childDefinition, validatedInput, taskQueue } = validationResult.value;
+    const { definition: childDefinition, taskQueue } = validationResult.value;
 
     try {
-      const { args: _args, ...temporalOptions } = options;
+      // Transmit the caller's ORIGINAL args — validated above, parsed by
+      // the child workflow on receive (D1).
+      const { args: childArgs, ...temporalOptions } = options;
       const result = await executeChild(childWorkflowName, {
         ...temporalOptions,
         taskQueue,
-        args: [validatedInput],
+        args: [childArgs],
       });
 
       const outputValidationResult = await validateChildWorkflowOutput(

@@ -10,7 +10,8 @@ import { Ok, Err, type AsyncResult } from "unthrown";
  * no Docker required. Exercises, in-process:
  *
  * - `createWorker` / `TypedClient.create` AsyncResult factories,
- * - validation on both sides of the activity boundary,
+ * - the activity-boundary wire format (sender validates and transmits the
+ *   original value; receiver parses),
  * - `createContext` seed + accumulating middleware context,
  * - typed contract errors (activity-side rehydration in the workflow,
  *   workflow-side rehydration at the client),

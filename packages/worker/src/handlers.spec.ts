@@ -10,9 +10,13 @@ import { defineWorkflow } from "@temporal-contract/contract";
  * - missing-block runtime guards fire with a clear error,
  * - unknown-name runtime guards fire with a clear error,
  * - validation failures throw the right typed error class,
- * - the handler receives the *validated* (parsed) input,
+ * - the handler receives the *validated* (parsed) input — the worker is the
+ *   receiving side of the input boundary, so the parse happens exactly once
+ *   here (the client validated but transmitted the caller's original value),
  * - query's sync-only validation guard rejects async-validating schemas,
- * - update's output is validated against the contract before resolving.
+ * - update/query outputs are validated against the contract, but the
+ *   handler's ORIGINAL return value is what resolves — the client parses the
+ *   result on receive, so a transforming output schema applies exactly once.
  *
  * Closes #185.
  */
@@ -289,5 +293,68 @@ describe("bindUpdateHandler", () => {
     expect(() => bindUpdateHandler(noUpdates, "probe", "bumpAttempt", vi.fn() as never)).toThrow(
       /workflow "probe" has no updates/,
     );
+  });
+});
+
+describe("wire format (validate on send, parse on receive)", () => {
+  // D1: handler input is the RECEIVING side of the boundary — parsed exactly
+  // once here. Handler output is the SENDING side — validated, but the
+  // handler's ORIGINAL return value goes over the wire; the client parses it.
+  const transformWorkflow = defineWorkflow({
+    input: z.object({}),
+    output: z.object({}),
+    signals: {
+      note: { input: z.object({ text: z.string().transform((s) => `${s}!`) }) },
+    },
+    queries: {
+      peek: {
+        input: z.object({ text: z.string().transform((s) => `${s}!`) }),
+        output: z.object({ n: z.number().transform((n) => n * 2) }),
+      },
+    },
+    updates: {
+      poke: {
+        input: z.object({ text: z.string().transform((s) => `${s}!`) }),
+        output: z.object({ n: z.number().transform((n) => n * 2) }),
+      },
+    },
+  });
+
+  it("signal handler receives the PARSED input (transform applied once)", async () => {
+    captured.length = 0;
+    const handler = vi.fn();
+    bindSignalHandler(transformWorkflow, "probe", "note", handler as never);
+    const entry = captured.find((c) => c.kind === "signal" && c.name === "note")!;
+
+    await entry.impl({ text: "hi" });
+
+    expect(handler).toHaveBeenCalledWith({ text: "hi!" });
+  });
+
+  it("query handler receives the PARSED input and its ORIGINAL return goes over the wire", () => {
+    captured.length = 0;
+    const handler = vi.fn().mockReturnValue({ n: 21 });
+    bindQueryHandler(transformWorkflow, "probe", "peek", handler as never);
+    const entry = captured.find((c) => c.kind === "query" && c.name === "peek")!;
+
+    const result = entry.impl({ text: "hi" });
+
+    expect(handler).toHaveBeenCalledWith({ text: "hi!" });
+    // Validated against the output schema, but transmitted untransformed —
+    // the client parses the query result on receive (would be 42 if the
+    // transform were applied here too).
+    expect(result).toEqual({ n: 21 });
+  });
+
+  it("update handler receives the PARSED input and its ORIGINAL return goes over the wire", async () => {
+    captured.length = 0;
+    const handler = vi.fn(async () => ({ n: 21 }));
+    bindUpdateHandler(transformWorkflow, "probe", "poke", handler as never);
+    const entry = captured.find((c) => c.kind === "update" && c.name === "poke")!;
+
+    const result = await entry.impl({ text: "hi" });
+
+    expect(handler).toHaveBeenCalledWith({ text: "hi!" });
+    expect(result).toEqual({ n: 21 });
   });
 });

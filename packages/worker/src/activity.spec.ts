@@ -324,6 +324,56 @@ describe("Worker unthrown Package", () => {
     });
   });
 
+  describe("wire format (validate on send, parse on receive)", () => {
+    // D1: the activity handler is the RECEIVING side of the input boundary —
+    // it parses the payload exactly once, so the implementation sees the
+    // transformed value. For the output it is the SENDING side: the return
+    // value is validated (fail early) but Temporal gets the implementation's
+    // ORIGINAL value; the workflow-side proxy parses it on receive.
+    const transformContract = {
+      taskQueue: "test-queue",
+      workflows: {},
+      activities: {
+        transformer: {
+          input: z.object({ text: z.string().transform((s) => `${s}!`) }),
+          output: z.object({ n: z.number().transform((n) => n * 2) }),
+        },
+      },
+    } satisfies ContractDefinition;
+
+    it("the implementation receives the PARSED input (transform applied once)", async () => {
+      const seen: unknown[] = [];
+      const activities = declareActivitiesHandler({
+        contract: transformContract,
+        activities: {
+          transformer: (args) => {
+            seen.push(args);
+            return okAsync({ n: 21 });
+          },
+        },
+      });
+
+      await activities.transformer({ text: "hi" });
+
+      expect(seen).toEqual([{ text: "hi!" }]);
+    });
+
+    it("Temporal gets the implementation's ORIGINAL output, not the parsed value", async () => {
+      const activities = declareActivitiesHandler({
+        contract: transformContract,
+        activities: {
+          transformer: () => okAsync({ n: 21 }),
+        },
+      });
+
+      const result = await activities.transformer({ text: "hi" });
+
+      // Validated against the output schema, but transmitted untransformed —
+      // the receiving side (workflow proxy / raw caller) parses it.
+      expect(result).toEqual({ n: 21 });
+    });
+  });
+
   describe("Error Handling", () => {
     it("should throw ActivityInputValidationError for invalid input", async () => {
       // GIVEN

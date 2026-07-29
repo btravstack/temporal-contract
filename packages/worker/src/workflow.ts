@@ -206,17 +206,23 @@ export function declareWorkflow<
   // as an argument and validate it per-call (no closed-over per-invocation
   // state).
   //
-  // Design note — intentional double-validation:
-  // Input and output are validated here (workflow side) AND again inside
-  // `declareActivitiesHandler` (activity worker side). This is deliberate:
+  // Design note — wire format (validate on send, parse on receive):
+  // Each activity payload boundary is parsed exactly once, on the receiving
+  // side, so a transforming schema (`z.coerce.*`, `.transform(...)`) is
+  // never applied twice:
   //
-  // 1. Workflow-side validation catches bad data *before* it crosses the
-  //    task-queue network boundary, giving an early, descriptive error
-  //    instead of a confusing deserialization failure inside the activity.
-  // 2. Activity-side validation is the authoritative guard, since the
-  //    activity may be called by other callers that do not use this library.
+  // 1. The workflow-side wrapper (`createValidatedActivities`) VALIDATES the
+  //    input it is about to send — catching bad data *before* it crosses the
+  //    task-queue network boundary with an early, descriptive error — but
+  //    transmits the caller's ORIGINAL value, discarding the parsed result.
+  // 2. `declareActivitiesHandler` (activity worker side) PARSES the payload
+  //    on receive; it is the authoritative guard, since the activity may be
+  //    called by other callers that do not use this library.
   //
-  // The overhead is minimal relative to the network round-trip.
+  // The activity result flows the other way: the activity side validates its
+  // return and hands Temporal the original value; the wrapper here parses it
+  // on receive. The extra send-side validation overhead is minimal relative
+  // to the network round-trip.
   let contextActivities: unknown = {};
 
   if (definition.activities || contract.activities) {
@@ -252,7 +258,10 @@ export function declareWorkflow<
   const workflowFn = async (...args: unknown[]) => {
     const input = extractHandlerInput(args);
 
-    // Validate workflow input
+    // Parse workflow input. This is the RECEIVING side of the input
+    // boundary: the typed client validated the args but transmitted the
+    // caller's original value, so the parse (and any schema transform)
+    // happens exactly once, here.
     const inputResult = await definition.input["~standard"].validate(input);
     if (inputResult.issues) {
       throw new WorkflowInputValidationError(workflowName, inputResult.issues);
@@ -312,7 +321,7 @@ export function declareWorkflow<
       errors: workflowErrorConstructors as WorkflowContext<TContract, TWorkflowName>["errors"],
     };
 
-    // Execute workflow (pass validated input as tuple).
+    // Execute workflow with the parsed input.
     //
     // A thrown typed contract error (`throw context.errors.X(...)`) is
     // converted to its `ApplicationFailure` wire shape here. This must
@@ -336,13 +345,17 @@ export function declareWorkflow<
       throw error;
     }
 
-    // Validate workflow output
+    // Validate workflow output, but hand Temporal the implementation's
+    // ORIGINAL return value. This is the SENDING side of the result
+    // boundary: the consuming side (client `result()`/`executeWorkflow`,
+    // parent workflows awaiting a child) parses the payload, so a
+    // transforming output schema is applied exactly once, on receive.
     const outputResult = await definition.output["~standard"].validate(result);
     if (outputResult.issues) {
       throw new WorkflowOutputValidationError(workflowName, outputResult.issues);
     }
 
-    return outputResult.value as WorkerInferOutput<TContract["workflows"][TWorkflowName]>;
+    return result as WorkerInferOutput<TContract["workflows"][TWorkflowName]>;
   };
 
   // Temporal's client.workflow.start(fn, ...) reads `fn.name` to derive the
