@@ -32,6 +32,7 @@ catalog:
   arktype: 2.2.3
   knip: 6.27.0
   lefthook: 2.1.10
+  mermaid: 11.16.0
   oxfmt: 0.59.0
   oxlint: 1.74.0
   pino: 10.3.1
@@ -46,6 +47,8 @@ catalog:
   typescript: 6.0.3
   unthrown: 5.0.0
   valibot: 1.4.2
+  vitepress: 1.6.4
+  vitepress-plugin-mermaid: 2.0.17
   vitest: 4.1.10
   zod: 4.4.3
 

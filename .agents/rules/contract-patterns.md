@@ -1,5 +1,19 @@
 # Contract Patterns
 
+## Verb policy (btravstack-wide naming convention)
+
+API names follow a three-tier verb convention, shared with amqp-contract:
+
+| Verb                         | Meaning                                      | Examples                                                                   |
+| ---------------------------- | -------------------------------------------- | -------------------------------------------------------------------------- |
+| `define*`                    | Contract/schema authoring (pure, no runtime) | `defineContract`, `defineWorkflow`, `defineActivity`, `defineSignal`, …    |
+| `declare*`                   | Binding an implementation to a contract      | `declareWorkflow`, `declareActivitiesHandler`, `declareActivityMiddleware` |
+| `create*` / `Typed*` classes | Runtime object factories                     | `createWorker`, `TypedClient.create`, `createContractTest`                 |
+
+Additionally, **in-workflow** handler binding uses `handle*` on the workflow context: `context.handleSignal`, `context.handleQuery`, `context.handleUpdate`. When naming a new export, pick the tier by what it does — never a `define*` that touches runtime, never a `declare*` that authors schema.
+
+**Signature shape (Deno rule, btravstack-wide): exported functions take at most 2 positional arguments; everything else goes into a trailing options object.** Prefer a single options bag for factories (`defineContract({...})`, `declareWorkflow({...})`), and `fn(subject, options)` where one positional subject is natural (e.g. `startUpdate(updateName, options)`). Never add a third positional parameter to a public function.
+
 ## Defining a Contract
 
 **Composition-first (org rule, shared with amqp-contract): define resources

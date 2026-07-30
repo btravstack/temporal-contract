@@ -21,9 +21,9 @@
     "@btravstack/theme": "catalog:",
     "@btravstack/tsconfig": "catalog:",
     "@types/node": "catalog:",
-    "mermaid": "11.16.0",
+    "mermaid": "catalog:",
     "tsx": "catalog:",
-    "vitepress": "1.6.4",
-    "vitepress-plugin-mermaid": "2.0.17"
+    "vitepress": "catalog:",
+    "vitepress-plugin-mermaid": "catalog:"
   }
 }
