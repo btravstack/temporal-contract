@@ -1,5 +1,5 @@
 import type { ActivityDefinition } from "@temporal-contract/contract";
-import { ContractError } from "@temporal-contract/contract/errors";
+import { type AnyContractError, ContractError } from "@temporal-contract/contract/errors";
 import { ApplicationFailure, CancelledFailure } from "@temporalio/common";
 import type { AsyncResult } from "unthrown";
 /**
@@ -14,6 +14,13 @@ import { z } from "zod";
 
 import { createValidatedActivities } from "./activities-proxy.js";
 import { ActivityCancelledError, ActivityError } from "./errors.js";
+
+/**
+ * The error union the Result-shaped proxy actually produces for activities
+ * with a declared `errors` map — typed rehydrations plus the two
+ * classification fallbacks (see `createValidatedActivities`).
+ */
+type ProxyError = AnyContractError | ActivityError | ActivityCancelledError;
 
 const erroredDefinition = {
   input: z.object({ amount: z.number() }),
@@ -36,7 +43,7 @@ const buildProxy = (raw: (...args: unknown[]) => Promise<unknown>) =>
     { chargePayment: raw },
     { chargePayment: erroredDefinition },
     undefined,
-  ) as unknown as Record<string, (input: unknown) => AsyncResult<unknown, unknown>>;
+  ) as unknown as Record<string, (input: unknown) => AsyncResult<unknown, ProxyError>>;
 
 describe("createValidatedActivities — activities without declared errors", () => {
   it("keeps the historical throwing Promise shape", async () => {
@@ -106,7 +113,7 @@ describe("createValidatedActivities — wire format (validate on send, parse on 
       },
       { transformer: transformErroredDefinition },
       undefined,
-    ) as unknown as Record<string, (input: unknown) => AsyncResult<unknown, unknown>>;
+    ) as unknown as Record<string, (input: unknown) => AsyncResult<unknown, ProxyError>>;
 
     const result = await activities["transformer"]!({ text: "hi" });
 

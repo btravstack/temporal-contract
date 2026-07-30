@@ -13,7 +13,7 @@
  * cancellation.
  */
 import { CancellationScope, isCancellation } from "@temporalio/workflow";
-import { type AsyncResult, type Result, Ok, Err } from "unthrown";
+import { type AsyncResult, Ok, Err } from "unthrown";
 
 import { WorkflowCancelledError } from "./errors.js";
 import { makeAsyncResult } from "./internal.js";
@@ -52,7 +52,7 @@ import { makeAsyncResult } from "./internal.js";
 export function cancellableScope<T>(
   fn: () => T | Promise<T>,
 ): AsyncResult<T, WorkflowCancelledError> {
-  const work = async (): Promise<Result<T, WorkflowCancelledError>> => {
+  const work = async () => {
     try {
       // Wrap so synchronous returns satisfy CancellationScope.cancellable's
       // `() => Promise<T>` signature without forcing every caller to write
@@ -68,7 +68,7 @@ export function cancellableScope<T>(
       throw error;
     }
   };
-  return makeAsyncResult(work);
+  return makeAsyncResult<T, WorkflowCancelledError>(work);
 }
 
 /**
@@ -92,7 +92,7 @@ export function cancellableScope<T>(
 export function nonCancellableScope<T>(
   fn: () => T | Promise<T>,
 ): AsyncResult<T, WorkflowCancelledError> {
-  const work = async (): Promise<Result<T, WorkflowCancelledError>> => {
+  const work = async () => {
     try {
       const value = await CancellationScope.nonCancellable(async () => fn());
       return Ok(value);
@@ -103,5 +103,5 @@ export function nonCancellableScope<T>(
       throw error;
     }
   };
-  return makeAsyncResult(work);
+  return makeAsyncResult<T, WorkflowCancelledError>(work);
 }

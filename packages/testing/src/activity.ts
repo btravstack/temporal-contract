@@ -23,7 +23,7 @@ import {
 } from "@temporal-contract/contract/errors";
 import { _internal_makeAsyncResult } from "@temporal-contract/contract/result-async";
 import { MockActivityEnvironment } from "@temporalio/testing";
-import type { AsyncResult, Result } from "unthrown";
+import type { AsyncResult } from "unthrown";
 
 /**
  * Typed error constructors for an activity's declared `errors` map — the
@@ -106,7 +106,7 @@ export function runActivity<TActivity extends ActivityDefinition, TOutput, TErro
   };
 
   return _internal_makeAsyncResult(() =>
-    env.run(async (): Promise<Result<TOutput, TError>> => {
+    env.run(async () => {
       // Awaiting the AsyncResult yields its settled Result (ok / err /
       // defect) without throwing; the outer wrapper re-lifts it, and any
       // synchronous throw or rejection lands on the defect channel.

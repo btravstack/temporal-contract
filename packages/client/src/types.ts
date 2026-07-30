@@ -6,6 +6,13 @@ import type {
 } from "@temporal-contract/contract";
 import type { AsyncResult } from "unthrown";
 
+import type {
+  QueryValidationError,
+  SignalValidationError,
+  UpdateValidationError,
+  WorkflowExecutionNotFoundError,
+} from "./errors.js";
+
 // The direction-aware schema inference primitives live in
 // `@temporal-contract/contract` (single source of truth shared with the
 // worker package); re-exported so the client's public type surface is
@@ -27,36 +34,45 @@ import type { ClientInferInput, ClientInferOutput } from "@temporal-contract/con
  * Infer signal handler signature from client perspective.
  * Client sends the signal input type; the payload argument is omittable
  * when the schema accepts `undefined` (e.g. payload-less `defineSignal()`).
+ * The error union names exactly what the handle's signal proxy produces:
+ * input-validation failure or a missing execution.
  */
 export type ClientInferSignal<TSignal extends SignalDefinition> = (
   ...args: undefined extends ClientInferInput<TSignal>
     ? [input?: ClientInferInput<TSignal>]
     : [input: ClientInferInput<TSignal>]
-) => AsyncResult<void, Error>;
+) => AsyncResult<void, SignalValidationError | WorkflowExecutionNotFoundError>;
 
 /**
  * Infer query handler signature from client perspective.
  * Client sends the query input type and receives the output type wrapped in
- * `AsyncResult<T, Error>`; the payload argument is omittable when the schema
+ * an `AsyncResult`; the payload argument is omittable when the schema
  * accepts `undefined` (e.g. argument-less `defineQuery({ output })`).
+ * The error union names exactly what the handle's query proxy produces:
+ * input/output-validation failure or a missing execution.
  */
 export type ClientInferQuery<TQuery extends QueryDefinition> = (
   ...args: undefined extends ClientInferInput<TQuery>
     ? [input?: ClientInferInput<TQuery>]
     : [input: ClientInferInput<TQuery>]
-) => AsyncResult<ClientInferOutput<TQuery>, Error>;
+) => AsyncResult<ClientInferOutput<TQuery>, QueryValidationError | WorkflowExecutionNotFoundError>;
 
 /**
  * Infer update handler signature from client perspective.
  * Client sends the update input type and receives the output type wrapped in
- * `AsyncResult<T, Error>`; the payload argument is omittable when the schema
+ * an `AsyncResult`; the payload argument is omittable when the schema
  * accepts `undefined` (e.g. argument-less `defineUpdate({ output })`).
+ * The error union names exactly what the handle's update proxy produces:
+ * input/output-validation failure or a missing execution.
  */
 export type ClientInferUpdate<TUpdate extends UpdateDefinition> = (
   ...args: undefined extends ClientInferInput<TUpdate>
     ? [input?: ClientInferInput<TUpdate>]
     : [input: ClientInferInput<TUpdate>]
-) => AsyncResult<ClientInferOutput<TUpdate>, Error>;
+) => AsyncResult<
+  ClientInferOutput<TUpdate>,
+  UpdateValidationError | WorkflowExecutionNotFoundError
+>;
 
 /**
  * Infer signals from a workflow definition (client perspective)
