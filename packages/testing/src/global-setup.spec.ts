@@ -1,16 +1,18 @@
 /**
- * Coverage for the vitest `globalSetup` hook.
+ * Coverage for the vitest `globalSetup` hook and its `createGlobalSetup`
+ * factory.
  *
  * `testcontainers` is mocked so no Docker daemon is needed: the specs assert
  * the postgres → temporal startup order, that the temporal address is
- * provided to the test project, and that teardown stops both containers and
+ * provided to the test project, that teardown stops both containers and
  * the network — swallowing individual stop failures so one broken container
- * doesn't leak the others.
+ * doesn't leak the others — and that the factory's options (images, extra
+ * temporal env, quiet) are applied.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TestProject } from "vitest/node";
 
-import setup from "./global-setup.js";
+import setup, { createGlobalSetup } from "./global-setup.js";
 
 type StartedContainer = {
   getHost: () => string;
@@ -20,6 +22,7 @@ type StartedContainer = {
 
 const mocks = vi.hoisted(() => {
   const images: string[] = [];
+  const environments: Array<{ image: string; env: Record<string, string> }> = [];
   const startedContainers: Array<{
     getHost: () => string;
     getMappedPort: (port: number) => number;
@@ -28,7 +31,9 @@ const mocks = vi.hoisted(() => {
   const networkStop = vi.fn(() => Promise.resolve());
 
   class FakeGenericContainer {
+    private readonly image: string;
     constructor(image: string) {
+      this.image = image;
       images.push(image);
     }
     withNetwork() {
@@ -40,7 +45,8 @@ const mocks = vi.hoisted(() => {
     withExposedPorts() {
       return this;
     }
-    withEnvironment() {
+    withEnvironment(env: Record<string, string>) {
+      environments.push({ image: this.image, env });
       return this;
     }
     withHealthCheck() {
@@ -66,7 +72,14 @@ const mocks = vi.hoisted(() => {
     }
   }
 
-  return { images, startedContainers, networkStop, FakeGenericContainer, FakeNetwork };
+  return {
+    images,
+    environments,
+    startedContainers,
+    networkStop,
+    FakeGenericContainer,
+    FakeNetwork,
+  };
 });
 
 vi.mock("testcontainers", () => ({
@@ -75,14 +88,20 @@ vi.mock("testcontainers", () => ({
   Wait: { forHealthCheck: () => ({}) },
 }));
 
-function runSetup(): Promise<{ provide: ReturnType<typeof vi.fn>; teardown: unknown }> {
+function runSetup(
+  setupFn: (project: TestProject) => Promise<unknown> = setup,
+): Promise<{ provide: ReturnType<typeof vi.fn>; teardown: unknown }> {
   const provide = vi.fn();
-  return setup({ provide } as unknown as TestProject).then((teardown) => ({ provide, teardown }));
+  return setupFn({ provide } as unknown as TestProject).then((teardown) => ({
+    provide,
+    teardown,
+  }));
 }
 
 describe("global setup", () => {
   beforeEach(() => {
     mocks.images.length = 0;
+    mocks.environments.length = 0;
     mocks.startedContainers.length = 0;
     mocks.networkStop.mockClear();
     vi.spyOn(console, "log").mockImplementation(() => {});
@@ -127,5 +146,72 @@ describe("global setup", () => {
     // The postgres container and the network are still cleaned up.
     expect(postgres?.stop).toHaveBeenCalledTimes(1);
     expect(mocks.networkStop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("createGlobalSetup", () => {
+  beforeEach(() => {
+    mocks.images.length = 0;
+    mocks.environments.length = 0;
+    mocks.startedContainers.length = 0;
+    mocks.networkStop.mockClear();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("uses the configured images", async () => {
+    await runSetup(
+      createGlobalSetup({
+        postgresImage: "postgres:16.4",
+        temporalImage: "temporalio/auto-setup:1.28.0",
+      }),
+    );
+
+    expect(mocks.images).toEqual(["postgres:16.4", "temporalio/auto-setup:1.28.0"]);
+  });
+
+  it("merges extra env into the temporal container, overriding defaults", async () => {
+    await runSetup(
+      createGlobalSetup({
+        temporalEnv: {
+          DYNAMIC_CONFIG_FILE_PATH: "/etc/temporal/dynamic.yaml",
+          DB: "postgres13",
+        },
+      }),
+    );
+
+    const temporal = mocks.environments.find(({ image }) => image.startsWith("temporalio/"));
+    expect(temporal?.env).toMatchObject({
+      DYNAMIC_CONFIG_FILE_PATH: "/etc/temporal/dynamic.yaml",
+      // Overrides the built-in default.
+      DB: "postgres13",
+      // Built-in defaults are preserved.
+      POSTGRES_SEEDS: "postgres",
+    });
+
+    // The postgres container's env is untouched.
+    const postgres = mocks.environments.find(({ image }) => image.startsWith("postgres:"));
+    expect(postgres?.env).toEqual({
+      POSTGRES_DB: "temporal",
+      POSTGRES_USER: "temporal",
+      POSTGRES_PASSWORD: "temporal",
+    });
+  });
+
+  it("silences progress logs with quiet (teardown errors still log)", async () => {
+    const { teardown } = await runSetup(createGlobalSetup({ quiet: true }));
+
+    expect(console.log).not.toHaveBeenCalled();
+
+    const [, temporal] = mocks.startedContainers as StartedContainer[];
+    temporal?.stop.mockRejectedValueOnce(new Error("already gone"));
+    await (teardown as () => Promise<void>)();
+
+    expect(console.log).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledTimes(1);
   });
 });

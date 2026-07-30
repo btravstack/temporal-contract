@@ -1,5 +1,11 @@
 {
   "extends": "@btravstack/typedoc/base.json",
-  "entryPoints": ["src/extension.ts", "src/global-setup.ts"],
+  "entryPoints": [
+    "src/activity.ts",
+    "src/contract.ts",
+    "src/extension.ts",
+    "src/global-setup.ts",
+    "src/time-skipping.ts"
+  ],
   "out": "docs"
 }

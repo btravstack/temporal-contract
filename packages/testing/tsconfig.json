@@ -2,7 +2,27 @@
   "extends": "@btravstack/tsconfig/base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src"
+    // `rootDir` spans the packages dir: the `paths` below intentionally pull
+    // sibling sources into the program, which a src-scoped rootDir would
+    // reject (TS6059). The config never emits (base sets `noEmit`), so this
+    // only satisfies the compiler's emit-layout validation.
+    "rootDir": "..",
+    // The sibling packages are peer dependencies (declaring them as
+    // dev/regular deps would put a cycle in the package graph:
+    // client/worker already devDepend on this package for their integration
+    // fixtures). They are mapped to source here so typecheck and the dts
+    // build resolve them without needing the siblings' dist or a
+    // node_modules link. The emitted output keeps the bare specifiers —
+    // consumers resolve them through their own (peer) installs.
+    "paths": {
+      "@temporal-contract/client": ["../client/src/index.ts"],
+      "@temporal-contract/contract": ["../contract/src/index.ts"],
+      "@temporal-contract/contract/errors": ["../contract/src/errors.ts"],
+      "@temporal-contract/contract/result-async": ["../contract/src/result-async.ts"],
+      "@temporal-contract/worker/activity": ["../worker/src/activity.ts"],
+      "@temporal-contract/worker/worker": ["../worker/src/worker.ts"],
+      "@temporal-contract/worker/workflow": ["../worker/src/workflow.ts"]
+    }
   },
   "include": ["src/**/*"]
 }
