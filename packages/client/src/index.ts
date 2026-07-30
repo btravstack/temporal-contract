@@ -2,7 +2,7 @@ export {
   ContractClient,
   readTypedSearchAttributes,
   TypedClient,
-  type CreateTypedClientOptions,
+  type CreateClientOptions,
   type TypedGetHandleOptions,
   type TypedSearchAttributeMap,
   type TypedSignalWithStartOptions,

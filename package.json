@@ -32,5 +32,8 @@
     "oxlint": "catalog:",
     "turbo": "catalog:"
   },
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "packageManager": "pnpm@11.7.0"
 }
