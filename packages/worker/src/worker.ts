@@ -107,28 +107,6 @@ export function createWorker<TContract extends ContractDefinition>(
 }
 
 /**
- * Create a typed Temporal worker, throwing on failure — the
- * pre-AsyncResult behavior.
- *
- * @deprecated Use {@link createWorker}, which returns
- * `AsyncResult<Worker, never>` (technical failures ride the defect channel).
- * This throwing alias exists to ease migration and will be removed in a
- * future major.
- */
-export async function createWorkerOrThrow<TContract extends ContractDefinition>(
-  options: CreateWorkerOptions<TContract>,
-): Promise<Worker> {
-  const result = await createWorker(options);
-  // A technical failure now rides the defect channel with a `TechnicalError`
-  // cause; unwrap it so this throwing alias keeps rethrowing the *original*
-  // cause (its pre-defect behavior), not the wrapper.
-  if (result.isDefect() && result.cause instanceof TechnicalError) {
-    throw result.cause.cause ?? result.cause;
-  }
-  return result.get();
-}
-
-/**
  * Helper to resolve a workflow file path relative to the current module's URL.
  *
  * Useful when using ES modules (`import.meta.url`) to locate workflow files.

@@ -108,8 +108,8 @@ shape on the client: the connection-scoped `TypedClient.create({ client })`
 returns `AsyncResult<TypedClient, never>` (a `TechnicalError`-caused defect on
 setup failure); bind a contract with the synchronous, infallible
 `typedClient.for(contract)`, which returns a `ContractClient<TContract>` (the
-type to use in annotations). There is no `TypedClient.createOrThrow`; the
-deprecated `createWorkerOrThrow` still exists for migration.
+type to use in annotations). There is no `TypedClient.createOrThrow` and no
+`createWorkerOrThrow` — use `.get()` on the returned `AsyncResult`.
 
 ```typescript
 import { createWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";

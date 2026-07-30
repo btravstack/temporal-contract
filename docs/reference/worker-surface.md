@@ -305,7 +305,7 @@ Runs **inside** the validation boundary.
 Calling `next` more than once re-runs the rest of the chain (retry). Returning
 without calling it short-circuits.
 
-#### `defineActivityMiddleware(middleware)`
+#### `declareActivityMiddleware(middleware)`
 
 Identity helper that pins the context type parameters without a variable
 annotation.
@@ -349,15 +349,6 @@ process on the same task queue. See
 technical faults on the **defect** channel with a `TechnicalError` cause.
 Inspect with `isDefect()` / `match({ defect })` / `recoverDefect`, or use
 `.get()` to rethrow the original cause.
-
-### `createWorkerOrThrow(options)`
-
-::: warning Deprecated
-Pre-`AsyncResult` behaviour, kept to ease migration. Removed in a future major.
-Use `createWorker`.
-:::
-
-Rethrows the original cause rather than the `TechnicalError` wrapper.
 
 ### `workflowsPathFromURL(baseURL, relativePath)`
 

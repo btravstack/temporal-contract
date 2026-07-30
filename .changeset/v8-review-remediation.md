@@ -28,7 +28,7 @@ v8 review remediation — the full-surface overhaul from the six-track 8.0 revie
 
 - Invalid signal payloads are dropped and logged (`log.warn`), never thrown — `SignalInputValidationError` is deleted; a stale client can no longer terminally kill a workflow execution.
 - Contract misuse inside workflow code (unknown signal/query/update or workflow name, async schema, uncovered activity options) now fails fast as a non-retryable `ContractMisuseError` `ApplicationFailure` instead of hanging executions in Workflow Task retries.
-- Exported `qualify` is renamed `qualifyFailure` (no alias).
+- Exported `qualify` is renamed `qualifyFailure` (no alias), and the deprecated `createWorkerOrThrow` is removed — use `createWorker(...).get()`.
 - `activities` is optional on `createWorker`, and activity-less workflows no longer need `{}` entries in the implementations map.
 - `TypedChildWorkflowHandle` gains a typed `signals` map and `firstExecutionRunId`.
 

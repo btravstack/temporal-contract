@@ -24,7 +24,7 @@ import { describe, expect } from "vitest";
 import {
   composeActivityMiddleware,
   declareActivitiesHandler,
-  defineActivityMiddleware,
+  declareActivityMiddleware,
 } from "../activity.js";
 import { createWorker, TechnicalError } from "../worker.js";
 import { inprocessContract } from "./inprocess.contract.js";
@@ -35,7 +35,7 @@ const errAsync = <E>(error: E): AsyncResult<never, E> => Err(error).toAsync();
 const seenContexts: Record<string, unknown>[] = [];
 
 const tracing = composeActivityMiddleware(
-  defineActivityMiddleware<{ gateway: string }, { gateway: string; traceId: string }>(
+  declareActivityMiddleware<{ gateway: string }, { gateway: string; traceId: string }>(
     (invocation, next) => next({ context: { ...invocation.context, traceId: "trace-1" } }),
   ),
 );
