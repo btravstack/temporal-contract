@@ -297,18 +297,18 @@ export type TypedWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
 
   /**
    * Type-safe queries based on workflow definition with Result pattern.
-   * Each query returns
-   * `AsyncResult<T, QueryValidationError | WorkflowExecutionNotFoundError>`
-   * instead of `Promise<T>` — the error union is carried by
-   * {@link ClientInferWorkflowQueries} directly.
+   * Each query returns an `AsyncResult` — erring with `QueryValidationError`
+   * or `WorkflowExecutionNotFoundError` — instead of a throwing `Promise`;
+   * the error union is carried by {@link ClientInferWorkflowQueries}
+   * directly.
    */
   queries: ClientInferWorkflowQueries<TWorkflow>;
 
   /**
    * Type-safe signals based on workflow definition with Result pattern.
-   * Each signal returns
-   * `AsyncResult<void, SignalValidationError | WorkflowExecutionNotFoundError>`
-   * instead of `Promise<void>` — the error union is carried by
+   * Each signal returns an `AsyncResult` — erring with
+   * `SignalValidationError` or `WorkflowExecutionNotFoundError` — instead of
+   * a throwing `Promise`; the error union is carried by
    * {@link ClientInferWorkflowSignals} directly.
    */
   signals: ClientInferWorkflowSignals<TWorkflow>;
@@ -316,9 +316,9 @@ export type TypedWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
   /**
    * Type-safe updates based on workflow definition with Result pattern.
    * Each update starts the update AND waits for its result (Temporal's
-   * `executeUpdate`), returning
-   * `AsyncResult<T, UpdateValidationError | WorkflowExecutionNotFoundError>`;
-   * use {@link startUpdate} to obtain an update handle without waiting for
+   * `executeUpdate`), returning an `AsyncResult` that errs with
+   * `UpdateValidationError` or `WorkflowExecutionNotFoundError`; use
+   * {@link startUpdate} to obtain an update handle without waiting for
    * completion.
    */
   updates: ClientInferWorkflowUpdates<TWorkflow>;
@@ -562,6 +562,7 @@ export class TypedClient {
       if (!client.schedule) {
         // Technical setup fault — `makeAsyncResult`'s throw→defect net
         // routes it to the defect channel (never a modeled Err).
+        // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
         throw new TechnicalError(
           "TypedClient requires @temporalio/client >= 1.16 (the Schedule API was added in 1.16). " +
             "Found a Client instance without a `schedule` property — please upgrade.",
@@ -579,6 +580,7 @@ export class TypedClient {
           await connection.ensureConnected();
         } catch (error) {
           // Technical connection fault — route to the defect channel too.
+          // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
           throw new TechnicalError("Failed to connect to Temporal server", error);
         }
       }
@@ -775,6 +777,7 @@ export class ContractClient<TContract extends ContractDefinition> {
           const alreadyStarted = classifyStartError(error);
           if (alreadyStarted) return Err(alreadyStarted);
           // Unrecognized, technical failure — route to the defect channel.
+          // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
           throw new RuntimeClientError("startWorkflow", error);
         }
       };
@@ -927,6 +930,7 @@ export class ContractClient<TContract extends ContractDefinition> {
           const alreadyStarted = classifyStartError(error);
           if (alreadyStarted) return Err(alreadyStarted);
           // Unrecognized, technical failure — route to the defect channel.
+          // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
           throw new RuntimeClientError("signalWithStart", error);
         }
       };
@@ -1064,6 +1068,7 @@ export class ContractClient<TContract extends ContractDefinition> {
           );
           if (classified) return Err(classified as Err);
           // Unrecognized, technical failure — route to the defect channel.
+          // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
           throw new RuntimeClientError("executeWorkflow", error);
         }
       };
@@ -1210,6 +1215,7 @@ export class ContractClient<TContract extends ContractDefinition> {
             const notFound = classifyHandleError(error, updateHandle.workflowId);
             if (notFound) return Err(notFound);
             // Unrecognized, technical failure — route to the defect channel.
+            // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
             throw new RuntimeClientError("update.result", error);
           }
         };
@@ -1255,6 +1261,7 @@ export class ContractClient<TContract extends ContractDefinition> {
             const notFound = classifyHandleError(error, workflowHandle.workflowId);
             if (notFound) return Err(notFound);
             // Unrecognized, technical failure — route to the defect channel.
+            // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
             throw new RuntimeClientError("startUpdate", error);
           }
         };
@@ -1325,6 +1332,7 @@ export class ContractClient<TContract extends ContractDefinition> {
             );
             if (classified) return Err(classified as Err);
             // Unrecognized, technical failure — route to the defect channel.
+            // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
             throw new RuntimeClientError("result", error);
           }
         };
@@ -1460,6 +1468,7 @@ function buildValidatedProxy<TDef extends DefWithInput, TValidationError extends
           const notFound = classifyHandleError(error, workflowId);
           if (notFound) return Err(notFound);
           // Unrecognized, technical failure — route to the defect channel.
+          // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
           throw new RuntimeClientError(operation, error);
         }
       };

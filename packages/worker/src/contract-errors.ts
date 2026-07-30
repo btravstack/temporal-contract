@@ -37,6 +37,7 @@ export async function contractErrorToApplicationFailure(
 ): Promise<ApplicationFailure> {
   const definition = declaredErrors?.[error.errorName];
   if (!definition) {
+    // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
     throw new ContractErrorDataValidationError(error.errorName, [
       {
         message:
@@ -50,6 +51,7 @@ export async function contractErrorToApplicationFailure(
   if (definition.data) {
     const validated = await definition.data["~standard"].validate(error.data);
     if (validated.issues) {
+      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
       throw new ContractErrorDataValidationError(error.errorName, validated.issues);
     }
     // Transmit the ORIGINAL payload — the rehydrating side parses it (D1).

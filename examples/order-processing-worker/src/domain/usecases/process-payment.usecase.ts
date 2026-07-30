@@ -12,10 +12,12 @@ export class ProcessPaymentUseCase {
   async execute(customerId: string, amount: number): Promise<PaymentOutcome> {
     // Business validation
     if (amount <= 0) {
+      // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
       throw new Error("Payment amount must be positive");
     }
 
     if (!customerId || customerId.trim() === "") {
+      // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
       throw new Error("Customer ID is required");
     }
 

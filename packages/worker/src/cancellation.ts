@@ -65,6 +65,7 @@ export function cancellableScope<T>(
       }
       // Non-cancellation throw → re-throw so `makeAsyncResult`'s boundary
       // routes it through the `defect` channel as an unmodeled failure.
+      // oxlint-disable-next-line unthrown/no-throw -- cancellation-scope rethrow: the throw IS the defect-channel routing through makeAsyncResult's boundary
       throw error;
     }
   };
@@ -100,6 +101,7 @@ export function nonCancellableScope<T>(
       if (isCancellation(error)) {
         return Err(new WorkflowCancelledError(error));
       }
+      // oxlint-disable-next-line unthrown/no-throw -- cancellation-scope rethrow: the throw IS the defect-channel routing through makeAsyncResult's boundary
       throw error;
     }
   };

@@ -12,11 +12,13 @@ export class ReserveInventoryUseCase {
   async execute(items: OrderItem[]): Promise<InventoryReservation> {
     // Business validation
     if (!items || items.length === 0) {
+      // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
       throw new Error("At least one item is required");
     }
 
     for (const item of items) {
       if (item.quantity <= 0) {
+        // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
         throw new Error(`Invalid quantity for product ${item.productId}`);
       }
     }

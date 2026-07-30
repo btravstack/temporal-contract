@@ -56,6 +56,7 @@ export class MockPaymentAdapter implements PaymentPort {
       logger.info(`✅ Refund successful`);
     } else {
       logger.error(`❌ Refund failed`);
+      // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
       throw new Error("Payment processor rejected refund request");
     }
   }

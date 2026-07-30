@@ -135,6 +135,7 @@ export function buildRawActivitiesProxy(
       // ContractMisuseError (a non-retryable ApplicationFailure), not a plain
       // Error: this runs inside the workflow sandbox, where a plain Error
       // would be retried as a Workflow Task failure forever (D3).
+      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: declaration-time fail-fast as a non-retryable ApplicationFailure (CLAUDE.md rule 2 exception)
       throw new ContractMisuseError(
         `declareWorkflow: \`activityOptions\` was omitted but the following activities declare ` +
           `no contract-level \`defaultOptions\` and have no \`activityOptionsByName\` entry: ` +
@@ -160,6 +161,7 @@ export function buildRawActivitiesProxy(
     : [];
   for (const [name] of overrideEntries) {
     if (!(name in allDefinitions)) {
+      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: declaration-time fail-fast as a non-retryable ApplicationFailure (CLAUDE.md rule 2 exception)
       throw new ContractMisuseError(
         `activityOptionsByName entry "${name}" does not match any declared activity. Available: ${Object.keys(allDefinitions).join(", ") || "none"}.`,
       );
@@ -285,6 +287,7 @@ export function createContinueAsNew(
 
     const targetDef = targetContract.workflows[targetName];
     if (!targetDef) {
+      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
       throw new WorkflowInputValidationError(targetName, [
         {
           message: `continueAsNew target workflow "${targetName}" is not declared on the supplied contract.`,
@@ -294,6 +297,7 @@ export function createContinueAsNew(
 
     const inputResult = await targetDef.input["~standard"].validate(rawArgs);
     if (inputResult.issues) {
+      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
       throw new WorkflowInputValidationError(targetName, inputResult.issues);
     }
 

@@ -205,6 +205,7 @@ export function declareWorkflow<
     | undefined;
   if (!definition) {
     const available = Object.keys(contract.workflows).join(", ") || "none";
+    // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: declaration-time fail-fast as a non-retryable ApplicationFailure (CLAUDE.md rule 2 exception)
     throw new ContractMisuseError(
       `declareWorkflow: workflow "${String(workflowName)}" is not declared on the supplied contract. Available workflows: ${available}`,
     );
@@ -285,6 +286,7 @@ export function declareWorkflow<
     // happens exactly once, here.
     const inputResult = await definition.input["~standard"].validate(input);
     if (inputResult.issues) {
+      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
       throw new WorkflowInputValidationError(workflowName, inputResult.issues);
     }
     const validatedInput = inputResult.value as WorkerInferInput<
@@ -357,12 +359,14 @@ export function declareWorkflow<
       result = await implementation(context, validatedInput);
     } catch (error) {
       if (error instanceof ContractError) {
+        // oxlint-disable-next-line unthrown/no-throw -- sanctioned ApplicationFailure model: a declared contract error fails the execution terminally with its typed wire shape (CLAUDE.md rule 2 exception)
         throw await contractErrorToApplicationFailure(
           error,
           definition.errors,
           `workflow "${workflowName}"`,
         );
       }
+      // oxlint-disable-next-line unthrown/no-throw -- workflow-sandbox rethrow: an unmodeled implementation throw must reach Temporal untouched
       throw error;
     }
 
@@ -373,6 +377,7 @@ export function declareWorkflow<
     // transforming output schema is applied exactly once, on receive.
     const outputResult = await definition.output["~standard"].validate(result);
     if (outputResult.issues) {
+      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
       throw new WorkflowOutputValidationError(workflowName, outputResult.issues);
     }
 

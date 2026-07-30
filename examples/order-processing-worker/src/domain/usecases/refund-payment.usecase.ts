@@ -11,6 +11,7 @@ export class RefundPaymentUseCase {
   async execute(transactionId: string): Promise<void> {
     // Business validation
     if (!transactionId || transactionId.trim() === "") {
+      // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
       throw new Error("Transaction ID is required");
     }
 

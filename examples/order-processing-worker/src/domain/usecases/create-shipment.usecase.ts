@@ -12,10 +12,12 @@ export class CreateShipmentUseCase {
   async execute(orderId: string, customerId: string): Promise<ShippingResult> {
     // Business validation
     if (!orderId || orderId.trim() === "") {
+      // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
       throw new Error("Order ID is required");
     }
 
     if (!customerId || customerId.trim() === "") {
+      // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
       throw new Error("Customer ID is required");
     }
 

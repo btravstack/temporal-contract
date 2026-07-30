@@ -11,6 +11,7 @@ export class ReleaseInventoryUseCase {
   async execute(reservationId: string): Promise<void> {
     // Business validation
     if (!reservationId || reservationId.trim() === "") {
+      // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
       throw new Error("Reservation ID is required");
     }
 
