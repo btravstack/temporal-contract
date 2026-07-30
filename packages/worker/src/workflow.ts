@@ -9,12 +9,12 @@ import type {
   ActivityDefinition,
   ContractDefinition,
   ErrorDefinition,
+  InferQueryNames,
+  InferSignalNames,
+  InferUpdateNames,
   QueryDefinition,
-  QueryNamesOf,
   SignalDefinition,
-  SignalNamesOf,
   UpdateDefinition,
-  UpdateNamesOf,
 } from "@temporal-contract/contract";
 import {
   _internal_buildErrorConstructors,
@@ -419,7 +419,7 @@ type DeclareWorkflowOptions<
    * Default activity options applied to every activity reachable from this
    * workflow (workflow-local + global) unless overridden. Merge precedence
    * per activity (least → most specific): this workflow-wide default → the
-   * activity's contract-level `defineActivity({ defaultOptions })` → the
+   * activity's contract-level `defineActivity({ activityOptions })` → the
    * explicit {@link activityOptionsByName} entry. See Temporal's
    * `ActivityOptions` for the full set of fields:
    * - `startToCloseTimeout`: Maximum time for a single attempt to run
@@ -437,7 +437,7 @@ type DeclareWorkflowOptions<
    * ```
    *
    * Optional when every reachable activity carries its own options — via
-   * contract-level `defaultOptions` or an {@link activityOptionsByName}
+   * contract-level `activityOptions` or an {@link activityOptionsByName}
    * entry. If it is omitted while some activity has neither,
    * `declareWorkflow` throws at declaration time listing the uncovered
    * activities.
@@ -562,7 +562,7 @@ type WorkflowContext<
    * }
    * ```
    */
-  defineSignal: <K extends SignalNamesOf<TContract["workflows"][TWorkflowName]>>(
+  defineSignal: <K extends InferSignalNames<TContract["workflows"][TWorkflowName]>>(
     signalName: K,
     handler: SignalHandlerImplementation<SignalDefOf<TContract["workflows"][TWorkflowName], K>>,
   ) => void;
@@ -584,7 +584,7 @@ type WorkflowContext<
    * }
    * ```
    */
-  defineQuery: <K extends QueryNamesOf<TContract["workflows"][TWorkflowName]>>(
+  defineQuery: <K extends InferQueryNames<TContract["workflows"][TWorkflowName]>>(
     queryName: K,
     handler: QueryHandlerImplementation<QueryDefOf<TContract["workflows"][TWorkflowName], K>>,
   ) => void;
@@ -607,7 +607,7 @@ type WorkflowContext<
    * }
    * ```
    */
-  defineUpdate: <K extends UpdateNamesOf<TContract["workflows"][TWorkflowName]>>(
+  defineUpdate: <K extends InferUpdateNames<TContract["workflows"][TWorkflowName]>>(
     updateName: K,
     handler: UpdateHandlerImplementation<UpdateDefOf<TContract["workflows"][TWorkflowName], K>>,
   ) => void;

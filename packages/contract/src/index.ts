@@ -10,6 +10,8 @@ export {
 
 export { formatIssue, summarizeIssues } from "./format.js";
 
+export { CONTRACT_ERROR_TAG, TECHNICAL_ERROR_TAG } from "./error-tags.js";
+
 export type {
   AnySchema,
   UndefinedInputSchema,
@@ -22,7 +24,7 @@ export type {
   ContractDefinition,
   // Typed domain errors
   ErrorDefinition,
-  DeclaredErrorsOf,
+  InferDeclaredErrors,
   InferErrorData,
   InferErrorDataInput,
   // Contract-level activity option defaults
@@ -41,7 +43,7 @@ export type {
   WorkerInferOutput,
   ClientInferInput,
   ClientInferOutput,
-  SignalNamesOf,
-  QueryNamesOf,
-  UpdateNamesOf,
+  InferSignalNames,
+  InferQueryNames,
+  InferUpdateNames,
 } from "./types.js";

@@ -7,7 +7,7 @@ import { z } from "zod";
 const decorate = defineActivity({
   input: z.object({ name: z.string() }),
   output: z.object({ decorated: z.string() }),
-  defaultOptions: { startToCloseTimeout: "10 seconds" },
+  activityOptions: { startToCloseTimeout: "10 seconds" },
 });
 
 const greet = defineWorkflow({

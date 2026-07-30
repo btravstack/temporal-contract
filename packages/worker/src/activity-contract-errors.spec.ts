@@ -6,7 +6,8 @@ import { OkAsync, ErrAsync, P } from "unthrown";
  * errors, middleware chain, and dependency context — the boundary where an
  * implementation's `Err(ContractError)` becomes a Temporal
  * `ApplicationFailure` (`type` = error name, `details[0]` = validated data,
- * `nonRetryable` from the contract).
+ * `details[1]` = the wire-envelope marker, `nonRetryable` from the
+ * contract).
  */
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -69,11 +70,11 @@ describe("declareActivitiesHandler — contract errors", () => {
       type: "PaymentDeclined",
       message: "The payment was declined",
       nonRetryable: true,
-      details: [{ reason: "insufficient_funds" }],
+      details: [{ reason: "insufficient_funds" }, { $tc: 1 }],
     });
   });
 
-  it("serializes data-less errors with empty details and contract retryability", async () => {
+  it("serializes data-less errors with a marker-only envelope and contract retryability", async () => {
     const activities = declareActivitiesHandler({
       contract,
       activities: {
@@ -87,7 +88,10 @@ describe("declareActivitiesHandler — contract errors", () => {
     await expect(activities.chargePayment({ amount: 100 })).rejects.toMatchObject({
       type: "GatewayUnavailable",
       nonRetryable: false,
-      details: [],
+      // `details[0]` stays the (absent) data slot so slot positions are
+      // stable; `details[1]` is the provenance marker the rehydrating side
+      // requires for data-less errors.
+      details: [undefined, { $tc: 1 }],
     });
   });
 
@@ -119,7 +123,7 @@ describe("declareActivitiesHandler — contract errors", () => {
 
     await expect(activities.flaky({})).rejects.toMatchObject({
       type: "Nope",
-      details: [{ reason: "declined" }], // not [{ reason: "declined!" }]
+      details: [{ reason: "declined" }, { $tc: 1 }], // not [{ reason: "declined!" }, …]
     });
   });
 

@@ -16,7 +16,7 @@ import { OkAsync, ErrAsync } from "unthrown";
  * - typed contract errors (activity-side rehydration in the workflow,
  *   workflow-side rehydration at the client),
  * - client interceptors observing every operation,
- * - contract-level `defaultOptions` standing in for `activityOptions`,
+ * - contract-level `activityOptions` standing in for `activityOptions`,
  * - time skipping (an hour-long `sleep` resolving immediately).
  */
 import { describe, expect } from "vitest";

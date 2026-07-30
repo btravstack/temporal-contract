@@ -7,7 +7,7 @@ export const placeOrder = declareWorkflow({
   workflowName: "placeOrder",
   contract: inprocessContract,
   // No `activityOptions`: the only reachable activity (`charge`) carries
-  // contract-level `defaultOptions`.
+  // contract-level `activityOptions`.
   implementation: async (context, args) => {
     if (args.amount === 0) {
       // Typed workflow error — rehydrated as a ContractError by the client.

@@ -3,12 +3,12 @@ import type {
   AnyWorkflowDefinition,
   ContractDefinition,
   ErrorDefinition,
+  InferSignalNames,
+  InferUpdateNames,
   SearchAttributeDefinition,
   SearchAttributeKindToType,
   SignalDefinition,
-  SignalNamesOf,
   UpdateDefinition,
-  UpdateNamesOf,
 } from "@temporal-contract/contract";
 import { TechnicalError, type ContractErrorUnion } from "@temporal-contract/contract/errors";
 import { type Client, type WorkflowHandle, type WorkflowUpdateHandle } from "@temporalio/client";
@@ -184,7 +184,7 @@ type SignalArgsField<TSignalDef> = TSignalDef extends SignalDefinition
 export type TypedSignalWithStartOptions<
   TContract extends ContractDefinition,
   TWorkflowName extends keyof TContract["workflows"] & string,
-  TSignalName extends SignalNamesOf<TContract["workflows"][TWorkflowName]>,
+  TSignalName extends InferSignalNames<TContract["workflows"][TWorkflowName]>,
 > = Omit<
   WorkflowSignalWithStartOptions,
   "taskQueue" | "args" | "signal" | "signalArgs" | "searchAttributes" | "typedSearchAttributes"
@@ -331,7 +331,7 @@ export type TypedWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
    * parameter is omittable when the update's input schema accepts
    * `undefined` (e.g. an argument-less `defineUpdate({ output })`).
    */
-  startUpdate: <TUpdateName extends UpdateNamesOf<TWorkflow>>(
+  startUpdate: <TUpdateName extends InferUpdateNames<TWorkflow>>(
     updateName: TUpdateName,
     ...options: TWorkflow["updates"][TUpdateName] extends UpdateDefinition
       ? undefined extends ClientInferInput<TWorkflow["updates"][TUpdateName]>
@@ -838,7 +838,7 @@ export class ContractClient<TContract extends ContractDefinition> {
    */
   signalWithStart<
     TWorkflowName extends keyof TContract["workflows"] & string,
-    TSignalName extends SignalNamesOf<TContract["workflows"][TWorkflowName]>,
+    TSignalName extends InferSignalNames<TContract["workflows"][TWorkflowName]>,
   >(
     workflowName: TWorkflowName,
     options: TypedSignalWithStartOptions<TContract, TWorkflowName, TSignalName>,

@@ -21,11 +21,11 @@ import type {
   ClientInferInput,
   ClientInferOutput,
   InferActivityNames,
+  InferQueryNames,
+  InferSignalNames,
+  InferUpdateNames,
   InferWorkflowNames,
-  QueryNamesOf,
   SearchAttributeKindToType,
-  SignalNamesOf,
-  UpdateNamesOf,
   WorkerInferInput,
 } from "./types.js";
 
@@ -75,6 +75,24 @@ describe("contract inference utilities", () => {
       },
     });
     expectTypeOf<InferActivityNames<typeof noActivities>>().toEqualTypeOf<never>();
+  });
+
+  it("activity-only contracts (empty workflows map) keep their inference intact", () => {
+    const activityOnly = defineContract({
+      taskQueue: "activity-pool",
+      workflows: {},
+      activities: {
+        log: defineActivity({
+          input: z.object({ message: z.string() }),
+          output: z.void(),
+        }),
+      },
+    });
+
+    // Empty workflow map → `never`, not `string` — so typos in workflow
+    // names on client/worker call sites still fail to compile.
+    expectTypeOf<InferWorkflowNames<typeof activityOnly>>().toEqualTypeOf<never>();
+    expectTypeOf<InferActivityNames<typeof activityOnly>>().toEqualTypeOf<"log">();
   });
 
   it("defineActivity preserves the literal schema types", () => {
@@ -149,23 +167,23 @@ describe("Signal/query/update name helpers (audit fix #3)", () => {
     },
   });
 
-  it("SignalNamesOf yields the declared signal-name union", () => {
-    type Names = SignalNamesOf<(typeof contractWithSignal)["workflows"]["hasSignal"]>;
+  it("InferSignalNames yields the declared signal-name union", () => {
+    type Names = InferSignalNames<(typeof contractWithSignal)["workflows"]["hasSignal"]>;
     expectTypeOf<Names>().toEqualTypeOf<"cancel">();
   });
 
-  it("SignalNamesOf is `never` when the workflow declares no signals", () => {
-    type Names = SignalNamesOf<(typeof contractNoInteractions)["workflows"]["bare"]>;
+  it("InferSignalNames is `never` when the workflow declares no signals", () => {
+    type Names = InferSignalNames<(typeof contractNoInteractions)["workflows"]["bare"]>;
     expectTypeOf<Names>().toEqualTypeOf<never>();
   });
 
-  it("QueryNamesOf is `never` when the workflow declares no queries", () => {
-    type Names = QueryNamesOf<(typeof contractNoInteractions)["workflows"]["bare"]>;
+  it("InferQueryNames is `never` when the workflow declares no queries", () => {
+    type Names = InferQueryNames<(typeof contractNoInteractions)["workflows"]["bare"]>;
     expectTypeOf<Names>().toEqualTypeOf<never>();
   });
 
-  it("UpdateNamesOf is `never` when the workflow declares no updates", () => {
-    type Names = UpdateNamesOf<(typeof contractNoInteractions)["workflows"]["bare"]>;
+  it("InferUpdateNames is `never` when the workflow declares no updates", () => {
+    type Names = InferUpdateNames<(typeof contractNoInteractions)["workflows"]["bare"]>;
     expectTypeOf<Names>().toEqualTypeOf<never>();
   });
 
@@ -186,7 +204,7 @@ describe("Signal/query/update name helpers (audit fix #3)", () => {
     });
 
     type Union = typeof wfA | typeof wfB;
-    type Names = SignalNamesOf<Union>;
+    type Names = InferSignalNames<Union>;
 
     // Distributive: union of each variant's signal names, not the
     // intersection (which `keyof (A | B)` would otherwise produce).
@@ -217,11 +235,11 @@ describe("Signal/query/update name helpers (audit fix #3)", () => {
 
     type Union = typeof wfA | typeof wfB;
 
-    expectTypeOf<QueryNamesOf<Union>>().toEqualTypeOf<"getStatus" | "getCount">();
-    expectTypeOf<UpdateNamesOf<Union>>().toEqualTypeOf<"bump" | "reset">();
+    expectTypeOf<InferQueryNames<Union>>().toEqualTypeOf<"getStatus" | "getCount">();
+    expectTypeOf<InferUpdateNames<Union>>().toEqualTypeOf<"bump" | "reset">();
   });
 
-  it("QueryNamesOf yields the declared query-name union", () => {
+  it("InferQueryNames yields the declared query-name union", () => {
     const wf = defineWorkflow({
       input: z.object({}),
       output: z.object({}),
@@ -229,10 +247,10 @@ describe("Signal/query/update name helpers (audit fix #3)", () => {
         getStatus: defineQuery({ input: z.object({}), output: z.string() }),
       },
     });
-    expectTypeOf<QueryNamesOf<typeof wf>>().toEqualTypeOf<"getStatus">();
+    expectTypeOf<InferQueryNames<typeof wf>>().toEqualTypeOf<"getStatus">();
   });
 
-  it("UpdateNamesOf yields the declared update-name union", () => {
+  it("InferUpdateNames yields the declared update-name union", () => {
     const wf = defineWorkflow({
       input: z.object({}),
       output: z.object({}),
@@ -240,7 +258,7 @@ describe("Signal/query/update name helpers (audit fix #3)", () => {
         bump: defineUpdate({ input: z.object({}), output: z.number() }),
       },
     });
-    expectTypeOf<UpdateNamesOf<typeof wf>>().toEqualTypeOf<"bump">();
+    expectTypeOf<InferUpdateNames<typeof wf>>().toEqualTypeOf<"bump">();
   });
 });
 
@@ -277,8 +295,8 @@ describe("input-less signal/query/update definitions", () => {
       queries: { getStatus: defineQuery({ output: z.string() }) },
       updates: { bump: defineUpdate({ output: z.number() }) },
     });
-    expectTypeOf<SignalNamesOf<typeof wf>>().toEqualTypeOf<"shutdown">();
-    expectTypeOf<QueryNamesOf<typeof wf>>().toEqualTypeOf<"getStatus">();
-    expectTypeOf<UpdateNamesOf<typeof wf>>().toEqualTypeOf<"bump">();
+    expectTypeOf<InferSignalNames<typeof wf>>().toEqualTypeOf<"shutdown">();
+    expectTypeOf<InferQueryNames<typeof wf>>().toEqualTypeOf<"getStatus">();
+    expectTypeOf<InferUpdateNames<typeof wf>>().toEqualTypeOf<"bump">();
   });
 });

@@ -1,5 +1,8 @@
 import type { ErrorDefinition } from "@temporal-contract/contract";
-import type { AnyContractError } from "@temporal-contract/contract/errors";
+import {
+  CONTRACT_ERROR_WIRE_MARKER,
+  type AnyContractError,
+} from "@temporal-contract/contract/errors";
 /**
  * Worker-side bridge between contract-declared typed errors and Temporal's
  * `ApplicationFailure`.
@@ -22,6 +25,11 @@ import { ContractErrorDataValidationError } from "./errors.js";
  *   declared schema (fail early on contract misuse), but the parsed value is
  *   discarded — the consuming side (client / workflow-proxy rehydration)
  *   parses it, so a transforming `data` schema applies exactly once,
+ * - `details[1]` = the `CONTRACT_ERROR_WIRE_MARKER` provenance/version
+ *   envelope, so the rehydrating side can tell a genuine contract error from
+ *   an unrelated `ApplicationFailure` that reuses a declared name as its
+ *   `type` (required for data-less errors, corroborating for data-carrying
+ *   ones),
  * - `nonRetryable` = the contract's declaration (default retryable),
  * - `cause` = the constructor-supplied cause, so stack traces survive.
  *
@@ -47,7 +55,9 @@ export async function contractErrorToApplicationFailure(
     ]);
   }
 
-  let details: unknown[] = [];
+  // `details[0]` is always the data slot (undefined for data-less errors)
+  // and `details[1]` the wire marker, so slot positions stay stable.
+  let details: unknown[] = [undefined, CONTRACT_ERROR_WIRE_MARKER];
   if (definition.data) {
     const validated = await definition.data["~standard"].validate(error.data);
     if (validated.issues) {
@@ -55,7 +65,7 @@ export async function contractErrorToApplicationFailure(
       throw new ContractErrorDataValidationError(error.errorName, validated.issues);
     }
     // Transmit the ORIGINAL payload — the rehydrating side parses it (D1).
-    details = [error.data];
+    details = [error.data, CONTRACT_ERROR_WIRE_MARKER];
   }
 
   return ApplicationFailure.create({
