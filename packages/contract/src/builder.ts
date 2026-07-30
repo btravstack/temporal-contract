@@ -52,8 +52,8 @@ import type {
  *   },
  *   // Contract-level ActivityOptions defaults shared by every worker.
  *   // Merge precedence: declareWorkflow's activityOptions
- *   // < defaultOptions < activityOptionsByName.
- *   defaultOptions: {
+ *   // < this contract-level activityOptions < activityOptionsByName.
+ *   activityOptions: {
  *     startToCloseTimeout: "30 seconds",
  *     retry: { maximumAttempts: 5 },
  *   },
@@ -303,9 +303,12 @@ export function defineWorkflow<TWorkflow extends AnyWorkflowDefinition>(
  *
  * The contract validates the structure and ensures:
  * - Task queue is specified
- * - At least one workflow is defined
- * - No unknown top-level keys (typo protection, like `defaultOptions`)
- * - Valid JavaScript identifiers are used
+ * - At least one workflow or global activity is defined (a contract with
+ *   only global `activities` and zero workflows is valid — e.g. a dedicated
+ *   activity-pool task queue)
+ * - No unknown top-level keys (typo protection, like `activityOptions`)
+ * - Valid JavaScript identifiers that don't collide with Temporal-reserved
+ *   names are used
  * - No ambiguous name collisions between workflows, global activities, and
  *   workflow-specific activities (referencing the *same* activity definition
  *   object from several scopes is allowed)
@@ -424,6 +427,27 @@ const undefinedInputSchema: UndefinedInputSchema = {
  */
 const IDENTIFIER_PATTERN = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
 
+/**
+ * Temporal reserves handler names for its own SDK internals: everything
+ * starting with `__temporal_` plus the exact query names `__stack_trace`
+ * and `__enhanced_stack_trace`. A contract resource shadowing one of these
+ * would clash with the SDK's built-in handlers at runtime, so they are
+ * rejected for workflows, activities, signals, queries, and updates (error
+ * and search-attribute names never become Temporal handler names).
+ */
+const TEMPORAL_RESERVED_PREFIX = "__temporal_";
+const TEMPORAL_RESERVED_NAMES: readonly string[] = ["__stack_trace", "__enhanced_stack_trace"];
+
+/** The identifier kinds whose names surface as Temporal handler/type names. */
+const TEMPORAL_NAMED_KINDS: readonly string[] = [
+  "workflow",
+  "activity",
+  "global activity",
+  "signal",
+  "query",
+  "update",
+];
+
 /** The seven Temporal search attribute kinds (see {@link SearchAttributeKind}). */
 const SEARCH_ATTRIBUTE_KINDS: readonly string[] = [
   "TEXT",
@@ -435,7 +459,7 @@ const SEARCH_ATTRIBUTE_KINDS: readonly string[] = [
   "KEYWORD_LIST",
 ];
 
-const DEFAULT_OPTIONS_KEYS = [
+const ACTIVITY_OPTIONS_KEYS = [
   "startToCloseTimeout",
   "scheduleToCloseTimeout",
   "scheduleToStartTimeout",
@@ -443,7 +467,7 @@ const DEFAULT_OPTIONS_KEYS = [
   "retry",
 ] as const;
 
-const DEFAULT_OPTIONS_DURATION_KEYS = [
+const ACTIVITY_OPTIONS_DURATION_KEYS = [
   "startToCloseTimeout",
   "scheduleToCloseTimeout",
   "scheduleToStartTimeout",
@@ -472,6 +496,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function assertIdentifier(kind: string, name: string): void {
   if (!IDENTIFIER_PATTERN.test(name)) {
     fail(`${kind} name "${name}" must be a valid JavaScript identifier`);
+  }
+  if (
+    TEMPORAL_NAMED_KINDS.includes(kind) &&
+    (name.startsWith(TEMPORAL_RESERVED_PREFIX) || TEMPORAL_RESERVED_NAMES.includes(name))
+  ) {
+    fail(
+      `${kind} name "${name}" is reserved by Temporal — names starting with "__temporal_" and the names "__stack_trace" / "__enhanced_stack_trace" are used internally by the Temporal SDK. Rename it.`,
+    );
   }
 }
 
@@ -503,13 +535,45 @@ function assertSchema(context: string, slot: string, value: unknown): void {
 }
 
 /**
- * A Temporal duration value: an `ms`-formatted string or a number of
- * milliseconds. `undefined` (absent) is allowed — every duration slot on
- * `defaultOptions` is optional.
+ * Strict grammar of the `ms` npm package (which Temporal uses to parse
+ * duration strings): a decimal number followed by an optional unit —
+ * `ms`/`s`/`m`/`h`/`d`/`w`/`y`, their long forms (`msecs`, `seconds`,
+ * `mins`, `hours`, `days`, `weeks`, `yrs`, …), with optional spaces before
+ * the unit. A bare number string ("1500") means milliseconds, exactly as
+ * `ms` treats it. The `ms` grammar technically accepts a leading `-`, but a
+ * negative duration is never a valid Temporal timeout/interval, so the sign
+ * is deliberately rejected here.
+ */
+const MS_DURATION_PATTERN =
+  /^(?:\d+)?\.?\d+ *(?:milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w|years?|yrs?|y)?$/i;
+
+/**
+ * A Temporal duration value: an `ms`-formatted string or a non-negative
+ * finite number of milliseconds. `undefined` (absent) is allowed — every
+ * duration slot on the contract-level `activityOptions` is optional.
+ *
+ * Strings are validated against the `ms` grammar at `defineContract` time so
+ * a malformed duration ("5 minutos") fails when the contract is defined —
+ * with a message naming the offending path — instead of surfacing later as
+ * an opaque worker-side Temporal error.
  */
 function assertDuration(context: string, key: string, value: unknown): void {
-  if (value !== undefined && typeof value !== "string" && typeof value !== "number") {
+  if (value === undefined) return;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value < 0) {
+      fail(
+        `${context}: ${key} has invalid duration ${String(value)} — a numeric duration must be a non-negative, finite number of milliseconds`,
+      );
+    }
+    return;
+  }
+  if (typeof value !== "string") {
     fail(`${context}: ${key} must be an ms-formatted string or a number of milliseconds`);
+  }
+  if (!MS_DURATION_PATTERN.test(value) || value.length > 100) {
+    fail(
+      `${context}: ${key} has invalid duration "${value}" — expected an ms-formatted string (a number followed by an optional unit ms/s/m/h/d/w/y or its long form, e.g. "30s", "5 minutes", "1.5h") or a number of milliseconds`,
+    );
   }
 }
 
@@ -544,30 +608,30 @@ function validateErrorsMap(context: string, errors: unknown): void {
 }
 
 /**
- * Validate contract-level activity `defaultOptions`. Strict keys so a typo
+ * Validate contract-level `activityOptions`. Strict keys so a typo
  * (`startToCloseTimeOut`) fails at `defineContract` time instead of being
  * silently ignored when the worker merges options.
  */
-function validateDefaultOptions(context: string, options: unknown): void {
+function validateActivityOptions(context: string, options: unknown): void {
   if (!isRecord(options)) {
-    fail(`${context}: defaultOptions must be an object`);
+    fail(`${context}: activityOptions must be an object`);
   }
-  assertKnownKeys(`${context} defaultOptions`, options, DEFAULT_OPTIONS_KEYS);
-  for (const key of DEFAULT_OPTIONS_DURATION_KEYS) {
-    assertDuration(`${context} defaultOptions`, key, options[key]);
+  assertKnownKeys(`${context} activityOptions`, options, ACTIVITY_OPTIONS_KEYS);
+  for (const key of ACTIVITY_OPTIONS_DURATION_KEYS) {
+    assertDuration(`${context} activityOptions`, key, options[key]);
   }
 
   const retry = options["retry"];
   if (retry === undefined) return;
   if (!isRecord(retry)) {
-    fail(`${context}: defaultOptions.retry must be an object`);
+    fail(`${context}: activityOptions.retry must be an object`);
   }
-  assertKnownKeys(`${context} defaultOptions.retry`, retry, RETRY_KEYS);
-  assertDuration(`${context} defaultOptions.retry`, "initialInterval", retry["initialInterval"]);
-  assertDuration(`${context} defaultOptions.retry`, "maximumInterval", retry["maximumInterval"]);
+  assertKnownKeys(`${context} activityOptions.retry`, retry, RETRY_KEYS);
+  assertDuration(`${context} activityOptions.retry`, "initialInterval", retry["initialInterval"]);
+  assertDuration(`${context} activityOptions.retry`, "maximumInterval", retry["maximumInterval"]);
   for (const key of ["backoffCoefficient", "maximumAttempts"] as const) {
     if (retry[key] !== undefined && typeof retry[key] !== "number") {
-      fail(`${context}: defaultOptions.retry.${key} must be a number`);
+      fail(`${context}: activityOptions.retry.${key} must be a number`);
     }
   }
   const nonRetryableErrorTypes = retry["nonRetryableErrorTypes"];
@@ -576,13 +640,13 @@ function validateDefaultOptions(context: string, options: unknown): void {
     (!Array.isArray(nonRetryableErrorTypes) ||
       nonRetryableErrorTypes.some((entry) => typeof entry !== "string"))
   ) {
-    fail(`${context}: defaultOptions.retry.nonRetryableErrorTypes must be an array of strings`);
+    fail(`${context}: activityOptions.retry.nonRetryableErrorTypes must be an array of strings`);
   }
 }
 
 /**
  * Validate an activity definition: Standard Schema `input`/`output`, plus
- * optional `errors` and `defaultOptions`.
+ * optional `errors` and `activityOptions`.
  */
 function validateActivityDefinition(context: string, definition: unknown): void {
   if (!isRecord(definition)) {
@@ -593,8 +657,8 @@ function validateActivityDefinition(context: string, definition: unknown): void 
   if (definition["errors"] !== undefined) {
     validateErrorsMap(context, definition["errors"]);
   }
-  if (definition["defaultOptions"] !== undefined) {
-    validateDefaultOptions(context, definition["defaultOptions"]);
+  if (definition["activityOptions"] !== undefined) {
+    validateActivityOptions(context, definition["activityOptions"]);
   }
 }
 
@@ -767,7 +831,7 @@ function validateNameCollisions(
 /**
  * Validate a contract definition's structure. The root is strict — an
  * unknown top-level key (e.g. a misspelled `workflow`) fails instead of
- * being silently ignored, matching the strict `defaultOptions` behavior.
+ * being silently ignored, matching the strict `activityOptions` behavior.
  */
 function validateContractDefinition(definition: unknown): void {
   if (!isRecord(definition)) {
@@ -787,9 +851,6 @@ function validateContractDefinition(definition: unknown): void {
   if (!isRecord(workflows)) {
     fail("workflows must be an object");
   }
-  if (Object.keys(workflows).length === 0) {
-    fail("at least one workflow is required");
-  }
   for (const [workflowName, workflow] of Object.entries(workflows)) {
     assertIdentifier("workflow", workflowName);
     validateWorkflowDefinition(`workflow "${workflowName}"`, workflow);
@@ -804,6 +865,13 @@ function validateContractDefinition(definition: unknown): void {
       assertIdentifier("global activity", activityName);
       validateActivityDefinition(`global activity "${activityName}"`, activity);
     }
+  }
+
+  // Activity-only contracts (zero workflows, ≥1 global activity) are valid —
+  // they model dedicated activity-pool task queues. A contract with neither
+  // workflows nor activities declares nothing and is still rejected.
+  if (Object.keys(workflows).length === 0 && Object.keys(activities ?? {}).length === 0) {
+    fail("at least one workflow or global activity is required");
   }
 
   validateNameCollisions(workflows, activities);

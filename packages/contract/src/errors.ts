@@ -11,16 +11,21 @@
  * - the worker hands implementations typed **constructors** for the errors
  *   declared on their activity/workflow, and converts a returned/thrown
  *   {@link ContractError} into a Temporal `ApplicationFailure`
- *   (`type` = error name, `details[0]` = validated data, `nonRetryable`
+ *   (`type` = error name, `details[0]` = validated data, `details[1]` =
+ *   the {@link CONTRACT_ERROR_WIRE_MARKER} envelope marker, `nonRetryable`
  *   from the contract) at the boundary;
  * - the workflow-side activities proxy and the client **rehydrate** a
  *   matching `ApplicationFailure` back into a {@link ContractError}, so
  *   consumers branch on a typed, schema-validated error union instead of
  *   string-matching failure types.
  */
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { TaggedError } from "unthrown";
 
+import { CONTRACT_ERROR_TAG, TECHNICAL_ERROR_TAG } from "./error-tags.js";
 import type { AnySchema, ErrorDefinition, InferErrorData, InferErrorDataInput } from "./types.js";
+
+export { CONTRACT_ERROR_TAG, TECHNICAL_ERROR_TAG } from "./error-tags.js";
 
 /**
  * Error for technical/runtime failures that cannot be prevented by
@@ -35,7 +40,7 @@ import type { AnySchema, ErrorDefinition, InferErrorData, InferErrorDataInput } 
  * The class is retained (and still exported) so the descriptive message and
  * `cause` survive for logging; it is only ever used as a defect's `cause`.
  */
-export class TechnicalError extends TaggedError("@temporal-contract/TechnicalError", {
+export class TechnicalError extends TaggedError(TECHNICAL_ERROR_TAG, {
   name: "TechnicalError",
 })<{
   cause?: unknown;
@@ -68,7 +73,7 @@ export class TechnicalError extends TaggedError("@temporal-contract/TechnicalErr
  * `errorName` then narrows to the concrete declared error.
  */
 export class ContractError<TName extends string = string, TData = unknown> extends TaggedError(
-  "@temporal-contract/ContractError",
+  CONTRACT_ERROR_TAG,
   { name: "ContractError" },
 )<{
   /** Declared error name — the `ApplicationFailure.type` discriminator. */
@@ -191,15 +196,95 @@ export type ApplicationFailureLike = {
 };
 
 /**
+ * Wire-envelope marker carried at `details[1]` of every `ApplicationFailure`
+ * produced from a {@link ContractError} (`details[0]` stays the data
+ * payload). It marks the failure as temporal-contract provenance, versioned
+ * for future envelope evolution, so the rehydrator can tell a genuine
+ * contract error from an unrelated `ApplicationFailure` that merely reuses a
+ * declared error name as its `type` string.
+ */
+export const CONTRACT_ERROR_WIRE_MARKER = { $tc: 1 } as const;
+
+/** Does the failure's `details` carry the {@link CONTRACT_ERROR_WIRE_MARKER}? */
+function hasWireMarker(details: readonly unknown[] | null | undefined): boolean {
+  const candidate = details?.[1];
+  return (
+    typeof candidate === "object" &&
+    candidate !== null &&
+    (candidate as Record<string, unknown>)["$tc"] === CONTRACT_ERROR_WIRE_MARKER.$tc
+  );
+}
+
+/**
+ * Diagnostic payload describing a rehydration miss: a failure whose `type`
+ * matched a declared error name but that could not be rehydrated as the
+ * typed {@link ContractError} and degraded to the caller's generic failure
+ * classification.
+ */
+export type RehydrationMiss = {
+  /** The declared error name that `failure.type` matched. */
+  readonly errorName: string;
+  /**
+   * Why rehydration degraded:
+   * - `"data-validation-failed"` — the declared `data` schema rejected
+   *   `details[0]` (schema drift or a foreign failure with a payload);
+   * - `"missing-wire-marker"` — a data-less declared error without the
+   *   {@link CONTRACT_ERROR_WIRE_MARKER}, i.e. most likely an unrelated
+   *   `ApplicationFailure` reusing the declared name as its `type`.
+   */
+  readonly reason: "data-validation-failed" | "missing-wire-marker";
+  /** Validation issues when `reason` is `"data-validation-failed"`. */
+  readonly issues?: ReadonlyArray<StandardSchemaV1.Issue>;
+  /** The failure that was being rehydrated. */
+  readonly failure: ApplicationFailureLike;
+};
+
+let rehydrationMissHandler: ((miss: RehydrationMiss) => void) | undefined;
+
+/**
+ * Register a module-level diagnostic hook invoked whenever a failure whose
+ * `type` matches a declared error name fails to rehydrate as a typed
+ * {@link ContractError} (see {@link RehydrationMiss}). The degrade-to-generic
+ * behavior is unchanged — this only makes it observable. The worker and
+ * client packages wire this into their loggers; pass `undefined` to
+ * unregister. A throwing handler is swallowed: diagnostics must never break
+ * error classification.
+ */
+export function onRehydrationMiss(handler: ((miss: RehydrationMiss) => void) | undefined): void {
+  rehydrationMissHandler = handler;
+}
+
+function reportRehydrationMiss(miss: RehydrationMiss): void {
+  if (!rehydrationMissHandler) return;
+  try {
+    rehydrationMissHandler(miss);
+  } catch {
+    // Deliberately swallowed — a throwing diagnostic hook must not turn a
+    // degrade-to-generic path into a hard failure.
+  }
+}
+
+/**
  * Attempt to rehydrate an `ApplicationFailure` back into a typed
  * {@link ContractError}, by matching `failure.type` against the declared
  * error names and validating `failure.details[0]` against the declared
  * `data` schema.
  *
+ * Provenance rules:
+ * - errors **with** a `data` schema: schema validation is the gate — the
+ *   {@link CONTRACT_ERROR_WIRE_MARKER} at `details[1]` is preferred but not
+ *   required (a validating payload is strong-enough evidence);
+ * - errors **without** a `data` schema: the marker is **required** —
+ *   otherwise any unrelated `ApplicationFailure` whose `type` happens to
+ *   equal a declared data-less error name would be surfaced as the typed
+ *   domain error.
+ *
  * Returns `undefined` when the failure doesn't correspond to a declared
- * error (unknown `type`, or payload that no longer validates) — callers fall
- * through to their generic failure classification, so a mismatch degrades to
- * today's untyped behavior instead of producing a wrong typed error.
+ * error (unknown `type`, payload that no longer validates, or a data-less
+ * name without the marker) — callers fall through to their generic failure
+ * classification, so a mismatch degrades to today's untyped behavior instead
+ * of producing a wrong typed error. Degrades are reported through the
+ * {@link onRehydrationMiss} hook so they are observable.
  *
  * @internal — exported under a deliberately-internal-looking name for the
  * sibling worker and client packages. Not part of the public API; no semver
@@ -217,8 +302,23 @@ export async function _internal_rehydrateContractError(
   let data: unknown = undefined;
   if (definition.data) {
     const validated = await definition.data["~standard"].validate(failure.details?.[0]);
-    if (validated.issues) return undefined;
+    if (validated.issues) {
+      reportRehydrationMiss({
+        errorName: failure.type,
+        reason: "data-validation-failed",
+        issues: validated.issues,
+        failure,
+      });
+      return undefined;
+    }
     data = validated.value;
+  } else if (!hasWireMarker(failure.details)) {
+    reportRehydrationMiss({
+      errorName: failure.type,
+      reason: "missing-wire-marker",
+      failure,
+    });
+    return undefined;
   }
 
   return new ContractError({

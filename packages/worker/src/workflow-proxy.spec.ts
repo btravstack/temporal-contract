@@ -272,19 +272,19 @@ describe("declareWorkflow hoists proxyActivities to declaration time", () => {
   });
 });
 
-describe("buildRawActivitiesProxy — contract-level defaultOptions", () => {
+describe("buildRawActivitiesProxy — contract-level activityOptions", () => {
   afterEach(() => {
     proxyCalls.length = 0;
   });
 
-  const tunedActivityDef = (defaultOptions: Record<string, unknown>): ActivityDefinition =>
+  const tunedActivityDef = (activityOptions: Record<string, unknown>): ActivityDefinition =>
     ({
       input: z.object({}),
       output: z.object({}),
-      defaultOptions,
+      activityOptions,
     }) as unknown as ActivityDefinition;
 
-  it("merges contract defaultOptions over the workflow-wide default", () => {
+  it("merges contract activityOptions over the workflow-wide default", () => {
     const def: Record<string, ActivityDefinition> = {
       plain: activityDef(z.object({}), z.object({})),
       tuned: tunedActivityDef({
@@ -310,7 +310,7 @@ describe("buildRawActivitiesProxy — contract-level defaultOptions", () => {
     ]);
   });
 
-  it("gives activityOptionsByName precedence over contract defaultOptions", () => {
+  it("gives activityOptionsByName precedence over contract activityOptions", () => {
     const def: Record<string, ActivityDefinition> = {
       tuned: tunedActivityDef({
         startToCloseTimeout: "10 minutes",
@@ -334,7 +334,7 @@ describe("buildRawActivitiesProxy — contract-level defaultOptions", () => {
     ]);
   });
 
-  it("applies defaultOptions declared on global contract activities", () => {
+  it("applies activityOptions declared on global contract activities", () => {
     const globalDefs: Record<string, ActivityDefinition> = {
       notify: tunedActivityDef({ startToCloseTimeout: "5 seconds" }),
     };
@@ -351,12 +351,12 @@ describe("buildRawActivitiesProxy — empty option bags stay on the fast path", 
     proxyCalls.length = 0;
   });
 
-  it("treats an empty contract defaultOptions object as absent", () => {
+  it("treats an empty contract activityOptions object as absent", () => {
     const def: Record<string, ActivityDefinition> = {
       a: {
         input: z.object({}),
         output: z.object({}),
-        defaultOptions: {},
+        activityOptions: {},
       } as unknown as ActivityDefinition,
     };
     const defaults: ActivityOptions = { startToCloseTimeout: "1 minute" };

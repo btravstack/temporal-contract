@@ -72,7 +72,8 @@ export type ActivityRetryPolicy = {
  *
  * Merge precedence at the worker (least → most specific):
  * `declareWorkflow`'s `activityOptions` (workflow-wide default)
- * → this `defaultOptions` (activity-specific, from the contract author)
+ * → this contract-level `activityOptions` (activity-specific, from the
+ * contract author)
  * → `activityOptionsByName` (explicit per-workflow, per-activity override).
  *
  * Deployment-specific concerns (`taskQueue` routing, cancellation type) are
@@ -98,7 +99,7 @@ export type ActivityDefinition<
   readonly input: TInput;
   readonly output: TOutput;
   readonly errors?: TErrors;
-  readonly defaultOptions?: ActivityDefaultOptions;
+  readonly activityOptions?: ActivityDefaultOptions;
 };
 
 /**
@@ -230,11 +231,11 @@ export type AnyWorkflowDefinition = WorkflowDefinition<
  * or `never` when the definition declares none.
  *
  * The conditional is distributive and `infer`-based (rather than indexing
- * `TDef["errors"]` directly) for the same reasons as {@link SignalNamesOf}:
+ * `TDef["errors"]` directly) for the same reasons as {@link InferSignalNames}:
  * union definitions yield the union of their error maps, and the optional
  * property is tolerated under `exactOptionalPropertyTypes`.
  */
-export type DeclaredErrorsOf<TDef> = TDef extends {
+export type InferDeclaredErrors<TDef> = TDef extends {
   errors: infer TErrors;
 }
   ? TErrors extends Record<string, ErrorDefinition>
@@ -279,7 +280,7 @@ export type InferErrorDataInput<TDef extends ErrorDefinition> = TDef extends {
  * `infer S` also tolerates the property being absent or `undefined` under
  * `exactOptionalPropertyTypes`.
  */
-export type SignalNamesOf<W extends AnyWorkflowDefinition> = W extends {
+export type InferSignalNames<W extends AnyWorkflowDefinition> = W extends {
   signals?: infer S;
 }
   ? S extends Record<string, SignalDefinition>
@@ -289,10 +290,10 @@ export type SignalNamesOf<W extends AnyWorkflowDefinition> = W extends {
 
 /**
  * Extract query names declared on a workflow as a string union, or `never`
- * if the workflow declares no queries. See {@link SignalNamesOf} for the
+ * if the workflow declares no queries. See {@link InferSignalNames} for the
  * rationale behind the distributive `infer`-based shape.
  */
-export type QueryNamesOf<W extends AnyWorkflowDefinition> = W extends {
+export type InferQueryNames<W extends AnyWorkflowDefinition> = W extends {
   queries?: infer Q;
 }
   ? Q extends Record<string, QueryDefinition>
@@ -302,10 +303,10 @@ export type QueryNamesOf<W extends AnyWorkflowDefinition> = W extends {
 
 /**
  * Extract update names declared on a workflow as a string union, or `never`
- * if the workflow declares no updates. See {@link SignalNamesOf} for the
+ * if the workflow declares no updates. See {@link InferSignalNames} for the
  * rationale behind the distributive `infer`-based shape.
  */
-export type UpdateNamesOf<W extends AnyWorkflowDefinition> = W extends {
+export type InferUpdateNames<W extends AnyWorkflowDefinition> = W extends {
   updates?: infer U;
 }
   ? U extends Record<string, UpdateDefinition>

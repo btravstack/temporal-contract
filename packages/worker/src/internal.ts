@@ -76,7 +76,7 @@ type ActivityFn = (...args: unknown[]) => Promise<unknown>;
 
 /**
  * Build the raw `Record<name, fn>` proxy of activities for a workflow,
- * applying contract-level `defaultOptions` and per-activity
+ * applying contract-level `activityOptions` and per-activity
  * `ActivityOptions` overrides where present.
  *
  * **Fast path (no contract defaults, no overrides):** a single
@@ -87,7 +87,7 @@ type ActivityFn = (...args: unknown[]) => Promise<unknown>;
  *
  * **Merged path:** one extra `proxyActivities(merged)` call is made *only*
  * for each activity whose effective options differ from the workflow-wide
- * default — i.e. it declares `defaultOptions` on the contract and/or has an
+ * default — i.e. it declares `activityOptions` on the contract and/or has an
  * `activityOptionsByName` override. Activities without either keep using the
  * single default proxy. The result is a `Proxy` that returns the bound
  * function for named keys and falls back to the default proxy for everything
@@ -100,7 +100,7 @@ type ActivityFn = (...args: unknown[]) => Promise<unknown>;
  * "one ActivityOptions per `proxyActivities` call" semantics:
  *
  *   1. `declareWorkflow`'s `activityOptions` (workflow-wide default)
- *   2. the contract's `defineActivity({ defaultOptions })` (activity-specific,
+ *   2. the contract's `defineActivity({ activityOptions })` (activity-specific,
  *      shared by every worker)
  *   3. `activityOptionsByName` (explicit per-workflow, per-activity override)
  */
@@ -116,7 +116,7 @@ export function buildRawActivitiesProxy(
   };
 
   // `activityOptions` is optional on `declareWorkflow` — an activity covered
-  // by contract-level `defaultOptions` (or an explicit override) doesn't need
+  // by contract-level `activityOptions` (or an explicit override) doesn't need
   // the workflow-wide default. It is still required as soon as any reachable
   // activity has no per-activity options of its own; fail at declaration time
   // with the offending names rather than letting Temporal's generic
@@ -124,7 +124,7 @@ export function buildRawActivitiesProxy(
   if (!defaultOptions) {
     const uncovered = Object.entries(allDefinitions)
       .filter(([name, definition]) => {
-        const contractDefaults = definition.defaultOptions;
+        const contractDefaults = definition.activityOptions;
         const override = overrides?.[name];
         const hasContractDefaults = contractDefaults && Object.keys(contractDefaults).length > 0;
         const hasOverride = override && Object.keys(override).length > 0;
@@ -138,7 +138,7 @@ export function buildRawActivitiesProxy(
       // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: declaration-time fail-fast as a non-retryable ApplicationFailure (CLAUDE.md rule 2 exception)
       throw new ContractMisuseError(
         `declareWorkflow: \`activityOptions\` was omitted but the following activities declare ` +
-          `no contract-level \`defaultOptions\` and have no \`activityOptionsByName\` entry: ` +
+          `no contract-level \`activityOptions\` and have no \`activityOptionsByName\` entry: ` +
           `${uncovered.join(", ")}. Provide \`activityOptions\` or per-activity options.`,
       );
     }
@@ -174,11 +174,11 @@ export function buildRawActivitiesProxy(
   // options.
   const customizedFns: Record<string, ActivityFn> = {};
   for (const [name, definition] of Object.entries(allDefinitions)) {
-    const contractDefaults = definition.defaultOptions;
+    const contractDefaults = definition.activityOptions;
     const override = overrideByName[name];
     // An empty options bag can't change the effective options — treat it as
     // absent so the "one extra proxy only when options differ" optimization
-    // holds for `defaultOptions: {}` / `activityOptionsByName: { x: {} }`.
+    // holds for `activityOptions: {}` / `activityOptionsByName: { x: {} }`.
     const hasContractDefaults = contractDefaults && Object.keys(contractDefaults).length > 0;
     const hasOverride = override && Object.keys(override).length > 0;
     if (!hasContractDefaults && !hasOverride) {

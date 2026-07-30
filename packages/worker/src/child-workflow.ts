@@ -6,8 +6,8 @@
 import type {
   AnyWorkflowDefinition,
   ContractDefinition,
+  InferSignalNames,
   SignalDefinition,
-  SignalNamesOf,
 } from "@temporal-contract/contract";
 import { summarizeIssues } from "@temporal-contract/contract";
 import {
@@ -56,7 +56,7 @@ export type TypedChildWorkflowOptions<
  * parses it on receive, so a transforming schema applies exactly once.
  */
 export type TypedChildWorkflowSignals<TWorkflow extends AnyWorkflowDefinition> = {
-  [K in SignalNamesOf<TWorkflow>]: (
+  [K in InferSignalNames<TWorkflow>]: (
     args: ClientInferInput<SignalDefOf<TWorkflow, K>>,
   ) => AsyncResult<void, ChildWorkflowError | ChildWorkflowCancelledError>;
 };

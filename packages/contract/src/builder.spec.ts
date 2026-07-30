@@ -344,13 +344,29 @@ describe("Contract Builder", () => {
       ).toThrow("Contract validation failed");
     });
 
-    it("should throw when no workflows are defined", () => {
+    it("should throw when neither workflows nor global activities are defined", () => {
       expect(() =>
         defineContract({
           taskQueue: "test",
           workflows: {},
         }),
-      ).toThrow("at least one workflow is required");
+      ).toThrow("at least one workflow or global activity is required");
+    });
+
+    it("should accept an activity-only contract (zero workflows)", () => {
+      const contract = defineContract({
+        taskQueue: "activity-pool",
+        workflows: {},
+        activities: {
+          sendEmail: {
+            input: z.object({ to: z.string() }),
+            output: z.object({ sent: z.boolean() }),
+          },
+        },
+      });
+
+      expect(contract.workflows).toEqual({});
+      expect(contract.activities.sendEmail).toBeDefined();
     });
 
     it("should throw when workflow name is invalid", () => {
@@ -1126,7 +1142,7 @@ describe("Contract Builder — typed errors and default options", () => {
     ).toThrow(/data must be a Standard Schema compatible schema/);
   });
 
-  it("accepts contract-level activity defaultOptions", () => {
+  it("accepts contract-level activityOptions", () => {
     const contract = defineContract({
       taskQueue: "test-queue",
       workflows: {
@@ -1139,7 +1155,7 @@ describe("Contract Builder — typed errors and default options", () => {
         sendEmail: {
           input: z.object({ to: z.string() }),
           output: z.void(),
-          defaultOptions: {
+          activityOptions: {
             startToCloseTimeout: "30 seconds",
             heartbeatTimeout: 5_000,
             retry: { maximumAttempts: 5, nonRetryableErrorTypes: ["RecipientRejected"] },
@@ -1148,10 +1164,10 @@ describe("Contract Builder — typed errors and default options", () => {
       },
     });
 
-    expect(contract.activities.sendEmail.defaultOptions?.startToCloseTimeout).toBe("30 seconds");
+    expect(contract.activities.sendEmail.activityOptions?.startToCloseTimeout).toBe("30 seconds");
   });
 
-  it("rejects a typo'd defaultOptions key (strict object)", () => {
+  it("rejects a typo'd activityOptions key (strict object)", () => {
     expect(() =>
       defineContract({
         taskQueue: "test-queue",
@@ -1163,14 +1179,14 @@ describe("Contract Builder — typed errors and default options", () => {
             input: z.object({}),
             output: z.void(),
             // @ts-expect-error — deliberate typo
-            defaultOptions: { startToCloseTimeOut: "30 seconds" },
+            activityOptions: { startToCloseTimeOut: "30 seconds" },
           },
         },
       }),
-    ).toThrow(/Contract validation failed/);
+    ).toThrow('global activity "sendEmail" activityOptions has unknown key "startToCloseTimeOut"');
   });
 
-  it("rejects a typo'd retry key inside defaultOptions (strict object)", () => {
+  it("rejects a typo'd retry key inside activityOptions (strict object)", () => {
     expect(() =>
       defineContract({
         taskQueue: "test-queue",
@@ -1181,7 +1197,7 @@ describe("Contract Builder — typed errors and default options", () => {
           sendEmail: {
             input: z.object({}),
             output: z.void(),
-            defaultOptions: {
+            activityOptions: {
               // @ts-expect-error — deliberate typo
               retry: { maxAttempts: 3 },
             },
@@ -1189,5 +1205,147 @@ describe("Contract Builder — typed errors and default options", () => {
         },
       }),
     ).toThrow(/Contract validation failed/);
+  });
+});
+
+describe("Contract Builder — duration validation", () => {
+  const withTimeout = (startToCloseTimeout: string | number) =>
+    defineContract({
+      taskQueue: "test-queue",
+      workflows: {},
+      activities: {
+        sendEmail: {
+          input: z.object({}),
+          output: z.void(),
+          activityOptions: { startToCloseTimeout },
+        },
+      },
+    });
+
+  it.each(["5 minutes", "30s", "1.5h", "100", "2 days", "1 y", ".5m", "500ms"])(
+    "accepts the ms-formatted duration %j",
+    (value) => {
+      expect(() => withTimeout(value)).not.toThrow();
+    },
+  );
+
+  it("accepts a number of milliseconds", () => {
+    expect(() => withTimeout(30_000)).not.toThrow();
+  });
+
+  it.each(["5 minutos", "", "abc", "30 s econds", "1..5h", "-30s"])(
+    "rejects the invalid duration string %j with the offending path and value",
+    (value) => {
+      expect(() => withTimeout(value)).toThrow(
+        `global activity "sendEmail" activityOptions: startToCloseTimeout has invalid duration "${value}"`,
+      );
+    },
+  );
+
+  it("rejects negative and non-finite numeric durations", () => {
+    expect(() => withTimeout(-1)).toThrow(/startToCloseTimeout has invalid duration -1/);
+    expect(() => withTimeout(Number.POSITIVE_INFINITY)).toThrow(/invalid duration Infinity/);
+  });
+
+  it("validates retry intervals with the same grammar", () => {
+    expect(() =>
+      defineContract({
+        taskQueue: "test-queue",
+        workflows: {},
+        activities: {
+          sendEmail: {
+            input: z.object({}),
+            output: z.void(),
+            activityOptions: { retry: { initialInterval: "quick" } },
+          },
+        },
+      }),
+    ).toThrow(
+      'global activity "sendEmail" activityOptions.retry: initialInterval has invalid duration "quick"',
+    );
+  });
+});
+
+describe("Contract Builder — Temporal-reserved names", () => {
+  const RESERVED_MESSAGE = /is reserved by Temporal/;
+
+  it("rejects a workflow name starting with __temporal_", () => {
+    expect(() =>
+      defineContract({
+        taskQueue: "test",
+        workflows: {
+          __temporal_cleanup: { input: z.object({}), output: z.object({}) },
+        },
+      }),
+    ).toThrow(RESERVED_MESSAGE);
+  });
+
+  it("rejects the exact reserved query names", () => {
+    for (const reserved of ["__stack_trace", "__enhanced_stack_trace"]) {
+      expect(() =>
+        defineContract({
+          taskQueue: "test",
+          workflows: {
+            wf: {
+              input: z.object({}),
+              output: z.object({}),
+              queries: {
+                [reserved]: { input: z.object({}), output: z.object({}) },
+              },
+            },
+          },
+        }),
+      ).toThrow(RESERVED_MESSAGE);
+    }
+  });
+
+  it("rejects reserved global activity, workflow activity, signal, and update names", () => {
+    const base = { input: z.object({}), output: z.object({}) };
+
+    expect(() =>
+      defineContract({
+        taskQueue: "test",
+        workflows: {},
+        activities: { __temporal_probe: base },
+      }),
+    ).toThrow(RESERVED_MESSAGE);
+
+    expect(() =>
+      defineContract({
+        taskQueue: "test",
+        workflows: {
+          wf: { ...base, activities: { __temporal_probe: base } },
+        },
+      }),
+    ).toThrow(RESERVED_MESSAGE);
+
+    expect(() =>
+      defineContract({
+        taskQueue: "test",
+        workflows: {
+          wf: { ...base, signals: { __temporal_ping: { input: z.object({}) } } },
+        },
+      }),
+    ).toThrow(RESERVED_MESSAGE);
+
+    expect(() =>
+      defineContract({
+        taskQueue: "test",
+        workflows: {
+          wf: { ...base, updates: { __stack_trace: base } },
+        },
+      }),
+    ).toThrow(RESERVED_MESSAGE);
+  });
+
+  it("still allows ordinary double-underscore names", () => {
+    expect(() =>
+      defineContract({
+        taskQueue: "test",
+        workflows: {
+          __internal_wf: { input: z.object({}), output: z.object({}) },
+        },
+      }),
+    ).not.toThrow();
   });
 });

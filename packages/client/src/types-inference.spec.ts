@@ -116,7 +116,7 @@ describe("signalWithStart name narrowing (audit fix #3)", () => {
     // We materialise that by asking for `TypedSignalWithStartOptions` with
     // the literal "anything" as the signal name; the resulting `signalName`
     // field collapses to `never` because the generic constraint
-    // `SignalNamesOf<…>` resolves to `never` for a no-signals workflow.
+    // `InferSignalNames<…>` resolves to `never` for a no-signals workflow.
     type Options = TypedSignalWithStartOptions<
       typeof contractNoSignals,
       "bare",

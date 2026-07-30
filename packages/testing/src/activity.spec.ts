@@ -23,7 +23,7 @@ const charge = defineActivity({
       nonRetryable: true,
     },
   },
-  defaultOptions: { startToCloseTimeout: "10 seconds" },
+  activityOptions: { startToCloseTimeout: "10 seconds" },
 });
 
 describe("runActivity", () => {

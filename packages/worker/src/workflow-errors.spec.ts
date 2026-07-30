@@ -4,8 +4,9 @@ import { ApplicationFailure } from "@temporalio/common";
  * Runtime coverage for workflow-level contract errors: a
  * `throw context.errors.X(...)` from the implementation must leave the
  * workflow function as an `ApplicationFailure` (`type` = error name,
- * `details[0]` = validated data) — a plain thrown `Error` would be retried
- * as a Workflow Task failure forever.
+ * `details[0]` = validated data, `details[1]` = the wire-envelope marker) —
+ * a plain thrown `Error` would be retried as a Workflow Task failure
+ * forever.
  *
  * Mocks `@temporalio/workflow` so the declared workflow function is callable
  * outside a real workflow sandbox.
@@ -66,7 +67,7 @@ describe("declareWorkflow — contract errors", () => {
       type: "EmptyOrder",
       message: "Order has no items",
       nonRetryable: true,
-      details: [{ orderId: "ORD-1" }],
+      details: [{ orderId: "ORD-1" }, { $tc: 1 }],
     });
   });
 
