@@ -46,7 +46,8 @@ npm install -D typescript @types/node tsx
 temporal-contract 8.0 — the API this tutorial teaches — is currently a
 prerelease published under the `beta` dist-tag. Without `@beta`, npm installs
 the 7.x line, and the code in this tutorial will not match. The peers
-(`unthrown`, `@temporalio/*`, `zod`) are stable releases.
+(`unthrown`, `@temporalio/*`) and `zod` — this tutorial's pick of
+[Standard Schema](https://standardschema.dev/) validator — are stable releases.
 :::
 
 Create a `tsconfig.json`. The two settings that matter are `module: nodenext`

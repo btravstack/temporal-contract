@@ -142,8 +142,11 @@ pnpm add @temporal-contract/contract@beta @temporal-contract/worker@beta \
          @temporal-contract/client@beta
 
 # Peer dependencies (stable releases)
-pnpm add unthrown zod \
+pnpm add unthrown \
   @temporalio/client @temporalio/common @temporalio/worker @temporalio/workflow
+
+# Plus one Standard Schema validator of your choice — zod, valibot, arktype, …
+pnpm add zod
 ```
 
 Requires **Node.js ≥ 22.19**, ESM (`"type": "module"`), and TypeScript `strict`.
