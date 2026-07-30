@@ -15,7 +15,7 @@ import {
   ApplicationFailure,
   composeActivityMiddleware,
   declareActivitiesHandler,
-  defineActivityMiddleware,
+  declareActivityMiddleware,
   type ActivityMiddleware,
 } from "./activity.js";
 import { ContractErrorDataValidationError } from "./errors.js";
@@ -379,10 +379,11 @@ describe("declareActivitiesHandler — middleware", () => {
     const seenByInner: unknown[] = [];
     const seenByImplementation: unknown[] = [];
 
-    const outer = defineActivityMiddleware<{ tenant: string }, { tenant: string; traceId: string }>(
-      (invocation, next) => next({ context: { ...invocation.context, traceId: "t-1" } }),
-    );
-    const inner = defineActivityMiddleware<
+    const outer = declareActivityMiddleware<
+      { tenant: string },
+      { tenant: string; traceId: string }
+    >((invocation, next) => next({ context: { ...invocation.context, traceId: "t-1" } }));
+    const inner = declareActivityMiddleware<
       { tenant: string; traceId: string },
       { tenant: string; traceId: string; attempt: number }
     >((invocation, next) => {

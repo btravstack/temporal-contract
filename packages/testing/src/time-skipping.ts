@@ -78,7 +78,7 @@ export function createTimeSkippingEnvironment(
  */
 export function createTimeSkippingTest(options?: TimeSkippingTestWorkflowEnvironmentOptions) {
   return vitestIt.extend<{
-    $worker: { testEnv: TestWorkflowEnvironment };
+    testEnv: TestWorkflowEnvironment;
   }>({
     testEnv: [
       // oxlint-disable-next-line no-empty-pattern

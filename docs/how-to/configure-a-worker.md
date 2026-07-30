@@ -52,11 +52,6 @@ await result.value.run();
 `.get()` is the terse form — on a defect it rethrows the original cause with its
 stack intact, which is usually what you want at process startup.
 
-::: tip `createWorkerOrThrow` is deprecated
-It exists to ease migration from the pre-`AsyncResult` API and will be removed
-in a future major. Use `createWorker`.
-:::
-
 ## Resolve the workflows path
 
 Temporal bundles workflow code into an isolated sandbox, so it needs a _path_,

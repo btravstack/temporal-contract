@@ -64,13 +64,13 @@ export const activities = declareActivitiesHandler({
 ## Inject typed context
 
 The most useful thing middleware does is extend the typed context that flows to
-implementations. Use `defineActivityMiddleware` to pin the in and out types:
+implementations. Use `declareActivityMiddleware` to pin the in and out types:
 
 ```typescript
-import { defineActivityMiddleware, type EmptyContext } from "@temporal-contract/worker/activity";
+import { declareActivityMiddleware, type EmptyContext } from "@temporal-contract/worker/activity";
 import { Err } from "unthrown";
 
-const withTenant = defineActivityMiddleware<EmptyContext, { tenantId: string }>(
+const withTenant = declareActivityMiddleware<EmptyContext, { tenantId: string }>(
   (invocation, next) => {
     const tenantId = (invocation.input as { tenantId?: string }).tenantId;
 
@@ -160,7 +160,7 @@ export const activities = declareActivitiesHandler({
 smuggle unvalidated data past the contract:
 
 ```typescript
-const normalizeEmail = defineActivityMiddleware((invocation, next) => {
+const normalizeEmail = declareActivityMiddleware((invocation, next) => {
   const input = invocation.input as { email?: string };
   if (typeof input.email !== "string") {
     return next();

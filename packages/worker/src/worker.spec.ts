@@ -3,12 +3,7 @@ import { type NativeConnection, Worker } from "@temporalio/worker";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { z } from "zod";
 
-import {
-  createWorker,
-  createWorkerOrThrow,
-  TechnicalError,
-  workflowsPathFromURL,
-} from "./worker.js";
+import { createWorker, TechnicalError, workflowsPathFromURL } from "./worker.js";
 
 // Mock @temporalio/worker
 vi.mock("@temporalio/worker", () => ({
@@ -93,31 +88,6 @@ describe("Worker Entry Point", () => {
         expect((cause as TechnicalError).message).toContain('task queue "test-queue"');
         expect((cause as TechnicalError).cause).toBe(bundleError);
       }
-    });
-
-    it("createWorkerOrThrow keeps the throwing shape (deprecated alias)", async () => {
-      // GIVEN
-      const contract = {
-        taskQueue: "test-queue",
-        workflows: {
-          testWorkflow: {
-            input: z.object({ value: z.string() }),
-            output: z.object({ result: z.string() }),
-          },
-        },
-      } satisfies ContractDefinition;
-      const bundleError = new Error("failed to bundle workflows");
-      vi.mocked(Worker.create).mockRejectedValue(bundleError);
-
-      // WHEN / THEN — the original cause is rethrown, not the wrapper
-      await expect(
-        createWorkerOrThrow({
-          contract,
-          connection: { close: vi.fn() } as unknown as NativeConnection,
-          workflowsPath: "/path/to/workflows",
-          activities: {},
-        }),
-      ).rejects.toBe(bundleError);
     });
 
     it("supports workflow-only workers: omitting `activities` omits the key entirely", async () => {

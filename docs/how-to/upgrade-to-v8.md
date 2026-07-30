@@ -169,7 +169,8 @@ Or, more concisely — `.get()` rethrows a defect's original cause:
 const typedClient = await TypedClient.create({ client }).get();
 ```
 
-The same applies to `createWorker`.
+The same applies to `createWorker`. The deprecated `createWorkerOrThrow`
+migration alias is removed in 8.0 — use `createWorker(...).get()`.
 
 ### Every other operation
 
@@ -412,6 +413,17 @@ A mechanical rename, no alias kept:
 +       fromPromise(gateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED"))
 ```
 
+### `createWorkerOrThrow` is removed
+
+The deprecated throwing alias goes the same way as the client's
+`createOrThrow`: `createWorker` returns `AsyncResult<Worker, never>`, so
+`.get()` gives the same throw-on-defect behavior with the original cause.
+
+```diff
+- const worker = await createWorkerOrThrow({ contract, connection, workflowsPath, activities });
++ const worker = await createWorker({ contract, connection, workflowsPath, activities }).get();
+```
+
 ### Contract misuse fails the execution instead of hanging it
 
 Binding a signal/query/update handler for a name the contract does not
@@ -592,6 +604,7 @@ New on the surface:
       (imports and `P.tag` arms)
 - [ ] `getHandle` calls drop their `await` (it returns a sync `Result`)
 - [ ] `qualify` → `qualifyFailure` in activity implementations
+- [ ] `createWorkerOrThrow(...)` → `createWorker(...).get()`
 - [ ] No `SignalInputValidationError` imports remain; alerting expects
       invalid signals to be dropped and logged, not to fail executions
 - [ ] `schedule.create` matchers handle `ScheduleAlreadyExistsError`;

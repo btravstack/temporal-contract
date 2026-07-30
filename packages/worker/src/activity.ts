@@ -313,7 +313,7 @@ export type ActivityMiddlewareNext<
  * `next({ context })`. A middleware that only reads context leaves both
  * parameters equal and stays valid unchanged. Compose typed chains with
  * {@link composeActivityMiddleware}; pin a middleware's context types
- * without a variable annotation via {@link defineActivityMiddleware}.
+ * without a variable annotation via {@link declareActivityMiddleware}.
  *
  * @example Log every activity invocation and its outcome (read-only)
  * ```ts
@@ -334,7 +334,7 @@ export type ActivityMiddlewareNext<
  *
  * @example Guard-and-narrow: inject a tenant id for everything downstream
  * ```ts
- * const auth = defineActivityMiddleware<EmptyContext, { tenantId: string }>(
+ * const auth = declareActivityMiddleware<EmptyContext, { tenantId: string }>(
  *   (invocation, next) => {
  *     const tenantId = readTenant(invocation.input);
  *     if (!tenantId) {
@@ -370,7 +370,7 @@ export type AnyActivityMiddleware = ActivityMiddleware<
  * Identity helper that pins a middleware's context types without a variable
  * annotation. (Mirrors amqp-contract's `defineMiddleware`.)
  */
-export function defineActivityMiddleware<
+export function declareActivityMiddleware<
   TContextIn extends Record<string, unknown> | EmptyContext = EmptyContext,
   TContextOut extends TContextIn = TContextIn,
 >(
