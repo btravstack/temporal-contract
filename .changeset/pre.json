@@ -15,6 +15,8 @@
     "bump-unthrown-beta-7",
     "bump-unthrown-v5-stable",
     "contract-types-node",
-    "technical-errors-to-defect"
+    "enable-all-unthrown-oxlint-rules",
+    "technical-errors-to-defect",
+    "v8-review-remediation"
   ]
 }
