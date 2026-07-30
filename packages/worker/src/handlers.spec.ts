@@ -196,7 +196,11 @@ describe("bindQueryHandler", () => {
     expect(() => entry.impl([])).toThrow(QueryOutputValidationError);
   });
 
-  it("throws ContractMisuseError when input validation is async (Temporal queries must be sync)", () => {
+  it("throws ContractMisuseError AT BIND TIME when the input schema validates asynchronously", () => {
+    // An async schema (e.g. zod async refine) used to pass declaration and
+    // fail only when the first live query arrived; the bind-time probe moves
+    // the failure to handler binding with a message naming the workflow,
+    // handler kind, name, and direction.
     captured.length = 0;
     const wfWithAsyncQuery = defineWorkflow({
       input: z.object({}),
@@ -205,13 +209,17 @@ describe("bindQueryHandler", () => {
         progress: { input: asyncStringSchema, output: z.number() },
       },
     });
-    bindQueryHandler(wfWithAsyncQuery, "probe", "progress", vi.fn().mockReturnValue(1) as never);
-    const entry = captured.find((c) => c.kind === "query" && c.name === "progress")!;
-    expect(() => entry.impl(["x"])).toThrow(ContractMisuseError);
-    expect(() => entry.impl(["x"])).toThrow(/validation must be synchronous/);
+    const bind = () =>
+      bindQueryHandler(wfWithAsyncQuery, "probe", "progress", vi.fn().mockReturnValue(1) as never);
+    expect(bind).toThrow(ContractMisuseError);
+    expect(bind).toThrow(
+      /Query "progress" of workflow "probe": the input schema validates asynchronously/,
+    );
+    // Nothing was registered — the bind failed before setHandler.
+    expect(captured.find((c) => c.kind === "query" && c.name === "progress")).toBeUndefined();
   });
 
-  it("throws ContractMisuseError when output validation is async", () => {
+  it("throws ContractMisuseError AT BIND TIME when the output schema validates asynchronously", () => {
     captured.length = 0;
     const wfWithAsyncOutput = defineWorkflow({
       input: z.object({}),
@@ -220,10 +228,78 @@ describe("bindQueryHandler", () => {
         progress: { input: z.tuple([]), output: asyncStringSchema },
       },
     });
-    bindQueryHandler(wfWithAsyncOutput, "probe", "progress", vi.fn().mockReturnValue("x") as never);
+    const bind = () =>
+      bindQueryHandler(
+        wfWithAsyncOutput,
+        "probe",
+        "progress",
+        vi.fn().mockReturnValue("x") as never,
+      );
+    expect(bind).toThrow(ContractMisuseError);
+    expect(bind).toThrow(
+      /Query "progress" of workflow "probe": the output schema validates asynchronously/,
+    );
+  });
+
+  it("a synchronously-throwing schema passes the bind-time probe (a sync throw proves synchronicity)", () => {
+    // The probe feeds a sentinel to validate(); some libraries throw
+    // synchronously on garbage input. That throw must be treated as "fine,
+    // it's synchronous" — not as a probe failure.
+    captured.length = 0;
+    const throwingSchema = {
+      "~standard": {
+        version: 1 as const,
+        vendor: "test-throwing",
+        validate: (input: unknown) => {
+          if (typeof input === "symbol") {
+            // oxlint-disable-next-line unthrown/no-throw -- test double: simulates a schema library that throws synchronously on garbage input
+            throw new TypeError("cannot validate a symbol");
+          }
+          return { value: input, issues: undefined };
+        },
+      },
+    };
+    const wf = defineWorkflow({
+      input: z.object({}),
+      output: z.object({}),
+      queries: {
+        progress: { input: throwingSchema, output: z.number() },
+      },
+    });
+    expect(() =>
+      bindQueryHandler(wf, "probe", "progress", vi.fn().mockReturnValue(2) as never),
+    ).not.toThrow();
     const entry = captured.find((c) => c.kind === "query" && c.name === "progress")!;
-    expect(() => entry.impl([])).toThrow(ContractMisuseError);
-    expect(() => entry.impl([])).toThrow(/output validation must be synchronous/);
+    expect(entry.impl("anything")).toBe(2);
+  });
+
+  it("keeps the per-call sync guard as defense-in-depth for schemas that defeat the probe", () => {
+    // A pathological schema that answers the probe synchronously but goes
+    // async for real payloads: the bind succeeds, and the per-call guard
+    // still trips a ContractMisuseError instead of corrupting query
+    // semantics.
+    captured.length = 0;
+    const probeDodgingSchema = {
+      "~standard": {
+        version: 1 as const,
+        vendor: "test-dodging",
+        validate: (input: unknown) =>
+          typeof input === "symbol"
+            ? { value: input, issues: undefined }
+            : Promise.resolve({ value: input, issues: undefined }),
+      },
+    };
+    const wf = defineWorkflow({
+      input: z.object({}),
+      output: z.object({}),
+      queries: {
+        progress: { input: probeDodgingSchema, output: z.number() },
+      },
+    });
+    bindQueryHandler(wf, "probe", "progress", vi.fn().mockReturnValue(1) as never);
+    const entry = captured.find((c) => c.kind === "query" && c.name === "progress")!;
+    expect(() => entry.impl(["x"])).toThrow(ContractMisuseError);
+    expect(() => entry.impl(["x"])).toThrow(/validation must be synchronous/);
   });
 
   it("throws ContractMisuseError when the workflow has no queries block", () => {
@@ -286,13 +362,13 @@ describe("bindUpdateHandler", () => {
     expect(() => entry.validator!([7])).not.toThrow();
   });
 
-  it("validator throws ContractMisuseError when the input schema is async (Temporal validators must be sync)", () => {
+  it("throws ContractMisuseError AT BIND TIME when the update input schema validates asynchronously", () => {
     // Temporal's update validator slot is documented as synchronous —
     // returning a Promise from the validator silently breaks admission
     // semantics. Standard Schema permits async validate(), so the typical
-    // offender is Zod with `.refine(async)` on an update input. We surface
-    // that as a clear error at validator-call time, mirroring how
-    // bindQueryHandler handles the same situation.
+    // offender is Zod with `.refine(async)` on an update input. The
+    // bind-time probe surfaces that when the handler is bound (worker
+    // startup / first workflow task) instead of on the first live update.
     captured.length = 0;
     const wfWithAsyncUpdate = defineWorkflow({
       input: z.object({}),
@@ -301,12 +377,31 @@ describe("bindUpdateHandler", () => {
         bumpAttempt: { input: asyncStringSchema, output: z.object({ attempt: z.number() }) },
       },
     });
-    bindUpdateHandler(wfWithAsyncUpdate, "probe", "bumpAttempt", (async () => ({
-      attempt: 1,
-    })) as never);
-    const entry = captured.find((c) => c.kind === "update" && c.name === "bumpAttempt")!;
-    expect(() => entry.validator!(["x"])).toThrow(ContractMisuseError);
-    expect(() => entry.validator!(["x"])).toThrow(/input validation must be synchronous/);
+    const bind = () =>
+      bindUpdateHandler(wfWithAsyncUpdate, "probe", "bumpAttempt", (async () => ({
+        attempt: 1,
+      })) as never);
+    expect(bind).toThrow(ContractMisuseError);
+    expect(bind).toThrow(
+      /Update "bumpAttempt" of workflow "probe": the input schema validates asynchronously/,
+    );
+    expect(captured.find((c) => c.kind === "update" && c.name === "bumpAttempt")).toBeUndefined();
+  });
+
+  it("an async update OUTPUT schema is allowed (output validation runs in the async handler body)", () => {
+    captured.length = 0;
+    const wfWithAsyncOutput = defineWorkflow({
+      input: z.object({}),
+      output: z.object({}),
+      updates: {
+        bumpAttempt: { input: z.tuple([z.number()]), output: asyncStringSchema },
+      },
+    });
+    expect(() =>
+      bindUpdateHandler(wfWithAsyncOutput, "probe", "bumpAttempt", (async () => ({
+        attempt: 1,
+      })) as never),
+    ).not.toThrow();
   });
 
   it("handler runs and returns parsed output when input is valid", async () => {

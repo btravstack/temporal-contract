@@ -108,6 +108,7 @@ function validateChildWorkflowOutput<TChildWorkflow extends AnyWorkflowDefinitio
     if (outputResult.issues) {
       return Err(
         new ChildWorkflowError(
+          childWorkflowName,
           formatChildWorkflowValidationMessage(childWorkflowName, "output", outputResult.issues),
         ),
       );
@@ -159,6 +160,7 @@ function getAndValidateChildWorkflow<
     if (inputResult.issues) {
       return Err(
         new ChildWorkflowError(
+          childWorkflowName,
           formatChildWorkflowValidationMessage(childWorkflowName, "input", inputResult.issues),
         ),
       );
@@ -197,6 +199,7 @@ function createTypedChildSignals<TChildWorkflow extends AnyWorkflowDefinition>(
         if (inputResult.issues) {
           return Err(
             new ChildWorkflowError(
+              childWorkflowName,
               `Child workflow "${childWorkflowName}" signal "${signalName}" input validation failed: ${summarizeIssues(inputResult.issues)}`,
             ),
           );

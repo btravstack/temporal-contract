@@ -68,6 +68,7 @@ import {
   type WorkerInferInput,
   type WorkerInferOutput,
 } from "./types.js";
+import { DECLARED_WORKFLOW_BRAND } from "./workflow-brand.js";
 
 export {
   ActivityCancelledError,
@@ -100,6 +101,52 @@ export {
   type ContractErrorOptions,
   type ContractErrorUnion,
 } from "@temporal-contract/contract/errors";
+
+// Cancellation re-raise helper: cancellation surfaces on the modeled
+// `Err(...)` channel, which generic error handling can swallow (turning a
+// server-side cancel into a `Completed` outcome). `rethrowCancellation`
+// re-raises the original CancelledFailure so the execution ends `Cancelled`.
+export { rethrowCancellation } from "./errors.js";
+
+// Literal-typed `_tag` constants for this package's tagged errors, so
+// consumers can `P.tag(ACTIVITY_ERROR_TAG)` without hand-writing the
+// namespaced strings (mirrors the contract package's error-tags module).
+export {
+  ACTIVITY_CANCELLED_ERROR_TAG,
+  ACTIVITY_DEFINITION_NOT_FOUND_ERROR_TAG,
+  ACTIVITY_ERROR_TAG,
+  CHILD_WORKFLOW_CANCELLED_ERROR_TAG,
+  CHILD_WORKFLOW_ERROR_TAG,
+  CHILD_WORKFLOW_NOT_FOUND_ERROR_TAG,
+  WORKFLOW_CANCELLED_ERROR_TAG,
+} from "./error-tags.js";
+
+// Public child-workflow types: the handle returned by
+// `context.startChildWorkflow`, its options bag, and the typed signal-sender
+// map — exported so user code can annotate stored handles and helpers.
+export type {
+  TypedChildWorkflowHandle,
+  TypedChildWorkflowOptions,
+  TypedChildWorkflowSignals,
+} from "./child-workflow.js";
+
+// Public handler-implementation types for `context.handleSignal` /
+// `handleQuery` / `handleUpdate`, so handlers can be declared standalone.
+export type {
+  QueryHandlerImplementation,
+  SignalHandlerImplementation,
+  UpdateHandlerImplementation,
+} from "./handlers.js";
+
+// Public activity-inference types: the workflow-side shape of a single
+// activity and of the full `context.activities` map.
+export type {
+  WorkflowInferActivity,
+  WorkflowInferWorkflowContextActivities,
+} from "./activities-proxy.js";
+
+// Continue-as-new options type referenced by `WorkflowContext.continueAsNew`.
+export type { TypedContinueAsNewOptions } from "./internal.js";
 
 /**
  * Create a typed workflow implementation with automatic validation
@@ -294,7 +341,7 @@ export function declareWorkflow<
 
     // Create workflow context.
     //
-    // The defineSignal / defineQuery / defineUpdate arrows forward to the
+    // The handleSignal / handleQuery / handleUpdate arrows forward to the
     // hoisted helpers in `./handlers.ts`. The arrows themselves are thin
     // closures that close over `definition` and `workflowName`; the heavy
     // logic — runtime guards, validation, Temporal `defineSignal/Query/
@@ -303,7 +350,7 @@ export function declareWorkflow<
     //
     // The cast at each assignment preserves the typed call-site surface
     // (the `K extends keyof ...` constraints declared on
-    // `WorkflowContext.defineSignal/Query/Update`), while the helpers
+    // `WorkflowContext.handleSignal/Query/Update`), while the helpers
     // themselves take loosely-typed arguments at the runtime boundary.
     const context: WorkflowContext<TContract, TWorkflowName> = {
       activities: contextActivities as WorkflowInferWorkflowContextActivities<
@@ -315,27 +362,27 @@ export function declareWorkflow<
       executeChildWorkflow: createExecuteChildWorkflow,
       cancellableScope,
       nonCancellableScope,
-      defineSignal: ((signalName, handler) =>
+      handleSignal: ((signalName, handler) =>
         bindSignalHandler(
           definition,
           workflowName,
           signalName,
           handler as unknown as SignalHandlerImplementation<SignalDefinition>,
-        )) as WorkflowContext<TContract, TWorkflowName>["defineSignal"],
-      defineQuery: ((queryName, handler) =>
+        )) as WorkflowContext<TContract, TWorkflowName>["handleSignal"],
+      handleQuery: ((queryName, handler) =>
         bindQueryHandler(
           definition,
           workflowName,
           queryName,
           handler as unknown as QueryHandlerImplementation<QueryDefinition>,
-        )) as WorkflowContext<TContract, TWorkflowName>["defineQuery"],
-      defineUpdate: ((updateName, handler) =>
+        )) as WorkflowContext<TContract, TWorkflowName>["handleQuery"],
+      handleUpdate: ((updateName, handler) =>
         bindUpdateHandler(
           definition,
           workflowName,
           updateName,
           handler as unknown as UpdateHandlerImplementation<UpdateDefinition>,
-        )) as WorkflowContext<TContract, TWorkflowName>["defineUpdate"],
+        )) as WorkflowContext<TContract, TWorkflowName>["handleUpdate"],
       continueAsNew: createContinueAsNew(contract, workflowName) as WorkflowContext<
         TContract,
         TWorkflowName
@@ -387,6 +434,18 @@ export function declareWorkflow<
   // workflow type; without this the anonymous arrow above would surface as "".
   Object.defineProperty(workflowFn, "name", { value: workflowName, configurable: true });
 
+  // Non-enumerable brand carrying the declared workflowName, so
+  // `TypedWorker.create`'s registration check can identify
+  // declareWorkflow-produced exports (and their intended registration name)
+  // when it imports the workflows module. Non-enumerable keeps it invisible
+  // to spreads / Object.keys; `Symbol.for` keeps it recognizable across
+  // duplicated module instances.
+  Object.defineProperty(workflowFn, DECLARED_WORKFLOW_BRAND, {
+    value: workflowName,
+    enumerable: false,
+    configurable: true,
+  });
+
   return workflowFn;
 }
 
@@ -408,7 +467,7 @@ type ActivityNamesFor<
 /**
  * Options for declaring a workflow implementation
  */
-type DeclareWorkflowOptions<
+export type DeclareWorkflowOptions<
   TContract extends ContractDefinition,
   TWorkflowName extends keyof TContract["workflows"] & string,
 > = {
@@ -493,7 +552,7 @@ type DeclareWorkflowOptions<
  * Receives a workflow context (with typed activities and utilities) and validated input arguments.
  * Returns the workflow output which will be validated against the contract schema.
  */
-type WorkflowImplementation<
+export type WorkflowImplementation<
   TContract extends ContractDefinition,
   TWorkflowName extends keyof TContract["workflows"] & string,
 > = (
@@ -520,7 +579,7 @@ type WorkflowErrorConstructorsOf<TWorkflow> = TWorkflow extends {
   ? ContractErrorConstructors<TErrors>
   : Record<string, never>;
 
-type WorkflowContext<
+export type WorkflowContext<
   TContract extends ContractDefinition,
   TWorkflowName extends keyof TContract["workflows"] & string,
 > = {
@@ -546,15 +605,16 @@ type WorkflowContext<
   errors: WorkflowErrorConstructorsOf<TContract["workflows"][TWorkflowName]>;
 
   /**
-   * Define a signal handler within the workflow implementation
-   * Allows the signal handler to access workflow state
+   * Bind a signal handler within the workflow implementation (`handle*` —
+   * the in-workflow binding tier of the verb convention). Allows the signal
+   * handler to access workflow state.
    *
    * @example
    * ```ts
    * implementation: async (context, args) => {
    *   let currentValue = args.initialValue;
    *
-   *   context.defineSignal('increment', async (signalArgs) => {
+   *   context.handleSignal('increment', async (signalArgs) => {
    *     currentValue += signalArgs.amount;
    *   });
    *
@@ -562,21 +622,26 @@ type WorkflowContext<
    * }
    * ```
    */
-  defineSignal: <K extends InferSignalNames<TContract["workflows"][TWorkflowName]>>(
+  handleSignal: <K extends InferSignalNames<TContract["workflows"][TWorkflowName]>>(
     signalName: K,
     handler: SignalHandlerImplementation<SignalDefOf<TContract["workflows"][TWorkflowName], K>>,
   ) => void;
 
   /**
-   * Define a query handler within the workflow implementation
-   * Allows the query handler to access workflow state
+   * Bind a query handler within the workflow implementation (`handle*` —
+   * the in-workflow binding tier of the verb convention). Allows the query
+   * handler to access workflow state.
+   *
+   * Both query schemas (input and output) must validate synchronously —
+   * Temporal runs query handlers synchronously. An async-validating schema
+   * (e.g. zod async refine) trips a `ContractMisuseError` at bind time.
    *
    * @example
    * ```ts
    * implementation: async (context, args) => {
    *   let currentValue = args.initialValue;
    *
-   *   context.defineQuery('getCurrentValue', () => {
+   *   context.handleQuery('getCurrentValue', () => {
    *     return { value: currentValue };
    *   });
    *
@@ -584,21 +649,27 @@ type WorkflowContext<
    * }
    * ```
    */
-  defineQuery: <K extends InferQueryNames<TContract["workflows"][TWorkflowName]>>(
+  handleQuery: <K extends InferQueryNames<TContract["workflows"][TWorkflowName]>>(
     queryName: K,
     handler: QueryHandlerImplementation<QueryDefOf<TContract["workflows"][TWorkflowName], K>>,
   ) => void;
 
   /**
-   * Define an update handler within the workflow implementation
-   * Allows the update handler to access and modify workflow state
+   * Bind an update handler within the workflow implementation (`handle*` —
+   * the in-workflow binding tier of the verb convention). Allows the update
+   * handler to access and modify workflow state.
+   *
+   * The update's *input* schema must validate synchronously — it feeds
+   * Temporal's synchronous update validator slot. An async-validating schema
+   * trips a `ContractMisuseError` at bind time (the output schema may be
+   * async; it runs inside the handler body).
    *
    * @example
    * ```ts
    * implementation: async (context, args) => {
    *   let currentValue = args.initialValue;
    *
-   *   context.defineUpdate('multiply', async (updateArgs) => {
+   *   context.handleUpdate('multiply', async (updateArgs) => {
    *     currentValue *= updateArgs.factor;
    *     return { newValue: currentValue };
    *   });
@@ -607,7 +678,7 @@ type WorkflowContext<
    * }
    * ```
    */
-  defineUpdate: <K extends InferUpdateNames<TContract["workflows"][TWorkflowName]>>(
+  handleUpdate: <K extends InferUpdateNames<TContract["workflows"][TWorkflowName]>>(
     updateName: K,
     handler: UpdateHandlerImplementation<UpdateDefOf<TContract["workflows"][TWorkflowName], K>>,
   ) => void;

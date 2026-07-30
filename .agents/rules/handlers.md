@@ -23,12 +23,17 @@ export const activities = declareActivitiesHandler({
 });
 ```
 
-`fromPromise(promise, qualifyFailure)` forces every rejection through `qualifyFailure`, which
-returns the modeled error `E` (here an `ApplicationFailure`). For the common
-case, the worker package exports a `qualifyFailure(type, options?)` helper that builds
-that function — `fromPromise(inventoryService.check(orderId), qualifyFailure("INVENTORY_CHECK_FAILED"))`
-preserves an `Error` rejection's message and `cause`, with `options.nonRetryable`
-/ `options.details` / `options.message` (non-`Error` fallback) available. For a
+`fromPromise(promise, qualify)` forces every rejection through `qualify`, which
+returns the modeled error `E` (here an `ApplicationFailure`) or routes the cause
+to the defect channel. For the common case, the worker package exports a
+`qualifyFailure(errorType, options)` helper that builds that function —
+`options.expected` is **required** (an error-class constructor, an array of
+them, a predicate, or the literal `"any"` escape hatch): matching causes are
+wrapped (preserving an `Error` rejection's message and `cause`, and inheriting
+`nonRetryable: true` from a matched non-retryable `ApplicationFailure` unless
+`options.nonRetryable` overrides), everything else becomes a defect. E.g.
+`fromPromise(inventoryService.check(orderId), qualifyFailure("INVENTORY_CHECK_FAILED", { expected: InventoryServiceError }))`.
+`options.details` / `options.message` (non-`Error` fallback) remain available. For a
 value you already have, use the canonical pre-lifted constructors
 `OkAsync(value)` / `ErrAsync(failure)` (prefer `OkAsync()` zero-arg over
 `OkAsync(undefined)`); `.toAsync()` is for lifting a sync `Result` you already
@@ -73,7 +78,7 @@ export const processOrder = declareWorkflow({
   implementation: async (context, args) => {
     // context.activities — typed, validated activities
     // context.info — WorkflowInfo
-    // context.defineSignal/defineQuery/defineUpdate — handler registration
+    // context.handleSignal/handleQuery/handleUpdate — handler binding
     // context.executeChildWorkflow / context.startChildWorkflow
     // context.cancellableScope / context.nonCancellableScope — see below
 

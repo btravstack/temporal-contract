@@ -52,13 +52,19 @@ export const activities = declareActivitiesHandler({
     sendNotification: ({ customerId, subject, message }) =>
       fromPromise(
         sendNotificationUseCase.execute(customerId, subject, message),
-        qualifyFailure("NOTIFICATION_FAILED", { message: "Failed to send notification" }),
+        qualifyFailure("NOTIFICATION_FAILED", {
+          // Anticipated failure shape: the domain layer signals technical
+          // faults by throwing plain `Error`s. Anything else (a TypeError
+          // from a bug, ...) stays a defect and re-throws at the edge.
+          expected: Error,
+          message: "Failed to send notification",
+        }),
       ),
 
     purgeExpiredOrders: ({ olderThanDays }) =>
       fromPromise(
         purgeExpiredOrdersUseCase.execute(olderThanDays),
-        qualifyFailure("ORDER_PURGE_FAILED", { message: "Order purge failed" }),
+        qualifyFailure("ORDER_PURGE_FAILED", { expected: Error, message: "Order purge failed" }),
       ).map((purgedCount) => ({ purgedCount })),
 
     processOrder: {
@@ -72,7 +78,10 @@ export const activities = declareActivitiesHandler({
       processPayment: ({ customerId, amount }, { errors }) =>
         fromPromise(
           processPaymentUseCase.execute(customerId, amount),
-          qualifyFailure("PAYMENT_GATEWAY_ERROR", { message: "Payment gateway call failed" }),
+          qualifyFailure("PAYMENT_GATEWAY_ERROR", {
+            expected: Error,
+            message: "Payment gateway call failed",
+          }),
         ).flatMap((outcome) => {
           if (outcome.status === "declined") {
             return Err(errors.PaymentDeclined({ reason: outcome.reason }));
@@ -84,6 +93,7 @@ export const activities = declareActivitiesHandler({
         fromPromise(
           reserveInventoryUseCase.execute(items),
           qualifyFailure("INVENTORY_RESERVATION_FAILED", {
+            expected: Error,
             message: "Inventory reservation failed",
           }),
         ),
@@ -91,19 +101,25 @@ export const activities = declareActivitiesHandler({
       releaseInventory: (reservationId) =>
         fromPromise(
           releaseInventoryUseCase.execute(reservationId),
-          qualifyFailure("INVENTORY_RELEASE_FAILED", { message: "Inventory release failed" }),
+          qualifyFailure("INVENTORY_RELEASE_FAILED", {
+            expected: Error,
+            message: "Inventory release failed",
+          }),
         ),
 
       createShipment: ({ orderId, customerId }) =>
         fromPromise(
           createShipmentUseCase.execute(orderId, customerId),
-          qualifyFailure("SHIPMENT_CREATION_FAILED", { message: "Shipment creation failed" }),
+          qualifyFailure("SHIPMENT_CREATION_FAILED", {
+            expected: Error,
+            message: "Shipment creation failed",
+          }),
         ),
 
       refundPayment: (transactionId) =>
         fromPromise(
           refundPaymentUseCase.execute(transactionId),
-          qualifyFailure("REFUND_FAILED", { message: "Refund failed" }),
+          qualifyFailure("REFUND_FAILED", { expected: Error, message: "Refund failed" }),
         ),
     },
   },

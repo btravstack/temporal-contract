@@ -1,4 +1,4 @@
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // Entry point for worker creation utilities
 import { type ContractDefinition } from "@temporal-contract/contract";
@@ -7,6 +7,7 @@ import { Worker, type WorkerOptions } from "@temporalio/worker";
 import { fromPromise, type AsyncResult } from "unthrown";
 
 import type { ActivitiesHandler } from "./activity.js";
+import { _internal_declaredWorkflowName } from "./workflow-brand.js";
 
 // Technical creation failure — worker bundling / connection errors are
 // unmodeled infrastructure defects, surfaced on the `Defect` channel with a
@@ -38,7 +39,123 @@ export type CreateWorkerOptions<TContract extends ContractDefinition> = Omit<
    * separate worker process on the same task queue registers the activities.
    */
   activities?: ActivitiesHandler<TContract>;
+
+  /**
+   * Best-effort startup check that the `workflowsPath` module registers
+   * every contract workflow under its declared name. **Defaults to `true`.**
+   *
+   * Activities already fail fast at `declareActivitiesHandler` time when an
+   * implementation is missing; workflows historically did not — a forgotten
+   * `declareWorkflow` export surfaced only when the first task for it was
+   * dispatched, and an export whose *name* differs from its `workflowName`
+   * registered under the wrong workflow type. With this check enabled,
+   * `TypedWorker.create` imports the `workflowsPath` module in the main
+   * thread, identifies `declareWorkflow`-produced exports via their brand
+   * marker, and fails creation (a `TechnicalError`-caused defect) when
+   *
+   * - a contract workflow has neither a `declareWorkflow`-produced export
+   *   nor a plain function export under its name (raw
+   *   `@temporalio/workflow`-style workflow functions exported under the
+   *   correct name are accepted), or
+   * - a declared workflow is exported under a name that differs from its
+   *   `workflowName` (Temporal registers workflows by *export name*, so the
+   *   mismatch would register it as the wrong workflow type).
+   *
+   * Best-effort semantics: the check only runs when `workflowsPath` is
+   * provided (prebuilt `workflowBundle`s are skipped), and a module that
+   * cannot be imported in the main thread is skipped silently — the
+   * subsequent `Worker.create` bundling step is the authority on whether the
+   * module loads at all. Note the module *is* evaluated in the main thread,
+   * so workflow modules should stay side-effect-free at module scope (they
+   * should be anyway — the sandbox re-evaluates them constantly).
+   *
+   * Set to `false` to opt out (e.g. when the workflows module intentionally
+   * exports helpers whose names shadow contract workflows, or module-scope
+   * evaluation outside the sandbox is undesirable).
+   */
+  verifyWorkflowRegistration?: boolean;
 };
+
+/**
+ * Import the workflows module (best-effort) and verify every contract
+ * workflow is exported under its declared name. Returns silently when the
+ * module cannot be imported in the main thread — `Worker.create`'s bundler
+ * is the authority on load failures.
+ *
+ * @internal
+ */
+async function verifyWorkflowRegistration(
+  contract: ContractDefinition,
+  workflowsPath: string,
+): Promise<void> {
+  let moduleExports: Record<string, unknown>;
+  try {
+    moduleExports = (await import(pathToFileURL(workflowsPath).href)) as Record<string, unknown>;
+  } catch {
+    // Best-effort: the module may be main-thread hostile (sandbox-only
+    // imports, workflow-bundle-relative paths) or simply not resolvable
+    // outside the bundler. Skip — a genuinely broken module fails
+    // `Worker.create`'s bundling step with the bundler's own diagnostics.
+    return;
+  }
+
+  // Map each declared workflowName to the export names it appears under.
+  const exportNamesByWorkflow = new Map<string, string[]>();
+  for (const [exportName, candidate] of Object.entries(moduleExports)) {
+    const declaredName = _internal_declaredWorkflowName(candidate);
+    if (declaredName === undefined) continue;
+    const names = exportNamesByWorkflow.get(declaredName) ?? [];
+    names.push(exportName);
+    exportNamesByWorkflow.set(declaredName, names);
+  }
+
+  const missing: string[] = [];
+  const mismatched: string[] = [];
+  for (const workflowName of Object.keys(contract.workflows)) {
+    const exportNames = exportNamesByWorkflow.get(workflowName);
+    if (!exportNames) {
+      // No declareWorkflow-produced export declares this workflow. A plain
+      // function exported under the workflow's name still registers
+      // correctly (Temporal registers by export name) — workflows written
+      // against the raw `@temporalio/workflow` API are a supported pattern,
+      // so only flag when neither shape is present.
+      if (typeof moduleExports[workflowName] !== "function") {
+        missing.push(workflowName);
+      }
+      continue;
+    }
+    // Temporal registers workflows by EXPORT name: the declared name must be
+    // among the export names, otherwise the workflow registers under the
+    // wrong type. (Extra aliases alongside the correct export are tolerated.)
+    if (!exportNames.includes(workflowName)) {
+      mismatched.push(
+        `"${workflowName}" is exported as ${exportNames.map((n) => `"${n}"`).join(", ")}`,
+      );
+    }
+  }
+
+  const problems: string[] = [];
+  if (missing.length > 0) {
+    problems.push(
+      `no workflow export${missing.length > 1 ? "s" : ""} (declareWorkflow-produced or plain ` +
+        `function) for contract workflow${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`,
+    );
+  }
+  if (mismatched.length > 0) {
+    problems.push(
+      `export-name mismatch (Temporal registers workflows by export name, so these would ` +
+        `register under the wrong workflow type): ${mismatched.join("; ")}. ` +
+        `Export each workflow under its declared workflowName`,
+    );
+  }
+  if (problems.length > 0) {
+    // oxlint-disable-next-line unthrown/no-throw -- declaration-time fail-fast config error inside the fromPromise boundary: surfaces as a TechnicalError-caused defect
+    throw new TechnicalError(
+      `Workflow registration check failed for "${workflowsPath}": ${problems.join(". Also: ")}. ` +
+        `(Disable with \`verifyWorkflowRegistration: false\` if this is intentional.)`,
+    );
+  }
+}
 
 /**
  * Contract-scoped root of the typed worker surface — the worker-side sibling
@@ -108,7 +225,12 @@ export class TypedWorker {
   static create<TContract extends ContractDefinition>(
     options: CreateWorkerOptions<TContract>,
   ): AsyncResult<TypedWorker, never> {
-    const { contract, activities, ...workerOptions } = options;
+    const {
+      contract,
+      activities,
+      verifyWorkflowRegistration: verifyRegistration,
+      ...workerOptions
+    } = options;
 
     // Create the worker with contract's task queue. `Worker.create` rejects on
     // workflow-bundle compilation errors, bad connections, and invalid
@@ -119,17 +241,27 @@ export class TypedWorker {
     // pass the key at all (exactOptionalPropertyTypes discipline — and Temporal
     // treats an absent map as "don't poll for Activity Tasks").
     return fromPromise(
-      Worker.create({
-        ...workerOptions,
-        ...(activities !== undefined ? { activities } : {}),
-        taskQueue: contract.taskQueue,
-      }),
+      (async () => {
+        // Registration completeness check (default on) — only meaningful
+        // when a `workflowsPath` module is supplied; prebuilt
+        // `workflowBundle`s are skipped. See the option's JSDoc.
+        if ((verifyRegistration ?? true) && typeof workerOptions.workflowsPath === "string") {
+          await verifyWorkflowRegistration(contract, workerOptions.workflowsPath);
+        }
+        return Worker.create({
+          ...workerOptions,
+          ...(activities !== undefined ? { activities } : {}),
+          taskQueue: contract.taskQueue,
+        });
+      })(),
       (cause, defect) =>
         defect(
-          new TechnicalError(
-            `Failed to create Temporal worker for task queue "${contract.taskQueue}"`,
-            cause,
-          ),
+          cause instanceof TechnicalError
+            ? cause
+            : new TechnicalError(
+                `Failed to create Temporal worker for task queue "${contract.taskQueue}"`,
+                cause,
+              ),
         ),
     ).map((worker) => new TypedWorker(worker, contract.taskQueue));
   }

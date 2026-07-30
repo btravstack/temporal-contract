@@ -22,8 +22,8 @@ const APPROVAL_TIMEOUT = "5 minutes";
 /**
  * Process Order Workflow Implementation
  *
- * - Signal/query handlers are registered up front via `context.defineSignal`
- *   / `context.defineQuery`, closing over plain workflow-local state — the
+ * - Signal/query handlers are registered up front via `context.handleSignal`
+ *   / `context.handleQuery`, closing over plain workflow-local state — the
  *   deterministic way to expose interactive state.
  * - Activities use unthrown's `AsyncResult` in their implementation
  *   (domain + infrastructure). `processPayment` declares a contract error,
@@ -70,7 +70,7 @@ export const processOrder = declareWorkflow({
     let cancelRequested = false;
 
     // Payload-carrying signal — the handler receives the schema-parsed input.
-    context.defineSignal("approveOrder", (approval) => {
+    context.handleSignal("approveOrder", (approval) => {
       approvedBy = approval.approvedBy;
       log.info(
         `Order ${order.orderId} approved by ${approval.approvedBy}` +
@@ -79,7 +79,7 @@ export const processOrder = declareWorkflow({
     });
 
     // Payload-less signal (`defineSignal()` in the contract) — no arguments.
-    context.defineSignal("cancelRequested", () => {
+    context.handleSignal("cancelRequested", () => {
       cancelRequested = true;
       log.info(`Cancellation requested for order ${order.orderId}`);
     });
@@ -87,7 +87,7 @@ export const processOrder = declareWorkflow({
     // Argument-less query — must stay synchronous and side-effect free.
     // The optional field is spread in (never set to `undefined`) to satisfy
     // exactOptionalPropertyTypes.
-    context.defineQuery("getOrderStatus", () => ({
+    context.handleQuery("getOrderStatus", () => ({
       status,
       ...(approvedBy !== undefined ? { approvedBy } : {}),
     }));

@@ -1,5 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { ApplicationFailure } from "@temporalio/common";
+import { CancelledFailure } from "@temporalio/common";
 /**
  * Coverage for the path-aware issue formatting in worker validation errors
  * and in `formatChildWorkflowValidationMessage` (the workflow.ts call site
@@ -14,13 +15,31 @@ import { ApplicationFailure } from "@temporalio/common";
 import { describe, expect, it } from "vitest";
 
 import {
+  ACTIVITY_CANCELLED_ERROR_TAG,
+  ACTIVITY_ERROR_TAG,
+  CHILD_WORKFLOW_CANCELLED_ERROR_TAG,
+  CHILD_WORKFLOW_ERROR_TAG,
+  CHILD_WORKFLOW_NOT_FOUND_ERROR_TAG,
+  WORKFLOW_CANCELLED_ERROR_TAG,
+} from "./error-tags.js";
+import {
+  ActivityCancelledError,
+  ActivityError,
   ActivityInputValidationError,
   ActivityOutputValidationError,
+  ChildWorkflowCancelledError,
+  ChildWorkflowError,
+  ChildWorkflowNotFoundError,
   ContractMisuseError,
+  QueryInputValidationError,
+  QueryOutputValidationError,
+  UpdateInputValidationError,
   UpdateOutputValidationError,
   ValidationError,
+  WorkflowCancelledError,
   WorkflowInputValidationError,
   WorkflowOutputValidationError,
+  rethrowCancellation,
 } from "./errors.js";
 import { formatChildWorkflowValidationMessage } from "./internal.js";
 
@@ -268,5 +287,87 @@ describe("validation errors are terminal Temporal failures (#251)", () => {
     const error: unknown = new ActivityInputValidationError("act", [issue("bad")]);
     expect(error).toBeInstanceOf(ActivityInputValidationError);
     expect(error).not.toBeInstanceOf(ActivityOutputValidationError);
+  });
+
+  it("carry a `direction` field aligning with the client's direction-as-field error family", () => {
+    // Class names still split direction (WorkflowInputValidationError etc.),
+    // but the structured field lets shared tooling branch without parsing
+    // class names.
+    expect(new WorkflowInputValidationError("wf", [issue("bad")]).direction).toBe("input");
+    expect(new WorkflowOutputValidationError("wf", [issue("bad")]).direction).toBe("output");
+    expect(new ActivityInputValidationError("act", [issue("bad")]).direction).toBe("input");
+    expect(new ActivityOutputValidationError("act", [issue("bad")]).direction).toBe("output");
+    expect(new QueryInputValidationError("q", [issue("bad")]).direction).toBe("input");
+    expect(new QueryOutputValidationError("q", [issue("bad")]).direction).toBe("output");
+    expect(new UpdateInputValidationError("u", [issue("bad")]).direction).toBe("input");
+    expect(new UpdateOutputValidationError("u", [issue("bad")]).direction).toBe("output");
+  });
+});
+
+describe("error tag constants", () => {
+  it("match the corresponding classes' _tag literals", () => {
+    expect(new ActivityError("act", "boom")._tag).toBe(ACTIVITY_ERROR_TAG);
+    expect(new ActivityCancelledError("act")._tag).toBe(ACTIVITY_CANCELLED_ERROR_TAG);
+    expect(new ChildWorkflowError("wf", "boom")._tag).toBe(CHILD_WORKFLOW_ERROR_TAG);
+    expect(new ChildWorkflowCancelledError("wf")._tag).toBe(CHILD_WORKFLOW_CANCELLED_ERROR_TAG);
+    expect(new ChildWorkflowNotFoundError("wf")._tag).toBe(CHILD_WORKFLOW_NOT_FOUND_ERROR_TAG);
+    expect(new WorkflowCancelledError()._tag).toBe(WORKFLOW_CANCELLED_ERROR_TAG);
+  });
+});
+
+describe("ChildWorkflowError structured fields", () => {
+  it("carries the child workflowName as a structured field (no message parsing)", () => {
+    const error = new ChildWorkflowError("processPayment", "it failed", new Error("inner"));
+    expect(error.workflowName).toBe("processPayment");
+    expect(error.message).toBe("it failed");
+    expect((error.cause as Error).message).toBe("inner");
+  });
+});
+
+describe("rethrowCancellation", () => {
+  it("rethrows the underlying CancelledFailure carried in error.cause", () => {
+    const cancelled = new CancelledFailure("workflow cancelled");
+    const wrapped = new WorkflowCancelledError(cancelled);
+
+    // The original CancelledFailure must reach Temporal so the execution
+    // ends `Cancelled` — not the wrapper, which Temporal wouldn't recognize.
+    let thrown: unknown;
+    try {
+      rethrowCancellation(wrapped);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBe(cancelled);
+  });
+
+  it("works for the activity and child-workflow cancellation variants too", () => {
+    const cancelled = new CancelledFailure("cancelled");
+
+    expect(() => rethrowCancellation(new ActivityCancelledError("act", cancelled))).toThrow(
+      cancelled,
+    );
+    expect(() => rethrowCancellation(new ChildWorkflowCancelledError("child", cancelled))).toThrow(
+      cancelled,
+    );
+  });
+
+  it("falls back to throwing the error itself when no cause was attached", () => {
+    const wrapped = new WorkflowCancelledError();
+
+    let thrown: unknown;
+    try {
+      rethrowCancellation(wrapped);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBe(wrapped);
+  });
+
+  it("is typed `never` — usable as a terminal statement", () => {
+    // Type-level: the return type must be `never` so control-flow analysis
+    // treats a call as terminal (no unreachable-code or missing-return
+    // complaints in workflow branches).
+    const fn: (e: WorkflowCancelledError) => never = rethrowCancellation;
+    expect(typeof fn).toBe("function");
   });
 });

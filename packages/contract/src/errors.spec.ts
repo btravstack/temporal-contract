@@ -142,7 +142,7 @@ describe("_internal_rehydrateContractError", () => {
   });
 
   it("does NOT rehydrate a data-less name without the marker (false-positive regression)", async () => {
-    // A foreign ApplicationFailure — e.g. produced by qualifyFailure("OutOfStock")
+    // A foreign ApplicationFailure — e.g. produced by qualifyFailure("OutOfStock", { expected: Error })
     // or any handwritten `ApplicationFailure.create({ type: "OutOfStock" })` —
     // must not surface as the typed domain error just because the `type`
     // string matches a declared data-less error.
