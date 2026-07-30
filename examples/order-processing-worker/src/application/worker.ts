@@ -2,7 +2,7 @@ import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { orderProcessingContract } from "@temporal-contract/sample-order-processing-contract";
-import { createWorker } from "@temporal-contract/worker/worker";
+import { TypedWorker } from "@temporal-contract/worker/worker";
 import { NativeConnection } from "@temporalio/worker";
 
 import { logger } from "../logger.js";
@@ -28,29 +28,29 @@ async function run() {
     address: "localhost:7233",
   });
 
-  // Create and run the worker using createWorker — creation failures are
-  // technical faults that ride the defect channel (a TechnicalError cause),
-  // not the Err channel and not thrown.
-  const workerResult = await createWorker({
+  // Create and run the worker via the TypedWorker.create factory — creation
+  // failures are technical faults that ride the defect channel (a
+  // TechnicalError cause), not the Err channel and not thrown.
+  const workerResult = await TypedWorker.create({
     contract: orderProcessingContract,
     connection,
     namespace: "default",
     workflowsPath: workflowPath("workflows"),
     activities,
   });
-  if (!workerResult.isOk()) {
-    logger.error(
-      { err: workerResult.isErr() ? workerResult.error : workerResult.cause },
-      "❌ Worker creation failed",
-    );
+  if (workerResult.isDefect()) {
+    logger.error({ err: workerResult.cause }, "❌ Worker creation failed");
     process.exit(1);
   }
-  const worker = workerResult.value;
+  // The Err channel is empty (never) and the defect case exited above, so
+  // `.get()` unwraps directly.
+  const worker = workerResult.get();
 
   logger.info("✅ Worker registered successfully");
 
-  // Run the worker
-  await worker.run();
+  // Run the worker loop. `run()` returns AsyncResult<void, never> — a
+  // runtime failure is a defect whose cause `.get()` rethrows below.
+  await worker.run().get();
 }
 
 run().catch((err) => {

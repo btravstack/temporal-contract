@@ -1,6 +1,6 @@
 import { defineContract } from "@temporal-contract/contract";
 import { ContractError } from "@temporal-contract/contract/errors";
-import { Ok, Err, P, type AsyncResult } from "unthrown";
+import { OkAsync, ErrAsync, P } from "unthrown";
 /**
  * Runtime coverage for `declareActivitiesHandler`'s contract-declared typed
  * errors, middleware chain, and dependency context — the boundary where an
@@ -19,9 +19,6 @@ import {
   type ActivityMiddleware,
 } from "./activity.js";
 import { ContractErrorDataValidationError } from "./errors.js";
-
-const okAsync = <T>(value: T): AsyncResult<T, never> => Ok(value).toAsync();
-const errAsync = <E>(error: E): AsyncResult<never, E> => Err(error).toAsync();
 
 const contract = defineContract({
   taskQueue: "test-queue",
@@ -58,10 +55,10 @@ describe("declareActivitiesHandler — contract errors", () => {
     const activities = declareActivitiesHandler({
       contract,
       activities: {
-        sendEmail: () => okAsync({ sent: true }),
+        sendEmail: () => OkAsync({ sent: true }),
         processOrder: {
           chargePayment: (_args, { errors }) =>
-            errAsync(errors.PaymentDeclined({ reason: "insufficient_funds" })),
+            ErrAsync(errors.PaymentDeclined({ reason: "insufficient_funds" })),
         },
       },
     });
@@ -80,9 +77,9 @@ describe("declareActivitiesHandler — contract errors", () => {
     const activities = declareActivitiesHandler({
       contract,
       activities: {
-        sendEmail: () => okAsync({ sent: true }),
+        sendEmail: () => OkAsync({ sent: true }),
         processOrder: {
-          chargePayment: (_args, { errors }) => errAsync(errors.GatewayUnavailable()),
+          chargePayment: (_args, { errors }) => ErrAsync(errors.GatewayUnavailable()),
         },
       },
     });
@@ -116,7 +113,7 @@ describe("declareActivitiesHandler — contract errors", () => {
     const activities = declareActivitiesHandler({
       contract: transformingContract,
       activities: {
-        flaky: (_args, { errors }) => errAsync(errors.Nope({ reason: "declined" })),
+        flaky: (_args, { errors }) => ErrAsync(errors.Nope({ reason: "declined" })),
       },
     });
 
@@ -130,11 +127,11 @@ describe("declareActivitiesHandler — contract errors", () => {
     const activities = declareActivitiesHandler({
       contract,
       activities: {
-        sendEmail: () => okAsync({ sent: true }),
+        sendEmail: () => OkAsync({ sent: true }),
         processOrder: {
           chargePayment: (_args, { errors }) =>
             // @ts-expect-error — deliberately invalid payload
-            errAsync(errors.PaymentDeclined({ reason: 42 })),
+            ErrAsync(errors.PaymentDeclined({ reason: 42 })),
         },
       },
     });
@@ -153,9 +150,9 @@ describe("declareActivitiesHandler — contract errors", () => {
     const activities = declareActivitiesHandler({
       contract,
       activities: {
-        sendEmail: () => okAsync({ sent: true }),
+        sendEmail: () => OkAsync({ sent: true }),
         processOrder: {
-          chargePayment: () => errAsync(foreign) as never,
+          chargePayment: () => ErrAsync(foreign) as never,
         },
       },
     });
@@ -172,9 +169,9 @@ describe("declareActivitiesHandler — contract errors", () => {
     const activities = declareActivitiesHandler({
       contract,
       activities: {
-        sendEmail: () => okAsync({ sent: true }),
+        sendEmail: () => OkAsync({ sent: true }),
         processOrder: {
-          chargePayment: () => errAsync(failure),
+          chargePayment: () => ErrAsync(failure),
         },
       },
     });
@@ -190,10 +187,10 @@ describe("declareActivitiesHandler — createContext", () => {
       contract,
       createContext: () => ({ paymentGateway }),
       activities: {
-        sendEmail: () => okAsync({ sent: true }),
+        sendEmail: () => OkAsync({ sent: true }),
         processOrder: {
           chargePayment: (args, { context }) =>
-            okAsync({
+            OkAsync({
               transactionId: `${context.paymentGateway === paymentGateway}-${args.amount}`,
             }),
         },
@@ -211,9 +208,9 @@ describe("declareActivitiesHandler — createContext", () => {
       contract,
       createContext,
       activities: {
-        sendEmail: () => okAsync({ sent: true }),
+        sendEmail: () => OkAsync({ sent: true }),
         processOrder: {
-          chargePayment: () => okAsync({ transactionId: "tx" }),
+          chargePayment: () => OkAsync({ transactionId: "tx" }),
         },
       },
     });
@@ -234,9 +231,9 @@ describe("declareActivitiesHandler — createContext", () => {
 
 describe("declareActivitiesHandler — middleware", () => {
   const passthroughImplementations = {
-    sendEmail: () => okAsync({ sent: true }),
+    sendEmail: () => OkAsync({ sent: true }),
     processOrder: {
-      chargePayment: () => okAsync({ transactionId: "tx" }),
+      chargePayment: () => OkAsync({ transactionId: "tx" }),
     },
   };
 
@@ -281,9 +278,9 @@ describe("declareActivitiesHandler — middleware", () => {
       contract,
       middleware: (_invocation, next) => next({ input: { amount: 999 } }),
       activities: {
-        sendEmail: () => okAsync({ sent: true }),
+        sendEmail: () => OkAsync({ sent: true }),
         processOrder: {
-          chargePayment: (args) => okAsync({ transactionId: `tx-${args.amount}` }),
+          chargePayment: (args) => OkAsync({ transactionId: `tx-${args.amount}` }),
         },
       },
     });
@@ -294,12 +291,12 @@ describe("declareActivitiesHandler — middleware", () => {
   });
 
   it("re-validates a substituted input — an invalid substitution fails terminally", async () => {
-    const implementation = vi.fn(() => okAsync({ transactionId: "tx" }));
+    const implementation = vi.fn(() => OkAsync({ transactionId: "tx" }));
     const activities = declareActivitiesHandler({
       contract,
       middleware: (_invocation, next) => next({ input: { amount: "not-a-number" } }),
       activities: {
-        sendEmail: () => okAsync({ sent: true }),
+        sendEmail: () => OkAsync({ sent: true }),
         processOrder: { chargePayment: implementation },
       },
     });
@@ -311,12 +308,12 @@ describe("declareActivitiesHandler — middleware", () => {
   });
 
   it("can short-circuit with its own result — output still validated", async () => {
-    const implementation = vi.fn(() => okAsync({ transactionId: "tx" }));
+    const implementation = vi.fn(() => OkAsync({ transactionId: "tx" }));
     const activities = declareActivitiesHandler({
       contract,
-      middleware: () => okAsync({ transactionId: "cached" }),
+      middleware: () => OkAsync({ transactionId: "cached" }),
       activities: {
-        sendEmail: () => okAsync({ sent: true }),
+        sendEmail: () => OkAsync({ sent: true }),
         processOrder: { chargePayment: implementation },
       },
     });
@@ -344,10 +341,10 @@ describe("declareActivitiesHandler — middleware", () => {
       contract,
       middleware: observing,
       activities: {
-        sendEmail: () => okAsync({ sent: true }),
+        sendEmail: () => OkAsync({ sent: true }),
         processOrder: {
           chargePayment: (_args, { errors }) =>
-            errAsync(errors.PaymentDeclined({ reason: "expired_card" })),
+            ErrAsync(errors.PaymentDeclined({ reason: "expired_card" })),
         },
       },
     });
@@ -398,10 +395,10 @@ describe("declareActivitiesHandler — middleware", () => {
       activities: {
         sendEmail: (_args, { context }) => {
           seenByImplementation.push(context);
-          return okAsync({ sent: true });
+          return OkAsync({ sent: true });
         },
         processOrder: {
-          chargePayment: () => okAsync({ transactionId: "tx" }),
+          chargePayment: () => OkAsync({ transactionId: "tx" }),
         },
       },
     });

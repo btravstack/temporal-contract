@@ -8,7 +8,7 @@
 import { defineActivity } from "@temporal-contract/contract";
 import { ContractError } from "@temporal-contract/contract/errors";
 import { MockActivityEnvironment } from "@temporalio/testing";
-import { Err, Ok, fromSafePromise } from "unthrown";
+import { ErrAsync, OkAsync, fromSafePromise } from "unthrown";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -30,7 +30,7 @@ describe("runActivity", () => {
   it("returns the implementation's Ok result", async () => {
     const result = await runActivity(
       charge,
-      ({ amount }) => Ok({ transactionId: `TXN-${amount}` }).toAsync(),
+      ({ amount }) => OkAsync({ transactionId: `TXN-${amount}` }),
       { amount: 42 },
     );
 
@@ -44,7 +44,7 @@ describe("runActivity", () => {
     const result = await runActivity(
       charge,
       ({ amount }, { errors }) =>
-        Err(errors.PaymentDeclined({ reason: `insufficient funds for ${amount}` })).toAsync(),
+        ErrAsync(errors.PaymentDeclined({ reason: `insufficient funds for ${amount}` })),
       { amount: 9000 },
     );
 
@@ -83,7 +83,7 @@ describe("runActivity", () => {
         // Inside `env.run`, `Context.current()` is this environment's
         // context — the mock env instance exposes it as `env.context`.
         env.context.heartbeat("halfway");
-        return Ok({ transactionId: `TXN-${amount}` }).toAsync();
+        return OkAsync({ transactionId: `TXN-${amount}` });
       },
       { amount: 7 },
       { env },

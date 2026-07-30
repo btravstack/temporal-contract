@@ -3,13 +3,13 @@ import { fileURLToPath } from "node:url";
 
 import { ContractError, TypedClient, type ClientInterceptor } from "@temporal-contract/client";
 import { it } from "@temporal-contract/testing/time-skipping";
-import { Ok, Err, type AsyncResult } from "unthrown";
+import { OkAsync, ErrAsync } from "unthrown";
 /**
  * Full contract-pipeline coverage against the time-skipping
  * `TestWorkflowEnvironment` (`@temporal-contract/testing/time-skipping`) —
  * no Docker required. Exercises, in-process:
  *
- * - `createWorker` / `TypedClient.create` AsyncResult factories,
+ * - `TypedWorker.create` / `TypedClient.create` AsyncResult factories,
  * - the activity-boundary wire format (sender validates and transmits the
  *   original value; receiver parses),
  * - `createContext` seed + accumulating middleware context,
@@ -26,11 +26,8 @@ import {
   declareActivitiesHandler,
   declareActivityMiddleware,
 } from "../activity.js";
-import { createWorker, TechnicalError } from "../worker.js";
+import { TypedWorker, TechnicalError } from "../worker.js";
 import { inprocessContract } from "./inprocess.contract.js";
-
-const okAsync = <T>(value: T): AsyncResult<T, never> => Ok(value).toAsync();
-const errAsync = <E>(error: E): AsyncResult<never, E> => Err(error).toAsync();
 
 const seenContexts: Record<string, unknown>[] = [];
 
@@ -49,9 +46,9 @@ const activities = declareActivitiesHandler({
       charge: ({ amount }, { errors, context }) => {
         seenContexts.push(context);
         if (amount < 0) {
-          return errAsync(errors.PaymentDeclined({ reason: "negative-amount" }));
+          return ErrAsync(errors.PaymentDeclined({ reason: "negative-amount" }));
         }
-        return okAsync({ transactionId: `tx-${amount}-${context.traceId}` });
+        return OkAsync({ transactionId: `tx-${amount}-${context.traceId}` });
       },
     },
   },
@@ -69,7 +66,7 @@ function workflowPath(filename: string): string {
 
 describe("time-skipping TestWorkflowEnvironment", () => {
   it("runs the full contract pipeline in-process", async ({ testEnv }) => {
-    const workerResult = await createWorker({
+    const workerResult = await TypedWorker.create({
       contract: inprocessContract,
       connection: testEnv.nativeConnection,
       workflowsPath: workflowPath("inprocess.workflows"),
@@ -87,7 +84,7 @@ describe("time-skipping TestWorkflowEnvironment", () => {
     if (!clientResult.isOk()) return;
     const client = clientResult.value.for(inprocessContract);
 
-    await worker.runUntil(async () => {
+    await worker.raw.runUntil(async () => {
       // Happy path — the hour-long sleep is skipped, the accumulated
       // middleware context reaches the implementation.
       const charged = await client.executeWorkflow("placeOrder", {
@@ -139,7 +136,7 @@ describe("time-skipping TestWorkflowEnvironment", () => {
   });
 
   it("surfaces worker bundling failures on the defect channel", async ({ testEnv }) => {
-    const workerResult = await createWorker({
+    const workerResult = await TypedWorker.create({
       contract: inprocessContract,
       connection: testEnv.nativeConnection,
       workflowsPath: workflowPath("does-not-exist"),

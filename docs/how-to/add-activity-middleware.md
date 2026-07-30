@@ -68,7 +68,7 @@ implementations. Use `declareActivityMiddleware` to pin the in and out types:
 
 ```typescript
 import { declareActivityMiddleware, type EmptyContext } from "@temporal-contract/worker/activity";
-import { Err } from "unthrown";
+import { ErrAsync } from "unthrown";
 
 const withTenant = declareActivityMiddleware<EmptyContext, { tenantId: string }>(
   (invocation, next) => {
@@ -76,9 +76,7 @@ const withTenant = declareActivityMiddleware<EmptyContext, { tenantId: string }>
 
     if (!tenantId) {
       // Short-circuit: never calls next().
-      return Err(
-        ApplicationFailure.create({ type: "Unauthenticated", nonRetryable: true }),
-      ).toAsync();
+      return ErrAsync(ApplicationFailure.create({ type: "Unauthenticated", nonRetryable: true }));
     }
 
     return next({ context: { tenantId } });
@@ -177,17 +175,17 @@ Because `next` can be called more than once, a retry is just a branch on the
 error channel:
 
 ```typescript
-import { Err, P } from "unthrown";
+import { ErrAsync, P } from "unthrown";
 
 const retryOnce: ActivityMiddleware = (invocation, next) =>
   next().flatMapErrCases((matcher) =>
     matcher
       .with(P.instanceOf(ApplicationFailure), (error) =>
-        error.type === "GATEWAY_TIMEOUT" ? next() : Err(error).toAsync(),
+        error.type === "GATEWAY_TIMEOUT" ? next() : ErrAsync(error),
       )
       // The middleware error union is `ApplicationFailure | AnyContractError`,
       // and the matcher must cover all of it — pass declared errors through.
-      .with(P._, (error) => Err(error).toAsync()),
+      .with(P._, (error) => ErrAsync(error)),
   );
 ```
 

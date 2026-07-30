@@ -39,9 +39,8 @@
 import { TypedClient, type ContractClient } from "@temporal-contract/client";
 import type { ContractDefinition } from "@temporal-contract/contract";
 import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
-import { createWorker, type CreateWorkerOptions } from "@temporal-contract/worker/worker";
+import { TypedWorker, type CreateWorkerOptions } from "@temporal-contract/worker/worker";
 import { Client } from "@temporalio/client";
-import type { Worker } from "@temporalio/worker";
 import { vi } from "vitest";
 
 import { it as baseIt } from "./extension.js";
@@ -62,7 +61,7 @@ export type CreateContractTestOptions<TContract extends ContractDefinition> = {
    */
   activities?: ActivitiesHandler<TContract>;
   /**
-   * Extra options forwarded to `createWorker` (e.g. `namespace`,
+   * Extra options forwarded to `TypedWorker.create` (e.g. `namespace`,
    * interceptors, tuning knobs). The `namespace`, when given, is also used
    * by the client fixtures.
    */
@@ -86,9 +85,10 @@ export type ContractTestContext<TContract extends ContractDefinition> = {
   typedClient: TypedClient;
   /**
    * The running worker for the contract's task queue — created and started
-   * before the test (`auto`), shut down after it.
+   * before the test (`auto`), shut down after it. The underlying Temporal
+   * `Worker` stays reachable via `worker.raw`.
    */
-  worker: Worker;
+  worker: TypedWorker;
 };
 
 /**
@@ -111,7 +111,7 @@ export function createContractTest<TContract extends ContractDefinition>(
       async ({ workerConnection }, use) => {
         // Technical creation failures ride the defect channel (E = never);
         // `get()` unwraps directly and rethrows a defect's cause.
-        const worker = await createWorker({
+        const worker = await TypedWorker.create({
           contract,
           connection: workerConnection,
           workflowsPath: options.workflowsPath,
@@ -119,22 +119,23 @@ export function createContractTest<TContract extends ContractDefinition>(
           ...options.workerOptions,
         }).get();
 
-        const runPromise = worker.run();
-        // Handled here so a mid-test worker crash doesn't trip Node's
-        // unhandled-rejection reporting; the real failure resurfaces at the
-        // `await runPromise` below.
-        runPromise.catch(() => {});
+        // `run()` returns `AsyncResult<void, never>` whose internal promise
+        // never rejects, so holding onto it across the test cannot trip
+        // Node's unhandled-rejection reporting; a mid-test worker crash
+        // resurfaces at the `.get()` below.
+        const running = worker.run();
 
-        await vi.waitFor(() => worker.getState() === "RUNNING", { interval: 100 });
+        await vi.waitFor(() => worker.raw.getState() === "RUNNING", { interval: 100 });
 
         await use(worker);
 
-        if (worker.getState() === "RUNNING") {
+        if (worker.raw.getState() === "RUNNING") {
           worker.shutdown();
         }
-        // Resolves once shutdown completes — or rejects with the original
-        // error when the worker failed, surfacing it as a teardown failure.
-        await runPromise;
+        // Resolves once shutdown completes — or rethrows the original
+        // failure's cause when the worker crashed, surfacing it as a
+        // teardown failure.
+        await running.get();
       },
       { auto: true },
     ],

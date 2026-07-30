@@ -1,5 +1,5 @@
 import type { ContractDefinition } from "@temporal-contract/contract";
-import { Ok, Err, fromSafePromise, type AsyncResult } from "unthrown";
+import { OkAsync, ErrAsync, fromSafePromise, type AsyncResult } from "unthrown";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -9,10 +9,6 @@ import {
   ActivityInputValidationError,
   ActivityOutputValidationError,
 } from "./errors.js";
-
-// unthrown has no `okAsync`/`errAsync`; lift a sync `Result` with `.toAsync()`.
-const okAsync = <T>(value: T): AsyncResult<T, never> => Ok(value).toAsync();
-const errAsync = <E>(error: E): AsyncResult<never, E> => Err(error).toAsync();
 
 describe("Worker unthrown Package", () => {
   describe("declareActivitiesHandler", () => {
@@ -39,7 +35,7 @@ describe("Worker unthrown Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          sendEmail: () => okAsync({ sent: true }),
+          sendEmail: () => OkAsync({ sent: true }),
         },
       });
 
@@ -67,7 +63,7 @@ describe("Worker unthrown Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          processPayment: (args) => okAsync({ transactionId: `tx-${args.amount}` }),
+          processPayment: (args) => OkAsync({ transactionId: `tx-${args.amount}` }),
         },
       });
 
@@ -101,7 +97,7 @@ describe("Worker unthrown Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          fetchData: (args) => okAsync({ data: `data-${args.id}`, timestamp: 123 }),
+          fetchData: (args) => OkAsync({ data: `data-${args.id}`, timestamp: 123 }),
         },
       });
 
@@ -119,7 +115,7 @@ describe("Worker unthrown Package", () => {
             _args,
           ): AsyncResult<{ data: string; timestamp: number }, ApplicationFailure> =>
             // @ts-expect-error - intentionally returning invalid output
-            okAsync({ data: "test" }), // Missing timestamp
+            OkAsync({ data: "test" }), // Missing timestamp
         },
       });
 
@@ -143,7 +139,7 @@ describe("Worker unthrown Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          successActivity: (args) => okAsync({ result: `success-${args.value}` }),
+          successActivity: (args) => OkAsync({ result: `success-${args.value}` }),
         },
       });
 
@@ -171,7 +167,7 @@ describe("Worker unthrown Package", () => {
         contract,
         activities: {
           failingActivity: (_args) =>
-            errAsync(
+            ErrAsync(
               ApplicationFailure.create({
                 type: "ACTIVITY_FAILED",
                 message: "Something went wrong",
@@ -211,7 +207,7 @@ describe("Worker unthrown Package", () => {
         contract,
         activities: {
           permanentlyFailingActivity: (_args) =>
-            errAsync(
+            ErrAsync(
               ApplicationFailure.create({
                 type: "PERMANENT",
                 message: "do not retry",
@@ -285,7 +281,7 @@ describe("Worker unthrown Package", () => {
         contract,
         activities: {
           orderWorkflow: {
-            validateOrder: (args) => okAsync({ valid: args.orderId.length > 0 }),
+            validateOrder: (args) => OkAsync({ valid: args.orderId.length > 0 }),
           },
         },
       });
@@ -315,9 +311,9 @@ describe("Worker unthrown Package", () => {
         declareActivitiesHandler({
           contract,
           activities: {
-            validActivity: (_args: unknown) => okAsync({ result: "test" }),
+            validActivity: (_args: unknown) => OkAsync({ result: "test" }),
             // @ts-expect-error - intentionally missing activity definition
-            unknownActivity: (_args: unknown) => okAsync({ result: "test" }),
+            unknownActivity: (_args: unknown) => OkAsync({ result: "test" }),
           },
         });
       }).toThrowError(new ActivityDefinitionNotFoundError("unknownActivity", ["validActivity"]));
@@ -344,7 +340,7 @@ describe("Worker unthrown Package", () => {
           // workflow activities), which TypeScript can't flag excess keys
           // against — the runtime check is the only guard.
           activities: {
-            strayActivity: (_args: unknown) => okAsync({}),
+            strayActivity: (_args: unknown) => OkAsync({}),
           },
         });
       }).toThrowError(new ActivityDefinitionNotFoundError("strayActivity", []));
@@ -371,7 +367,7 @@ describe("Worker unthrown Package", () => {
           contract,
           // @ts-expect-error - intentionally omitting a declared implementation
           activities: {
-            implemented: (_args: unknown) => okAsync({}),
+            implemented: (_args: unknown) => OkAsync({}),
           },
         });
       }).toThrow(/missing implementation for declared activity: forgotten/);
@@ -406,7 +402,7 @@ describe("Worker unthrown Package", () => {
           activities: {
             // @ts-expect-error - intentionally omitting a declared implementation
             orderWorkflow: {
-              validateOrder: (_args: unknown) => okAsync({}),
+              validateOrder: (_args: unknown) => OkAsync({}),
             },
           },
         });
@@ -447,7 +443,7 @@ describe("Worker unthrown Package", () => {
         declareActivitiesHandler({
           contract,
           activities: {
-            conflicted: (_args: unknown) => okAsync({}),
+            conflicted: (_args: unknown) => OkAsync({}),
           },
         });
       }).toThrow(/global activity "conflicted" has the same name as a workflow/);
@@ -478,7 +474,7 @@ describe("Worker unthrown Package", () => {
         activities: {
           transformer: (args) => {
             seen.push(args);
-            return okAsync({ n: 21 });
+            return OkAsync({ n: 21 });
           },
         },
       });
@@ -492,7 +488,7 @@ describe("Worker unthrown Package", () => {
       const activities = declareActivitiesHandler({
         contract: transformContract,
         activities: {
-          transformer: () => okAsync({ n: 21 }),
+          transformer: () => OkAsync({ n: 21 }),
         },
       });
 
@@ -521,7 +517,7 @@ describe("Worker unthrown Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          strictActivity: (_args) => okAsync({ success: true }),
+          strictActivity: (_args) => OkAsync({ success: true }),
         },
       });
 
@@ -556,7 +552,7 @@ describe("Worker unthrown Package", () => {
         contract,
         activities: {
           // @ts-expect-error - intentionally returning invalid output
-          strictOutputActivity: (_args) => okAsync({ value: "not-a-number", status: "active" }),
+          strictOutputActivity: (_args) => OkAsync({ value: "not-a-number", status: "active" }),
         },
       });
 

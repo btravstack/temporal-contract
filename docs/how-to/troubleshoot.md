@@ -31,7 +31,7 @@ The worker package has no root export — import from a subpath:
 ```typescript
 import { declareActivitiesHandler } from "@temporal-contract/worker/activity";
 import { declareWorkflow } from "@temporal-contract/worker/workflow";
-import { createWorker } from "@temporal-contract/worker/worker";
+import { TypedWorker } from "@temporal-contract/worker/worker";
 ```
 
 ## Type errors
@@ -162,7 +162,7 @@ A `TechnicalError` on the defect channel — bundling failed, or the connection
 did not open. Inspect the cause:
 
 ```typescript
-const result = await createWorker({ ... });
+const result = await TypedWorker.create({ ... });
 if (result.isDefect()) {
   console.error(result.cause);        // TechnicalError
   console.error(result.cause.cause);  // the underlying failure

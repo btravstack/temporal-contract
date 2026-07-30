@@ -29,9 +29,11 @@ case, the worker package exports a `qualifyFailure(type, options?)` helper that 
 that function — `fromPromise(inventoryService.check(orderId), qualifyFailure("INVENTORY_CHECK_FAILED"))`
 preserves an `Error` rejection's message and `cause`, with `options.nonRetryable`
 / `options.details` / `options.message` (non-`Error` fallback) available. For a
-value you already have, use `OkAsync(value)` / `ErrAsync(failure)`, or lift an
-existing sync `Result` with `Ok(value).toAsync()` / `Err(failure).toAsync()` —
-unthrown has no lowercase `okAsync`/`errAsync`.
+value you already have, use the canonical pre-lifted constructors
+`OkAsync(value)` / `ErrAsync(failure)` (prefer `OkAsync()` zero-arg over
+`OkAsync(undefined)`); `.toAsync()` is for lifting a sync `Result` you already
+hold, not for direct construction — unthrown has no lowercase
+`okAsync`/`errAsync`.
 
 Canonical example: `examples/order-processing-worker/src/application/activities.ts`.
 
@@ -100,21 +102,29 @@ Typed-error semantics inside the workflow context:
 
 ## Worker Setup
 
-`createWorker` returns `AsyncResult<Worker, never>` — bundling / connection
-failures are _technical_ infrastructure faults, so they ride the **defect**
-channel (a `TechnicalError` instance as the cause), not the modeled Err
-channel. `activities` is optional — omit it for a workflow-only worker. Same
-shape on the client: the connection-scoped `TypedClient.create({ client })`
-returns `AsyncResult<TypedClient, never>` (a `TechnicalError`-caused defect on
-setup failure); bind a contract with the synchronous, infallible
-`typedClient.for(contract)`, which returns a `ContractClient<TContract>` (the
-type to use in annotations). There is no `TypedClient.createOrThrow` and no
-`createWorkerOrThrow` — use `.get()` on the returned `AsyncResult`.
+`TypedWorker.create(options)` — the org's `Typed*.create()` factory shape,
+mirroring `TypedClient.create` — returns `AsyncResult<TypedWorker, never>`:
+bundling / connection failures are _technical_ infrastructure faults, so they
+ride the **defect** channel (a `TechnicalError` instance as the cause), not
+the modeled Err channel. `activities` is optional — omit it for a
+workflow-only worker. Same shape on the client: the connection-scoped
+`TypedClient.create({ client })` returns `AsyncResult<TypedClient, never>` (a
+`TechnicalError`-caused defect on setup failure); bind a contract with the
+synchronous, infallible `typedClient.for(contract)`, which returns a
+`ContractClient<TContract>` (the type to use in annotations). There is no
+`TypedClient.createOrThrow`, no `createWorker`, and no `createWorkerOrThrow`
+— use `.get()` on the returned `AsyncResult`.
+
+`TypedWorker` owns the unthrown-disciplined lifecycle: `run()` returns
+`AsyncResult<void, never>` (a mid-run crash is a `TechnicalError`-caused
+defect; the internal promise never rejects) and `shutdown()` initiates a
+graceful drain. Everything else Temporal offers (`runUntil`, `getState`)
+lives on the raw escape hatch `worker.raw`.
 
 ```typescript
-import { createWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
+import { TypedWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
 
-const workerResult = await createWorker({
+const workerResult = await TypedWorker.create({
   contract: myContract,
   connection,
   workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
@@ -125,7 +135,7 @@ if (workerResult.isDefect()) {
   process.exit(1);
 }
 
-await workerResult.value.run();
+await workerResult.get().run().get();
 ```
 
 ## Cancellation
@@ -184,7 +194,7 @@ ApplicationFailure.create({
 
 ## Anti-patterns
 
-- **Never throw** from activities — Temporal sees thrown errors as `ApplicationFailure(type: "Error", retryable: true)` by default, which masks the real failure type and triggers unwanted retries. Use `Err(ApplicationFailure.create({ type, message, nonRetryable })).toAsync()` (or a `fromPromise(promise, qualifyFailure)` chain whose `qualifyFailure` returns the `ApplicationFailure`) instead.
+- **Never throw** from activities — Temporal sees thrown errors as `ApplicationFailure(type: "Error", retryable: true)` by default, which masks the real failure type and triggers unwanted retries. Use `ErrAsync(ApplicationFailure.create({ type, message, nonRetryable }))` (or a `fromPromise(promise, qualifyFailure)` chain whose `qualifyFailure` returns the `ApplicationFailure`) instead.
 - **Never use `any`** — use `unknown` and validate with schemas. Enforced by oxlint.
 - **Always use `.js` extensions** in imports (even for TypeScript files) — required by ESM module resolution.
 - **Don't `try/catch` `CancelledFailure` in workflows** — use `cancellableScope` so cancellation flows through the same `AsyncResult` discipline as everything else.

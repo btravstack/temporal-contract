@@ -89,7 +89,7 @@ compile. Never appears in a modeled `E` channel; it is only ever a defect's
 | `cause`   | the underlying failure |
 
 ```typescript
-const result = await createWorker({ ... });
+const result = await TypedWorker.create({ ... });
 if (result.isDefect() && result.cause instanceof TechnicalError) {
   console.error(result.cause.message, result.cause.cause);
 }
@@ -367,7 +367,7 @@ the defect channel instead.
 
 | Operation                                  | `err` channel                                                                     |
 | ------------------------------------------ | --------------------------------------------------------------------------------- |
-| `createWorker`                             | `never`                                                                           |
+| `TypedWorker.create` / `TypedWorker.run`   | `never`                                                                           |
 | activity call, no declared errors          | n/a — `Promise<Output>`, throws on failure                                        |
 | activity call, declared errors             | `ContractErrorUnion \| ActivityError \| ActivityCancelledError`                   |
 | `startChildWorkflow`                       | `ChildWorkflowError \| ChildWorkflowCancelledError \| ChildWorkflowNotFoundError` |

@@ -17,11 +17,11 @@
  * @example
  * ```ts
  * import { it } from "@temporal-contract/testing/time-skipping";
- * import { createWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
+ * import { TypedWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
  * import { TypedClient } from "@temporal-contract/client";
  *
  * it("processes the order", async ({ testEnv }) => {
- *   const worker = await createWorker({
+ *   const worker = await TypedWorker.create({
  *     contract: myContract,
  *     connection: testEnv.nativeConnection,
  *     workflowsPath: workflowsPathFromURL(import.meta.url, "./test.workflows.js"),
@@ -30,7 +30,7 @@
  *   const typedClient = await TypedClient.create({ client: testEnv.client }).get();
  *   const client = typedClient.for(myContract);
  *
- *   await worker.runUntil(async () => {
+ *   await worker.raw.runUntil(async () => {
  *     const result = await client.executeWorkflow("processOrder", {
  *       workflowId: "order-1",
  *       args: { orderId: "ORD-1" },

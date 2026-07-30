@@ -56,7 +56,7 @@ export const processOrder = declareWorkflow({
 ```typescript
 // worker.ts
 import { NativeConnection } from "@temporalio/worker";
-import { createWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
+import { TypedWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
 
 import { activities } from "./activities.js";
 import { myContract } from "./contract.js";
@@ -65,7 +65,7 @@ const connection = await NativeConnection.connect({ address: "localhost:7233" })
 
 // The task queue comes from the contract; the workflows path is resolved
 // from this module's URL (ESM — include the extension explicitly).
-const workerResult = await createWorker({
+const workerResult = await TypedWorker.create({
   contract: myContract,
   connection,
   workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
@@ -77,17 +77,21 @@ if (workerResult.isDefect()) {
   process.exit(1);
 }
 
-await workerResult.value.run();
+// `run()` returns AsyncResult<void, never> — a runtime failure is a defect
+// whose cause `.get()` rethrows. The raw Temporal Worker stays reachable
+// via `.raw` (e.g. `worker.raw.runUntil(...)` in tests).
+const worker = workerResult.get();
+await worker.run().get();
 ```
 
 ### Workflow-only workers
 
-`activities` is optional on `createWorker`. Omit it to run a worker that only
+`activities` is optional on `TypedWorker.create`. Omit it to run a worker that only
 executes workflows — useful when workflow code and activity code are deployed
 and scaled as separate processes on the same task queue:
 
 ```typescript
-const workerResult = await createWorker({
+const workerResult = await TypedWorker.create({
   contract: myContract,
   connection,
   workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),

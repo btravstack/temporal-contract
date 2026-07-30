@@ -255,7 +255,7 @@ the task queue named in the contract.
 Create `src/worker.ts`:
 
 ```typescript
-import { createWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
+import { TypedWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
 import { NativeConnection } from "@temporalio/worker";
 
 import { activities } from "./activities.js";
@@ -263,7 +263,7 @@ import { orderContract } from "./contract.js";
 
 const connection = await NativeConnection.connect({ address: "localhost:7233" });
 
-const worker = await createWorker({
+const worker = await TypedWorker.create({
   contract: orderContract,
   connection,
   // Workflows are bundled separately, so they are referenced by path.
@@ -272,7 +272,7 @@ const worker = await createWorker({
 }).get();
 
 console.log("worker listening on task queue 'orders'");
-await worker.run();
+await worker.run().get();
 ```
 
 Start it:

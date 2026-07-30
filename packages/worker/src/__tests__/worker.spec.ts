@@ -8,53 +8,48 @@ import {
 } from "@temporal-contract/client";
 import { it as baseIt } from "@temporal-contract/testing/extension";
 import { Client, WorkflowFailedError } from "@temporalio/client";
-import { type Worker } from "@temporalio/worker";
-import { Ok, Err, type AsyncResult } from "unthrown";
+import { OkAsync, ErrAsync } from "unthrown";
 import { describe, expect, vi, beforeEach } from "vitest";
 
 import { ApplicationFailure, declareActivitiesHandler } from "../activity.js";
-import { createWorker } from "../worker.js";
+import { TypedWorker } from "../worker.js";
 import { testContract } from "./test.contract.js";
-
-// unthrown has no `okAsync`/`errAsync`; lift a sync `Result` with `.toAsync()`.
-const okAsync = <T>(value: T): AsyncResult<T, never> => Ok(value).toAsync();
-const errAsync = <E>(error: E): AsyncResult<never, E> => Err(error).toAsync();
 
 // ============================================================================
 // Test Setup
 // ============================================================================
 
 const it = baseIt.extend<{
-  worker: Worker;
+  worker: TypedWorker;
   client: ContractClient<typeof testContract>;
 }>({
   worker: [
     async ({ workerConnection }, use) => {
-      // Create and start worker using createWorker
-      const workerResult = await createWorker({
+      // Technical creation failures ride the defect channel (E = never);
+      // `.get()` unwraps directly and rethrows a defect's cause.
+      const worker = await TypedWorker.create({
         contract: testContract,
         connection: workerConnection,
         namespace: "default",
         workflowsPath: workflowPath("test.workflows"),
         activities,
-      });
-      if (!workerResult.isOk()) {
-        throw workerResult.isErr() ? workerResult.error : workerResult.cause;
-      }
-      const worker = workerResult.value;
+      }).get();
 
-      // Start worker in background
-      worker.run().catch((err) => {
-        console.error("Worker failed:", err);
-      });
+      // Start the worker loop in the background. `run()` returns
+      // `AsyncResult<void, never>` whose internal promise never rejects, so
+      // holding onto it cannot trip unhandled-rejection reporting.
+      const running = worker.run();
 
-      await vi.waitFor(() => worker.getState() === "RUNNING", { interval: 100 });
+      await vi.waitFor(() => worker.raw.getState() === "RUNNING", { interval: 100 });
 
       await use(worker);
 
-      await worker.shutdown();
+      worker.shutdown();
 
-      await vi.waitFor(() => worker.getState() === "STOPPED", { interval: 100 });
+      await vi.waitFor(() => worker.raw.getState() === "STOPPED", { interval: 100 });
+
+      // Rethrows the original failure's cause if the worker crashed mid-test.
+      await running.get();
     },
     { auto: true },
   ],
@@ -83,14 +78,14 @@ const activities = declareActivitiesHandler({
     // interactiveWorkflow, parentWorkflow, ...) no longer need `{}` entries.
     workflowWithActivities: {
       processPayment: ({ amount }) => {
-        return okAsync({
+        return OkAsync({
           transactionId: `TXN-${amount}-${Date.now()}`,
           success: amount > 0,
         });
       },
 
       validateOrder: ({ orderId }) => {
-        return okAsync({
+        return OkAsync({
           valid: orderId.startsWith("ORD-"),
         });
       },
@@ -98,12 +93,12 @@ const activities = declareActivitiesHandler({
 
     logMessage: ({ message }) => {
       logMessages.push(message);
-      return okAsync({});
+      return OkAsync({});
     },
 
     failableActivity: ({ shouldFail }) => {
       if (shouldFail) {
-        return errAsync(
+        return ErrAsync(
           ApplicationFailure.create({
             type: "ACTIVITY_FAILED",
             message: "Activity was configured to fail",
@@ -111,7 +106,7 @@ const activities = declareActivitiesHandler({
           }),
         );
       }
-      return okAsync({ success: true });
+      return OkAsync({ success: true });
     },
   },
 });

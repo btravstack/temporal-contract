@@ -142,7 +142,7 @@ for logging.
 
 ### Creation factories
 
-`TypedClient.create` and `createWorker` now return `AsyncResult<_, never>`:
+`TypedClient.create` and `TypedWorker.create` now return `AsyncResult<_, never>`:
 
 ```typescript
 // 7.x
@@ -169,8 +169,8 @@ Or, more concisely — `.get()` rethrows a defect's original cause:
 const typedClient = await TypedClient.create({ client }).get();
 ```
 
-The same applies to `createWorker`. The deprecated `createWorkerOrThrow`
-migration alias is removed in 8.0 — use `createWorker(...).get()`.
+The same applies to the worker factory. The deprecated `createWorkerOrThrow`
+migration alias is removed in 8.0 — use `TypedWorker.create(...).get()`.
 
 ### Every other operation
 
@@ -414,15 +414,40 @@ A mechanical rename, no alias kept:
 +       fromPromise(gateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED"))
 ```
 
+### `createWorker` → `TypedWorker.create`
+
+The free `createWorker` function is replaced by a static factory on a
+`TypedWorker` class — the worker-side sibling of `TypedClient.create` (the
+same `Typed*.create()` shape used across the family). It takes the same
+options and returns `AsyncResult<TypedWorker, never>`; the underlying
+Temporal `Worker` stays reachable as `worker.raw`.
+
+```diff
+- import { createWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
++ import { TypedWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
+
+- const worker = await createWorker({ contract, connection, workflowsPath, activities }).get();
++ const worker = await TypedWorker.create({ contract, connection, workflowsPath, activities }).get();
+
+- await worker.run();
++ await worker.run().get();
+```
+
+`TypedWorker.run()` returns `AsyncResult<void, never>` — a worker that fails
+while running is a defect (a `TechnicalError` cause), and the underlying
+promise never rejects, so it is safe to hold onto across a test.
+`worker.shutdown()` delegates to the raw worker; anything else Temporal
+offers (`runUntil`, `getState`) lives on `worker.raw`.
+
 ### `createWorkerOrThrow` is removed
 
 The deprecated throwing alias goes the same way as the client's
-`createOrThrow`: `createWorker` returns `AsyncResult<Worker, never>`, so
-`.get()` gives the same throw-on-defect behavior with the original cause.
+`createOrThrow`: `TypedWorker.create` returns `AsyncResult<TypedWorker, never>`,
+so `.get()` gives the same throw-on-defect behavior with the original cause.
 
 ```diff
 - const worker = await createWorkerOrThrow({ contract, connection, workflowsPath, activities });
-+ const worker = await createWorker({ contract, connection, workflowsPath, activities }).get();
++ const worker = await TypedWorker.create({ contract, connection, workflowsPath, activities }).get();
 ```
 
 ### Contract misuse fails the execution instead of hanging it
@@ -440,14 +465,14 @@ bugs, they now surface as failed executions instead.
 
 ### Workflow-only workers
 
-`activities` is now optional on `createWorker`. Omit it and the worker only
+`activities` is now optional on `TypedWorker.create`. Omit it and the worker only
 polls for Workflow Tasks — the split-deployment pattern where workflow and
 activity workers scale independently on the same task queue:
 
 ```typescript
-import { createWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
+import { TypedWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
 
-const worker = await createWorker({
+const worker = await TypedWorker.create({
   contract: orderContract,
   connection,
   workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
@@ -595,7 +620,7 @@ New on the surface:
 - [ ] `tag(...)` → `P.tag(...)` if you tracked an earlier 8.0 beta
 - [ ] `mapErr` / `flatMapErr` / `tapErr` / `recoverErr` → `*Cases`
 - [ ] `match({ err })` → `match({ errCases })`
-- [ ] `TypedClient.create` / `createWorker` use `isDefect()` or `.get()`
+- [ ] `TypedClient.create` / `TypedWorker.create` use `isDefect()` or `.get()`
 - [ ] No `P.tag("@temporal-contract/RuntimeClientError")` or
       `P.tag("@temporal-contract/TechnicalError")` arms remain
 - [ ] `TypedClient.create({ contract, client })` →
@@ -605,7 +630,9 @@ New on the surface:
       (imports and `P.tag` arms)
 - [ ] `getHandle` calls drop their `await` (it returns a sync `Result`)
 - [ ] `qualify` → `qualifyFailure` in activity implementations
-- [ ] `createWorkerOrThrow(...)` → `createWorker(...).get()`
+- [ ] `createWorker(...)` / `createWorkerOrThrow(...)` →
+      `TypedWorker.create(...).get()`; `worker.run()` → `worker.run().get()`;
+      `runUntil` / `getState` via `worker.raw`
 - [ ] No `SignalInputValidationError` imports remain; alerting expects
       invalid signals to be dropped and logged, not to fail executions
 - [ ] `schedule.create` matchers handle `ScheduleAlreadyExistsError`;
