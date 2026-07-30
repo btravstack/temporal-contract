@@ -17,7 +17,7 @@ import {
   startChild,
   type Workflow,
 } from "@temporalio/workflow";
-import { type AsyncResult, type Result, Ok, Err } from "unthrown";
+import { type AsyncResult, Ok, Err } from "unthrown";
 
 import {
   type ChildWorkflowCancelledError,
@@ -98,20 +98,22 @@ export type TypedChildWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = 
  * and transmitted the original value, so the parse (and any schema
  * transform) happens exactly once, here.
  */
-async function validateChildWorkflowOutput<TChildWorkflow extends AnyWorkflowDefinition>(
+function validateChildWorkflowOutput<TChildWorkflow extends AnyWorkflowDefinition>(
   childDefinition: TChildWorkflow,
   result: unknown,
   childWorkflowName: string,
-): Promise<Result<ClientInferOutput<TChildWorkflow>, ChildWorkflowError>> {
-  const outputResult = await childDefinition.output["~standard"].validate(result);
-  if (outputResult.issues) {
-    return Err(
-      new ChildWorkflowError(
-        formatChildWorkflowValidationMessage(childWorkflowName, "output", outputResult.issues),
-      ),
-    );
-  }
-  return Ok(outputResult.value as ClientInferOutput<TChildWorkflow>);
+): AsyncResult<ClientInferOutput<TChildWorkflow>, ChildWorkflowError> {
+  return makeAsyncResult<ClientInferOutput<TChildWorkflow>, ChildWorkflowError>(async () => {
+    const outputResult = await childDefinition.output["~standard"].validate(result);
+    if (outputResult.issues) {
+      return Err(
+        new ChildWorkflowError(
+          formatChildWorkflowValidationMessage(childWorkflowName, "output", outputResult.issues),
+        ),
+      );
+    }
+    return Ok(outputResult.value as ClientInferOutput<TChildWorkflow>);
+  });
 }
 
 /**
@@ -121,45 +123,51 @@ async function validateChildWorkflowOutput<TChildWorkflow extends AnyWorkflowDef
  * and the child's `declareWorkflow` parses them on receive, applying a
  * transforming schema exactly once.
  */
-async function getAndValidateChildWorkflow<
+function getAndValidateChildWorkflow<
   TChildContract extends ContractDefinition,
   TChildWorkflowName extends keyof TChildContract["workflows"] & string,
 >(
   childContract: TChildContract,
   childWorkflowName: TChildWorkflowName,
   args: unknown,
-): Promise<
-  Result<
+): AsyncResult<
+  {
+    definition: TChildContract["workflows"][TChildWorkflowName];
+    taskQueue: string;
+  },
+  ChildWorkflowError | ChildWorkflowNotFoundError
+> {
+  return makeAsyncResult<
     {
       definition: TChildContract["workflows"][TChildWorkflowName];
       taskQueue: string;
     },
     ChildWorkflowError | ChildWorkflowNotFoundError
-  >
-> {
-  const childDefinition = childContract.workflows[childWorkflowName];
+  >(async () => {
+    const childDefinition = childContract.workflows[childWorkflowName];
 
-  if (!childDefinition) {
-    return Err(
-      new ChildWorkflowNotFoundError(
-        childWorkflowName,
-        Object.keys(childContract.workflows) as string[],
-      ),
-    );
-  }
+    if (!childDefinition) {
+      return Err(
+        new ChildWorkflowNotFoundError(
+          childWorkflowName,
+          Object.keys(childContract.workflows) as string[],
+        ),
+      );
+    }
 
-  const inputResult = await childDefinition.input["~standard"].validate(args);
-  if (inputResult.issues) {
-    return Err(
-      new ChildWorkflowError(
-        formatChildWorkflowValidationMessage(childWorkflowName, "input", inputResult.issues),
-      ),
-    );
-  }
+    const inputResult = await childDefinition.input["~standard"].validate(args);
+    if (inputResult.issues) {
+      return Err(
+        new ChildWorkflowError(
+          formatChildWorkflowValidationMessage(childWorkflowName, "input", inputResult.issues),
+        ),
+      );
+    }
 
-  return Ok({
-    definition: childDefinition as TChildContract["workflows"][TChildWorkflowName],
-    taskQueue: childContract.taskQueue,
+    return Ok({
+      definition: childDefinition as TChildContract["workflows"][TChildWorkflowName],
+      taskQueue: childContract.taskQueue,
+    });
   });
 }
 
@@ -184,9 +192,7 @@ function createTypedChildSignals<TChildWorkflow extends AnyWorkflowDefinition>(
   const signalDefs = (childDefinition.signals ?? {}) as Record<string, SignalDefinition>;
   for (const [signalName, signalDef] of Object.entries(signalDefs)) {
     signals[signalName] = (args: unknown) => {
-      const work = async (): Promise<
-        Result<void, ChildWorkflowError | ChildWorkflowCancelledError>
-      > => {
+      const work = async () => {
         const inputResult = await signalDef.input["~standard"].validate(args);
         if (inputResult.issues) {
           return Err(
@@ -204,7 +210,7 @@ function createTypedChildSignals<TChildWorkflow extends AnyWorkflowDefinition>(
           return Err(classifyChildWorkflowError("signal", error, childWorkflowName));
         }
       };
-      return makeAsyncResult(work);
+      return makeAsyncResult<void, ChildWorkflowError | ChildWorkflowCancelledError>(work);
     };
   }
 
@@ -224,9 +230,7 @@ function createTypedChildHandle<TChildWorkflow extends AnyWorkflowDefinition>(
       ClientInferOutput<TChildWorkflow>,
       ChildWorkflowError | ChildWorkflowCancelledError
     > => {
-      const work = async (): Promise<
-        Result<ClientInferOutput<TChildWorkflow>, ChildWorkflowError | ChildWorkflowCancelledError>
-      > => {
+      const work = async () => {
         try {
           const result = await handle.result();
           return validateChildWorkflowOutput(childDefinition, result, childWorkflowName);
@@ -234,7 +238,10 @@ function createTypedChildHandle<TChildWorkflow extends AnyWorkflowDefinition>(
           return Err(classifyChildWorkflowError("result", error, childWorkflowName));
         }
       };
-      return makeAsyncResult(work);
+      return makeAsyncResult<
+        ClientInferOutput<TChildWorkflow>,
+        ChildWorkflowError | ChildWorkflowCancelledError
+      >(work);
     },
   };
 }
@@ -251,17 +258,16 @@ export function createStartChildWorkflow<
   ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError
 > {
   type Ok = TypedChildWorkflowHandle<TChildContract["workflows"][TChildWorkflowName]>;
-  const work = async (): Promise<
-    Result<Ok, ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError>
-  > => {
+  const work = async () => {
     const validationResult = await getAndValidateChildWorkflow(
       childContract,
       childWorkflowName,
       options.args,
     );
 
-    // `getAndValidateChildWorkflow` only ever builds ok/err; assert away the
-    // impossible defect so `.error` / `.value` narrow cleanly below.
+    // A technical throw inside the validator is captured as a defect;
+    // re-throw it here (into this thunk's throw→defect net) so `.error` /
+    // `.value` narrow cleanly below.
     assertNoDefect(validationResult);
     if (validationResult.isErr()) {
       return Err(validationResult.error);
@@ -286,7 +292,10 @@ export function createStartChildWorkflow<
       return Err(classifyChildWorkflowError("startChild", error, String(childWorkflowName)));
     }
   };
-  return makeAsyncResult(work);
+  return makeAsyncResult<
+    Ok,
+    ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError
+  >(work);
 }
 
 export function createExecuteChildWorkflow<
@@ -301,9 +310,7 @@ export function createExecuteChildWorkflow<
   ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError
 > {
   type Ok = ClientInferOutput<TChildContract["workflows"][TChildWorkflowName]>;
-  const work = async (): Promise<
-    Result<Ok, ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError>
-  > => {
+  const work = async () => {
     const validationResult = await getAndValidateChildWorkflow(
       childContract,
       childWorkflowName,
@@ -343,5 +350,8 @@ export function createExecuteChildWorkflow<
       return Err(classifyChildWorkflowError("executeChild", error, String(childWorkflowName)));
     }
   };
-  return makeAsyncResult(work);
+  return makeAsyncResult<
+    Ok,
+    ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError
+  >(work);
 }

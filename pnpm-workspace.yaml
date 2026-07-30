@@ -14,6 +14,7 @@ catalog:
   "@btravstack/commitlint": 0.1.0
   "@btravstack/lefthook": 0.1.1
   "@btravstack/oxlint": 0.2.1
+  "@unthrown/oxlint": 5.0.0
   "@btravstack/theme": 1.7.0
   "@btravstack/tsconfig": 0.2.0
   "@btravstack/typedoc": 0.1.0
@@ -107,6 +108,7 @@ minimumReleaseAgeExclude:
   - "@btravstack/tsconfig"
   - "@btravstack/typedoc"
   - "unthrown"
+  - "@unthrown/oxlint"
   - "@unthrown/vitest"
   # Temporary: fast-uri 3.1.4 (the GHSA-v2hh-gcrm-f6hx override above) is younger
   # than the 7-day cutoff. Remove once 3.1.4 is 7 days old (published 2026-07-19).

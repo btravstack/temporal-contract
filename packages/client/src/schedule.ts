@@ -13,7 +13,7 @@ import type {
   ScheduleUpdateOptions,
   Workflow,
 } from "@temporalio/client";
-import { type AsyncResult, type Result, Ok, Err, fromPromise } from "unthrown";
+import { type AsyncResult, Ok, Err, fromPromise } from "unthrown";
 
 import type { TypedSearchAttributeMap } from "./client.js";
 import {
@@ -185,7 +185,7 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
   > {
     type Ok = TypedScheduleHandle;
     type Err = WorkflowNotInContractError | WorkflowValidationError | ScheduleAlreadyExistsError;
-    const work = async (): Promise<Result<Ok, Err>> => {
+    const work = async () => {
       const definition = this.contract.workflows[workflowName];
       if (!definition) {
         return Err(
@@ -258,7 +258,7 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
         throw new RuntimeClientError("schedule.create", error);
       }
     };
-    return makeAsyncResult(work);
+    return makeAsyncResult<Ok, Err>(work);
   }
 
   /**

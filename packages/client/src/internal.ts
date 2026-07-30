@@ -159,6 +159,7 @@ export function toTypedSearchAttributes(
  * `@temporal-contract/contract` so the same wrapper is shared between the
  * client and worker packages.
  */
+// oxlint-disable-next-line unthrown/prefer-async-result -- this IS the Promise→AsyncResult conversion seam: the work thunk's throw/rejection is what becomes the defect, and an async implementer cannot be annotated AsyncResult
 export function makeAsyncResult<T, E>(work: () => Promise<Result<T, E>>): AsyncResult<T, E> {
   return _internal_makeAsyncResult(work);
 }

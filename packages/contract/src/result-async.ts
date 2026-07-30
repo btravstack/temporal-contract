@@ -37,6 +37,7 @@ import {
  * sibling client and worker packages. Not part of the public API.
  */
 export function _internal_makeAsyncResult<T, E>(
+  // oxlint-disable-next-line unthrown/prefer-async-result -- this IS the Promise→AsyncResult conversion seam: the work thunk's throw/rejection is what becomes the defect, and an async implementer cannot be annotated AsyncResult
   work: () => Promise<Result<T, E>>,
 ): AsyncResult<T, E> {
   return fromSafePromise(work).flatMap((inner) => inner);
