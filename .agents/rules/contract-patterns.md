@@ -8,7 +8,7 @@ API names follow a three-tier verb convention, shared with amqp-contract:
 | ---------------------------- | -------------------------------------------- | -------------------------------------------------------------------------- |
 | `define*`                    | Contract/schema authoring (pure, no runtime) | `defineContract`, `defineWorkflow`, `defineActivity`, `defineSignal`, …    |
 | `declare*`                   | Binding an implementation to a contract      | `declareWorkflow`, `declareActivitiesHandler`, `declareActivityMiddleware` |
-| `create*` / `Typed*` classes | Runtime object factories                     | `createWorker`, `TypedClient.create`, `createContractTest`                 |
+| `create*` / `Typed*` classes | Runtime object factories                     | `TypedWorker.create`, `TypedClient.create`, `createContractTest`           |
 
 Additionally, **in-workflow** handler binding uses `handle*` on the workflow context: `context.handleSignal`, `context.handleQuery`, `context.handleUpdate`. When naming a new export, pick the tier by what it does — never a `define*` that touches runtime, never a `declare*` that authors schema.
 
