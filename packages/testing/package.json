@@ -1,6 +1,6 @@
 {
   "name": "@temporal-contract/testing",
-  "version": "8.0.0-beta.3",
+  "version": "8.0.0-beta.4",
   "description": "Temporal testing utilities",
   "keywords": [
     "contract",
@@ -81,9 +81,9 @@
     "zod": "catalog:"
   },
   "peerDependencies": {
-    "@temporal-contract/client": "^8.0.0-beta.3",
-    "@temporal-contract/contract": "^8.0.0-beta.3",
-    "@temporal-contract/worker": "^8.0.0-beta.3",
+    "@temporal-contract/client": "^8.0.0-beta.4",
+    "@temporal-contract/contract": "^8.0.0-beta.4",
+    "@temporal-contract/worker": "^8.0.0-beta.4",
     "@temporalio/client": "^1",
     "@temporalio/testing": "^1",
     "@temporalio/worker": "^1",
