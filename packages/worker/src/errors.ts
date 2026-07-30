@@ -3,6 +3,27 @@ import { summarizeIssues } from "@temporal-contract/contract";
 import { ApplicationFailure } from "@temporalio/common";
 import { TaggedError } from "unthrown";
 
+import {
+  ACTIVITY_CANCELLED_ERROR_TAG,
+  ACTIVITY_DEFINITION_NOT_FOUND_ERROR_TAG,
+  ACTIVITY_ERROR_TAG,
+  CHILD_WORKFLOW_CANCELLED_ERROR_TAG,
+  CHILD_WORKFLOW_ERROR_TAG,
+  CHILD_WORKFLOW_NOT_FOUND_ERROR_TAG,
+  WORKFLOW_CANCELLED_ERROR_TAG,
+} from "./error-tags.js";
+
+// Cancellation caveat (module-wide): the cancellation error classes below
+// ({@link ActivityCancelledError}, {@link ChildWorkflowCancelledError},
+// {@link WorkflowCancelledError}) surface Temporal cancellation on the
+// modeled `Err(...)` channel of an `AsyncResult`. That makes cancellation
+// explicit — but it also means *generic* error handling can swallow it: a
+// workflow that maps every `Err` to a "failed" result and returns normally
+// completes as `Completed`, not `Cancelled`, even though the server asked
+// for cancellation. When a workflow does not intend to absorb cancellation,
+// re-raise it with {@link rethrowCancellation} so Temporal records the
+// execution as `Cancelled`.
+
 /**
  * Base class for the contract's runtime validation failures — workflow and
  * activity input/output, plus query/update payloads. (Invalid *signal*
@@ -66,7 +87,7 @@ export abstract class ValidationError extends ApplicationFailure {
  * Error thrown when an activity definition is not found in the contract
  */
 export class ActivityDefinitionNotFoundError extends TaggedError(
-  "@temporal-contract/ActivityDefinitionNotFoundError",
+  ACTIVITY_DEFINITION_NOT_FOUND_ERROR_TAG,
   { name: "ActivityDefinitionNotFoundError" },
 )<{
   activityName: string;
@@ -83,6 +104,9 @@ export class ActivityDefinitionNotFoundError extends TaggedError(
  * Error thrown when activity input validation fails
  */
 export class ActivityInputValidationError extends ValidationError {
+  /** Which side of the payload boundary failed — aligns with the client's direction-as-field error family. */
+  public readonly direction = "input" as const;
+
   constructor(
     public readonly activityName: string,
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
@@ -100,6 +124,9 @@ export class ActivityInputValidationError extends ValidationError {
  * Error thrown when activity output validation fails
  */
 export class ActivityOutputValidationError extends ValidationError {
+  /** Which side of the payload boundary failed — aligns with the client's direction-as-field error family. */
+  public readonly direction = "output" as const;
+
   constructor(
     public readonly activityName: string,
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
@@ -117,6 +144,9 @@ export class ActivityOutputValidationError extends ValidationError {
  * Error thrown when workflow input validation fails
  */
 export class WorkflowInputValidationError extends ValidationError {
+  /** Which side of the payload boundary failed — aligns with the client's direction-as-field error family. */
+  public readonly direction = "input" as const;
+
   constructor(
     public readonly workflowName: string,
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
@@ -134,6 +164,9 @@ export class WorkflowInputValidationError extends ValidationError {
  * Error thrown when workflow output validation fails
  */
 export class WorkflowOutputValidationError extends ValidationError {
+  /** Which side of the payload boundary failed — aligns with the client's direction-as-field error family. */
+  public readonly direction = "output" as const;
+
   constructor(
     public readonly workflowName: string,
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
@@ -151,6 +184,9 @@ export class WorkflowOutputValidationError extends ValidationError {
  * Error thrown when query input validation fails
  */
 export class QueryInputValidationError extends ValidationError {
+  /** Which side of the payload boundary failed — aligns with the client's direction-as-field error family. */
+  public readonly direction = "input" as const;
+
   constructor(
     public readonly queryName: string,
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
@@ -168,6 +204,9 @@ export class QueryInputValidationError extends ValidationError {
  * Error thrown when query output validation fails
  */
 export class QueryOutputValidationError extends ValidationError {
+  /** Which side of the payload boundary failed — aligns with the client's direction-as-field error family. */
+  public readonly direction = "output" as const;
+
   constructor(
     public readonly queryName: string,
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
@@ -185,6 +224,9 @@ export class QueryOutputValidationError extends ValidationError {
  * Error thrown when update input validation fails
  */
 export class UpdateInputValidationError extends ValidationError {
+  /** Which side of the payload boundary failed — aligns with the client's direction-as-field error family. */
+  public readonly direction = "input" as const;
+
   constructor(
     public readonly updateName: string,
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
@@ -202,6 +244,9 @@ export class UpdateInputValidationError extends ValidationError {
  * Error thrown when update output validation fails
  */
 export class UpdateOutputValidationError extends ValidationError {
+  /** Which side of the payload boundary failed — aligns with the client's direction-as-field error family. */
+  public readonly direction = "output" as const;
+
   constructor(
     public readonly updateName: string,
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
@@ -274,7 +319,7 @@ export class ContractMisuseError extends ValidationError {
  * Only activities that declare an `errors` map surface this — activities
  * without declared errors keep Temporal's native throwing behavior.
  */
-export class ActivityError extends TaggedError("@temporal-contract/ActivityError", {
+export class ActivityError extends TaggedError(ACTIVITY_ERROR_TAG, {
   name: "ActivityError",
 })<{
   activityName: string;
@@ -294,11 +339,17 @@ export class ActivityError extends TaggedError("@temporal-contract/ActivityError
  * A sibling of {@link ActivityError} rather than a subclass, for the same
  * reason {@link ChildWorkflowCancelledError} is a sibling of
  * {@link ChildWorkflowError}: call sites discriminate on the `_tag`.
+ *
+ * **Swallowing this error changes the workflow outcome.** Cancellation rides
+ * the modeled `Err(...)` channel here, so generic error handling (e.g.
+ * mapping every `Err` to a "failed" result and returning normally) makes the
+ * workflow complete as `Completed` instead of `Cancelled`. When the workflow
+ * should honor the cancellation request, re-raise it with
+ * {@link rethrowCancellation}.
  */
-export class ActivityCancelledError extends TaggedError(
-  "@temporal-contract/ActivityCancelledError",
-  { name: "ActivityCancelledError" },
-)<{
+export class ActivityCancelledError extends TaggedError(ACTIVITY_CANCELLED_ERROR_TAG, {
+  name: "ActivityCancelledError",
+})<{
   activityName: string;
   cause?: unknown;
 }> {
@@ -311,10 +362,9 @@ export class ActivityCancelledError extends TaggedError(
 /**
  * Error thrown when a child workflow is not found in the contract
  */
-export class ChildWorkflowNotFoundError extends TaggedError(
-  "@temporal-contract/ChildWorkflowNotFoundError",
-  { name: "ChildWorkflowNotFoundError" },
-)<{
+export class ChildWorkflowNotFoundError extends TaggedError(CHILD_WORKFLOW_NOT_FOUND_ERROR_TAG, {
+  name: "ChildWorkflowNotFoundError",
+})<{
   workflowName: string;
   availableWorkflows: readonly string[];
 }> {
@@ -333,14 +383,19 @@ export class ChildWorkflowNotFoundError extends TaggedError(
  * `TimeoutFailure`, `TerminatedFailure`, etc.) lifted from Temporal's wrapper —
  * mirroring the client-side `WorkflowFailedError.cause` behavior, so callers
  * can branch on the failure category in one step instead of unwrapping twice.
+ *
+ * Carries the child's `workflowName` as a structured field (matching its
+ * sibling {@link ChildWorkflowCancelledError}) so callers don't have to parse
+ * it out of `message`.
  */
-export class ChildWorkflowError extends TaggedError("@temporal-contract/ChildWorkflowError", {
+export class ChildWorkflowError extends TaggedError(CHILD_WORKFLOW_ERROR_TAG, {
   name: "ChildWorkflowError",
 })<{
+  workflowName: string;
   cause?: unknown;
 }> {
-  constructor(message: string, cause?: unknown) {
-    super({ cause });
+  constructor(workflowName: string, message: string, cause?: unknown) {
+    super({ workflowName, cause });
     this.message = message;
   }
 }
@@ -359,11 +414,17 @@ export class ChildWorkflowError extends TaggedError("@temporal-contract/ChildWor
  * `instanceof ChildWorkflowError` that also matches cancellation. A
  * `result.match` with the exhaustive `errCases` matcher folds the
  * `ChildWorkflowError | ChildWorkflowCancelledError` union exhaustively.
+ *
+ * **Swallowing this error changes the workflow outcome.** Cancellation rides
+ * the modeled `Err(...)` channel here, so generic error handling (e.g.
+ * mapping every `Err` to a "failed" result and returning normally) makes the
+ * parent workflow complete as `Completed` instead of `Cancelled`. When the
+ * workflow should honor the cancellation request, re-raise it with
+ * {@link rethrowCancellation}.
  */
-export class ChildWorkflowCancelledError extends TaggedError(
-  "@temporal-contract/ChildWorkflowCancelledError",
-  { name: "ChildWorkflowCancelledError" },
-)<{
+export class ChildWorkflowCancelledError extends TaggedError(CHILD_WORKFLOW_CANCELLED_ERROR_TAG, {
+  name: "ChildWorkflowCancelledError",
+})<{
   workflowName: string;
   cause?: unknown;
 }> {
@@ -384,15 +445,56 @@ export class ChildWorkflowCancelledError extends TaggedError(
  * Non-cancellation errors thrown inside a scope are *unmodeled* failures: they
  * surface on the scope's `defect` channel (re-thrown at the edge / inspectable
  * via `result.isDefect()` and `result.cause`), not as a typed `Err(...)`.
+ *
+ * **Swallowing this error changes the workflow outcome.** Cancellation rides
+ * the modeled `Err(...)` channel here, so generic error handling (e.g.
+ * mapping every `Err` to a "failed" result and returning normally) makes the
+ * workflow complete as `Completed` instead of `Cancelled`. When the workflow
+ * should honor the cancellation request after cleanup, re-raise it with
+ * {@link rethrowCancellation}.
  */
-export class WorkflowCancelledError extends TaggedError(
-  "@temporal-contract/WorkflowCancelledError",
-  { name: "WorkflowCancelledError" },
-)<{
+export class WorkflowCancelledError extends TaggedError(WORKFLOW_CANCELLED_ERROR_TAG, {
+  name: "WorkflowCancelledError",
+})<{
   cause?: unknown;
 }> {
   constructor(cause?: unknown) {
     super({ cause });
     this.message = "Workflow cancellation scope was cancelled";
   }
+}
+
+/**
+ * Re-raise a cancellation error surfaced on the modeled `Err(...)` channel so
+ * Temporal records the workflow execution as `Cancelled`.
+ *
+ * The typed surfaces fold Temporal cancellation into
+ * `Err(ActivityCancelledError | WorkflowCancelledError |
+ * ChildWorkflowCancelledError)`. That is deliberate — cancellation becomes an
+ * explicit branch — but it has a footgun: generic error handling that maps
+ * every `Err` to a domain "failed" outcome and returns normally makes the
+ * workflow complete as `Completed`, silently overriding the server's
+ * cancellation request. When the workflow should *honor* the cancellation
+ * (typically after `nonCancellableScope` cleanup), call this helper: it
+ * throws the original `CancelledFailure` carried in `error.cause` (or the
+ * error itself when no cause was attached), which Temporal recognizes and
+ * turns into a `Cancelled` workflow outcome.
+ *
+ * Workflow-sandbox safe: no I/O, no wall clock — it only rethrows.
+ *
+ * @example
+ * ```ts
+ * const result = await context.cancellableScope(() => context.activities.processStep(args));
+ * if (result.isErr()) {
+ *   await context.nonCancellableScope(() => context.activities.releaseResources(args));
+ *   // Honor the cancellation instead of completing normally:
+ *   rethrowCancellation(result.error);
+ * }
+ * ```
+ */
+export function rethrowCancellation(
+  error: ActivityCancelledError | ChildWorkflowCancelledError | WorkflowCancelledError,
+): never {
+  // oxlint-disable-next-line unthrown/no-throw -- sanctioned cancellation re-raise: the original CancelledFailure must reach Temporal so the execution ends Cancelled (CLAUDE.md rule 2 exception)
+  throw error.cause ?? error;
 }

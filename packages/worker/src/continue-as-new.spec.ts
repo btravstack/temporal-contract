@@ -187,20 +187,24 @@ describe("context.continueAsNew", () => {
     });
   });
 
-  it("user options can override workflowType at runtime (boundary noted)", async () => {
-    // `WorkflowContext.continueAsNew` Omits `workflowType` and `taskQueue` from
-    // its options type, so typed call sites can't get here. The runtime is
-    // permissive — user options spread last — which lets power users override
-    // if they bypass the type. This test documents that boundary.
+  it("ignores a smuggled workflowType/taskQueue override (validated target wins)", async () => {
+    // `WorkflowContext.continueAsNew` Omits `workflowType` and `taskQueue`
+    // from its options type, so typed call sites can't pass them. The
+    // runtime backs the type up: user options are spread FIRST and the
+    // validated destination is set last, so even an `as never` bypass can't
+    // reroute the (already-validated) args to a different workflow type or
+    // task queue.
     const continueAsNew = createContinueAsNew(contract, "counter");
 
     await expect(
       continueAsNew({ n: 1 }, {
         workflowType: "evil",
-      } as unknown as Parameters<typeof continueAsNew>[1]),
-    ).rejects.toThrow();
+        taskQueue: "evil-queue",
+      } as never),
+    ).rejects.toThrow("__STUB_CONTINUE_AS_NEW__");
 
-    expect(captured[0]?.options.workflowType).toBe("evil");
+    expect(captured[0]?.options.workflowType).toBe("counter");
+    expect(captured[0]?.options.taskQueue).toBe("tq-current");
   });
 
   describe("cross-contract dispatch heuristic", () => {

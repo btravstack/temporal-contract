@@ -135,6 +135,46 @@ describe("time-skipping TestWorkflowEnvironment", () => {
     ]);
   });
 
+  it("a workflow that re-raises cancellation via rethrowCancellation ends Cancelled", async ({
+    testEnv,
+  }) => {
+    const workerResult = await TypedWorker.create({
+      contract: inprocessContract,
+      connection: testEnv.nativeConnection,
+      workflowsPath: workflowPath("inprocess.workflows"),
+      activities,
+    });
+    expect(workerResult.isOk()).toBe(true);
+    if (!workerResult.isOk()) return;
+    const worker = workerResult.value;
+
+    const clientResult = await TypedClient.create({ client: testEnv.client });
+    expect(clientResult.isOk()).toBe(true);
+    if (!clientResult.isOk()) return;
+    const client = clientResult.value.for(inprocessContract);
+
+    await worker.raw.runUntil(async () => {
+      const workflowId = "inprocess-cancelled-outcome";
+      const started = await client.startWorkflow("waitForever", {
+        workflowId,
+        args: {},
+      });
+      expect(started.isOk()).toBe(true);
+      if (!started.isOk()) return;
+
+      const cancelResult = await started.value.cancel();
+      expect(cancelResult.isOk()).toBe(true);
+
+      // Await completion via the raw handle (the result rejects with the
+      // cancellation failure — that rejection is the point), then assert the
+      // terminal status Temporal recorded.
+      const rawHandle = testEnv.client.workflow.getHandle(workflowId);
+      await rawHandle.result().catch(() => undefined);
+      const description = await rawHandle.describe();
+      expect(description.status.name).toBe("CANCELLED");
+    });
+  });
+
   it("surfaces worker bundling failures on the defect channel", async ({ testEnv }) => {
     const workerResult = await TypedWorker.create({
       contract: inprocessContract,

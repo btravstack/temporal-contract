@@ -29,7 +29,18 @@ const placeOrder = defineWorkflow({
   activities: { charge },
 });
 
+/**
+ * Workflow used by the cancellation-outcome integration spec: it blocks
+ * inside a cancellable scope and re-raises cancellation via
+ * `rethrowCancellation`, so the execution must end `Cancelled` (not
+ * `Completed`).
+ */
+const waitForever = defineWorkflow({
+  input: z.object({}),
+  output: z.object({ status: z.string() }),
+});
+
 export const inprocessContract = defineContract({
   taskQueue: "inprocess-tests",
-  workflows: { placeOrder },
+  workflows: { placeOrder, waitForever },
 });

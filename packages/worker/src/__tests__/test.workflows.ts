@@ -71,21 +71,21 @@ export const workflowWithActivities = declareWorkflow({
 export const interactiveWorkflow = declareWorkflow({
   workflowName: "interactiveWorkflow",
   contract: testContract,
-  implementation: async ({ defineSignal, defineQuery, defineUpdate }, args) => {
+  implementation: async ({ handleSignal, handleQuery, handleUpdate }, args) => {
     let currentValue = 0;
 
     currentValue = args.initialValue;
 
-    // Define signal, query, and update handlers with access to workflow state
-    defineSignal("increment", async (signalArgs) => {
+    // Bind signal, query, and update handlers with access to workflow state
+    handleSignal("increment", async (signalArgs) => {
       currentValue += signalArgs.amount;
     });
 
-    defineQuery("getCurrentValue", () => {
+    handleQuery("getCurrentValue", () => {
       return { value: currentValue };
     });
 
-    defineUpdate("multiply", async (updateArgs) => {
+    handleUpdate("multiply", async (updateArgs) => {
       currentValue *= updateArgs.factor;
       return { newValue: currentValue };
     });

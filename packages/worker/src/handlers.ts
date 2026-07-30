@@ -72,6 +72,75 @@ function updateInputMustBeSynchronousMessage(updateName: string): string {
 }
 
 /**
+ * Sentinel fed to a schema's `validate` when probing for synchronicity. Its
+ * validity is irrelevant — only whether `validate` returns a thenable.
+ */
+const SYNC_PROBE_SENTINEL = Symbol("temporal-contract.sync-schema-probe");
+
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return (
+    (typeof value === "object" || typeof value === "function") &&
+    value !== null &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
+}
+
+/**
+ * Bind-time probe for the sync-only schema slots (query input/output, update
+ * input). Standard Schema permits `validate` to return a Promise (e.g. Zod
+ * with an async `.refine`), but Temporal runs query handlers and the update
+ * validator slot synchronously — an async schema would pass declaration and
+ * only blow up when the first live request arrives. Probing at
+ * `handleQuery`/`handleUpdate` bind time (i.e. on the first workflow task
+ * that registers the handler) moves that failure to worker startup/binding,
+ * where it is a clear {@link ContractMisuseError} instead of a mid-traffic
+ * surprise.
+ *
+ * The probe invokes `validate` on an opaque sentinel and only inspects
+ * whether the result is a thenable. Any synchronous **throw** counts as
+ * "fine, it's synchronous": a sync validation error on the sentinel is
+ * expected and proves synchronicity. A returned thenable is the async
+ * signature — its eventual settlement is silenced (so a rejecting probe
+ * can't trip unhandled-rejection reporting) and the bind fails immediately.
+ */
+function assertSyncSchema(
+  schema: { "~standard": { validate: (value: unknown) => unknown } },
+  location: {
+    workflowName: string;
+    handlerKind: "Query" | "Update";
+    handlerName: string;
+    direction: "input" | "output";
+  },
+): void {
+  let probeResult: unknown;
+  try {
+    probeResult = schema["~standard"].validate(SYNC_PROBE_SENTINEL);
+  } catch {
+    // A synchronous throw on the sentinel proves the schema validates
+    // synchronously — exactly what this probe is checking for.
+    return;
+  }
+  if (isThenable(probeResult)) {
+    // Detach the probe's eventual settlement — we only cared about the shape.
+    probeResult.then(
+      () => undefined,
+      () => undefined,
+    );
+    const requirement =
+      location.handlerKind === "Query"
+        ? "Temporal query handlers run synchronously"
+        : "Temporal's update validator slot is synchronous";
+    // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: bind-time fail-fast as a non-retryable ApplicationFailure (CLAUDE.md rule 2 exception)
+    throw new ContractMisuseError(
+      `${location.handlerKind} "${location.handlerName}" of workflow "${location.workflowName}": ` +
+        `the ${location.direction} schema validates asynchronously (its validate() returned a Promise, ` +
+        `e.g. an async refine), but ${requirement}. ` +
+        `Use a synchronously-validating schema for this ${location.direction}.`,
+    );
+  }
+}
+
+/**
  * Bind a typed signal handler to the running workflow. Validates the
  * signal payload against the contract's input schema before invoking the
  * user-supplied handler.
@@ -163,6 +232,22 @@ export function bindQueryHandler(
     );
   }
 
+  // Bind-time probe: both query schema slots must validate synchronously.
+  // Failing here (worker startup / first workflow task) beats failing on the
+  // first live query. The per-call guards below stay as defense-in-depth.
+  assertSyncSchema(queryDef.input, {
+    workflowName,
+    handlerKind: "Query",
+    handlerName: queryName,
+    direction: "input",
+  });
+  assertSyncSchema(queryDef.output, {
+    workflowName,
+    handlerKind: "Query",
+    handlerName: queryName,
+    direction: "output",
+  });
+
   const query = defineQuery(queryName);
   setHandler(query, (...args: unknown[]) => {
     const input = extractHandlerInput(args);
@@ -248,6 +333,17 @@ export function bindUpdateHandler(
       `Update "${updateName}" not found in workflow "${workflowName}" contract`,
     );
   }
+
+  // Bind-time probe: the update *input* schema feeds Temporal's synchronous
+  // validator slot, so it must validate synchronously. (The output schema is
+  // exempt — it runs inside the async handler body.) The per-call guards
+  // below stay as defense-in-depth.
+  assertSyncSchema(updateDef.input, {
+    workflowName,
+    handlerKind: "Update",
+    handlerName: updateName,
+    direction: "input",
+  });
 
   const update = defineUpdate(updateName);
   setHandler(

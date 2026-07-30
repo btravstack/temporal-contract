@@ -301,14 +301,17 @@ export function createContinueAsNew(
       throw new WorkflowInputValidationError(targetName, inputResult.issues);
     }
 
-    // workflowType/taskQueue come from the destination contract; user
-    // options are spread last so power users can override (e.g. retry,
-    // memo). The public TypedContinueAsNewOptions type Omits workflowType
-    // and taskQueue so this isn't a footgun on the typed call path.
+    // workflowType/taskQueue come from the destination contract and are set
+    // LAST, after the user-options spread, so callers cannot override the
+    // validated target — the args were just validated against `targetName`'s
+    // input schema, and routing them to a different workflow type or task
+    // queue would bypass that validation. The public TypedContinueAsNewOptions
+    // type already Omits `workflowType`/`taskQueue`; this ordering closes the
+    // `as never` / plain-JavaScript escape hatch too.
     const fn = makeContinueAsNewFunc({
+      ...options,
       workflowType: targetName,
       taskQueue: targetContract.taskQueue,
-      ...options,
     });
 
     // Transmit the ORIGINAL args — validated above, parsed by the new run's
@@ -399,6 +402,7 @@ export function classifyChildWorkflowError(
     const inner = error.cause ?? error;
     const innerMessage = inner instanceof Error ? inner.message : String(inner);
     return new ChildWorkflowError(
+      childWorkflowName,
       `${describeChildWorkflowOperation(operation, childWorkflowName)}: ${innerMessage}`,
       inner,
     );
@@ -406,6 +410,7 @@ export function classifyChildWorkflowError(
 
   const message = error instanceof Error ? error.message : String(error);
   return new ChildWorkflowError(
+    childWorkflowName,
     `${describeChildWorkflowOperation(operation, childWorkflowName)}: ${message}`,
     error,
   );

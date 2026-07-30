@@ -23,7 +23,7 @@ import {
 } from "@temporal-contract/contract";
 import {
   _internal_buildErrorConstructors,
-  ContractError,
+  CONTRACT_ERROR_TAG,
   type AnyContractError,
   type ContractErrorConstructors,
   type ContractErrorInputUnion,
@@ -52,6 +52,19 @@ export {
 // a separate `@temporalio/common` import to construct one.
 export { ApplicationFailure } from "@temporalio/common";
 
+// Literal-typed `_tag` constants for this package's tagged errors, so
+// consumers can `P.tag(ACTIVITY_ERROR_TAG)` without hand-writing the
+// namespaced strings (mirrors the contract package's error-tags module).
+export {
+  ACTIVITY_CANCELLED_ERROR_TAG,
+  ACTIVITY_DEFINITION_NOT_FOUND_ERROR_TAG,
+  ACTIVITY_ERROR_TAG,
+  CHILD_WORKFLOW_CANCELLED_ERROR_TAG,
+  CHILD_WORKFLOW_ERROR_TAG,
+  CHILD_WORKFLOW_NOT_FOUND_ERROR_TAG,
+  WORKFLOW_CANCELLED_ERROR_TAG,
+} from "./error-tags.js";
+
 // Re-export the typed contract-error surface so implementations can
 // `instanceof`-check and type against it without a separate
 // `@temporal-contract/contract/errors` import.
@@ -63,13 +76,94 @@ export {
 } from "@temporal-contract/contract/errors";
 
 /**
- * Build a qualifier for `fromPromise` that wraps a rejection in an
- * {@link ApplicationFailure} of the given `type`.
+ * An error-class constructor accepted by {@link QualifyFailureOptions.expected}.
+ * `never[]` parameters make every concrete constructor assignable; the
+ * `Error` return keeps the slot honest (only error classes belong here).
+ */
+type ErrorClass = abstract new (...args: never[]) => Error;
+
+/**
+ * Options for {@link qualifyFailure}. `expected` is **required** — it is the
+ * triage decision that separates modeled failures from defects.
+ */
+export type QualifyFailureOptions = {
+  /**
+   * Which rejection causes are *anticipated* and should be wrapped into the
+   * modeled {@link ApplicationFailure}:
+   *
+   * - an error-class constructor (matched with `instanceof`),
+   * - an array of error-class constructors (any match wraps),
+   * - a predicate `(cause: unknown) => boolean`,
+   * - the literal `"any"` — a deliberate, greppable escape hatch that wraps
+   *   every rejection (the pre-v8 blanket behavior).
+   *
+   * Anything that doesn't match rides unthrown's **defect** channel instead:
+   * an unanticipated throw (a `TypeError` from a bug, an assertion failure)
+   * is not a domain outcome, and blanket-wrapping it would disguise the bug
+   * as the declared failure `type` and subject it to that type's retry
+   * semantics.
+   */
+  expected: ErrorClass | readonly ErrorClass[] | ((cause: unknown) => boolean) | "any";
+  /** Fallback message when the rejection is not an `Error` (default: `String(error)`). */
+  message?: string;
+  /**
+   * Mark the failure non-retryable — Temporal stops retrying immediately.
+   * When omitted, a matched cause that is itself an `ApplicationFailure`
+   * with `nonRetryable: true` propagates its non-retryability (see
+   * remarks); set `false` explicitly to force the wrapped failure retryable.
+   */
+  nonRetryable?: boolean;
+  /** Structured payload forwarded to the workflow (avoids parsing `message`). */
+  details?: unknown[];
+};
+
+/**
+ * `true` when `expected` is an error-class constructor rather than a
+ * predicate. Both are functions at runtime; classes are recognized by their
+ * `Error`-derived prototype (predicates — arrow functions or plain functions
+ * — never have one).
+ */
+function isErrorClass(
+  expected: ErrorClass | ((cause: unknown) => boolean),
+): expected is ErrorClass {
+  if ((expected as unknown) === Error) return true;
+  const proto: unknown = (expected as { prototype?: unknown }).prototype;
+  return typeof proto === "object" && proto !== null && proto instanceof Error;
+}
+
+function matchesExpected(cause: unknown, expected: QualifyFailureOptions["expected"]): boolean {
+  if (expected === "any") return true;
+  if (Array.isArray(expected)) {
+    return (expected as readonly ErrorClass[]).some((cls) => cause instanceof cls);
+  }
+  const single = expected as ErrorClass | ((cause: unknown) => boolean);
+  if (isErrorClass(single)) {
+    return cause instanceof single;
+  }
+  return single(cause);
+}
+
+/**
+ * Build a qualifier for `fromPromise` that **triages** each rejection: causes
+ * matching `options.expected` are wrapped in a modeled
+ * {@link ApplicationFailure} of the given `errorType`; everything else goes
+ * to unthrown's **defect** channel.
  *
- * Replaces the hand-written wrapping every activity otherwise repeats:
- * an `Error` rejection keeps its own message and is preserved as `cause`
- * (so stack traces survive the activity → workflow boundary); anything
- * else falls back to `options.message` (or `String(error)`).
+ * Triage philosophy: `fromPromise`'s qualify step exists to force a per-cause
+ * decision — *is this failure part of the activity's model, or a bug?* A
+ * qualifier that wraps everything erases that decision: a `TypeError` from a
+ * typo would surface as, say, `EMAIL_SEND_FAILED` and inherit its retry
+ * semantics, hiding the defect from operators and from the defect channel's
+ * fail-loud handling. `expected` is therefore **required**: name the failure
+ * classes (or predicate) you anticipate; let the rest stay defects that
+ * re-throw at the activity edge with their original cause. The literal
+ * `expected: "any"` remains as an explicit, greppable escape hatch for the
+ * old blanket behavior.
+ *
+ * For a matched `Error` cause, the wrapper keeps the cause's own message and
+ * preserves it as `cause` (so stack traces survive the activity → workflow
+ * boundary); a matched non-`Error` cause falls back to `options.message` (or
+ * `String(cause)`).
  *
  * @example
  * ```ts
@@ -80,47 +174,58 @@ export {
  *   contract: myContract,
  *   activities: {
  *     sendEmail: (args) =>
- *       fromPromise(emailService.send(args), qualifyFailure('EMAIL_SEND_FAILED'))
- *         .map(() => ({ sent: true })),
+ *       fromPromise(
+ *         emailService.send(args),
+ *         // Anticipated: the SDK's typed error. Anything else (TypeError,
+ *         // assertion failure, ...) is a defect and re-throws at the edge.
+ *         qualifyFailure('EMAIL_SEND_FAILED', { expected: EmailServiceError }),
+ *       ).map(() => ({ sent: true })),
  *     chargeCard: (args) =>
  *       fromPromise(
  *         paymentGateway.charge(args),
- *         // Permanent failure: opt out of the configured retry policy.
- *         qualifyFailure('CARD_DECLINED', { nonRetryable: true }),
+ *         qualifyFailure('CARD_DECLINED', {
+ *           // Several anticipated classes; a predicate works too.
+ *           expected: [CardDeclinedError, GatewayTimeoutError],
+ *           // Permanent failure: opt out of the configured retry policy.
+ *           nonRetryable: true,
+ *         }),
  *       ),
  *   },
  * });
  * ```
  *
  * @remarks
- * The qualifier **always** wraps — even when the rejection is already an
- * `ApplicationFailure` — so the resulting failure's `type` is guaranteed
- * to be the declared one (retry policies keyed on
- * `retry.nonRetryableErrorTypes` can rely on it). The original failure is
- * preserved as `cause`. Note the flip side: because the wrapper's `type` and
- * `nonRetryable` take precedence, an inner `ApplicationFailure`'s own
- * `type`/`nonRetryable: true` is masked — pass `{ nonRetryable: true }` here (or
- * write a custom qualifier) if that inner failure should stay non-retryable.
+ * A matched cause is **always** wrapped — even when it is already an
+ * `ApplicationFailure` — so the resulting failure's `type` is guaranteed to
+ * be the declared one (retry policies keyed on
+ * `retry.nonRetryableErrorTypes` can rely on it), with the original failure
+ * preserved as `cause`. Retryability of the wrapper: when
+ * `options.nonRetryable` is set it wins unconditionally; when it is omitted
+ * and the matched cause is an `ApplicationFailure` with `nonRetryable: true`,
+ * the wrapper inherits `nonRetryable: true` (a permanent inner failure no
+ * longer silently becomes retryable just because it was re-typed).
  */
 export function qualifyFailure(
-  type: string,
-  options?: {
-    /** Fallback message when the rejection is not an `Error` (default: `String(error)`). */
-    message?: string;
-    /** Mark the failure non-retryable — Temporal stops retrying immediately. */
-    nonRetryable?: boolean;
-    /** Structured payload forwarded to the workflow (avoids parsing `message`). */
-    details?: unknown[];
-  },
-): (error: unknown) => ApplicationFailure {
-  return (error) =>
-    ApplicationFailure.create({
-      type,
-      message: error instanceof Error ? error.message : (options?.message ?? String(error)),
-      ...(error instanceof Error ? { cause: error } : {}),
-      ...(options?.nonRetryable !== undefined ? { nonRetryable: options.nonRetryable } : {}),
-      ...(options?.details !== undefined ? { details: options.details } : {}),
+  errorType: string,
+  options: QualifyFailureOptions,
+): <TDefect>(cause: unknown, defect: (cause: unknown) => TDefect) => ApplicationFailure | TDefect {
+  return (cause, defect) => {
+    if (!matchesExpected(cause, options.expected)) {
+      return defect(cause);
+    }
+    // `nonRetryable` precedence: explicit option > inherited from a matched
+    // non-retryable ApplicationFailure cause > Temporal default (retryable).
+    const inheritedNonRetryable =
+      cause instanceof ApplicationFailure && cause.nonRetryable === true ? true : undefined;
+    const nonRetryable = options.nonRetryable ?? inheritedNonRetryable;
+    return ApplicationFailure.create({
+      type: errorType,
+      message: cause instanceof Error ? cause.message : (options.message ?? String(cause)),
+      ...(cause instanceof Error ? { cause } : {}),
+      ...(nonRetryable !== undefined ? { nonRetryable } : {}),
+      ...(options.details !== undefined ? { details: options.details } : {}),
     });
+  };
 }
 
 /**
@@ -260,12 +365,88 @@ type ResultActivitiesImplementations<
 };
 
 /**
+ * The correctly-typed implementation function for one **workflow-local**
+ * activity of a contract. Lets a standalone implementation typecheck outside
+ * the `declareActivitiesHandler` call so it can live in its own module (with
+ * precise `args`/`helpers` inference) and be assigned into the nested
+ * implementations map later:
+ *
+ * @example
+ * ```ts
+ * const validateOrder: ActivityImplementationFor<
+ *   typeof myContract,
+ *   "orderWorkflow",
+ *   "validateOrder"
+ * > = (args, { errors }) =>
+ *   args.orderId ? OkAsync({ valid: true }) : ErrAsync(errors.EmptyOrder({}));
+ *
+ * declareActivitiesHandler({
+ *   contract: myContract,
+ *   activities: { orderWorkflow: { validateOrder } },
+ * });
+ * ```
+ *
+ * The optional `TContext` parameter mirrors the handler's injected context
+ * (`createContext` seed + middleware accumulation); leave it defaulted when
+ * the implementation doesn't read `helpers.context`.
+ *
+ * See {@link GlobalActivityImplementationFor} for the contract-global
+ * variant.
+ */
+export type ActivityImplementationFor<
+  TContract extends ContractDefinition,
+  TWorkflowName extends keyof TContract["workflows"] & string,
+  TActivityName extends keyof TContract["workflows"][TWorkflowName]["activities"] & string,
+  TContext extends Record<string, unknown> | EmptyContext = EmptyContext,
+> =
+  TContract["workflows"][TWorkflowName]["activities"] extends Record<string, ActivityDefinition>
+    ? ResultActivityImplementation<
+        TContract["workflows"][TWorkflowName]["activities"][TActivityName],
+        TContext
+      >
+    : never;
+
+/**
+ * The correctly-typed implementation function for one **global** activity of
+ * a contract — the `contract.activities`-scoped sibling of
+ * {@link ActivityImplementationFor}.
+ *
+ * @example
+ * ```ts
+ * const sendEmail: GlobalActivityImplementationFor<typeof myContract, "sendEmail"> =
+ *   (args) => OkAsync({ sent: true });
+ * ```
+ */
+export type GlobalActivityImplementationFor<
+  TContract extends ContractDefinition,
+  TActivityName extends keyof TContract["activities"] & string,
+  TContext extends Record<string, unknown> | EmptyContext = EmptyContext,
+> =
+  TContract["activities"] extends Record<string, ActivityDefinition>
+    ? ResultActivityImplementation<TContract["activities"][TActivityName], TContext>
+    : never;
+
+/**
  * Per-invocation description handed to middleware and `createContext`.
  */
 export type ActivityInvocationInfo = {
   /** Flat runtime name of the activity (as Temporal sees it). */
   readonly activityName: string;
-  /** Owning workflow for workflow-local activities; `undefined` for global ones. */
+  /**
+   * Owning workflow for workflow-local activities; `undefined` for global
+   * ones.
+   *
+   * **Shared-definition caveat:** `workflowName` identifies the scope the
+   * implementation was *registered under*, not the workflow that is calling
+   * right now (Temporal's flat activity namespace erases the caller). When
+   * one `defineActivity` object is referenced from several scopes and
+   * implemented with the same function reference, the activity registers
+   * once under the first scope encountered — global first, then the
+   * contract's workflow declaration order — and every invocation reports
+   * that scope's `workflowName`. To know the actual calling workflow inside
+   * an activity, read `Context.current().info.workflowType` from
+   * `@temporalio/activity`.
+   */
   readonly workflowName: string | undefined;
 };
 
@@ -516,9 +697,9 @@ export function composeActivityMiddleware(
 }
 
 /**
- * Options for creating activities handler
+ * Options for {@link declareActivitiesHandler}.
  */
-type DeclareActivitiesHandlerOptions<
+export type DeclareActivitiesHandlerOptions<
   TContract extends ContractDefinition,
   TContext extends Record<string, unknown> | EmptyContext = EmptyContext,
   TInjected extends TContext = TContext,
@@ -798,22 +979,19 @@ export function declareActivitiesHandler<
         // validated against their declared data schema and serialized as
         // ApplicationFailure(type = error name, details = [data]).
         errCases: (matcher) =>
-          matcher.with(
-            P.instanceOf(ApplicationFailure),
-            P.tag("@temporal-contract/ContractError"),
-            async (error) => {
-              if (error instanceof ContractError) {
-                // oxlint-disable-next-line unthrown/no-throw -- sanctioned ApplicationFailure model: the Err payload is thrown at the activity boundary so Temporal applies its retry policy (CLAUDE.md rule 2 exception)
-                throw await contractErrorToApplicationFailure(
-                  error,
-                  activityDef.errors,
-                  `activity "${label}"`,
-                );
-              }
+          matcher
+            .with(P.tag(CONTRACT_ERROR_TAG), async (error) => {
+              // oxlint-disable-next-line unthrown/no-throw -- sanctioned ApplicationFailure model: the Err payload is thrown at the activity boundary so Temporal applies its retry policy (CLAUDE.md rule 2 exception)
+              throw await contractErrorToApplicationFailure(
+                error,
+                activityDef.errors,
+                `activity "${label}"`,
+              );
+            })
+            .with(P.instanceOf(ApplicationFailure), (error) => {
               // oxlint-disable-next-line unthrown/no-throw -- sanctioned ApplicationFailure model: the Err payload is thrown at the activity boundary so Temporal applies its retry policy (CLAUDE.md rule 2 exception)
               throw error;
-            },
-          ),
+            }),
         // A defect is an *unanticipated* throw inside the activity. Re-throw the
         // original cause unwrapped: Temporal wraps a non-`ApplicationFailure`
         // error as `ApplicationFailure(type: "Error")` and applies the default
@@ -862,6 +1040,43 @@ export function declareActivitiesHandler<
   // registered" failure the first time Temporal dispatches a task for it.
   const missingImplementations: string[] = [];
 
+  // Flat-namespace bookkeeping: `defineContract` allows one `defineActivity`
+  // object to be referenced from several scopes (it's one activity), so the
+  // same flat name can legitimately appear here more than once. What must
+  // NOT happen is a silent last-wins overwrite of a *different* function —
+  // one scope's implementation would clobber the other's. Track who
+  // registered each flat name (and with which raw implementation) so a
+  // duplicate either dedupes (same function reference — first registration
+  // wins, see the `ActivityInvocationInfo.workflowName` caveat) or throws.
+  const registrations = new Map<string, { scopeLabel: string; impl: unknown }>();
+
+  /**
+   * Returns `true` when the caller should register `impl` under
+   * `activityName`, `false` when an identical registration already exists
+   * (silent dedupe). Throws on a conflicting duplicate.
+   */
+  function shouldRegister(activityName: string, scopeLabel: string, impl: unknown): boolean {
+    const existing = registrations.get(activityName);
+    if (!existing) {
+      registrations.set(activityName, { scopeLabel, impl });
+      return true;
+    }
+    if (existing.impl === impl) {
+      // Same function reference from another scope — one activity, one
+      // implementation. Keep the first registration.
+      return false;
+    }
+    // oxlint-disable-next-line unthrown/no-throw -- declaration-time fail-fast config error: worker startup must abort instead of silently clobbering a shared activity implementation
+    throw new Error(
+      `declareActivitiesHandler: activity "${activityName}" received two different implementations — ` +
+        `one from ${existing.scopeLabel} and one from ${scopeLabel}. Activities share a single flat ` +
+        `namespace at runtime, so the second implementation would silently replace the first. ` +
+        `Either hoist the shared activity to the contract's global \`activities\` block and implement ` +
+        `it once at the root level, or pass the exact same implementation function reference from ` +
+        `every scope that declares it.`,
+    );
+  }
+
   // 1) Global activities declared under contract.activities.
   if (contract.activities) {
     for (const [activityName, activityDef] of Object.entries(contract.activities)) {
@@ -872,12 +1087,14 @@ export function declareActivitiesHandler<
       }
 
       // Assign wrapped global activity
-      (wrappedActivities as Record<string, unknown>)[activityName] = makeWrapped(
-        activityName,
-        { activityName, workflowName: undefined },
-        activityDef,
-        impl as ErasedImplementation,
-      );
+      if (shouldRegister(activityName, "the global scope", impl)) {
+        (wrappedActivities as Record<string, unknown>)[activityName] = makeWrapped(
+          activityName,
+          { activityName, workflowName: undefined },
+          activityDef,
+          impl as ErasedImplementation,
+        );
+      }
     }
   }
 
@@ -893,13 +1110,17 @@ export function declareActivitiesHandler<
         continue;
       }
 
-      // Assign workflow activity directly at root level (flat structure)
-      (wrappedActivities as Record<string, unknown>)[activityName] = makeWrapped(
-        `${workflowName}.${activityName}`,
-        { activityName, workflowName },
-        activityDef,
-        impl as ErasedImplementation,
-      );
+      // Assign workflow activity directly at root level (flat structure).
+      // `shouldRegister` dedupes a shared-definition re-registration (same
+      // function reference) and throws on a conflicting one.
+      if (shouldRegister(activityName, `workflow "${workflowName}"`, impl)) {
+        (wrappedActivities as Record<string, unknown>)[activityName] = makeWrapped(
+          `${workflowName}.${activityName}`,
+          { activityName, workflowName },
+          activityDef,
+          impl as ErasedImplementation,
+        );
+      }
     }
 
     // Stray keys inside a workflow namespace: implementations for activities

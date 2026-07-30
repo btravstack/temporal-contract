@@ -57,6 +57,8 @@ describe("classifyChildWorkflowError", () => {
       // not have to peel `ChildWorkflowFailure → ApplicationFailure` themselves.
       expect(surfaced.cause).toBe(inner);
       expect(surfaced.cause).not.toBe(wrapper);
+      // Structured field (v8): no message parsing needed for the child name.
+      expect(surfaced.workflowName).toBe("processPayment");
       expect(surfaced.message).toContain(`"processPayment"`);
       expect(surfaced.message).toContain("card declined");
     });
@@ -148,6 +150,7 @@ describe("classifyChildWorkflowError", () => {
       expect(result).not.toBeInstanceOf(ChildWorkflowCancelledError);
       expect(result).not.toBeInstanceOf(ChildWorkflowNotFoundError);
       expect((result as ChildWorkflowError).cause).toBe(raw);
+      expect((result as ChildWorkflowError).workflowName).toBe("anyChild");
       expect((result as ChildWorkflowError).message).toContain("network hiccup");
     });
 

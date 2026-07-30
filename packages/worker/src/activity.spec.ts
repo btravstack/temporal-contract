@@ -420,6 +420,109 @@ describe("Worker unthrown Package", () => {
       );
     });
 
+    describe("shared activity definitions (flat-namespace duplicate handling)", () => {
+      // `defineContract` permits one `defineActivity` object to be referenced
+      // from several scopes — it's ONE activity in Temporal's flat runtime
+      // namespace. The handler must not let one scope's implementation
+      // silently clobber another's (last-wins), and must dedupe when both
+      // scopes supply the exact same function reference.
+      const sharedDef = {
+        input: z.object({ id: z.string() }),
+        output: z.object({ ok: z.boolean() }),
+      };
+      const sharedContract = {
+        taskQueue: "test-queue",
+        workflows: {
+          alpha: {
+            input: z.object({}),
+            output: z.object({}),
+            activities: { sharedActivity: sharedDef },
+          },
+          beta: {
+            input: z.object({}),
+            output: z.object({}),
+            activities: { sharedActivity: sharedDef },
+          },
+        },
+      } satisfies ContractDefinition;
+
+      it("throws at declaration time when two scopes supply different implementations", () => {
+        expect(() => {
+          declareActivitiesHandler({
+            contract: sharedContract,
+            activities: {
+              alpha: { sharedActivity: (_args) => OkAsync({ ok: true }) },
+              beta: { sharedActivity: (_args) => OkAsync({ ok: false }) },
+            },
+          });
+        }).toThrow(
+          /activity "sharedActivity" received two different implementations — one from workflow "alpha" and one from workflow "beta"/,
+        );
+      });
+
+      it("the conflict message explains both resolutions (hoist to global, or share the function)", () => {
+        expect(() => {
+          declareActivitiesHandler({
+            contract: sharedContract,
+            activities: {
+              alpha: { sharedActivity: (_args) => OkAsync({ ok: true }) },
+              beta: { sharedActivity: (_args) => OkAsync({ ok: false }) },
+            },
+          });
+        }).toThrow(
+          /hoist the shared activity to the contract's global `activities` block|same implementation function reference/,
+        );
+      });
+
+      it("dedupes silently when both scopes pass the exact same function reference", async () => {
+        const calls: unknown[] = [];
+        const shared = (args: { id: string }) => {
+          calls.push(args);
+          return OkAsync({ ok: true });
+        };
+
+        const activities = declareActivitiesHandler({
+          contract: sharedContract,
+          activities: {
+            alpha: { sharedActivity: shared },
+            beta: { sharedActivity: shared },
+          },
+        });
+
+        // Exactly one flat registration, and it works.
+        expect(Object.keys(activities)).toEqual(["sharedActivity"]);
+        const result = await activities.sharedActivity({ id: "x" });
+        expect(result).toEqual({ ok: true });
+        expect(calls).toEqual([{ id: "x" }]);
+      });
+
+      it("conflicts between the global scope and a workflow scope are reported with both scope names", () => {
+        const globalSharedContract = {
+          taskQueue: "test-queue",
+          workflows: {
+            alpha: {
+              input: z.object({}),
+              output: z.object({}),
+              activities: { sharedActivity: sharedDef },
+            },
+          },
+          activities: { sharedActivity: sharedDef },
+        } satisfies ContractDefinition;
+
+        expect(() => {
+          declareActivitiesHandler({
+            contract: globalSharedContract,
+            activities: {
+              sharedActivity: (_args: { id: string }) => OkAsync({ ok: true }),
+              alpha: { sharedActivity: (_args: { id: string }) => OkAsync({ ok: false }) },
+            },
+          });
+        }).toThrow(
+          /activity "sharedActivity" received two different implementations — one from the global scope and one from workflow "alpha"/,
+        );
+      });
+    });
+
     it("throws on a workflow-name/global-activity-name collision (defense-in-depth)", () => {
       // `defineContract` rejects this shape too; the handler re-checks for
       // contracts built as raw literals that never went through it.
@@ -572,76 +675,167 @@ describe("Worker unthrown Package", () => {
   });
 
   describe("qualifyFailure", () => {
-    it("wraps an Error rejection in an ApplicationFailure with the given type", () => {
+    // Stand-in for unthrown's injected `defect` helper: the tests only need
+    // to observe that the qualifier routed the cause to the defect channel.
+    const defectMarker = (cause: unknown) => ({ __defect: cause });
+    class GatewayError extends Error {}
+    class OtherGatewayError extends Error {}
+
+    it("wraps a rejection matching an expected error class in an ApplicationFailure of the given type", () => {
       // GIVEN
-      const cause = new Error("connection refused");
+      const cause = new GatewayError("connection refused");
 
       // WHEN
-      const failure = qualifyFailure("EMAIL_SEND_FAILED")(cause);
+      const outcome = qualifyFailure("EMAIL_SEND_FAILED", { expected: GatewayError })(
+        cause,
+        defectMarker,
+      );
 
       // THEN
-      expect(failure).toBeInstanceOf(ApplicationFailure);
+      expect(outcome).toBeInstanceOf(ApplicationFailure);
+      const failure = outcome as ApplicationFailure;
       expect(failure.type).toBe("EMAIL_SEND_FAILED");
       expect(failure.message).toBe("connection refused");
       expect(failure.cause).toBe(cause);
       expect(failure.nonRetryable).toBeFalsy();
     });
 
-    it("uses the fallback message for a non-Error rejection", () => {
+    it("routes an unexpected cause (e.g. a TypeError from a bug) to the defect channel", () => {
+      // GIVEN — a TypeError is not in the modeled failure set.
+      const bug = new TypeError("undefined is not a function");
+
       // WHEN
-      const failure = qualifyFailure("PAYMENT_FAILED", { message: "Failed to charge card" })(
-        "boom",
+      const outcome = qualifyFailure("EMAIL_SEND_FAILED", { expected: GatewayError })(
+        bug,
+        defectMarker,
       );
 
-      // THEN
-      expect(failure.type).toBe("PAYMENT_FAILED");
-      expect(failure.message).toBe("Failed to charge card");
-      expect(failure.cause).toBeUndefined();
+      // THEN — the qualifier returned the injected defect, cause untouched.
+      expect(outcome).toEqual({ __defect: bug });
     });
 
-    it("stringifies a non-Error rejection when no fallback message is given", () => {
-      // WHEN
-      const failure = qualifyFailure("PAYMENT_FAILED")({ code: 42 });
+    it("accepts an array of expected classes (any match wraps)", () => {
+      const qualify = qualifyFailure("GATEWAY_FAILED", {
+        expected: [GatewayError, OtherGatewayError],
+      });
 
-      // THEN
-      expect(failure.message).toBe("[object Object]");
-      expect(failure.cause).toBeUndefined();
+      expect(qualify(new OtherGatewayError("down"), defectMarker)).toBeInstanceOf(
+        ApplicationFailure,
+      );
+      expect(qualify(new RangeError("nope"), defectMarker)).toEqual({
+        __defect: expect.any(RangeError),
+      });
+    });
+
+    it("accepts a predicate for non-class causes", () => {
+      const qualify = qualifyFailure("PAYMENT_FAILED", {
+        expected: (cause) => typeof cause === "object" && cause !== null && "code" in cause,
+        message: "Failed to charge card",
+      });
+
+      const wrapped = qualify({ code: 42 }, defectMarker);
+      expect(wrapped).toBeInstanceOf(ApplicationFailure);
+      expect((wrapped as ApplicationFailure).message).toBe("Failed to charge card");
+      expect((wrapped as ApplicationFailure).cause).toBeUndefined();
+
+      expect(qualify("boom", defectMarker)).toEqual({ __defect: "boom" });
+    });
+
+    it("expected: 'any' wraps every rejection (the explicit escape hatch)", () => {
+      const qualify = qualifyFailure("PAYMENT_FAILED", { expected: "any" });
+
+      const fromError = qualify(new TypeError("bug"), defectMarker);
+      expect(fromError).toBeInstanceOf(ApplicationFailure);
+      expect((fromError as ApplicationFailure).message).toBe("bug");
+
+      const fromValue = qualify({ code: 42 }, defectMarker);
+      expect(fromValue).toBeInstanceOf(ApplicationFailure);
+      // No fallback message given — non-Error causes stringify.
+      expect((fromValue as ApplicationFailure).message).toBe("[object Object]");
     });
 
     it("prefers the rejection's own message over the fallback for Error rejections", () => {
-      // WHEN
-      const failure = qualifyFailure("PAYMENT_FAILED", { message: "fallback" })(
+      const outcome = qualifyFailure("PAYMENT_FAILED", { expected: Error, message: "fallback" })(
         new Error("declined"),
+        defectMarker,
       );
 
-      // THEN
-      expect(failure.message).toBe("declined");
+      expect((outcome as ApplicationFailure).message).toBe("declined");
     });
 
     it("forwards nonRetryable and details to the failure", () => {
-      // WHEN
-      const failure = qualifyFailure("INSUFFICIENT_FUNDS", {
+      const outcome = qualifyFailure("INSUFFICIENT_FUNDS", {
+        expected: Error,
         nonRetryable: true,
         details: [{ balance: 0 }],
-      })(new Error("declined"));
+      })(new Error("declined"), defectMarker);
 
-      // THEN
+      const failure = outcome as ApplicationFailure;
       expect(failure.nonRetryable).toBe(true);
       expect(failure.details).toEqual([{ balance: 0 }]);
     });
 
-    it("always wraps — even an ApplicationFailure rejection — so the declared type is guaranteed", () => {
+    it("always wraps a matched ApplicationFailure so the declared type is guaranteed", () => {
       // GIVEN
       const inner = ApplicationFailure.create({ type: "INNER", message: "already modeled" });
 
       // WHEN
-      const failure = qualifyFailure("OUTER")(inner);
+      const outcome = qualifyFailure("OUTER", { expected: ApplicationFailure })(
+        inner,
+        defectMarker,
+      );
 
       // THEN — callers can rely on `type` for retry policies; the original
       // failure is preserved as `cause`.
+      const failure = outcome as ApplicationFailure;
       expect(failure.type).toBe("OUTER");
       expect(failure.message).toBe("already modeled");
       expect(failure.cause).toBe(inner);
+    });
+
+    it("inherits nonRetryable: true from a matched non-retryable ApplicationFailure by default", () => {
+      // GIVEN — an inner permanent failure. Pre-v8, re-typing it silently
+      // made it retryable again; now the wrapper inherits non-retryability.
+      const inner = ApplicationFailure.create({
+        type: "INNER",
+        message: "permanent",
+        nonRetryable: true,
+      });
+
+      // WHEN — no explicit `nonRetryable` option.
+      const outcome = qualifyFailure("OUTER", { expected: ApplicationFailure })(
+        inner,
+        defectMarker,
+      );
+
+      // THEN
+      expect((outcome as ApplicationFailure).nonRetryable).toBe(true);
+    });
+
+    it("an explicit nonRetryable option overrides the inherited value", () => {
+      const inner = ApplicationFailure.create({
+        type: "INNER",
+        message: "permanent",
+        nonRetryable: true,
+      });
+
+      const outcome = qualifyFailure("OUTER", {
+        expected: ApplicationFailure,
+        nonRetryable: false,
+      })(inner, defectMarker);
+
+      expect((outcome as ApplicationFailure).nonRetryable).toBe(false);
+    });
+
+    it("a matched retryable ApplicationFailure stays retryable", () => {
+      const inner = ApplicationFailure.create({ type: "INNER", message: "transient" });
+
+      const outcome = qualifyFailure("OUTER", { expected: ApplicationFailure })(
+        inner,
+        defectMarker,
+      );
+
+      expect((outcome as ApplicationFailure).nonRetryable).toBeFalsy();
     });
   });
 });

@@ -23,7 +23,7 @@ export type {
  * The double conditional (map shape first, then the indexed entry) tolerates
  * the optional `signals` slot under `exactOptionalPropertyTypes` and keeps
  * unknown names collapsing to `never` so handler payloads stay sound.
- * Shared by `WorkflowContext.defineSignal` and the typed child-workflow
+ * Shared by `WorkflowContext.handleSignal` and the typed child-workflow
  * handle's `signals` map.
  */
 export type SignalDefOf<TWorkflow extends AnyWorkflowDefinition, K extends PropertyKey> =

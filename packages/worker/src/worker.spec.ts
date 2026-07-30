@@ -1,9 +1,20 @@
+import { extname } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import type { ContractDefinition } from "@temporal-contract/contract";
 import { type NativeConnection, Worker } from "@temporalio/worker";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { z } from "zod";
 
+import { registrationContract } from "./__tests__/registration.contract.js";
 import { TypedWorker, TechnicalError, workflowsPathFromURL } from "./worker.js";
+
+/** Resolve a registration-check fixture module next to this spec. */
+function fixturePath(basename: string): string {
+  return fileURLToPath(
+    new URL(`./__tests__/${basename}${extname(import.meta.url)}`, import.meta.url),
+  );
+}
 
 // Mock @temporalio/worker
 vi.mock("@temporalio/worker", () => ({
@@ -200,6 +211,119 @@ describe("Worker Entry Point", () => {
         activities: {},
         namespace: "custom-namespace",
       });
+    });
+  });
+
+  describe("workflow-registration completeness check", () => {
+    // Best-effort startup check (default ON): `TypedWorker.create` imports
+    // the `workflowsPath` module in the main thread, identifies
+    // `declareWorkflow`-produced exports via their brand, and fails creation
+    // when a contract workflow is missing or exported under the wrong name.
+    // The existing suites above pass a non-existent "/path/to/workflows" —
+    // an unimportable module skips the check silently, which those suites
+    // implicitly cover.
+    const mockConnection = { close: vi.fn() } as unknown as NativeConnection;
+    const mockWorker = { run: vi.fn() } as unknown as Worker;
+
+    it("errors (TechnicalError defect) when a contract workflow has no declareWorkflow export, naming it", async () => {
+      vi.mocked(Worker.create).mockResolvedValue(mockWorker);
+
+      const workerResult = await TypedWorker.create({
+        contract: registrationContract,
+        connection: mockConnection,
+        workflowsPath: fixturePath("registration-missing.workflows"),
+      });
+
+      expect(workerResult).toBeDefect();
+      if (workerResult.isDefect()) {
+        const cause = workerResult.cause;
+        expect(cause).toBeInstanceOf(TechnicalError);
+        const message = (cause as TechnicalError).message;
+        expect(message).toContain("Workflow registration check failed");
+        expect(message).toContain("no workflow export");
+        expect(message).toContain("beta");
+        expect(message).toContain("verifyWorkflowRegistration: false");
+      }
+      // Creation aborted before reaching Temporal's Worker.create.
+      expect(Worker.create).not.toHaveBeenCalled();
+    });
+
+    it("errors when a declared workflow is exported under a different name (registration-name mismatch)", async () => {
+      vi.mocked(Worker.create).mockResolvedValue(mockWorker);
+
+      const workerResult = await TypedWorker.create({
+        contract: registrationContract,
+        connection: mockConnection,
+        workflowsPath: fixturePath("registration-mismatch.workflows"),
+      });
+
+      expect(workerResult).toBeDefect();
+      if (workerResult.isDefect()) {
+        const message = (workerResult.cause as TechnicalError).message;
+        expect(message).toContain("export-name mismatch");
+        expect(message).toContain('"alpha" is exported as "renamedAlpha"');
+        expect(message).toContain("registers workflows by export name");
+      }
+    });
+
+    it("passes when every contract workflow is exported under its declared name", async () => {
+      vi.mocked(Worker.create).mockResolvedValue(mockWorker);
+
+      const workerResult = await TypedWorker.create({
+        contract: registrationContract,
+        connection: mockConnection,
+        workflowsPath: fixturePath("registration-complete.workflows"),
+      });
+
+      expect(workerResult).toBeOk();
+      expect(Worker.create).toHaveBeenCalledTimes(1);
+    });
+
+    it("accepts a raw workflow function exported under the contract name (no declareWorkflow brand)", async () => {
+      // Workflows written against the raw `@temporalio/workflow` API are a
+      // supported pattern — Temporal registers by export name, so a plain
+      // function export under the workflow's name registers correctly.
+      vi.mocked(Worker.create).mockResolvedValue(mockWorker);
+
+      const workerResult = await TypedWorker.create({
+        contract: registrationContract,
+        connection: mockConnection,
+        workflowsPath: fixturePath("registration-raw.workflows"),
+      });
+
+      expect(workerResult).toBeOk();
+      expect(Worker.create).toHaveBeenCalledTimes(1);
+    });
+
+    it("verifyWorkflowRegistration: false opts out — an incomplete module creates the worker anyway", async () => {
+      vi.mocked(Worker.create).mockResolvedValue(mockWorker);
+
+      const workerResult = await TypedWorker.create({
+        contract: registrationContract,
+        connection: mockConnection,
+        workflowsPath: fixturePath("registration-missing.workflows"),
+        verifyWorkflowRegistration: false,
+      });
+
+      expect(workerResult).toBeOk();
+      expect(Worker.create).toHaveBeenCalledTimes(1);
+      // The option is consumed by the typed layer, not forwarded to Temporal.
+      const callArg = vi.mocked(Worker.create).mock.calls[0]![0];
+      expect(Object.keys(callArg)).not.toContain("verifyWorkflowRegistration");
+    });
+
+    it("skips the check when workflowsPath cannot be imported (best-effort; bundler is the authority)", async () => {
+      vi.mocked(Worker.create).mockResolvedValue(mockWorker);
+
+      const workerResult = await TypedWorker.create({
+        contract: registrationContract,
+        connection: mockConnection,
+        workflowsPath: "/definitely/not/a/real/module.js",
+      });
+
+      // The (mocked) Worker.create succeeds — the check stayed silent.
+      expect(workerResult).toBeOk();
+      expect(Worker.create).toHaveBeenCalledTimes(1);
     });
   });
 
