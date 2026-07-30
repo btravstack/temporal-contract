@@ -58,6 +58,7 @@ function getTemporalWorkerConnection(): Promise<NativeConnection> {
  */
 export function resolveTemporalAddress(host: string | undefined, port: number | undefined): string {
   if (host === undefined || port === undefined) {
+    // oxlint-disable-next-line unthrown/no-throw -- declaration-time fail-fast config error: missing global-setup injection must abort the test run with a descriptive message
     throw new Error(
       "Temporal test-server address was not injected into this test project. " +
         'Register the testcontainers global setup in your vitest config — globalSetup: "@temporal-contract/testing/global-setup" ' +

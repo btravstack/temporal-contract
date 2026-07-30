@@ -99,12 +99,14 @@ export function bindSignalHandler(
   handler: SignalHandlerImplementation<SignalDefinition>,
 ): void {
   if (!workflowDefinition.signals) {
+    // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: non-retryable ApplicationFailure Temporal must see thrown (CLAUDE.md rule 2 exception)
     throw new ContractMisuseError(
       `Signal "${signalName}" cannot be defined: workflow "${workflowName}" has no signals in its contract`,
     );
   }
   const signalDef = (workflowDefinition.signals as Record<string, SignalDefinition>)[signalName];
   if (!signalDef) {
+    // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: non-retryable ApplicationFailure Temporal must see thrown (CLAUDE.md rule 2 exception)
     throw new ContractMisuseError(
       `Signal "${signalName}" not found in workflow "${workflowName}" contract`,
     );
@@ -148,12 +150,14 @@ export function bindQueryHandler(
   handler: QueryHandlerImplementation<QueryDefinition>,
 ): void {
   if (!workflowDefinition.queries) {
+    // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: non-retryable ApplicationFailure Temporal must see thrown (CLAUDE.md rule 2 exception)
     throw new ContractMisuseError(
       `Query "${queryName}" cannot be defined: workflow "${workflowName}" has no queries in its contract`,
     );
   }
   const queryDef = (workflowDefinition.queries as Record<string, QueryDefinition>)[queryName];
   if (!queryDef) {
+    // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: non-retryable ApplicationFailure Temporal must see thrown (CLAUDE.md rule 2 exception)
     throw new ContractMisuseError(
       `Query "${queryName}" not found in workflow "${workflowName}" contract`,
     );
@@ -165,11 +169,13 @@ export function bindQueryHandler(
     const inputResult = queryDef.input["~standard"].validate(input);
 
     if (inputResult instanceof Promise) {
+      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: non-retryable ApplicationFailure Temporal must see thrown (CLAUDE.md rule 2 exception)
       throw new ContractMisuseError(
         `Query "${queryName}" validation must be synchronous. Use a schema library that supports synchronous validation for queries.`,
       );
     }
     if (inputResult.issues) {
+      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
       throw new QueryInputValidationError(queryName, inputResult.issues);
     }
 
@@ -177,11 +183,13 @@ export function bindQueryHandler(
 
     const outputResult = queryDef.output["~standard"].validate(result);
     if (outputResult instanceof Promise) {
+      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: non-retryable ApplicationFailure Temporal must see thrown (CLAUDE.md rule 2 exception)
       throw new ContractMisuseError(
         `Query "${queryName}" output validation must be synchronous. Use a schema library that supports synchronous validation for queries.`,
       );
     }
     if (outputResult.issues) {
+      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
       throw new QueryOutputValidationError(queryName, outputResult.issues);
     }
 
@@ -228,12 +236,14 @@ export function bindUpdateHandler(
   handler: UpdateHandlerImplementation<UpdateDefinition>,
 ): void {
   if (!workflowDefinition.updates) {
+    // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: non-retryable ApplicationFailure Temporal must see thrown (CLAUDE.md rule 2 exception)
     throw new ContractMisuseError(
       `Update "${updateName}" cannot be defined: workflow "${workflowName}" has no updates in its contract`,
     );
   }
   const updateDef = (workflowDefinition.updates as Record<string, UpdateDefinition>)[updateName];
   if (!updateDef) {
+    // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: non-retryable ApplicationFailure Temporal must see thrown (CLAUDE.md rule 2 exception)
     throw new ContractMisuseError(
       `Update "${updateName}" not found in workflow "${workflowName}" contract`,
     );
@@ -255,6 +265,7 @@ export function bindUpdateHandler(
       const input = extractHandlerInput(args);
       const inputResult = updateDef.input["~standard"].validate(input);
       if (inputResult instanceof Promise) {
+        // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: non-retryable ApplicationFailure Temporal must see thrown (CLAUDE.md rule 2 exception)
         throw new ContractMisuseError(updateInputMustBeSynchronousMessage(updateName));
       }
       if (inputResult.issues) {
@@ -262,6 +273,7 @@ export function bindUpdateHandler(
         // schema produced different issues on a second call (non-pure
         // validator). Surface it as the same typed error class for
         // consistency.
+        // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
         throw new UpdateInputValidationError(updateName, inputResult.issues);
       }
 
@@ -269,6 +281,7 @@ export function bindUpdateHandler(
 
       const outputResult = await updateDef.output["~standard"].validate(result);
       if (outputResult.issues) {
+        // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
         throw new UpdateOutputValidationError(updateName, outputResult.issues);
       }
 
@@ -282,9 +295,11 @@ export function bindUpdateHandler(
         const inputResult = updateDef.input["~standard"].validate(input);
 
         if (inputResult instanceof Promise) {
+          // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: non-retryable ApplicationFailure Temporal must see thrown (CLAUDE.md rule 2 exception)
           throw new ContractMisuseError(updateInputMustBeSynchronousMessage(updateName));
         }
         if (inputResult.issues) {
+          // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
           throw new UpdateInputValidationError(updateName, inputResult.issues);
         }
       },

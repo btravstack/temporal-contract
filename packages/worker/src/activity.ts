@@ -723,6 +723,7 @@ export function declareActivitiesHandler<
       // schema transform) happens exactly once, here.
       const inputResult = await activityDef.input["~standard"].validate(input);
       if (inputResult.issues) {
+        // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
         throw new ActivityInputValidationError(label, inputResult.issues);
       }
 
@@ -759,6 +760,7 @@ export function declareActivitiesHandler<
             return makeAsyncResult(async () => {
               const revalidated = await activityDef.input["~standard"].validate(substituted);
               if (revalidated.issues) {
+                // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: thrown inside the makeAsyncResult work thunk so Temporal sees the terminal failure (CLAUDE.md rule 2 exception)
                 throw new ActivityInputValidationError(label, revalidated.issues);
               }
               return await invokeImplementation(revalidated.value, nextContext);
@@ -785,6 +787,7 @@ export function declareActivitiesHandler<
           // applied exactly once, on receive.
           const outputResult = await activityDef.output["~standard"].validate(value);
           if (outputResult.issues) {
+            // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
             throw new ActivityOutputValidationError(label, outputResult.issues);
           }
           return value;
@@ -800,12 +803,14 @@ export function declareActivitiesHandler<
             P.tag("@temporal-contract/ContractError"),
             async (error) => {
               if (error instanceof ContractError) {
+                // oxlint-disable-next-line unthrown/no-throw -- sanctioned ApplicationFailure model: the Err payload is thrown at the activity boundary so Temporal applies its retry policy (CLAUDE.md rule 2 exception)
                 throw await contractErrorToApplicationFailure(
                   error,
                   activityDef.errors,
                   `activity "${label}"`,
                 );
               }
+              // oxlint-disable-next-line unthrown/no-throw -- sanctioned ApplicationFailure model: the Err payload is thrown at the activity boundary so Temporal applies its retry policy (CLAUDE.md rule 2 exception)
               throw error;
             },
           ),
@@ -820,6 +825,7 @@ export function declareActivitiesHandler<
         // permanent failure should return `Err(ApplicationFailure.create({
         // nonRetryable: true }))` explicitly.
         defect: (cause) => {
+          // oxlint-disable-next-line unthrown/no-throw -- defect-channel edge: re-throw the unmodeled cause unwrapped so Temporal's default (retryable) handling applies
           throw cause;
         },
       });
@@ -842,6 +848,7 @@ export function declareActivitiesHandler<
   if (contract.activities) {
     for (const activityName of Object.keys(contract.activities)) {
       if (Object.hasOwn(workflowDefs, activityName)) {
+        // oxlint-disable-next-line unthrown/no-throw -- declaration-time fail-fast config error: worker startup must abort on an ambiguous implementations map
         throw new Error(
           `global activity "${activityName}" has the same name as a workflow. Workflows and global activities share the root of the worker implementations map — rename one of them.`,
         );
@@ -900,6 +907,7 @@ export function declareActivitiesHandler<
     if (wfActivitiesImpl) {
       for (const activityName of Object.keys(wfActivitiesImpl)) {
         if (!Object.hasOwn(wfDefs, activityName)) {
+          // oxlint-disable-next-line unthrown/no-throw -- declaration-time fail-fast config error: worker startup must abort on an implementation for an undeclared activity
           throw new ActivityDefinitionNotFoundError(
             `${workflowName}.${activityName}`,
             Object.keys(wfDefs),
@@ -910,6 +918,7 @@ export function declareActivitiesHandler<
   }
 
   if (missingImplementations.length > 0) {
+    // oxlint-disable-next-line unthrown/no-throw -- declaration-time fail-fast config error: worker startup must abort on missing activity implementations
     throw new Error(
       `declareActivitiesHandler: missing implementation${missingImplementations.length > 1 ? "s" : ""} ` +
         `for declared activit${missingImplementations.length > 1 ? "ies" : "y"}: ` +
@@ -924,6 +933,7 @@ export function declareActivitiesHandler<
   for (const key of Object.keys(implementationMap)) {
     if (Object.hasOwn(workflowDefs, key)) continue; // workflow namespace, validated above
     if (contract.activities && Object.hasOwn(contract.activities, key)) continue;
+    // oxlint-disable-next-line unthrown/no-throw -- declaration-time fail-fast config error: worker startup must abort on a stray implementation key
     throw new ActivityDefinitionNotFoundError(key, Object.keys(contract.activities ?? {}));
   }
 

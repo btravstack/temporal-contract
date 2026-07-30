@@ -11,14 +11,17 @@ export class SendNotificationUseCase {
   async execute(customerId: string, subject: string, message: string): Promise<void> {
     // Business validation
     if (!customerId || customerId.trim() === "") {
+      // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
       throw new Error("Customer ID is required");
     }
 
     if (!subject || subject.trim() === "") {
+      // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
       throw new Error("Subject is required");
     }
 
     if (!message || message.trim() === "") {
+      // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
       throw new Error("Message is required");
     }
 

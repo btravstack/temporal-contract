@@ -62,6 +62,7 @@ export function _internal_assertNoDefect<T, E>(
   result: Result<T, E>,
 ): asserts result is OkView<T, E> | ErrView<E, T> {
   if (result.isDefect()) {
+    // oxlint-disable-next-line unthrown/no-throw -- defect-cause rethrow at the boundary: a genuine bug must keep riding the defect channel
     throw result.cause;
   }
 }

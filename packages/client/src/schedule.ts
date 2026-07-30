@@ -255,6 +255,7 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
         const alreadyExists = classifyScheduleCreateError(error, options.scheduleId);
         if (alreadyExists) return Err(alreadyExists);
         // Unrecognized, technical failure — route to the defect channel.
+        // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
         throw new RuntimeClientError("schedule.create", error);
       }
     };

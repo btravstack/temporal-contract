@@ -11,6 +11,7 @@ export class PurgeExpiredOrdersUseCase {
   async execute(olderThanDays: number): Promise<number> {
     // Business validation
     if (!Number.isInteger(olderThanDays) || olderThanDays <= 0) {
+      // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
       throw new Error("olderThanDays must be a positive integer");
     }
 

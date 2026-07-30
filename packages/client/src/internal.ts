@@ -119,6 +119,7 @@ export function toTypedSearchAttributes(
     if (value === undefined) continue;
     const def = declared[name];
     if (!def) {
+      // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
       throw new RuntimeClientError(
         "searchAttributes",
         new Error(
@@ -129,6 +130,7 @@ export function toTypedSearchAttributes(
     }
     const { expected, check } = searchAttributeValueChecks[def.kind];
     if (!check(value)) {
+      // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
       throw new RuntimeClientError(
         "searchAttributes",
         new Error(

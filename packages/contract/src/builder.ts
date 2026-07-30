@@ -460,6 +460,7 @@ const RETRY_KEYS = [
 
 /** Throw the canonical single-line contract validation error. */
 function fail(detail: string): never {
+  // oxlint-disable-next-line unthrown/no-throw -- declaration-time fail-fast config error: an invalid contract must abort at definition, before any Result seam exists
   throw new Error(`Contract validation failed: ${detail}`);
 }
 

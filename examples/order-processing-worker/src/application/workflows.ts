@@ -150,6 +150,7 @@ export const processOrder = declareWorkflow({
       if (paymentResult.isDefect()) {
         // Unmodeled failure (a bug, not an anticipated outcome) — rethrow at
         // the edge so Temporal surfaces the Workflow Task failure.
+        // oxlint-disable-next-line unthrown/no-throw -- defect-cause rethrow at the edge: an unmodeled failure must surface as a Workflow Task failure
         throw paymentResult.cause;
       }
       const failure = paymentResult.error;
@@ -169,6 +170,7 @@ export const processOrder = declareWorkflow({
           // Rethrow as this workflow's own declared contract error: the
           // execution fails with `ApplicationFailure(type: "PaymentDeclined")`
           // and the typed client rehydrates it into a `ContractError`.
+          // oxlint-disable-next-line unthrown/no-throw -- sanctioned ApplicationFailure model: `throw context.errors.X(...)` is how a workflow fails terminally with a typed contract error (CLAUDE.md rule 2 exception)
           throw context.errors.PaymentDeclined({ reason: failure.data.reason }, { cause: failure });
         }
         case "@temporal-contract/ActivityError":
@@ -244,6 +246,7 @@ export const processOrder = declareWorkflow({
       // Cancellation must propagate — swallowing it here would leave the
       // workflow running after a cancel request.
       if (isCancellation(error)) {
+        // oxlint-disable-next-line unthrown/no-throw -- cancellation rethrow: swallowing a CancelledFailure would leave the workflow running after a cancel request
         throw error;
       }
       // Non-critical: log but continue

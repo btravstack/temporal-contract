@@ -133,6 +133,7 @@ export function createValidatedActivities<
     const rawActivity = rawActivities[activityName];
 
     if (!rawActivity) {
+      // oxlint-disable-next-line unthrown/no-throw -- declaration-time fail-fast config error: a missing implementation is a wiring bug surfaced at proxy construction
       throw new Error(
         `Activity implementation not found for: "${activityName}". ` +
           `Available activities: ${Object.keys(rawActivities).length > 0 ? Object.keys(rawActivities).join(", ") : "none"}`,
@@ -160,6 +161,7 @@ function makeThrowingActivity(
   return async (input: unknown) => {
     const inputResult = await activityDef.input["~standard"].validate(input);
     if (inputResult.issues) {
+      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
       throw new ActivityInputValidationError(activityName, inputResult.issues);
     }
 
@@ -168,6 +170,7 @@ function makeThrowingActivity(
 
     const outputResult = await activityDef.output["~standard"].validate(result);
     if (outputResult.issues) {
+      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
       throw new ActivityOutputValidationError(activityName, outputResult.issues);
     }
 
