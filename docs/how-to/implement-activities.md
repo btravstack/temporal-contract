@@ -100,7 +100,7 @@ processOrder: {
     fromPromise(riskEngine.score(customerId), qualifyFailure("RISK_CHECK_FAILED"))
       .flatMap((score) =>
         score > 0.9
-          ? Err(ApplicationFailure.create({ type: "HIGH_RISK", nonRetryable: true })).toAsync()
+          ? ErrAsync(ApplicationFailure.create({ type: "HIGH_RISK", nonRetryable: true }))
           : fromPromise(gateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED")),
       )
       .map((charge) => ({ transactionId: charge.id })),
@@ -109,8 +109,8 @@ processOrder: {
 
 - `.map` transforms a success value.
 - `.flatMap` runs another result-returning step and flattens.
-- `Err(...).toAsync()` lifts a synchronous failure into an `AsyncResult`
-  (`ErrAsync(...)` is the shorthand).
+- `ErrAsync(...)` builds an already-failed `AsyncResult` (the canonical
+  shorthand for `Err(...).toAsync()`); `OkAsync(...)` is its success twin.
 
 ## Inject dependencies
 

@@ -51,7 +51,7 @@ Nobody writes domain logic branching on "the gRPC transport hiccupped". Keeping
 them in `E` forced every caller to write an arm for a case they would only ever
 log.
 
-So `TypedClient.create` and `createWorker` now return `AsyncResult<_, never>`.
+So `TypedClient.create` and `TypedWorker.create` now return `AsyncResult<_, never>`.
 An empty error channel is a precise statement: _this operation has no
 anticipated failure modes_. Everything that can go wrong is a defect.
 

@@ -27,7 +27,7 @@ import type { AnySchema, ErrorDefinition, InferErrorData, InferErrorDataInput } 
  * TypeScript — connection failures, missing runtime capabilities, worker
  * bundling errors. These are *unmodeled* infrastructure faults, never
  * anticipated domain failures, so they ride the `Defect` channel: the
- * creation factories (`TypedClient.create`, `createWorker`) surface them as a
+ * creation factories (`TypedClient.create`, `TypedWorker.create`) surface them as a
  * `Defect` whose `cause` is a `TechnicalError` instance (inspect via `match`'s
  * `defect` handler, `recoverDefect`, or `tapDefect`) — this class never
  * appears in a `Result`'s modeled `E` channel.

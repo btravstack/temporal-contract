@@ -9,7 +9,7 @@ import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { declareActivitiesHandler } from "@temporal-contract/worker/activity";
-import { Ok } from "unthrown";
+import { OkAsync } from "unthrown";
 import { describe, expect } from "vitest";
 
 import { createContractTest } from "../contract.js";
@@ -22,7 +22,7 @@ const activities = declareActivitiesHandler({
   contract: testContract,
   activities: {
     greet: {
-      decorate: ({ name }) => Ok({ decorated: name.toUpperCase() }).toAsync(),
+      decorate: ({ name }) => OkAsync({ decorated: name.toUpperCase() }),
     },
   },
 });
@@ -52,7 +52,7 @@ describe("createContractTest", () => {
     typedClient,
     client,
   }) => {
-    expect(worker.getState()).toBe("RUNNING");
+    expect(worker.raw.getState()).toBe("RUNNING");
     // The root memoizes contract bindings — the fixture's client is the
     // same instance `for()` hands out.
     expect(typedClient.for(testContract)).toBe(client);

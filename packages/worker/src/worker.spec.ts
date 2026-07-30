@@ -3,7 +3,7 @@ import { type NativeConnection, Worker } from "@temporalio/worker";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { z } from "zod";
 
-import { createWorker, TechnicalError, workflowsPathFromURL } from "./worker.js";
+import { TypedWorker, TechnicalError, workflowsPathFromURL } from "./worker.js";
 
 // Mock @temporalio/worker
 vi.mock("@temporalio/worker", () => ({
@@ -20,7 +20,7 @@ describe("Worker Entry Point", () => {
     vi.clearAllMocks();
   });
 
-  describe("createWorker", () => {
+  describe("TypedWorker.create", () => {
     it("should create a worker with contract task queue", async () => {
       // GIVEN
       const contract = {
@@ -39,7 +39,7 @@ describe("Worker Entry Point", () => {
       vi.mocked(Worker.create).mockResolvedValue(mockWorker);
 
       // WHEN
-      const workerResult = await createWorker({
+      const workerResult = await TypedWorker.create({
         contract,
         connection: mockConnection,
         workflowsPath: "/path/to/workflows",
@@ -53,7 +53,12 @@ describe("Worker Entry Point", () => {
         workflowsPath: "/path/to/workflows",
         activities: {},
       });
-      expect(workerResult).toBeOkWith(mockWorker);
+      expect(workerResult).toBeOk();
+      if (workerResult.isOk()) {
+        expect(workerResult.value).toBeInstanceOf(TypedWorker);
+        // The underlying Temporal Worker stays reachable via the escape hatch.
+        expect(workerResult.value.raw).toBe(mockWorker);
+      }
     });
 
     it("should surface Worker.create rejections as a Defect with a TechnicalError cause", async () => {
@@ -71,7 +76,7 @@ describe("Worker Entry Point", () => {
       vi.mocked(Worker.create).mockRejectedValue(bundleError);
 
       // WHEN
-      const workerResult = await createWorker({
+      const workerResult = await TypedWorker.create({
         contract,
         connection: { close: vi.fn() } as unknown as NativeConnection,
         workflowsPath: "/path/to/workflows",
@@ -108,7 +113,7 @@ describe("Worker Entry Point", () => {
       vi.mocked(Worker.create).mockResolvedValue(mockWorker);
 
       // WHEN — no `activities` in the options
-      const workerResult = await createWorker({
+      const workerResult = await TypedWorker.create({
         contract,
         connection: mockConnection,
         workflowsPath: "/path/to/workflows",
@@ -123,7 +128,7 @@ describe("Worker Entry Point", () => {
       });
       const callArg = vi.mocked(Worker.create).mock.calls[0]![0];
       expect(Object.keys(callArg)).not.toContain("activities");
-      expect(workerResult).toBeOkWith(mockWorker);
+      expect(workerResult).toBeOk();
     });
 
     it("should use provided connection", async () => {
@@ -144,7 +149,7 @@ describe("Worker Entry Point", () => {
       vi.mocked(Worker.create).mockResolvedValue(mockWorker);
 
       // WHEN
-      const workerResult = await createWorker({
+      const workerResult = await TypedWorker.create({
         contract,
         connection: existingConnection,
         workflowsPath: "/path/to/workflows",
@@ -158,7 +163,7 @@ describe("Worker Entry Point", () => {
         workflowsPath: "/path/to/workflows",
         activities: {},
       });
-      expect(workerResult).toBeOkWith(mockWorker);
+      expect(workerResult).toBeOk();
     });
 
     it("should pass through other worker options", async () => {
@@ -179,7 +184,7 @@ describe("Worker Entry Point", () => {
       vi.mocked(Worker.create).mockResolvedValue(mockWorker);
 
       // WHEN
-      await createWorker({
+      await TypedWorker.create({
         contract,
         connection: mockConnection,
         workflowsPath: "/path/to/workflows",
@@ -195,6 +200,93 @@ describe("Worker Entry Point", () => {
         activities: {},
         namespace: "custom-namespace",
       });
+    });
+  });
+
+  describe("TypedWorker lifecycle", () => {
+    const contract = {
+      taskQueue: "lifecycle-queue",
+      workflows: {
+        testWorkflow: {
+          input: z.object({ value: z.string() }),
+          output: z.object({ result: z.string() }),
+        },
+      },
+    } satisfies ContractDefinition;
+
+    async function createTypedWorker(rawWorker: Worker): Promise<TypedWorker> {
+      vi.mocked(Worker.create).mockResolvedValue(rawWorker);
+      return await TypedWorker.create({
+        contract,
+        connection: { close: vi.fn() } as unknown as NativeConnection,
+        workflowsPath: "/path/to/workflows",
+        activities: {},
+      }).get();
+    }
+
+    it("run() resolves Ok(void) when the underlying run completes", async () => {
+      // GIVEN
+      const rawWorker = { run: vi.fn().mockResolvedValue(undefined) } as unknown as Worker;
+      const worker = await createTypedWorker(rawWorker);
+
+      // WHEN
+      const runResult = await worker.run();
+
+      // THEN
+      expect(rawWorker.run).toHaveBeenCalledTimes(1);
+      expect(runResult).toBeOk();
+    });
+
+    it("run() surfaces a runtime failure as a Defect with a TechnicalError cause", async () => {
+      // GIVEN
+      const runError = new Error("poller crashed");
+      const rawWorker = { run: vi.fn().mockRejectedValue(runError) } as unknown as Worker;
+      const worker = await createTypedWorker(rawWorker);
+
+      // WHEN
+      const runResult = await worker.run();
+
+      // THEN — a running-worker failure is a technical fault on the defect
+      // channel, never a modeled Err
+      expect(runResult).toBeDefect();
+      if (runResult.isDefect()) {
+        const cause = runResult.cause;
+        expect(cause).toBeInstanceOf(TechnicalError);
+        expect((cause as TechnicalError).message).toContain('task queue "lifecycle-queue"');
+        expect((cause as TechnicalError).cause).toBe(runError);
+      }
+    });
+
+    it("run() folds a synchronous throw from the underlying run into the defect channel", async () => {
+      // GIVEN — Temporal throws IllegalStateError synchronously on a double run
+      const stateError = new Error("Poller was already started");
+      const rawWorker = {
+        run: vi.fn(() => {
+          throw stateError;
+        }),
+      } as unknown as Worker;
+      const worker = await createTypedWorker(rawWorker);
+
+      // WHEN — calling run() must not throw
+      const runResult = await worker.run();
+
+      // THEN
+      expect(runResult).toBeDefect();
+      if (runResult.isDefect()) {
+        expect((runResult.cause as TechnicalError).cause).toBe(stateError);
+      }
+    });
+
+    it("shutdown() delegates to the underlying worker", async () => {
+      // GIVEN
+      const rawWorker = { run: vi.fn(), shutdown: vi.fn() } as unknown as Worker;
+      const worker = await createTypedWorker(rawWorker);
+
+      // WHEN
+      worker.shutdown();
+
+      // THEN
+      expect(rawWorker.shutdown).toHaveBeenCalledTimes(1);
     });
   });
 

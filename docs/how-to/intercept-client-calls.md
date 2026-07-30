@@ -97,15 +97,15 @@ Modeled domain errors (`WorkflowNotInContractError`, a `ContractError`, a valida
 failure) stay on the `err` channel. Branch on those with `flatMapErrCases`:
 
 ```typescript
-import { Err, Ok, P } from "unthrown";
+import { ErrAsync, OkAsync, P } from "unthrown";
 
 const fallback: ClientInterceptor = (args, next) =>
   next().flatMapErrCases((matcher) =>
     matcher
       // Idempotent start: treat "already running" as success.
-      .with(P.tag("@temporal-contract/WorkflowAlreadyStartedError"), () => Ok(undefined).toAsync())
+      .with(P.tag("@temporal-contract/WorkflowAlreadyStartedError"), () => OkAsync())
       // The matcher must cover the whole union — `P._` passes the rest through.
-      .with(P._, (error) => Err(error).toAsync()),
+      .with(P._, (error) => ErrAsync(error)),
   );
 ```
 
@@ -155,11 +155,12 @@ next().mapErrCases(
 
 :::
 
-To short-circuit with a _modeled_ outcome instead, return `Ok`:
+To short-circuit with a _modeled_ outcome instead, return a success
+(`OkAsync`):
 
 ```typescript
 const skipInReadOnly: ClientInterceptor = (args, next) =>
-  maintenanceMode && args.operation === "signal" ? Ok(undefined).toAsync() : next();
+  maintenanceMode && args.operation === "signal" ? OkAsync() : next();
 ```
 
 ## Measure latency

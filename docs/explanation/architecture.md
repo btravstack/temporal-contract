@@ -27,7 +27,7 @@ compatible set.
 ```typescript
 import { declareActivitiesHandler } from "@temporal-contract/worker/activity";
 import { declareWorkflow } from "@temporal-contract/worker/workflow";
-import { createWorker } from "@temporal-contract/worker/worker";
+import { TypedWorker } from "@temporal-contract/worker/worker";
 ```
 
 This is not organizational tidiness. Workflow code is compiled into an isolated
@@ -43,7 +43,7 @@ can legally use.
 Everywhere else you pass values. For workflows you pass a **path**:
 
 ```typescript
-const worker = await createWorker({
+const worker = await TypedWorker.create({
   contract: orderContract,
   connection,
   workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),

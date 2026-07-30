@@ -166,19 +166,18 @@ export {
  * Then in your worker setup:
  * ```ts
  * // worker.ts
- * import { createWorker, workflowsPathFromURL } from '@temporal-contract/worker/worker';
+ * import { TypedWorker, workflowsPathFromURL } from '@temporal-contract/worker/worker';
  * import { activities } from './activities.js';
  * import myContract from './contract.js';
  *
- * const workerResult = await createWorker({
+ * // `TypedWorker.create` returns AsyncResult<TypedWorker, never> — setup
+ * // failures ride the defect channel, so `.get()` unwraps directly.
+ * const worker = await TypedWorker.create({
  *   contract: myContract,
  *   connection,
  *   workflowsPath: workflowsPathFromURL(import.meta.url, './workflows.js'),
  *   activities,
- * });
- * // `createWorker` returns AsyncResult<Worker, never> — setup failures ride
- * // the defect channel, so `.get()` narrows the ok channel directly.
- * const worker = workerResult.get();
+ * }).get();
  * ```
  */
 export function declareWorkflow<

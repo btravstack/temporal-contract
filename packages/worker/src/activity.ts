@@ -338,7 +338,7 @@ export type ActivityMiddlewareNext<
  *   (invocation, next) => {
  *     const tenantId = readTenant(invocation.input);
  *     if (!tenantId) {
- *       return Err(ApplicationFailure.create({ type: "Unauthenticated", nonRetryable: true })).toAsync();
+ *       return ErrAsync(ApplicationFailure.create({ type: "Unauthenticated", nonRetryable: true }));
  *     }
  *     return next({ context: { tenantId } });
  *   },
@@ -654,15 +654,15 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  * // Wire into a worker with this package's typed factory — the task queue
  * // comes from the contract.
  * import { NativeConnection } from '@temporalio/worker';
- * import { createWorker, workflowsPathFromURL } from '@temporal-contract/worker/worker';
+ * import { TypedWorker, workflowsPathFromURL } from '@temporal-contract/worker/worker';
  *
  * const connection = await NativeConnection.connect({ address: 'localhost:7233' });
- * const workerResult = await createWorker({
+ * const worker = await TypedWorker.create({
  *   contract: myContract,
  *   connection,
  *   workflowsPath: workflowsPathFromURL(import.meta.url, './workflows.js'),
  *   activities,
- * });
+ * }).get();
  * ```
  *
  * @remarks

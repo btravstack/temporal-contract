@@ -177,14 +177,14 @@ pnpm add -D @temporal-contract/testing @temporalio/testing
 ```typescript
 import { TypedClient } from "@temporal-contract/client";
 import { it } from "@temporal-contract/testing/time-skipping";
-import { createWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
+import { TypedWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
 import { expect } from "vitest";
 
 import { activities } from "./activities.js";
 import { orderContract } from "./contract.js";
 
 it("processes an order", async ({ testEnv }) => {
-  const worker = await createWorker({
+  const worker = await TypedWorker.create({
     contract: orderContract,
     connection: testEnv.nativeConnection,
     workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
@@ -195,7 +195,7 @@ it("processes an order", async ({ testEnv }) => {
     client: testEnv.client,
   }).get();
 
-  await worker.runUntil(async () => {
+  await worker.raw.runUntil(async () => {
     const result = await client.for(orderContract).executeWorkflow("processOrder", {
       workflowId: "order-test-1",
       args: { orderId: "ORD-1", customerId: "CUST-1", amount: 42 },
@@ -206,7 +206,8 @@ it("processes an order", async ({ testEnv }) => {
 });
 ```
 
-`worker.runUntil` starts the worker, runs the callback, and shuts down cleanly.
+`worker.raw.runUntil` (on the underlying Temporal worker) starts the worker,
+runs the callback, and shuts down cleanly.
 
 The environment is created once per Vitest worker process and torn down when it
 exits — spawning one per test would dominate the suite's runtime.
@@ -267,7 +268,7 @@ afterAll(async () => {
 it("expires an unapproved order after 24 hours", async ({ testEnv }) => {
   // ... worker + client setup ...
 
-  await worker.runUntil(async () => {
+  await worker.raw.runUntil(async () => {
     const started = await client.for(orderContract).startWorkflow("processOrder", {
       workflowId: "order-expiry",
       args: { orderId: "ORD-1", customerId: "CUST-1", amount: 42 },
@@ -335,7 +336,7 @@ import { orderContract } from "./contract.js";
 const it = createContractTest(orderContract, {
   workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
   activities, // omit for a workflow-only worker
-  // workerOptions: forwarded to createWorker (namespace, interceptors, tuning)
+  // workerOptions: forwarded to TypedWorker.create (namespace, interceptors, tuning)
 });
 
 describe("order processing", () => {
@@ -358,12 +359,12 @@ container:
 ```typescript
 import { TypedClient } from "@temporal-contract/client";
 import { it } from "@temporal-contract/testing/extension";
-import { createWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
+import { TypedWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
 import { Client } from "@temporalio/client";
 import { expect } from "vitest";
 
 it("indexes the order by customer", async ({ clientConnection, workerConnection }) => {
-  const worker = await createWorker({
+  const worker = await TypedWorker.create({
     contract: orderContract,
     connection: workerConnection,
     workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
@@ -374,7 +375,7 @@ it("indexes the order by customer", async ({ clientConnection, workerConnection 
     client: new Client({ connection: clientConnection }),
   }).get();
 
-  await worker.runUntil(async () => {
+  await worker.raw.runUntil(async () => {
     const result = await client.for(orderContract).executeWorkflow("processOrder", {
       workflowId: "order-search-1",
       args: { orderId: "ORD-1", customerId: "CUST-1", amount: 42 },

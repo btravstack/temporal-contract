@@ -6,7 +6,7 @@ the task queue named on the contract.
 ## Minimal worker
 
 ```typescript
-import { createWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
+import { TypedWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
 import { NativeConnection } from "@temporalio/worker";
 
 import { activities } from "./activities.js";
@@ -14,14 +14,14 @@ import { orderContract } from "./contract.js";
 
 const connection = await NativeConnection.connect({ address: "localhost:7233" });
 
-const worker = await createWorker({
+const worker = await TypedWorker.create({
   contract: orderContract,
   connection,
   workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
   activities,
 }).get();
 
-await worker.run();
+await worker.run().get();
 ```
 
 `taskQueue` comes from the contract, so you never repeat it. Everything else on
@@ -29,12 +29,12 @@ Temporal's `WorkerOptions` is accepted and passed through.
 
 ## Handle a failed start
 
-`createWorker` returns `AsyncResult<Worker, never>` — there is no modeled error.
+`TypedWorker.create` returns `AsyncResult<TypedWorker, never>` — there is no modeled error.
 Bundling failures, bad connections, and invalid options are _technical_ faults,
 so they ride the **defect** channel with a `TechnicalError` cause:
 
 ```typescript
-const result = await createWorker({
+const result = await TypedWorker.create({
   contract: orderContract,
   connection,
   workflowsPath,
@@ -46,11 +46,18 @@ if (result.isDefect()) {
   process.exit(1);
 }
 
-await result.value.run();
+await result.value.run().get();
 ```
 
 `.get()` is the terse form — on a defect it rethrows the original cause with its
 stack intact, which is usually what you want at process startup.
+
+`run()` has the same shape: it returns `AsyncResult<void, never>`, so a worker
+that fails while running surfaces as a defect (a `TechnicalError` cause) rather
+than a rejected promise — `await worker.run().get()` rethrows it at the edge.
+The underlying Temporal `Worker` stays available as `worker.raw` for anything
+the typed surface doesn't cover (`worker.raw.getState()`,
+`worker.raw.runUntil(...)`).
 
 ## Resolve the workflows path
 
@@ -90,32 +97,32 @@ effects.** See [Architecture](/explanation/architecture).
 polls exclusively for Workflow Tasks:
 
 ```typescript
-import { createWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
+import { TypedWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
 import { NativeConnection } from "@temporalio/worker";
 
 import { orderContract } from "./contract.js";
 
 const connection = await NativeConnection.connect({ address: "localhost:7233" });
 
-const worker = await createWorker({
+const worker = await TypedWorker.create({
   contract: orderContract,
   connection,
   workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
   // no `activities`
 }).get();
 
-await worker.run();
+await worker.run().get();
 ```
 
 This is the split-deployment pattern: workflows are deterministic and
 CPU-light, activities do the heavy I/O, and the two often deserve different
 scaling profiles. Run one workflow-only worker process and a separate
-activity worker process (a `createWorker` call _with_ `activities`) on the
+activity worker process (a `TypedWorker.create` call _with_ `activities`) on the
 same task queue — Temporal routes each task kind to whichever worker polls
 for it.
 
 ```typescript
-const worker = await createWorker({
+const worker = await TypedWorker.create({
   contract: orderContract,
   connection,
   workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
@@ -136,14 +143,14 @@ it low for CPU-bound or memory-hungry activities.
 ## Shut down gracefully
 
 ```typescript
-const worker = await createWorker({/* ... */}).get();
+const worker = await TypedWorker.create({/* ... */}).get();
 
 process.on("SIGTERM", () => {
   console.log("draining...");
   worker.shutdown();
 });
 
-await worker.run(); // resolves once in-flight tasks finish
+await worker.run().get(); // resolves once in-flight tasks finish
 await connection.close();
 ```
 
@@ -151,10 +158,11 @@ await connection.close();
 Kubernetes, set `terminationGracePeriodSeconds` above your longest
 `startToCloseTimeout` so activities are not killed mid-flight.
 
-Run the worker for a bounded scope instead when you want automatic cleanup:
+Run the worker for a bounded scope instead when you want automatic cleanup —
+`runUntil` lives on the raw Temporal worker:
 
 ```typescript
-await worker.runUntil(async () => {
+await worker.raw.runUntil(async () => {
   // worker is running for this block only
 });
 ```
@@ -167,13 +175,13 @@ Each contract needs its own worker, because each has its own task queue:
 
 ```typescript
 const [orderWorker, shipmentWorker] = await Promise.all([
-  createWorker({
+  TypedWorker.create({
     contract: orderContract,
     connection,
     workflowsPath: workflowsPathFromURL(import.meta.url, "./order.workflows.js"),
     activities: orderActivities,
   }).get(),
-  createWorker({
+  TypedWorker.create({
     contract: shipmentContract,
     connection,
     workflowsPath: workflowsPathFromURL(import.meta.url, "./shipment.workflows.js"),
@@ -181,7 +189,7 @@ const [orderWorker, shipmentWorker] = await Promise.all([
   }).get(),
 ]);
 
-await Promise.all([orderWorker.run(), shipmentWorker.run()]);
+await Promise.all([orderWorker.run().get(), shipmentWorker.run().get()]);
 ```
 
 They share the connection. Split them into separate processes when their
@@ -202,7 +210,7 @@ const connection = await NativeConnection.connect({
   },
 });
 
-const worker = await createWorker({
+const worker = await TypedWorker.create({
   contract: orderContract,
   connection,
   namespace: "my-namespace.a1b2c",

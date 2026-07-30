@@ -329,16 +329,24 @@ than the anything-goes `{}`.
 
 ## `@temporal-contract/worker/worker`
 
-### `createWorker(options)`
+### `TypedWorker.create(options)`
 
 ```typescript
-function createWorker<TContract>(
-  options: CreateWorkerOptions<TContract>,
-): AsyncResult<Worker, never>;
+class TypedWorker {
+  static create<TContract>(
+    options: CreateWorkerOptions<TContract>,
+  ): AsyncResult<TypedWorker, never>;
+
+  readonly raw: Worker;
+  run(): AsyncResult<void, never>;
+  shutdown(): void;
+}
 ```
 
-`CreateWorkerOptions` is Temporal's `WorkerOptions` without `taskQueue` (taken
-from the contract), plus `contract` and an optional `activities`.
+The worker-side sibling of `TypedClient.create` — the org's `Typed*.create()`
+factory shape. `CreateWorkerOptions` is Temporal's `WorkerOptions` without
+`taskQueue` (taken from the contract), plus `contract` and an optional
+`activities`.
 
 **`activities` is optional.** Omit it for a workflow-only worker — one that
 polls exclusively for Workflow Tasks, leaving activities to a separate worker
@@ -349,6 +357,12 @@ process on the same task queue. See
 technical faults on the **defect** channel with a `TechnicalError` cause.
 Inspect with `isDefect()` / `match({ defect })` / `recoverDefect`, or use
 `.get()` to rethrow the original cause.
+
+**Lifecycle.** `run()` starts the worker loop and resolves `Ok` after a clean
+shutdown; a worker that fails while running surfaces as a defect (a
+`TechnicalError` cause), and the underlying promise never rejects. `shutdown()`
+initiates a graceful drain. Everything else Temporal offers — `runUntil`,
+`getState`, tuning introspection — lives on the `raw` escape hatch.
 
 ### `workflowsPathFromURL(baseURL, relativePath)`
 

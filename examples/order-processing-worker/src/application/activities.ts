@@ -16,13 +16,15 @@ import {
  * Activity implementations using unthrown's `AsyncResult` pattern.
  *
  * Instead of throwing exceptions, activities return:
- *   - Ok(value).toAsync() for success
- *   - Err(ApplicationFailure).toAsync() for technical failures (or a
+ *   - OkAsync(value) for success
+ *   - ErrAsync(ApplicationFailure) for technical failures (or a
  *     `fromPromise` chain whose `qualifyFailure` wraps a rejection into an
  *     `ApplicationFailure`)
- *   - Err(errors.X(data)).toAsync() for *declared* contract errors — the
+ *   - ErrAsync(errors.X(data)) for *declared* contract errors — the
  *     typed constructors arrive in the implementation's second (helpers)
  *     argument and surface to the calling workflow as typed `ContractError`s.
+ *     (Sync `Ok(...)` / `Err(...)` stay valid inside combinator callbacks
+ *     like `flatMap`, as below.)
  *
  * All technical exceptions MUST be caught and wrapped in `ApplicationFailure`
  * (Temporal's first-class failure shape, re-exported from
