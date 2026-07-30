@@ -62,6 +62,7 @@
   "scripts": {
     "build": "tsdown src/activity.ts src/worker.ts src/workflow.ts --format cjs,esm --dts --clean",
     "build:docs": "typedoc",
+    "check:package": "publint --strict && attw --pack . --profile node16",
     "dev": "tsdown src/activity.ts src/worker.ts src/workflow.ts --format cjs,esm --dts --watch",
     "test": "vitest run --project unit",
     "test:integration": "vitest run --project integration --project integration-inprocess",
@@ -73,6 +74,7 @@
     "@temporal-contract/contract": "workspace:*"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "catalog:",
     "@btravstack/tsconfig": "catalog:",
     "@btravstack/typedoc": "catalog:",
     "@temporal-contract/client": "workspace:*",
@@ -84,6 +86,7 @@
     "@types/node": "catalog:",
     "@unthrown/vitest": "catalog:",
     "@vitest/coverage-v8": "catalog:",
+    "publint": "catalog:",
     "tsdown": "catalog:",
     "typedoc": "catalog:",
     "typedoc-plugin-markdown": "catalog:",

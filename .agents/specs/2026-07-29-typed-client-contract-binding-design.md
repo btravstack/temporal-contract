@@ -1,7 +1,7 @@
 # Design: decouple the client from the contract
 
 - **Date:** 2026-07-29
-- **Status:** approved, not yet implemented
+- **Status:** implemented (`feat/v8-full-review-fixes`)
 - **Target:** `@temporal-contract/client`, 8.0 beta line
 - **Origin:** [millenium!56319 note 2210871](https://gitlab.factory.fonciamillenium.net/FonciaStark/millenium/-/merge_requests/56319#note_2210871)
 

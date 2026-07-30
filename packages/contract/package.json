@@ -41,6 +41,7 @@
   "scripts": {
     "build": "tsdown src/index.ts src/errors.ts src/result-async.ts --format esm --dts --clean",
     "build:docs": "typedoc",
+    "check:package": "publint --strict && attw --pack . --profile esm-only",
     "dev": "tsdown src/index.ts src/errors.ts src/result-async.ts --format esm --dts --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -50,12 +51,14 @@
     "@standard-schema/spec": "catalog:"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "catalog:",
     "@btravstack/tsconfig": "catalog:",
     "@btravstack/typedoc": "catalog:",
     "@types/node": "catalog:",
     "@unthrown/vitest": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "arktype": "catalog:",
+    "publint": "catalog:",
     "tsdown": "catalog:",
     "typedoc": "catalog:",
     "typedoc-plugin-markdown": "catalog:",

@@ -105,6 +105,66 @@ const activities = makeActivities({
 });
 ```
 
+### Run one activity with `Context.current()` working
+
+Calling an implementation directly breaks the moment it touches
+`Context.current()` — heartbeats, cancellation, activity info. `runActivity`
+from `@temporal-contract/testing/activity` executes a single implementation
+inside `@temporalio/testing`'s `MockActivityEnvironment`, building the typed
+`errors` constructors from the contract definition exactly as the worker
+would — still no worker, server, or Docker. It returns the implementation's
+`AsyncResult` untouched (an unanticipated throw lands on the defect channel),
+and the entry is vitest-free, so it works from any test runner:
+
+```typescript
+import { runActivity } from "@temporal-contract/testing/activity";
+import { expect, it } from "vitest";
+
+import { chargeCard } from "./activities.js";
+import { orderContract } from "./contract.js";
+
+it("charges the card", async () => {
+  const result = await runActivity(
+    orderContract.workflows.processOrder.activities.chargeCard,
+    chargeCard, // (args, { errors }) => AsyncResult<...>
+    { customerId: "CUST-1", amount: 42 },
+  );
+
+  expect(result).toBeOk();
+});
+```
+
+Pass your own environment via the `env` option to observe heartbeats or
+trigger cancellation:
+
+```typescript
+import { runActivity } from "@temporal-contract/testing/activity";
+import { MockActivityEnvironment } from "@temporalio/testing";
+import { expect, it } from "vitest";
+
+import { downloadReport } from "./activities.js";
+import { orderContract } from "./contract.js";
+
+it("heartbeats while downloading", async () => {
+  const env = new MockActivityEnvironment();
+  const heartbeats: unknown[] = [];
+  env.on("heartbeat", (details) => heartbeats.push(details));
+
+  const result = await runActivity(
+    orderContract.workflows.processOrder.activities.downloadReport,
+    downloadReport,
+    { reportId: "R-1" },
+    { env },
+  );
+
+  expect(result).toBeOk();
+  expect(heartbeats.length).toBeGreaterThan(0);
+});
+```
+
+`env.cancel()` triggers cancellation the same way; a `CancelledFailure` the
+implementation does not model surfaces on the defect channel.
+
 ## Tier 2 — time-skipping, no Docker
 
 `@temporal-contract/testing/time-skipping` runs a lightweight local test server
@@ -164,10 +224,31 @@ export default defineConfig({
 });
 ```
 
-If you prefer explicit lifecycle management over the fixture:
+The ready-made `it` uses default environment options. To pin the test-server
+version or otherwise configure the environment, build your own `it` with
+`createTimeSkippingTest` — options are forwarded to
+`TestWorkflowEnvironment.createTimeSkipping` unchanged:
+
+```typescript
+import { createTimeSkippingTest } from "@temporal-contract/testing/time-skipping";
+
+const it = createTimeSkippingTest({
+  server: { executable: { type: "cached-download", version: "v1.3.0" } },
+});
+
+it("runs against the pinned server", async ({ testEnv }) => {
+  // ...
+});
+```
+
+If you prefer explicit lifecycle management over the fixture,
+`createTimeSkippingEnvironment` accepts the same options (remember to call
+`teardown()`):
 
 ```typescript
 import { createTimeSkippingEnvironment } from "@temporal-contract/testing/time-skipping";
+import type { TestWorkflowEnvironment } from "@temporalio/testing";
+import { afterAll, beforeAll } from "vitest";
 
 let testEnv: TestWorkflowEnvironment;
 
@@ -218,6 +299,58 @@ export default defineConfig({
   },
 });
 ```
+
+To pin container images, inject extra Temporal env, or silence the container
+progress logs, point `globalSetup` at your own module that default-exports
+`createGlobalSetup(options)`:
+
+```typescript
+// temporal-global-setup.ts
+import { createGlobalSetup } from "@temporal-contract/testing/global-setup";
+
+export default createGlobalSetup({
+  postgresImage: "postgres:18.1",
+  temporalImage: "temporalio/auto-setup:1.28.0",
+  temporalEnv: { FRONTEND_GRPC_MAX_MESSAGE_SIZE: "10485760" },
+  quiet: true,
+});
+```
+
+### Wire the whole stack with `createContractTest`
+
+`@temporal-contract/testing/contract` builds a vitest `it` whose fixtures run
+a contract against that server: a worker on the contract's task queue
+(started before each test, shut down after), the connection-scoped
+`TypedClient` root, and the contract-bound `ContractClient`. Destructure
+exactly what you use — `client`, `typedClient`, or `worker`:
+
+```typescript
+import { createContractTest } from "@temporal-contract/testing/contract";
+import { workflowsPathFromURL } from "@temporal-contract/worker/worker";
+import { describe, expect } from "vitest";
+
+import { activities } from "./activities.js";
+import { orderContract } from "./contract.js";
+
+const it = createContractTest(orderContract, {
+  workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
+  activities, // omit for a workflow-only worker
+  // workerOptions: forwarded to createWorker (namespace, interceptors, tuning)
+});
+
+describe("order processing", () => {
+  it("processes an order end-to-end", async ({ client }) => {
+    const result = await client.executeWorkflow("processOrder", {
+      workflowId: `order-${Date.now()}`,
+      args: { orderId: "ORD-1", customerId: "CUST-1", amount: 42 },
+    });
+
+    expect(result).toBeOk();
+  });
+});
+```
+
+### Or wire it yourself with the connection fixtures
 
 `@temporal-contract/testing/extension` supplies connections bound to that
 container:

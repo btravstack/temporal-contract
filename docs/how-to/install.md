@@ -62,15 +62,21 @@ describes a compatible set. Do not mix versions.
 These are peers, not dependencies, because they appear in the packages' public
 types. Your code and the library must resolve to the _same_ copy.
 
-| Peer                   | Required by              | Range    |
-| ---------------------- | ------------------------ | -------- |
-| `unthrown`             | contract, worker, client | `^5.0.0` |
-| `@temporalio/common`   | worker, client           | `^1`     |
-| `@temporalio/worker`   | worker, testing          | `^1`     |
-| `@temporalio/workflow` | worker                   | `^1`     |
-| `@temporalio/client`   | client, testing          | `^1`     |
-| `@temporalio/testing`  | testing                  | `^1`     |
-| `vitest`               | testing                  | `^4`     |
+| Peer                   | Required by                       | Range    |
+| ---------------------- | --------------------------------- | -------- |
+| `unthrown`             | contract, worker, client, testing | `^5.0.0` |
+| `@temporalio/common`   | worker, client                    | `^1`     |
+| `@temporalio/worker`   | worker, testing                   | `^1`     |
+| `@temporalio/workflow` | worker                            | `^1`     |
+| `@temporalio/client`   | client, testing                   | `^1`     |
+| `@temporalio/testing`  | testing                           | `^1`     |
+| `vitest`               | testing                           | `^4`     |
+
+The testing package additionally peer-depends on the other three
+`@temporal-contract/*` packages — its contract-aware fixtures hand you a
+`TypedClient` and run a worker, so it must resolve to _your_ copies of
+contract, client, and worker. Installing all four packages (as the commands
+above do) satisfies it.
 
 Plus a [Standard Schema](https://standardschema.dev/) library to write your
 schemas with — Zod, Valibot, or ArkType.
@@ -105,9 +111,8 @@ It must resolve to **v5**. v5 is not compatible with v4; see
 
 ## Choose a schema library
 
-Any Standard Schema implementation works. The contract package validates
-contract _structure_ with Zod internally, but your schemas can be whatever you
-prefer.
+Any Standard Schema implementation works — the packages themselves are
+schema-library-agnostic, so your schemas can be whatever you prefer.
 
 ::: code-group
 

@@ -1101,8 +1101,8 @@ export class ContractClient<TContract extends ContractDefinition> {
    * @example
    * ```ts
    * const handleResult = contractClient.getHandle('processOrder', 'order-123');
-   * if (handleResult.isErr()) {
-   *   console.error('Unknown workflow:', handleResult.error.workflowName);
+   * if (!handleResult.isOk()) {
+   *   console.error('Unknown workflow:', handleResult.isErr() ? handleResult.error : handleResult.cause);
    *   return;
    * }
    * const result = await handleResult.value.result();

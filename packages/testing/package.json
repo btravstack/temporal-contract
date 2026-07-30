@@ -52,6 +52,7 @@
   "scripts": {
     "build": "tsdown src/global-setup.ts src/extension.ts src/time-skipping.ts src/contract.ts src/activity.ts --format esm --dts --clean",
     "build:docs": "typedoc",
+    "check:package": "publint --strict && attw --pack . --profile esm-only",
     "test": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test:watch": "vitest --project unit",
@@ -61,6 +62,7 @@
     "testcontainers": "catalog:"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "catalog:",
     "@btravstack/tsconfig": "catalog:",
     "@btravstack/typedoc": "catalog:",
     "@temporalio/client": "catalog:",
@@ -69,6 +71,7 @@
     "@temporalio/workflow": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
+    "publint": "catalog:",
     "tsdown": "catalog:",
     "typedoc": "catalog:",
     "typedoc-plugin-markdown": "catalog:",
@@ -78,9 +81,9 @@
     "zod": "catalog:"
   },
   "peerDependencies": {
-    "@temporal-contract/client": "workspace:^",
-    "@temporal-contract/contract": "workspace:^",
-    "@temporal-contract/worker": "workspace:^",
+    "@temporal-contract/client": "^8.0.0-beta.3",
+    "@temporal-contract/contract": "^8.0.0-beta.3",
+    "@temporal-contract/worker": "^8.0.0-beta.3",
     "@temporalio/client": "^1",
     "@temporalio/testing": "^1",
     "@temporalio/worker": "^1",

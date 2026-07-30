@@ -10,6 +10,8 @@
 pnpm add -D @temporal-contract/testing
 ```
 
+The package declares peer dependencies on the other three `@temporal-contract/*` packages (contract, client, worker — the contract-aware fixtures hand you a `TypedClient` and run a worker, so they must resolve to _your_ copies), plus `@temporalio/client`, `@temporalio/testing`, `@temporalio/worker`, `unthrown` (`^5`), and `vitest` (`^4`). Make sure they are installed alongside it — see [Install temporal-contract](https://btravstack.github.io/temporal-contract/how-to/install) for the full matrix.
+
 ## Quick Example
 
 ### Global Setup
