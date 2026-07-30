@@ -1,7 +1,7 @@
 # v8 review remediation — decisions and work breakdown
 
 - **Date:** 2026-07-30
-- **Status:** in progress on `feat/v8-full-review-fixes`
+- **Status:** implemented on `feat/v8-full-review-fixes` (Waves 1-4 complete)
 - **Origin:** full six-track review (client, worker, contract+testing, unthrown audit,
   amqp-contract consistency, DX/docs) performed 2026-07-29/30. This spec records the
   decisions and the fix plan. All breaking changes land inside the unshipped 8.0 beta.
@@ -53,11 +53,14 @@ infinite Workflow Task retries. Decision: introduce a `ContractMisuseError` exte
 
 ### D4. Scope cuts (deferred, not forgotten)
 
-- Typed **local activities** path — new feature, separate spec.
-- Client `list`/`count` — covered by the new raw escape hatch for now.
-- amqp-contract / async-contract convergence (`declare*` verbs, `for()` in amqp,
-  `sideEffects`) — separate repos, separate track.
-- Configurable invalid-signal policy (D2) and per-binding interceptor overrides.
+Checked = still deferred as of Wave 4 completion (nothing below landed in this work):
+
+- [x] Typed **local activities** path — new feature, separate spec. _Still deferred._
+- [x] Client `list`/`count` — covered by the new raw escape hatch for now. _Still deferred._
+- [x] amqp-contract / async-contract convergence (`declare*` verbs, `for()` in amqp,
+      `sideEffects`) — separate repos, separate track. _Still deferred._
+- [x] Configurable invalid-signal policy (D2) and per-binding interceptor overrides.
+      _Still deferred._
 
 ## Work breakdown
 

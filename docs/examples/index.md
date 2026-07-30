@@ -11,11 +11,11 @@ of the same thing step by step.
 
 Three packages, mirroring how a real deployment splits:
 
-| Package                                                                                                                     | Contents                                               |
-| --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| [`order-processing-contract`](https://github.com/btravstack/temporal-contract/tree/main/examples/order-processing-contract) | Schemas and the contract. Depended on by the other two |
-| [`order-processing-worker`](https://github.com/btravstack/temporal-contract/tree/main/examples/order-processing-worker)     | Activities, workflow, worker, integration tests        |
-| [`order-processing-client`](https://github.com/btravstack/temporal-contract/tree/main/examples/order-processing-client)     | Starts workflows and handles results                   |
+| Package                                                                                                                     | Contents                                                                                                                                                                                                                                                                                          |
+| --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`order-processing-contract`](https://github.com/btravstack/temporal-contract/tree/main/examples/order-processing-contract) | The shared contract, built composition-first with the `define*` helpers: signals (payload-carrying and payload-less), an argument-less query, a `PaymentDeclined` typed error shared by activity and workflow, and a schedule-ready, activity-less cleanup workflow. Depended on by the other two |
+| [`order-processing-worker`](https://github.com/btravstack/temporal-contract/tree/main/examples/order-processing-worker)     | Clean-architecture worker: `AsyncResult` activities with `qualifyFailure` and typed error constructors, a `condition`-based approval gate with signal/query handlers, an activity-less schedule-driven workflow, and integration tests                                                            |
+| [`order-processing-client`](https://github.com/btravstack/temporal-contract/tree/main/examples/order-processing-client)     | `TypedClient.create({ client }).for(contract)` in action: typed signals/queries through handles, the synchronous `getHandle`, exhaustive `match` + `P.tag` including the rehydrated `PaymentDeclined` contract error, and `schedule.create` with the create-if-absent idiom                       |
 
 ### What it demonstrates
 

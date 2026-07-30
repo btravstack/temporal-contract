@@ -45,6 +45,7 @@
   "scripts": {
     "build": "tsdown src/index.ts --format cjs,esm --dts --clean",
     "build:docs": "typedoc",
+    "check:package": "publint --strict && attw --pack .",
     "dev": "tsdown src/index.ts --format cjs,esm --dts --watch",
     "test": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
@@ -56,6 +57,7 @@
     "@temporal-contract/contract": "workspace:*"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "catalog:",
     "@btravstack/tsconfig": "catalog:",
     "@btravstack/typedoc": "catalog:",
     "@temporal-contract/testing": "workspace:*",
@@ -66,6 +68,7 @@
     "@types/node": "catalog:",
     "@unthrown/vitest": "catalog:",
     "@vitest/coverage-v8": "catalog:",
+    "publint": "catalog:",
     "tsdown": "catalog:",
     "typedoc": "catalog:",
     "typedoc-plugin-markdown": "catalog:",
