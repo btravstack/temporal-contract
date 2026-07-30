@@ -2369,4 +2369,30 @@ describe("ContractClient — search attribute VALUE validation (runtime)", () =>
     }
     expect(mockWorkflow.start).not.toHaveBeenCalled();
   });
+
+  it('names the received runtime type instead of typeof\'s blanket "object"', async () => {
+    const client = await bindContract(kindContract, {
+      workflow: mockWorkflow,
+      schedule: mockSchedule,
+    } as unknown as Client);
+
+    const cases: Array<{ value: unknown; reported: string }> = [
+      { value: new Date("2026-01-01T00:00:00Z"), reported: "a Date" },
+      { value: ["not", "an", "int"], reported: "an array" },
+      { value: null, reported: "null" },
+    ];
+    for (const { value, reported } of cases) {
+      const result = await client.startWorkflow("kinds", {
+        workflowId: "k-4",
+        args: { id: "a" },
+        searchAttributes: { priority: value as unknown as number },
+      });
+
+      expect(result).toBeDefect();
+      if (result.isDefect()) {
+        expect((result.cause as RuntimeClientError).message).toContain(`received ${reported}.`);
+      }
+    }
+    expect(mockWorkflow.start).not.toHaveBeenCalled();
+  });
 });

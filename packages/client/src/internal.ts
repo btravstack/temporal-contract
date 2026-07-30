@@ -71,6 +71,18 @@ const searchAttributeValueChecks: Record<
 };
 
 /**
+ * Name a value's runtime type for error messages. `typeof` alone reports
+ * `"object"` for arrays, `Date`s, and `null` — the three shapes search
+ * attributes actually trip over — so spell those out.
+ */
+function describeRuntimeType(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "an array";
+  if (value instanceof Date) return "a Date";
+  return `a ${typeof value}`;
+}
+
+/**
  * Translate the contract's typed `searchAttributes` map (declared
  * name → value) into a Temporal `TypedSearchAttributes` instance, so the
  * Temporal client honours indexing when starting the workflow.
@@ -121,7 +133,7 @@ export function toTypedSearchAttributes(
         "searchAttributes",
         new Error(
           `Search attribute "${name}" on workflow "${workflowName}" is declared as ` +
-            `${def.kind} and must be ${expected}; received ${typeof value}.`,
+            `${def.kind} and must be ${expected}; received ${describeRuntimeType(value)}.`,
         ),
       );
     }
