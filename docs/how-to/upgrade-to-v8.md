@@ -264,6 +264,7 @@ carries everything the old contract-coupled client had.
 | `TypedClient.create({ contract, client })`         | `TypedClient.create({ client }).for(contract)` |
 | `TypedClient<typeof contract>` (type annotation)   | `ContractClient<typeof contract>`              |
 | `TypedClient.createOrThrow(contract, client, ...)` | removed — use `create(...).get()`              |
+| `CreateTypedClientOptions`                         | `CreateClientOptions`                          |
 
 ```typescript
 // 7.x — one client per contract, constructed per contract

@@ -474,7 +474,7 @@ async function resolveDefinitionAndValidateInput<
  * Options for {@link TypedClient.create} — the single options-object shape
  * shared by the org's `Typed*.create()` factories.
  */
-export type CreateTypedClientOptions = {
+export type CreateClientOptions = {
   /** The underlying `@temporalio/client` `Client`. */
   client: Client;
   /**
@@ -551,10 +551,7 @@ export class TypedClient {
    * const client = await TypedClient.create({ client: temporalClient }).get();
    * ```
    */
-  static create({
-    client,
-    interceptors,
-  }: CreateTypedClientOptions): AsyncResult<TypedClient, never> {
+  static create({ client, interceptors }: CreateClientOptions): AsyncResult<TypedClient, never> {
     const work = async (): Promise<Result<TypedClient, never>> => {
       // `client.schedule` is the ScheduleClient wired into Temporal's
       // top-level `Client` since 1.16. The peer dep allows all of `^1`, so a
