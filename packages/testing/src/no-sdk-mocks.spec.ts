@@ -43,7 +43,8 @@ async function specFiles(dir: string): Promise<string[]> {
   for (const entry of entries) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === "dist") continue;
+      if (entry.name === "node_modules" || entry.name === "dist" || entry.name.startsWith("."))
+        continue;
       found.push(...(await specFiles(full)));
     } else if (entry.name.endsWith(".spec.ts")) {
       found.push(full);
@@ -54,7 +55,7 @@ async function specFiles(dir: string): Promise<string[]> {
 
 describe("no SDK mocks outside the allowlist", () => {
   it("keeps Temporal's real semantics under test", async () => {
-    const files = await specFiles(join(WORKSPACE_ROOT, "packages"));
+    const files = await specFiles(WORKSPACE_ROOT);
     const offenders: string[] = [];
 
     for (const file of files) {
