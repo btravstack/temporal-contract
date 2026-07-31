@@ -3,10 +3,17 @@ import { bundleWorkflowCode, type WorkflowBundleWithSourceMap } from "@temporali
 
 /**
  * Workflow bundles are the expensive part of standing up a test worker —
- * webpack runs over the whole workflow module graph. The time-skipping
- * `testEnv` fixture is already worker-scoped, so the environment is
- * amortized; this closes the remaining per-test cost by memoizing each
- * bundle per `workflowsPath` for the lifetime of the Vitest worker.
+ * webpack runs over the whole workflow module graph. This module-level
+ * `Map` memoizes each bundle per `workflowsPath` so a spec file that stands
+ * up several test workers against the same workflow module pays the
+ * bundling cost once instead of once per test.
+ *
+ * Under Vitest's default isolation (`pool: "forks"`, `isolate: true`), each
+ * test *file* gets a fresh module registry, so this cache's lifetime is
+ * per test file, not per Vitest worker process — it does not survive
+ * across spec files. That's sufficient here: the goal is collapsing
+ * per-test bundling within a file down to one bundle, not sharing a bundle
+ * across files.
  *
  * Keyed by path, and the *promise* is cached (not the resolved value) so
  * concurrent callers share one in-flight bundle rather than racing.
@@ -14,7 +21,7 @@ import { bundleWorkflowCode, type WorkflowBundleWithSourceMap } from "@temporali
 const bundles = new Map<string, Promise<WorkflowBundleWithSourceMap>>();
 
 /**
- * Bundle `workflowsPath` once per Vitest worker and reuse it thereafter.
+ * Bundle `workflowsPath` once per test file and reuse it thereafter.
  * Pass the result straight to `TypedWorker.create({ workflowBundle })`.
  */
 export function bundleFor(workflowsPath: string): Promise<WorkflowBundleWithSourceMap> {
