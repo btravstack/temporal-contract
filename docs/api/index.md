@@ -19,13 +19,21 @@ from the previous `neverthrow`-based version.
 
 - [@temporal-contract/testing](./testing/) - Testing utilities with testcontainers
 
+Each package is documented per **public entry point**: contract as `index`
+(the root) and `errors`; worker as `activity`, `worker`, and `workflow`; testing
+as `activity`, `contract`, `extension`, `global-setup`, and `time-skipping`. The
+internal `@temporal-contract/contract/internal` entry carries no semver
+guarantee and is intentionally excluded.
+
 ## Hand-written reference
 
-The generated pages above describe every exported symbol. For grouped,
-narrative reference — option tables, error channels, merge order — see:
+The generated pages above describe every symbol exported from those public
+entry points. For grouped, narrative reference — option tables, error channels,
+merge order — see:
 
 - [Contract surface](/reference/contract-surface)
 - [Worker surface](/reference/worker-surface)
 - [Client surface](/reference/client-surface)
+- [Testing surface](/reference/testing-surface)
 - [Errors](/reference/errors)
 - [Glossary](/reference/glossary)

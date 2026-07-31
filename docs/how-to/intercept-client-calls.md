@@ -46,7 +46,12 @@ const auditing: ClientInterceptor = (args, next) =>
 
 ## Add trace context
 
-`next({ input })` shallow-merges a patch over the invocation before validation:
+`next({ input })` shallow-merges a patch over the invocation before validation.
+A patch may carry only the two payload fields — `input`, and `signalInput` for
+`signalWithStart`. The identity fields (`operation`, `workflowName`,
+`workflowId`, `name`) describe _which_ call is in flight and are owned by the
+call site; any other key smuggled into the patch object is dropped, so an
+interceptor cannot relabel a call mid-chain:
 
 ```typescript
 const tracing: ClientInterceptor = (args, next) => {
@@ -54,14 +59,32 @@ const tracing: ClientInterceptor = (args, next) => {
     attributes: { "workflow.id": args.workflowId, "workflow.type": args.workflowName },
   });
 
-  return next({
-    input: {
-      ...(args.input as Record<string, unknown>),
-      traceparent: span.spanContext().traceId,
-    },
-  }).tap(() => span.end());
+  return (
+    next({
+      input: {
+        ...(args.input as Record<string, unknown>),
+        traceparent: span.spanContext().traceId,
+      },
+    })
+      // `.tap()` fires only on `ok`, so ending the span there alone leaks it on
+      // every failure. `.tapFailure()` runs on both the `err` and `defect`
+      // channels, so the span is ended exactly once whatever the outcome.
+      .tap(() => span.end())
+      .tapFailure(() => {
+        span.setStatus({ code: SpanStatusCode.ERROR });
+        span.end();
+      })
+  );
 };
 ```
+
+::: tip When the span export itself can fail
+`span.end()` returns nothing, so `tap` / `tapFailure` are the right tools. If
+your effect _returns a `Result`_ — flushing to a collector that can fail, say —
+reach for the effect-returning surface instead: `flatTap` on the `ok` side and
+`flatTapErrCases` on the `err` side, so the effect's own failure threads through
+rather than being silently dropped.
+:::
 
 ::: warning The patched field must be on the contract
 The patch goes through the same schema validation as the original input. If
@@ -111,9 +134,12 @@ const fallback: ClientInterceptor = (args, next) =>
 
 ::: warning The matcher is exhaustive
 `flatMapErrCases`, `mapErrCases`, `tapErrCases`, and `recoverErrCases` all
-require a match that covers every member of the error union — here the nine
-members of `ClientCallError`. A single `.with(P.tag(...))` arm will not compile.
-Handle the cases you care about, then close with `P._`.
+require a match that covers every member of the error union — every member of
+`ClientCallError`, which now also carries the widened outcome errors
+(`WorkflowCancelledError`, `WorkflowTerminatedError`, `WorkflowTimeoutError`) and
+the update/query errors (`UpdateFailedError`, `UpdateRejectedError`,
+`QueryFailedError`). A single `.with(P.tag(...))` arm will not compile. Handle
+the cases you care about, then close with `P._`.
 :::
 
 Calling `next()` twice re-runs the rest of the chain, so retries compose.

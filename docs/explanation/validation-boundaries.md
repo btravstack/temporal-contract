@@ -150,10 +150,14 @@ _shape_ (a hand-rolled structural check; the contract package has no runtime
 schema-library dependency):
 
 - `taskQueue` present and non-empty
-- at least one workflow
+- at least one workflow _or_ global activity (activity-only contracts are valid
+  — a dedicated activity-pool worker needs no workflows)
 - no unknown keys at the contract root (strict — only `taskQueue`,
   `workflows`, `activities`)
-- every name a valid JavaScript identifier
+- every name a valid JavaScript identifier, and not a Temporal-reserved name
+  (the `__temporal_` prefix, `__stack_trace`, `__enhanced_stack_trace`)
+- every duration option a valid `ms` string (`"5 minutes"`, `"30s"`) — a typo
+  like `"5 minutos"` fails here, not at the worker
 - every schema slot Standard Schema compatible
 - no activity-name collisions in the flat runtime namespace — reusing the
   _same_ definition object across workflows is fine (that is one activity, not
@@ -161,7 +165,7 @@ schema-library dependency):
   hint to hoist the shared activity to the global `activities` block
 - no workflow name colliding with a global activity name (they share the root
   of the worker's implementations map)
-- no unknown keys in `defaultOptions`
+- no unknown keys in `activityOptions`
 
 Because this runs at import time, a malformed contract fails when the process
 starts rather than when a workflow first executes.

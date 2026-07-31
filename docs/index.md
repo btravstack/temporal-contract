@@ -70,6 +70,7 @@ import { declareActivitiesHandler, qualifyFailure } from "@temporal-contract/wor
 import { fromPromise } from "unthrown";
 
 import { orderContract } from "./contract.js";
+import { gateway, GatewayError } from "./services.js";
 
 export const activities = declareActivitiesHandler({
   contract: orderContract,
@@ -77,11 +78,14 @@ export const activities = declareActivitiesHandler({
     // Workflow-scoped activities nest under their workflow, mirroring the contract.
     processOrder: {
       chargeCard: ({ customerId, amount }) =>
-        fromPromise(gateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED")).map(
-          (charge) => ({
-            transactionId: charge.id,
-          }),
-        ),
+        fromPromise(
+          gateway.charge(customerId, amount),
+          // Anticipated failures become a typed ApplicationFailure; anything
+          // else (a bug) stays a loud defect.
+          qualifyFailure("CHARGE_FAILED", { expected: GatewayError }),
+        ).map((charge) => ({
+          transactionId: charge.id,
+        })),
     },
   },
 });
@@ -109,9 +113,13 @@ export const processOrder = declareWorkflow({
 ```
 
 ```typescript [4. Client]
-import { TypedClient } from "@temporal-contract/client";
+import {
+  tagPatterns,
+  TypedClient,
+  WORKFLOW_RESULT_ERROR_TAGS,
+  WORKFLOW_START_ERROR_TAGS,
+} from "@temporal-contract/client";
 import { Client, Connection } from "@temporalio/client";
-import { P } from "unthrown";
 
 import { orderContract } from "./contract.js";
 
@@ -130,11 +138,8 @@ result.match({
   ok: (output) => console.log(output.transactionId), // ✅ typed
   errCases: (matcher) =>
     matcher.with(
-      P.tag("@temporal-contract/WorkflowNotInContractError"),
-      P.tag("@temporal-contract/WorkflowValidationError"),
-      P.tag("@temporal-contract/WorkflowAlreadyStartedError"),
-      P.tag("@temporal-contract/WorkflowFailedError"),
-      P.tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+      ...tagPatterns(WORKFLOW_START_ERROR_TAGS),
+      ...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS),
       (error) => console.error("failed:", error.message),
     ),
   defect: (cause) => console.error("unexpected:", cause),

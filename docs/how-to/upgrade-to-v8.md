@@ -46,8 +46,8 @@ pnpm add unthrown@^5.0.0
 ```
 
 If an intermediate beta had you install `ts-pattern` as a peer, remove it —
-unthrown's matcher is built in again as of beta.6, and unthrown has zero runtime
-dependencies:
+unthrown's matcher is built in again as of unthrown `5.0.0-beta.6`, and unthrown
+has zero runtime dependencies:
 
 ```bash
 pnpm remove ts-pattern
@@ -160,7 +160,10 @@ if (created.isDefect()) {
   console.error("client setup failed:", created.cause); // a TechnicalError
   process.exit(1);
 }
-const typedClient = created.value;
+// The error channel is `never`, so `.get()` unwraps directly. (Reading
+// `created.value` after only an `isDefect()` guard does not compile — the
+// non-defect branch is still `Ok | Err`, and `Err` has no `.value`.)
+const typedClient = created.get();
 ```
 
 Or, more concisely — `.get()` rethrows a defect's original cause:
@@ -217,17 +220,20 @@ modeled; everything else (transport faults, unrecognized rejections) rides the
 defect channel:
 
 ```typescript
-// 8.0 — `.get()` rethrows an Err or a defect's original cause.
-await schedule.pause("maintenance").get();
+// 8.0 — the modeled error is `ScheduleNotFoundError`, so use `.getOrThrow()`
+// (it throws the modeled `Err`, or rethrows a defect's cause). `.get()` would
+// NOT compile here — it is only valid when the error channel is `never`.
+await schedule.pause("maintenance").getOrThrow();
 ```
 
 See the [schedules section](#_11-schedules-typed-errors-and-a-fuller-surface)
 below for the full 8.0 schedule surface.
 
-::: warning A bare `await` swallows the defect
+::: warning A bare `await` swallows the failure
 `AsyncResult` is a success-only thenable: awaiting it collapses it to a
 `Result`, and the underlying promise never rejects. `await schedule.pause(...)`
-on its own discards the failure. Chain `.get()`, or branch on `isDefect()`.
+on its own discards the outcome — the modeled `ScheduleNotFoundError` (an `Err`,
+not a defect) included. Chain `.getOrThrow()`, or branch on `isErr()`.
 :::
 
 ## 5. Interceptors and middleware
@@ -313,10 +319,19 @@ of an `AsyncResult` — drop the `await`. It also accepts an options object:
 // 7.x
 const bound = await typedClient.getHandle("processOrder", "order-123");
 
-// 8.0
+// 8.0 — sync Result now; `.getOrThrow()` throws the modeled
+// WorkflowNotInContractError (or rethrows a defect's cause).
+const handle = orders.getHandle("processOrder", "order-123").getOrThrow();
+
+// Or branch explicitly — but reading `.value` after only an `isErr()` guard
+// does NOT compile (the non-Err branch is still `Ok | Defect`, and `Defect`
+// has no `.value`); narrow with `isOk()`:
 const bound = orders.getHandle("processOrder", "order-123");
-if (bound.isErr()) throw bound.error; // WorkflowNotInContractError
-const handle = bound.value;
+if (bound.isOk()) {
+  useHandle(bound.value);
+} else if (bound.isErr()) {
+  throw bound.error; // WorkflowNotInContractError
+}
 
 // 8.0 — bind a specific run
 const pinned = orders.getHandle("processOrder", "order-123", { runId });
@@ -402,16 +417,19 @@ schema issues). The execution continues untouched.
 
 ## 9. Worker: renames and stricter declaration checks
 
-### `qualify` → `qualifyFailure`
+### `qualify` → `qualifyFailure`, now with required triage
 
-A mechanical rename, no alias kept:
+Renamed (no alias kept) **and** given a required `expected` discriminator — see
+[§12](#_12-second-breaking-pass-8-0-audit-remediation) for the full rationale.
+`qualifyFailure` no longer blanket-wraps every rejection; you name which causes
+are modeled business failures, and everything else rides the defect channel:
 
 ```diff
 - import { declareActivitiesHandler, qualify } from "@temporal-contract/worker/activity";
 + import { declareActivitiesHandler, qualifyFailure } from "@temporal-contract/worker/activity";
 
 -       fromPromise(gateway.charge(customerId, amount), qualify("CHARGE_FAILED"))
-+       fromPromise(gateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED"))
++       fromPromise(gateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED", { expected: GatewayError }))
 ```
 
 ### `createWorker` → `TypedWorker.create`
@@ -612,6 +630,120 @@ New on the surface:
 - **`schedule.list(options?)`** — an `AsyncIterable<ScheduleSummary>`
   passthrough of Temporal's `ScheduleClient.list`.
 
+## 12. Second breaking pass (8.0 audit remediation)
+
+A second review before 8.0 stabilised hardened the boundaries, the `unthrown`
+integration, and family consistency. These land in the same major.
+
+### Mechanical renames
+
+| 7.x / earlier 8.0 beta                                  | 8.0                                                         |
+| ------------------------------------------------------- | ----------------------------------------------------------- |
+| `SignalNamesOf` / `QueryNamesOf` / `UpdateNamesOf`      | `InferSignalNames` / `InferQueryNames` / `InferUpdateNames` |
+| `DeclaredErrorsOf`                                      | `InferDeclaredErrors`                                       |
+| `defineActivity({ defaultOptions })`                    | `defineActivity({ activityOptions })`                       |
+| `context.defineSignal` / `defineQuery` / `defineUpdate` | `context.handleSignal` / `handleQuery` / `handleUpdate`     |
+| `@temporal-contract/contract/result-async`              | removed — internals live at `.../internal` (private)        |
+
+The `Infer*` prefix aligns with amqp-contract; `handle*` frees `define*` for
+contract authoring alone (and stops colliding with `@temporalio/workflow`'s
+own `defineSignal`).
+
+### `qualifyFailure` triages instead of blanket-wrapping
+
+`expected` is now **required** — an error class, an array of classes, a
+predicate, or the explicit literal `"any"`. Causes that match are wrapped into
+the modeled `ApplicationFailure`; everything else (a `TypeError` from a bug,
+say) rides the **defect** channel instead of being mislabelled a business
+error. A matched inner `ApplicationFailure` with `nonRetryable: true` is now
+inherited by default.
+
+```diff
+- qualifyFailure("CHARGE_FAILED")
++ qualifyFailure("CHARGE_FAILED", { expected: GatewayError })
++ // deliberately keep the old catch-all behaviour, made explicit:
++ qualifyFailure("CHARGE_FAILED", { expected: "any" })
+```
+
+### Client: cancellation, termination, timeout, update, and query are modeled
+
+`executeWorkflow` / `handle.result()` gain `WorkflowCancelledError`,
+`WorkflowTerminatedError`, `WorkflowTimeoutError` (each keeping the original
+`TemporalFailure` as `cause`) instead of burying the outcome in
+`WorkflowFailedError.cause`. Update and query failures — `UpdateFailedError`,
+`UpdateRejectedError`, `QueryFailedError` — are modeled `Err`s where they
+previously leaked as defects. Widen (or, more likely, let the exhaustive
+matcher force you to widen) your `result()` / update / query match arms.
+
+Collapse the recurring multi-tag arms with the new bundles and `tagPatterns`:
+
+```typescript
+import { tagPatterns, WORKFLOW_RESULT_ERROR_TAGS } from "@temporal-contract/client";
+
+result.match({
+  ok: (value) => value,
+  errCases: (matcher) =>
+    matcher.with(...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS), (error) => report(error)),
+  defect: (cause) => report(cause),
+});
+```
+
+### Cancellation can be swallowed by declared-error activities
+
+When an activity declares an `errors` map, cancelling it surfaces as
+`Err(ActivityCancelledError)` — a value a generic "map every `Err` to a
+fallback" handler will absorb, completing the workflow instead of cancelling
+it. Re-raise with the new `rethrowCancellation(error)` from
+`@temporal-contract/worker/workflow`. See
+[Handle cancellation](/how-to/handle-cancellation).
+
+### Worker: safer declarations
+
+- A shared activity referenced from several scopes must be the **same function
+  reference** or hoisted to the global `activities` map — two different
+  implementations for one flattened name now throw at declaration (they used to
+  silently clobber).
+- `TypedWorker.create` **verifies workflow registration** by default: a
+  contract workflow missing from the bundle, or an export whose name differs
+  from its `workflowName`, fails creation. Opt out with
+  `verifyWorkflowRegistration: false`.
+- Async query/update schemas are rejected at **bind time** (`ContractMisuseError`),
+  not on the first request.
+- `ChildWorkflowError` carries a structured `workflowName`; the input/output
+  `ValidationError` subclasses carry a `direction: "input" | "output"`.
+
+### Client construction and interceptors
+
+- `ContractClient` and `TypedScheduleClient` are no longer constructible
+  directly — obtain them via `typedClient.for(...)` and `client.schedule`.
+  `ContractClient` exposes readonly `contract` and `taskQueue` getters, and
+  `handle.raw` reaches the underlying `WorkflowHandle`.
+- Client interceptor patches may set **only** `input` / `signalInput`; identity
+  fields such as `workflowName` are no longer patchable.
+
+### Testing: option bags and a boundary-faithful tier
+
+```diff
+- createContractTest(orderContract, { workflowsPath, activities })
++ createContractTest({ contract: orderContract, workflowsPath, activities })
+
+- runActivity(definition, implementation, input)
++ runActivity(definition, { implementation, input })
+```
+
+New `runActivityHandler(definition, { ... })` runs the implementation through
+the real `declareActivitiesHandler` wrapping (input parse, output validation,
+contract-error wire round-trip) so a test fails exactly where production does.
+`testcontainers` is now an **optional** peer, needed only for
+`createContractTest`.
+
+### Packaging
+
+- Every package is **ESM-only** (client and worker dropped their CJS output and
+  legacy `main`/`module`/`types` fields).
+- `@temporalio/*` peer ranges tightened to `^1.16.0` (the real floor for the
+  Schedule API and the search-attribute imports).
+
 ## Checklist
 
 - [ ] All four `@temporal-contract/*` packages on the same 8.0 version
@@ -639,6 +771,22 @@ New on the surface:
       schedule-handle matchers handle `ScheduleNotFoundError`
 - [ ] No schema relies on its transform running on the send side (each
       boundary now parses once, on receive)
+- [ ] `SignalNamesOf` / `QueryNamesOf` / `UpdateNamesOf` / `DeclaredErrorsOf`
+      → the `Infer*` prefix; `defineActivity` `defaultOptions` → `activityOptions`
+- [ ] `context.defineSignal` / `defineQuery` / `defineUpdate` →
+      `handleSignal` / `handleQuery` / `handleUpdate`
+- [ ] Every `qualifyFailure(...)` passes `{ expected }` (or `{ expected: "any" }`
+      to keep the old catch-all deliberately)
+- [ ] `result()` / update / query matchers handle the new modeled errors
+      (`WorkflowCancelledError` / `Terminated` / `Timeout`, `UpdateFailedError`,
+      `UpdateRejectedError`, `QueryFailedError`)
+- [ ] Cancellation isn't swallowed by a declared-error activity —
+      `rethrowCancellation` where a generic `Err` fallback would complete the run
+- [ ] Shared activities implemented once (same reference or hoisted global)
+- [ ] `createContractTest({ contract, ... })` and `runActivity(def, { ... })`
+      use the option bag; `testcontainers` installed only where `createContractTest` runs
+- [ ] Imports of `@temporal-contract/contract/result-async` removed
+- [ ] `@temporalio/*` resolve to `^1.16.0`; no CJS `require` of these packages
 - [ ] `pnpm typecheck` clean
 
 The exhaustive matcher does most of the work: once it compiles, the migration is

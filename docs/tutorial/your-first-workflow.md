@@ -170,12 +170,16 @@ export const activities = declareActivitiesHandler({
     // mirroring the contract.
     processOrder: {
       chargeCard: ({ customerId, amount }) =>
-        fromPromise(paymentGateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED")).map(
-          (charge) => ({ transactionId: charge.id }),
-        ),
+        fromPromise(
+          paymentGateway.charge(customerId, amount),
+          qualifyFailure("CHARGE_FAILED", { expected: Error }),
+        ).map((charge) => ({ transactionId: charge.id })),
 
       sendReceipt: ({ customerId, transactionId }) =>
-        fromPromise(mailer.send(customerId, transactionId), qualifyFailure("RECEIPT_FAILED")),
+        fromPromise(
+          mailer.send(customerId, transactionId),
+          qualifyFailure("RECEIPT_FAILED", { expected: Error }),
+        ),
     },
   },
 });
@@ -185,11 +189,21 @@ export const activities = declareActivitiesHandler({
 takes a promise that might reject and turns it into an `AsyncResult`:
 
 - if the promise resolves, you get the value on the `ok` channel;
-- if it rejects, `qualifyFailure("CHARGE_FAILED")` wraps the rejection in a Temporal
-  `ApplicationFailure` whose `type` is `"CHARGE_FAILED"`.
+- if it rejects with a cause matching `expected`, `qualifyFailure("CHARGE_FAILED", ...)`
+  wraps the rejection in a Temporal `ApplicationFailure` whose `type` is
+  `"CHARGE_FAILED"`;
+- if it rejects with anything else, the rejection stays a **defect** — an
+  unanticipated bug that surfaces loudly instead of masquerading as a charge
+  failure.
 
-That `type` is what Temporal's retry policies key on, which is why it is worth
-naming deliberately.
+`expected` is required: it is your triage decision about which failures are
+part of the activity's model. The stand-in gateway throws a plain `Error`, so
+`expected: Error` is honest here; against a real SDK you would name its error
+class instead (see
+[Implement activities](/how-to/implement-activities)).
+
+The failure `type` is what Temporal's retry policies key on, which is why it is
+worth naming deliberately.
 
 ::: tip Why nested?
 `chargeCard` and `sendReceipt` are declared inside `processOrder` in the
@@ -216,6 +230,10 @@ export const processOrder = declareWorkflow({
   contract: orderContract,
   activityOptions: {
     startToCloseTimeout: "1 minute",
+    // Cap retries so a persistently failing activity fails the workflow
+    // instead of retrying forever (Temporal's default policy is unlimited
+    // attempts). Step 7 relies on this.
+    retry: { maximumAttempts: 3 },
   },
   implementation: async (context, order) => {
     const { transactionId } = await context.activities.chargeCard({
@@ -295,9 +313,13 @@ resolves one relative to the current file — the ESM-safe equivalent of
 Open a second terminal. Create `src/client.ts`:
 
 ```typescript
-import { TypedClient } from "@temporal-contract/client";
+import {
+  tagPatterns,
+  TypedClient,
+  WORKFLOW_RESULT_ERROR_TAGS,
+  WORKFLOW_START_ERROR_TAGS,
+} from "@temporal-contract/client";
 import { Client, Connection } from "@temporalio/client";
-import { P } from "unthrown";
 
 import { orderContract } from "./contract.js";
 
@@ -325,11 +347,10 @@ result.match({
   },
   errCases: (matcher) =>
     matcher.with(
-      P.tag("@temporal-contract/WorkflowNotInContractError"),
-      P.tag("@temporal-contract/WorkflowValidationError"),
-      P.tag("@temporal-contract/WorkflowAlreadyStartedError"),
-      P.tag("@temporal-contract/WorkflowFailedError"),
-      P.tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+      // Tag bundles cover the start-phase and result-phase error unions in
+      // one arm — no hand-written list of tags to keep in sync.
+      ...tagPatterns(WORKFLOW_START_ERROR_TAGS),
+      ...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS),
       (error) => console.error("workflow failed:", error.message),
     ),
   defect: (cause) => console.error("unexpected:", cause),
@@ -381,9 +402,11 @@ amount: 5000, // paymentGateway.charge throws above 1000
 ```
 
 This time the workflow _does_ start. The activity fails, Temporal retries it
-under the default policy, and after the retries are exhausted the client sees a
-`WorkflowFailedError`. Watch the retries happen live in the Web UI — that
-durability is what Temporal is for, and the contract has not gotten in its way.
+under the `maximumAttempts: 3` policy you set in Step 4, and once the third
+attempt fails the client sees a `WorkflowFailedError`. Watch the retries happen
+live in the Web UI — that durability is what Temporal is for, and the contract
+has not gotten in its way. (Without the cap, Temporal's default policy would
+retry the activity indefinitely and the workflow would simply stay `Running`.)
 
 ## What you built
 

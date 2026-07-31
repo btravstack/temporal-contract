@@ -11,8 +11,22 @@ cheapest one that can catch the bug you care about.
 
 ## Tier 1 — contract and activity handlers
 
-Activities are ordinary functions returning `AsyncResult`. Test them directly,
-no Temporal involved.
+An activity implementation is an ordinary function returning `AsyncResult`, but
+do **not** assert on the map that `declareActivitiesHandler` returns — those are
+the _wrapped_ handlers a worker registers, and they **throw** `ApplicationFailure`
+across the boundary rather than returning a `Result`. `@temporal-contract/testing/activity`
+gives you two entry points instead, and neither needs a worker, a server, or
+Docker:
+
+- **`runActivity`** runs the **raw** implementation and hands back its
+  `AsyncResult` untouched — no input parse, no output validation, no
+  contract-error wire conversion. This is the pure-logic tier.
+- **`runActivityHandler`** routes the same implementation through the **real**
+  `declareActivitiesHandler` wrapping — input parse → implementation → output
+  validation → contract-error → `ApplicationFailure` wire conversion →
+  rehydration back to a typed `Result`. Use it when a test must be
+  boundary-faithful: passing here means the same call succeeds through a real
+  worker.
 
 Install the unthrown matchers and register them:
 
@@ -34,23 +48,33 @@ export default defineConfig({
 });
 ```
 
-Then assert on the result channels:
+Then run the implementation with `runActivity` and assert on the result
+channels. The subject is the activity's contract definition; the implementation
+and input travel in the options bag:
 
 ```typescript
+import { runActivity } from "@temporal-contract/testing/activity";
 import { describe, expect, it } from "vitest";
 
-import { activities } from "./activities.js";
+import { chargeCard } from "./activities.js";
+import { orderContract } from "./contract.js";
 
 describe("chargeCard", () => {
   it("returns a transaction id", async () => {
-    const result = await activities.chargeCard({ customerId: "CUST-1", amount: 42 });
+    const result = await runActivity(orderContract.workflows.processOrder.activities.chargeCard, {
+      implementation: chargeCard, // (args, { errors }) => AsyncResult<...>
+      input: { customerId: "CUST-1", amount: 42 },
+    });
 
     expect(result).toBeOk();
     expect(result).toBeOkWith({ transactionId: expect.any(String) });
   });
 
   it("surfaces a declined card as a contract error", async () => {
-    const result = await activities.chargeCard({ customerId: "DECLINE", amount: 42 });
+    const result = await runActivity(orderContract.workflows.processOrder.activities.chargeCard, {
+      implementation: chargeCard,
+      input: { customerId: "DECLINE", amount: 42 },
+    });
 
     expect(result).toBeErrTagged("@temporal-contract/ContractError");
   });
@@ -58,7 +82,39 @@ describe("chargeCard", () => {
 ```
 
 `@unthrown/vitest` provides `toBeOk`, `toBeOkWith`, `toBeErr`, `toBeErrTagged`,
-and `toBeDefect`.
+and `toBeDefect` — prefer them over `expect(result.isOk()).toBe(true)`.
+
+### Test the full boundary with `runActivityHandler`
+
+`runActivity` runs the raw implementation, so an `Err` whose data violates the
+declared schema, or an output the schema rejects, still looks green. When the
+test must fail exactly where production fails, use `runActivityHandler`: it wraps
+the implementation with the real `declareActivitiesHandler`, parses the input as
+a caller would send it (the pre-transform wire shape), validates the output, and
+round-trips a typed `Err` through its `ApplicationFailure` wire form and back:
+
+```typescript
+import { runActivityHandler } from "@temporal-contract/testing/activity";
+import { expect, it } from "vitest";
+
+import { chargeCard } from "./activities.js";
+import { orderContract } from "./contract.js";
+
+it("rehydrates a declared error across the wire", async () => {
+  const result = await runActivityHandler(
+    orderContract.workflows.processOrder.activities.chargeCard,
+    {
+      implementation: chargeCard,
+      input: { customerId: "DECLINE", amount: 42 },
+    },
+  );
+
+  // The declared error crossed the wire and rehydrated as a typed error;
+  // an undeclared error name or invalid error data would surface the
+  // production terminal `ContractErrorDataValidationError` instead.
+  expect(result).toBeErrTagged("@temporal-contract/ContractError");
+});
+```
 
 Contracts are worth testing too — `defineContract` throws on a malformed one, so
 a test that merely imports it is a real check:
@@ -92,7 +148,7 @@ export const makeActivities = (deps: { gateway: PaymentGateway }) =>
         chargeCard: ({ customerId, amount }, { context }) =>
           fromPromise(
             context.gateway.charge(customerId, amount),
-            qualifyFailure("CHARGE_FAILED"),
+            qualifyFailure("CHARGE_FAILED", { expected: GatewayError }),
           ).map((c) => ({ transactionId: c.id })),
       },
     },
@@ -105,34 +161,12 @@ const activities = makeActivities({
 });
 ```
 
-### Run one activity with `Context.current()` working
+### Observe heartbeats and cancellation
 
-Calling an implementation directly breaks the moment it touches
-`Context.current()` — heartbeats, cancellation, activity info. `runActivity`
-from `@temporal-contract/testing/activity` executes a single implementation
-inside `@temporalio/testing`'s `MockActivityEnvironment`, building the typed
-`errors` constructors from the contract definition exactly as the worker
-would — still no worker, server, or Docker. It returns the implementation's
-`AsyncResult` untouched (an unanticipated throw lands on the defect channel),
-and the entry is vitest-free, so it works from any test runner:
-
-```typescript
-import { runActivity } from "@temporal-contract/testing/activity";
-import { expect, it } from "vitest";
-
-import { chargeCard } from "./activities.js";
-import { orderContract } from "./contract.js";
-
-it("charges the card", async () => {
-  const result = await runActivity(
-    orderContract.workflows.processOrder.activities.chargeCard,
-    chargeCard, // (args, { errors }) => AsyncResult<...>
-    { customerId: "CUST-1", amount: 42 },
-  );
-
-  expect(result).toBeOk();
-});
-```
+`runActivity` executes the implementation inside `@temporalio/testing`'s
+`MockActivityEnvironment`, so `Context.current()` works — heartbeats,
+cancellation, and activity info are all live. Both entry points are vitest-free
+(they only need `@temporalio/testing`), so they work from any test runner.
 
 Pass your own environment via the `env` option to observe heartbeats or
 trigger cancellation:
@@ -150,12 +184,11 @@ it("heartbeats while downloading", async () => {
   const heartbeats: unknown[] = [];
   env.on("heartbeat", (details) => heartbeats.push(details));
 
-  const result = await runActivity(
-    orderContract.workflows.processOrder.activities.downloadReport,
-    downloadReport,
-    { reportId: "R-1" },
-    { env },
-  );
+  const result = await runActivity(orderContract.workflows.processOrder.activities.downloadReport, {
+    implementation: downloadReport,
+    input: { reportId: "R-1" },
+    env,
+  });
 
   expect(result).toBeOk();
   expect(heartbeats.length).toBeGreaterThan(0);
@@ -288,6 +321,15 @@ For visibility queries, search attributes, schedules, and retention, you need a
 real cluster. `@temporal-contract/testing/global-setup` starts Temporal and
 PostgreSQL in testcontainers for the suite's lifetime.
 
+`testcontainers` is an **optional** peer dependency, pulled in only by this
+Dockerized tier (`createGlobalSetup` / `createContractTest`) — the
+`/time-skipping` and `/activity` entries do not need it. Install it alongside
+`@temporal-contract/testing` for tier 3:
+
+```bash
+pnpm add -D @temporal-contract/testing testcontainers
+```
+
 ```typescript
 // vitest.config.ts
 import { defineConfig } from "vitest/config";
@@ -333,7 +375,8 @@ import { describe, expect } from "vitest";
 import { activities } from "./activities.js";
 import { orderContract } from "./contract.js";
 
-const it = createContractTest(orderContract, {
+const it = createContractTest({
+  contract: orderContract,
   workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
   activities, // omit for a workflow-only worker
   // workerOptions: forwarded to TypedWorker.create (namespace, interceptors, tuning)

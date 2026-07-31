@@ -48,8 +48,10 @@ throw, an infrastructure fault. Not part of the modeled error type. Carries the
 raw failure on `result.cause` and re-throws when unwrapped, so genuine bugs
 surface loudly. See [The result model](/explanation/the-result-model).
 
-**Qualification** — turning an untyped rejection into a modeled error at a
-boundary. `fromPromise(promise, qualifyFailure("TYPE"))` is the common form.
+**Qualification** — turning an _expected_ rejection into a modeled error at a
+boundary, while everything else rides the defect channel.
+`fromPromise(promise, qualifyFailure("TYPE", { expected: SomeError }))` is the
+common form.
 
 **`TaggedError`** — unthrown's base for error classes, stamping a `_tag`
 discriminant. temporal-contract namespaces its tags with the package scope

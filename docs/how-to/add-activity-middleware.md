@@ -67,7 +67,11 @@ The most useful thing middleware does is extend the typed context that flows to
 implementations. Use `declareActivityMiddleware` to pin the in and out types:
 
 ```typescript
-import { declareActivityMiddleware, type EmptyContext } from "@temporal-contract/worker/activity";
+import {
+  ApplicationFailure,
+  declareActivityMiddleware,
+  type EmptyContext,
+} from "@temporal-contract/worker/activity";
 import { ErrAsync } from "unthrown";
 
 const withTenant = declareActivityMiddleware<EmptyContext, { tenantId: string }>(
@@ -96,7 +100,9 @@ export const activities = declareActivitiesHandler({
         // context.tenantId: string
         fromPromise(
           gateway.charge(context.tenantId, customerId, amount),
-          qualifyFailure("CHARGE_FAILED"),
+          // `expected` is required: name the anticipated failure class (or a
+          // predicate). Everything else rides the defect channel.
+          qualifyFailure("CHARGE_FAILED", { expected: GatewayError }),
         ),
     },
   },
@@ -145,7 +151,10 @@ export const activities = declareActivitiesHandler({
   activities: {
     processOrder: {
       chargeCard: ({ customerId, amount }, { context }) =>
-        fromPromise(context.gateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED")),
+        fromPromise(
+          context.gateway.charge(customerId, amount),
+          qualifyFailure("CHARGE_FAILED", { expected: GatewayError }),
+        ),
     },
   },
 });

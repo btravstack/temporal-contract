@@ -60,17 +60,26 @@ surface small and makes ownership obvious.
 
 ::: warning Activity names share one flat namespace
 At runtime Temporal resolves activities from a single map, regardless of which
-workflow calls them. `defineContract` therefore rejects any duplicate name —
-whether the collision is workflow-vs-global or between two different workflows:
+workflow calls them. `defineContract` therefore rejects a duplicate name that
+points at two **different** definitions — whether the collision is
+workflow-vs-global or between two different workflows:
 
 ```
-workflow "cancelOrder" has activity "chargeCard" that conflicts with the
-same-named activity in workflow "processOrder". Activities share a single flat
-namespace at runtime — rename one of them.
+Contract validation failed: workflow "cancelOrder" has activity "chargeCard"
+that conflicts with a different same-named activity in workflow
+"processOrder". Activities share a single flat namespace at runtime — hoist
+the shared activity to the contract's global "activities" block, or rename
+one of them.
 ```
 
-If two workflows genuinely need the same operation, declare it once as a global
-activity.
+Referencing the **same** `defineActivity` result from several scopes is
+allowed — it is one activity, and it flattens unambiguously. On the worker
+side you must then implement it with the same function reference (or hoist it
+to the global block); `declareActivitiesHandler` rejects two different
+implementations for one flat name at declaration time.
+
+If two workflows genuinely need the same operation, declaring it once as a
+global activity remains the simplest shape.
 :::
 
 ## Reuse schemas
@@ -209,16 +218,19 @@ every worker:
 const sendNotification = defineActivity({
   input: NotificationSchema,
   output: z.void(),
-  defaultOptions: {
+  activityOptions: {
     startToCloseTimeout: "30 seconds",
     retry: { maximumAttempts: 5 },
   },
 });
 ```
 
-`defaultOptions` is a strict object — a typo like `startToCloseTimeOut` fails at
-`defineContract` time instead of being silently ignored. For the full merge
-order, see [Tune activity options](/how-to/tune-activity-options).
+`activityOptions` is a strict object — a typo like `startToCloseTimeOut` fails
+at `defineContract` time instead of being silently ignored, and duration
+strings are validated against the `ms` grammar (`"30 seconds"`, `"5m"`,
+`"1.5h"`), so `"5 minutos"` fails at definition instead of surfacing later as
+an opaque worker error. For the full merge order, see
+[Tune activity options](/how-to/tune-activity-options).
 
 ## Keep contracts focused
 
@@ -246,11 +258,18 @@ Workflows in different contracts still call each other — see
 It validates at call time and throws on:
 
 - a missing or empty `taskQueue`;
-- an empty `workflows` map (at least one is required);
+- a contract that declares nothing — at least one workflow **or** one global
+  activity is required (`workflows: {}` with global `activities` is valid: an
+  activity-only contract models a dedicated activity-pool task queue);
+- an unknown top-level key (e.g. a misspelled `workflow`);
 - any name that is not a valid JavaScript identifier;
+- a name Temporal reserves for its SDK internals — anything starting with
+  `__temporal_`, plus the exact query names `__stack_trace` and
+  `__enhanced_stack_trace`;
 - an `input`, `output`, or error `data` that is not Standard Schema compatible;
-- duplicate activity names across the flat namespace;
-- unknown keys in `defaultOptions`.
+- duplicate activity names across the flat namespace that point at
+  **different** definitions (sharing one `defineActivity` result is allowed);
+- unknown keys or malformed duration strings in `activityOptions`.
 
 ```
 Contract validation failed: taskQueue cannot be empty
