@@ -1,9 +1,17 @@
 import {
+  SCHEDULE_NOT_FOUND_ERROR_TAG,
+  SCHEDULE_ALREADY_EXISTS_ERROR_TAG,
+  SIGNAL_VALIDATION_ERROR_TAG,
   tagPatterns,
   TypedClient,
+  WORKFLOW_ALREADY_STARTED_ERROR_TAG,
+  WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG,
+  WORKFLOW_FAILED_ERROR_TAG,
+  WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG,
   WORKFLOW_OUTCOME_ERROR_TAGS,
   WORKFLOW_RESULT_ERROR_TAGS,
   WORKFLOW_START_ERROR_TAGS,
+  WORKFLOW_VALIDATION_ERROR_TAG,
 } from "@temporal-contract/client";
 import {
   orderProcessingContract,
@@ -104,10 +112,10 @@ async function run() {
     ok: () => logger.info("✍️  Approval signal sent"),
     errCases: (matcher) =>
       matcher
-        .with(P.tag("@temporal-contract/SignalValidationError"), (err) =>
+        .with(P.tag(SIGNAL_VALIDATION_ERROR_TAG), (err) =>
           logger.error({ error: err }, "❌ Signal payload rejected by the contract"),
         )
-        .with(P.tag("@temporal-contract/WorkflowExecutionNotFoundError"), (err) =>
+        .with(P.tag(WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG), (err) =>
           logger.error({ error: err }, "❌ Workflow execution not found"),
         ),
     defect: (cause) => logger.error({ cause }, "❌ Unexpected failure sending signal"),
@@ -124,9 +132,9 @@ async function run() {
     errCases: (matcher) =>
       matcher
         // Typed domain error declared in the workflow's `errors:` block. The
-        // only declared error is PaymentDeclined, so `err.errorName` narrows
-        // to "PaymentDeclined" and `err.data` to `{ reason: string }`.
-        .with(P.tag("@temporal-contract/ContractError"), (err) =>
+        // object pattern narrows the shared-`_tag` `ContractError` union by
+        // `errorName`, so `err.data` is typed `{ reason: string }`.
+        .with({ errorName: "PaymentDeclined" }, (err) =>
           logger.error(
             { errorName: err.errorName, reason: err.data.reason },
             `❌ Payment declined: ${err.data.reason}`,
@@ -192,7 +200,7 @@ async function run() {
       ),
     errCases: (matcher) =>
       matcher
-        .with(P.tag("@temporal-contract/ContractError"), (err) =>
+        .with({ errorName: "PaymentDeclined" }, (err) =>
           logger.error({ errorName: err.errorName }, "❌ Payment declined"),
         )
         // The first-class outcome errors get their own arm here: a
@@ -201,13 +209,13 @@ async function run() {
         .with(...tagPatterns(WORKFLOW_OUTCOME_ERROR_TAGS), (err) =>
           logger.warn({ error: err }, `🛑 Workflow ${err.name}: execution was stopped`),
         )
-        .with(P.tag("@temporal-contract/WorkflowValidationError"), (err) =>
+        .with(P.tag(WORKFLOW_VALIDATION_ERROR_TAG), (err) =>
           logger.error({ error: err }, "❌ Workflow output validation failed"),
         )
-        .with(P.tag("@temporal-contract/WorkflowFailedError"), (err) =>
+        .with(P.tag(WORKFLOW_FAILED_ERROR_TAG), (err) =>
           logger.error({ error: err, cause: err.cause }, "❌ Workflow completed with failure"),
         )
-        .with(P.tag("@temporal-contract/WorkflowExecutionNotFoundError"), (err) =>
+        .with(P.tag(WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG), (err) =>
           logger.error({ error: err }, "❌ Workflow execution not found in namespace"),
         ),
     defect: (cause) => logger.error({ cause }, "❌ Unexpected failure awaiting result"),
@@ -248,8 +256,9 @@ async function run() {
     errCases: (matcher) =>
       matcher
         // The typed PaymentDeclined contract error, rehydrated from the
-        // workflow's ApplicationFailure wire shape.
-        .with(P.tag("@temporal-contract/ContractError"), (err) =>
+        // workflow's ApplicationFailure wire shape and narrowed by the
+        // `errorName` object pattern.
+        .with({ errorName: "PaymentDeclined" }, (err) =>
           logger.error(
             { errorName: err.errorName, reason: err.data.reason },
             `❌ Payment declined: ${err.data.reason}`,
@@ -259,7 +268,7 @@ async function run() {
         // (or in retention). Production callers can re-fetch the existing
         // handle; here we just log and move on. (Handled before the grouped
         // bundles so it keeps its dedicated branch.)
-        .with(P.tag("@temporal-contract/WorkflowAlreadyStartedError"), (err) =>
+        .with(P.tag(WORKFLOW_ALREADY_STARTED_ERROR_TAG), (err) =>
           logger.warn({ error: err }, "⏭️  Workflow already started — skipping"),
         )
         // Everything else executeWorkflow can err with — the start-phase and
@@ -297,15 +306,15 @@ async function run() {
       matcher
         // Create-if-absent: a colliding running schedule is a modeled error,
         // so idempotent callers just reuse the existing one.
-        .with(P.tag("@temporal-contract/ScheduleAlreadyExistsError"), (err) => {
+        .with(P.tag(SCHEDULE_ALREADY_EXISTS_ERROR_TAG), (err) => {
           logger.info({ scheduleId: err.scheduleId }, "⏭️  Schedule already exists — reusing it");
           return orders.schedule.getHandle(err.scheduleId);
         })
-        .with(P.tag("@temporal-contract/WorkflowNotInContractError"), (err) => {
+        .with(P.tag(WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG), (err) => {
           logger.error({ error: err }, "❌ Workflow not declared in the contract");
           return undefined;
         })
-        .with(P.tag("@temporal-contract/WorkflowValidationError"), (err) => {
+        .with(P.tag(WORKFLOW_VALIDATION_ERROR_TAG), (err) => {
           logger.error({ error: err }, "❌ Schedule args rejected by the contract");
           return undefined;
         }),
@@ -321,7 +330,7 @@ async function run() {
     triggerResult.match({
       ok: () => logger.info("🧹 Cleanup run triggered immediately"),
       errCases: (matcher) =>
-        matcher.with(P.tag("@temporal-contract/ScheduleNotFoundError"), (err) =>
+        matcher.with(P.tag(SCHEDULE_NOT_FOUND_ERROR_TAG), (err) =>
           logger.error({ error: err }, "❌ Schedule vanished before it could be triggered"),
         ),
       defect: (cause) => logger.error({ cause }, "❌ Unexpected failure triggering schedule"),
@@ -333,7 +342,7 @@ async function run() {
   logger.info("💡 What this client demonstrated:");
   logger.info("   - TypedClient.create({ client }) + .for(contract) split");
   logger.info("   - Typed signals (with and without payload) and queries");
-  logger.info("   - A typed contract error (PaymentDeclined) matched with P.tag");
+  logger.info("   - A typed contract error matched with the { errorName } object pattern");
   logger.info("   - schedule.create with the ScheduleAlreadyExistsError branch");
   logger.info("   - Exhaustive error matching — every tag or it doesn't compile");
 
