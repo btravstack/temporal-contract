@@ -8,7 +8,7 @@ three places to set them, merged from least to most specific.
 ```
 declareWorkflow({ activityOptions })          ← workflow-wide default
         ↓ overridden by
-defineActivity({ defaultOptions })            ← the activity's own contract default
+defineActivity({ activityOptions })           ← the activity's own contract default
         ↓ overridden by
 declareWorkflow({ activityOptionsByName })    ← explicit per-activity override
 ```
@@ -46,7 +46,7 @@ particular caller, go on the contract:
 const sendNotification = defineActivity({
   input: NotificationSchema,
   output: z.void(),
-  defaultOptions: {
+  activityOptions: {
     startToCloseTimeout: "30 seconds",
     retry: { maximumAttempts: 5 },
   },
@@ -56,10 +56,12 @@ const sendNotification = defineActivity({
 Now every workflow that calls `sendNotification` gets those settings without
 repeating them.
 
-::: tip `defaultOptions` is strict
+::: tip `activityOptions` is strict
 Unknown keys are rejected at `defineContract` time. A typo like
 `startToCloseTimeOut` fails immediately instead of being silently dropped when
-the worker merges options.
+the worker merges options. Duration strings are validated there too, against
+the `ms` grammar (`"30 seconds"`, `"5m"`, `"1.5h"`) — so `"5 minutos"` fails at
+definition instead of surfacing later as an opaque worker error.
 :::
 
 ## Override per activity
@@ -148,8 +150,9 @@ of a [declared contract error](/how-to/model-domain-errors).
 Two ways to make a failure permanent:
 
 ```typescript
-// Per call site — this instance is permanent.
-qualifyFailure("CARD_DECLINED", { nonRetryable: true });
+// Per call site — this instance is permanent. `expected` is always required;
+// `nonRetryable: true` opts this wrapper out of the retry policy.
+qualifyFailure("CARD_DECLINED", { expected: GatewayError, nonRetryable: true });
 
 // From the contract — every instance of this declared error is permanent.
 errors: {
@@ -163,7 +166,7 @@ definition, where every caller can see them.
 ## Omitting `activityOptions`
 
 `activityOptions` is optional _if_ every reachable activity is covered by a
-contract-level `defaultOptions` or an `activityOptionsByName` entry. If some
+contract-level `activityOptions` or an `activityOptionsByName` entry. If some
 activity has neither, `declareWorkflow` throws at declaration time and names
 the uncovered activities — a startup failure rather than a runtime one.
 

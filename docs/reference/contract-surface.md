@@ -19,7 +19,7 @@ function defineContract<T extends ContractDefinition>(definition: T): T;
 | Field        | Type                                 | Required | Description                                          |
 | ------------ | ------------------------------------ | -------- | ---------------------------------------------------- |
 | `taskQueue`  | `string`                             | yes      | Non-empty. The queue workers poll and clients target |
-| `workflows`  | `Record<string, WorkflowDefinition>` | yes      | At least one entry                                   |
+| `workflows`  | `Record<string, WorkflowDefinition>` | yes      | At least one workflow **or** one global activity     |
 | `activities` | `Record<string, ActivityDefinition>` | no       | Global activities, reachable from every workflow     |
 
 **Throws** `Error` when the structure is invalid. The check is a hand-rolled
@@ -27,7 +27,9 @@ structural validator — the contract package has no runtime schema-library
 dependency. Checked at call time:
 
 - `taskQueue` empty or missing
-- `workflows` empty
+- neither a workflow nor a global activity is declared (an empty `workflows`
+  is fine when at least one global activity exists — see activity-only
+  contracts below)
 - an unknown key at the contract root (strict — only the three fields above)
 - any key that is not a valid JavaScript identifier (`/^[a-zA-Z_$][a-zA-Z0-9_$]*$/`)
 - an `input`, `output`, or error `data` that is not Standard Schema compatible
@@ -38,7 +40,20 @@ dependency. Checked at call time:
   hoisting shared activities to the global `activities` block
 - a workflow name colliding with a global activity name (they share the root
   of the worker's implementations map)
-- unknown keys inside `defaultOptions`
+- unknown keys inside `activityOptions`
+- a **reserved name** — any workflow / activity / signal / query / update /
+  search-attribute / error name starting with `__temporal_`, or the exact
+  names `__stack_trace` / `__enhanced_stack_trace` (used internally by the
+  Temporal SDK)
+- an **invalid duration** in an `activityOptions` timeout / retry-interval —
+  strings are validated against the `ms` grammar (`"30s"`, `"5 minutes"`,
+  `"1.5h"`, or a long-form unit), so `"5 minutos"`, `""`, and `"abc"` throw at
+  definition; a numeric duration must be a non-negative finite number of
+  milliseconds
+
+**Activity-only contracts are allowed.** `workflows` may be `{}` as long as at
+least one global activity is declared — the "at least one workflow" rule above
+relaxes when the contract exists purely to serve activities.
 
 ### `defineWorkflow(definition)`
 
@@ -55,12 +70,17 @@ dependency. Checked at call time:
 
 ### `defineActivity(definition)`
 
-| Field            | Type                              | Required |
-| ---------------- | --------------------------------- | -------- |
-| `input`          | `AnySchema`                       | yes      |
-| `output`         | `AnySchema`                       | yes      |
-| `errors`         | `Record<string, ErrorDefinition>` | no       |
-| `defaultOptions` | `ActivityDefaultOptions`          | no       |
+| Field             | Type                              | Required |
+| ----------------- | --------------------------------- | -------- |
+| `input`           | `AnySchema`                       | yes      |
+| `output`          | `AnySchema`                       | yes      |
+| `errors`          | `Record<string, ErrorDefinition>` | no       |
+| `activityOptions` | `ActivityDefaultOptions`          | no       |
+
+::: info Renamed in 8.0
+The contract-level activity-options field is `activityOptions` (it was
+`defaultOptions` before 8.0). Its type is still `ActivityDefaultOptions`.
+:::
 
 ### `defineSignal(definition?)`
 
@@ -164,7 +184,7 @@ type DurationValue = string | number; // "30 seconds" | 30_000
 ```
 
 Merge order, least to most specific: `declareWorkflow({ activityOptions })` →
-`defineActivity({ defaultOptions })` → `declareWorkflow({ activityOptionsByName })`.
+`defineActivity({ activityOptions })` → `declareWorkflow({ activityOptionsByName })`.
 See [Tune activity options](/how-to/tune-activity-options).
 
 ## Formatting helpers
@@ -188,13 +208,39 @@ if (result.isErr() && result.error instanceof WorkflowValidationError) {
 ## Errors
 
 Exported from `@temporal-contract/contract/errors`, and re-exported by the
-worker and client packages so you rarely import from here directly.
+worker and client packages so you rarely import from here directly. (The
+package **root** does not import `unthrown`, so the runtime error machinery
+lives on this separate `/errors` entry; the root re-exports only the two tag
+_constants_ below.)
 
 - `TechnicalError` — infrastructure fault. Only ever a defect's `cause`, never
   in a modeled `E` channel
 - `ContractError` — a declared domain error, carrying `errorName` and `data`
 - `AnyContractError`, `ContractErrorUnion`, `ContractErrorInputUnion`,
   `ContractErrorConstructors`, `ContractErrorOptions`
+- `ApplicationFailureLike` — the structural `{ type?, message?, details? }`
+  shape the rehydration path reads off the wire (a superset of Temporal's
+  `ApplicationFailure`)
+
+### Tag constants and the wire marker
+
+- `CONTRACT_ERROR_TAG` (`"@temporal-contract/ContractError"`) and
+  `TECHNICAL_ERROR_TAG` — literal `_tag` constants, exported from **both** the
+  package root and `/errors`, for `P.tag(...)` matching.
+- `CONTRACT_ERROR_WIRE_MARKER` — the provenance marker written as
+  `details[1] = { $tc: 1 }` when a contract error crosses the wire
+  (`details[0]` is the validated data). A **data-less** declared error now
+  requires this marker to rehydrate — closing the false positive where any
+  `ApplicationFailure` sharing a matching `type` was surfaced as the typed
+  error.
+
+### `onRehydrationMiss(handler)`
+
+A diagnostic hook fired when an inbound `ApplicationFailure` matches a declared
+error's `type` but fails to rehydrate — data that does not validate, or a
+data-less error missing the wire marker — so it degrades to a generic failure
+instead. The handler receives a `RehydrationMiss` (exported) describing the
+miss. Use it to alert on contract/producer drift.
 
 See the [errors reference](/reference/errors).
 
@@ -213,16 +259,26 @@ validation only accepts `undefined`.
 
 ### Error inference
 
-`ErrorDefinition`, `DeclaredErrorsOf`, `InferErrorData`, `InferErrorDataInput`
+`ErrorDefinition`, `InferDeclaredErrors`, `InferErrorData`, `InferErrorDataInput`
 
 `InferErrorData` gives the schema's **output** (post-transform) shape — what a
 consumer receives. `InferErrorDataInput` gives the **input** (pre-transform)
 shape — what a producer passes to the constructor.
 
+::: info Renamed in 8.0
+`DeclaredErrorsOf` is now `InferDeclaredErrors` (part of the `Infer*` naming
+sweep).
+:::
+
 ### Name extraction
 
-`InferWorkflowNames`, `InferActivityNames`, `SignalNamesOf`, `QueryNamesOf`,
-`UpdateNamesOf`
+`InferWorkflowNames`, `InferActivityNames`, `InferSignalNames`,
+`InferQueryNames`, `InferUpdateNames`
+
+::: info Renamed in 8.0
+`SignalNamesOf` / `QueryNamesOf` / `UpdateNamesOf` are now `InferSignalNames` /
+`InferQueryNames` / `InferUpdateNames`.
+:::
 
 ### Direction-aware inference
 

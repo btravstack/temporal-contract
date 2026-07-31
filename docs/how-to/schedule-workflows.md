@@ -10,6 +10,10 @@ created:
 const ledger = typedClient.for(ledgerContract);
 ```
 
+`ledger.schedule` is a `TypedScheduleClient`, reached only through the
+contract-bound client — the class is exported for type annotations but is not
+constructible directly.
+
 ## Create a schedule
 
 ```typescript
@@ -186,30 +190,31 @@ attributes](/how-to/index-workflows-with-search-attributes).
 The handle mirrors Temporal's lifecycle methods, wrapped in `AsyncResult`:
 
 ```typescript
-const created = await ledger.schedule.create("reconcileLedger", {/* ... */});
-if (created.isErr()) throw created.error;
+// `create`'s Err channel is modeled (not `never`), so `.getOrThrow()` throws
+// the modeled error itself to reach the handle. `.get()` would not even
+// compile here — it is defined only when the error type is `never`.
+const schedule = (await ledger.schedule.create("reconcileLedger", {/* ... */})).getOrThrow();
 
-const schedule = created.value;
-
-// `.get()` rethrows a defect's original cause. Without it, `await` merely
-// collapses the AsyncResult to a Result and the failure is discarded.
-await schedule.pause("incident #4821").get();
-await schedule.unpause("incident resolved").get();
+// Handle methods carry `E = ScheduleNotFoundError`, so `.getOrThrow()` throws
+// that modeled error (and rethrows a defect's cause). Without it, `await`
+// merely collapses the AsyncResult to a Result and the failure is discarded.
+await schedule.pause("incident #4821").getOrThrow();
+await schedule.unpause("incident resolved").getOrThrow();
 
 // Run it right now, without waiting for the next tick.
-await schedule.trigger().get();
+await schedule.trigger().getOrThrow();
 
 // Inspect current state.
 const described = await schedule.describe();
-if (described.isErr()) {
-  console.error("schedule is gone:", described.error.scheduleId);
-} else if (described.isDefect()) {
-  console.error("describe failed:", described.cause);
-} else {
+if (described.isOk()) {
   console.log(described.value.state.paused, described.value.info.nextActionTimes);
+} else if (described.isErr()) {
+  console.error("schedule is gone:", described.error.scheduleId);
+} else {
+  console.error("describe failed:", described.cause);
 }
 
-await schedule.delete().get();
+await schedule.delete().getOrThrow();
 ```
 
 Every method returns `AsyncResult<T, ScheduleNotFoundError>` — the one
@@ -220,16 +225,21 @@ fault on the defect channel.
 ::: warning `await` alone does not surface the failure
 `AsyncResult` is a success-only thenable: awaiting it yields a `Result`, and the
 underlying promise never rejects. `await schedule.pause(...)` therefore discards
-a failure silently. Chain `.get()` (which rethrows an `Err` or a defect's
-original cause) or branch on `isErr()` / `isDefect()` — the same applies to
-every `AsyncResult` in this library.
+a failure silently. Because the error channel here is modeled
+(`ScheduleNotFoundError`), reach for `.getOrThrow()` (it throws the modeled error
+and rethrows a defect's cause) or branch on `isOk()` / `isErr()` / `isDefect()`.
+Plain `.get()` is _not_ an option — it compiles only when `E = never`. The same
+applies to every `AsyncResult` in this library.
 :::
 
 ## Update or backfill a schedule
 
-`update` is fetch-modify-persist: Temporal hands your function the current
-description and persists what it returns. It may be invoked more than once on
-conflict — keep it pure:
+`update` is fetch-modify-persist: the handle fetches the current description,
+hands it to your function, and persists what it returns. The wrapper does the
+describe itself so it can validate the result before persisting, so your
+function runs **exactly once** per call — a server-side conflict retries the
+already-computed options rather than re-running your function against a fresh
+description:
 
 ```typescript
 await schedule
@@ -237,12 +247,18 @@ await schedule
     ...previous,
     spec: { cronExpressions: ["0 3 * * *"] }, // move to 03:00
   }))
-  .get();
+  .getOrThrow();
 ```
 
-The action's `workflowType` / `taskQueue` / `args` are **not** re-validated
-against the contract here — for contract-level changes, prefer delete +
-`create`.
+When the returned action's `workflowType` names a workflow **declared on the
+bound contract**, the action's `args` are validated against that workflow's
+input schema before anything is persisted — a mismatch surfaces as
+`WorkflowValidationError` on the `err` channel and leaves the schedule
+untouched. `update` therefore returns
+`AsyncResult<void, ScheduleNotFoundError | WorkflowValidationError>`, which is
+why `.getOrThrow()` (not `.get()`) is the extractor here. An action whose
+`workflowType` is _not_ on the contract is persisted as-is (there is no schema
+to check it against); for contract-level changes prefer delete + `create`.
 
 `backfill` runs the schedule's action over historical time ranges, as if the
 schedule had been active then:
@@ -254,7 +270,7 @@ await schedule
     end: new Date("2026-07-08T00:00:00Z"),
     overlap: "ALLOW_ALL",
   })
-  .get();
+  .getOrThrow();
 ```
 
 ## Reach an existing schedule
@@ -265,7 +281,7 @@ synchronous and does no server round-trip — a wrong id surfaces as
 
 ```typescript
 const handle = ledger.schedule.getHandle("nightly-reconcile");
-await handle.pause("manual intervention").get();
+await handle.pause("manual intervention").getOrThrow();
 ```
 
 ## List schedules

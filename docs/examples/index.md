@@ -59,7 +59,7 @@ Watch the execution at <http://localhost:8233>.
 
 ```bash
 # Integration tests — needs Docker
-pnpm --filter @temporal-contract/sample-order-processing-worker test
+pnpm --filter @temporal-contract/sample-order-processing-worker test:integration
 ```
 
 ## Worth reading in the source

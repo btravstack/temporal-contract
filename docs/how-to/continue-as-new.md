@@ -48,19 +48,21 @@ Base the decision on something deterministic. `context.info` exposes Temporal's
 ```typescript
 implementation: async (context, args) => {
   let processed = args.processed;
+  let cursor = args.cursor;
 
   while (true) {
-    const batch = await context.activities.fetchBatch({ cursor: args.cursor });
+    const batch = await context.activities.fetchBatch({ cursor });
     if (batch.items.length === 0) {
       return { processed };
     }
 
     await context.activities.processBatch({ items: batch.items });
     processed += batch.items.length;
+    cursor = batch.nextCursor; // advance, so the next fetch makes progress
 
     // Temporal's own signal that history is getting long.
     if (context.info.continueAsNewSuggested) {
-      return context.continueAsNew({ cursor: batch.nextCursor, processed });
+      return context.continueAsNew({ cursor, processed });
     }
   }
 };
@@ -118,14 +120,16 @@ return context.continueAsNew(
   { subscriptionId: args.subscriptionId, cycle: args.cycle + 1 },
   {
     workflowRunTimeout: "7 days",
-    retry: { maximumAttempts: 3 },
+    workflowTaskTimeout: "10 seconds",
     memo: { tenant: args.tenantId },
   },
 );
 ```
 
-`workflowType` and `taskQueue` are derived from the contract and cannot be set
-here.
+`TypedContinueAsNewOptions` is Temporal's `ContinueAsNewOptions` minus
+`workflowType` and `taskQueue` (derived from the contract, and ignored if you
+try to set them). There is no `retry` option — a continued run inherits the
+chain's retry policy; use activity retry policies for step-level retries.
 
 ## Drain handlers first
 

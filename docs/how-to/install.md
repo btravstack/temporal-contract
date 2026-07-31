@@ -62,15 +62,32 @@ describes a compatible set. Do not mix versions.
 These are peers, not dependencies, because they appear in the packages' public
 types. Your code and the library must resolve to the _same_ copy.
 
-| Peer                   | Required by                       | Range    |
-| ---------------------- | --------------------------------- | -------- |
-| `unthrown`             | contract, worker, client, testing | `^5.0.0` |
-| `@temporalio/common`   | worker, client                    | `^1`     |
-| `@temporalio/worker`   | worker, testing                   | `^1`     |
-| `@temporalio/workflow` | worker                            | `^1`     |
-| `@temporalio/client`   | client, testing                   | `^1`     |
-| `@temporalio/testing`  | testing                           | `^1`     |
-| `vitest`               | testing                           | `^4`     |
+| Peer                   | Required by                                  | Range     |
+| ---------------------- | -------------------------------------------- | --------- |
+| `unthrown`             | contract (optional), worker, client, testing | `^5.0.0`  |
+| `@temporalio/common`   | worker, client                               | `^1.16.0` |
+| `@temporalio/worker`   | worker, testing                              | `^1.16.0` |
+| `@temporalio/workflow` | worker                                       | `^1.16.0` |
+| `@temporalio/client`   | client, testing                              | `^1.16.0` |
+| `@temporalio/testing`  | testing                                      | `^1.16.0` |
+| `vitest`               | testing                                      | `^4`      |
+| `testcontainers`       | testing (optional)                           | `^12`     |
+
+Two of these are **optional**:
+
+- `unthrown` is an optional peer of the _contract_ package: defining a
+  contract needs no Result machinery, so the package root stays importable
+  without it. You only need it there when importing the
+  `@temporal-contract/contract/errors` surface — and the worker, client, and
+  testing packages require it unconditionally, so in practice any project
+  with more than the contract package installs it anyway.
+- `testcontainers` is an optional peer of the _testing_ package, needed only
+  by `createContractTest` and the `/global-setup` entry (the Dockerized
+  Temporal server). The Docker-free entries (`/activity`, `/time-skipping`,
+  `/extension`) work without it.
+
+The `@temporalio/*` floor is **1.16.0** — the typed client relies on the
+Schedule API wired into `Client` in that release.
 
 The testing package additionally peer-depends on the other three
 `@temporal-contract/*` packages — its contract-aware fixtures hand you a

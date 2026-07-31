@@ -99,8 +99,10 @@ instance into a typed partial object:
 import { readTypedSearchAttributes } from "@temporal-contract/client";
 
 const bound = client.getHandle("processOrder", "order-123"); // synchronous Result
-if (bound.isErr()) {
-  throw bound.error;
+if (!bound.isOk()) {
+  // After ruling out Ok the value is Err or Defect, so `bound.value` would not
+  // compile — narrow positively and rethrow either channel.
+  throw bound.isErr() ? bound.error : bound.cause;
 }
 
 const described = await bound.value.describe();

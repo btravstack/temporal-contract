@@ -230,19 +230,25 @@ log.info("processing order", { orderId });
 
 ## Result and error handling
 
-### `GetError` thrown unexpectedly
+### `.get()` does not compile on a result that can fail
 
-`.get()` throws a `GetError` when the result is an `Err`. Either narrow first,
-or use the extractor that matches your intent:
+`.get()` is defined **only** when the error channel is empty (`E = never`) — it
+is for results that cannot fail, like the `AsyncResult<…, never>` that
+`TypedWorker.create` and `TypedClient.create` return. On a result with a modeled
+error it will not compile at all — `.get()` never accepts an `Err`. (The
+`GetError` class still exists, but only as a defensive runtime guard against an
+unsound cast past the type gate; well-typed code never reaches it.) Reach for
+the extractor that matches your intent:
 
-| Method             | On `Err`                 | On `Defect`        |
-| ------------------ | ------------------------ | ------------------ |
-| `.get()`           | throws `GetError(error)` | rethrows the cause |
-| `.getOrThrow()`    | throws the error itself  | rethrows the cause |
-| `.getOr(fallback)` | returns the fallback     | rethrows the cause |
-| `.getOrNull()`     | `null`                   | rethrows the cause |
+| Method             | Compiles when    | On `Err`                | On `Defect`        |
+| ------------------ | ---------------- | ----------------------- | ------------------ |
+| `.get()`           | `E = never`      | — (cannot fail)         | rethrows the cause |
+| `.getOrThrow()`    | `E` is non-empty | throws the error itself | rethrows the cause |
+| `.getOr(fallback)` | any              | returns the fallback    | rethrows the cause |
+| `.getOrNull()`     | any              | `null`                  | rethrows the cause |
 
-Every extractor rethrows a defect — that is intentional.
+Every extractor rethrows a defect — that is intentional. To branch on a modeled
+error instead of throwing, narrow with `isErr()` first.
 
 ### A failure I expected on `err` arrives as a `defect`
 
@@ -283,7 +289,8 @@ retry: {
 ```
 
 ```typescript
-qualifyFailure("CARD_DECLINED", { nonRetryable: true });
+// `expected` is required — name the anticipated class (or a predicate).
+qualifyFailure("CARD_DECLINED", { expected: CardDeclinedError, nonRetryable: true });
 ```
 
 ### An activity is not retried at all
@@ -291,9 +298,12 @@ qualifyFailure("CARD_DECLINED", { nonRetryable: true });
 Something upstream set `nonRetryable: true`, or the type is listed in
 `retry.nonRetryableErrorTypes`.
 
-Watch for `qualifyFailure` masking an inner failure: it always wraps, so an inner
-`ApplicationFailure`'s own `nonRetryable: true` is overridden by the wrapper's.
-Pass `{ nonRetryable: true }` explicitly if it must stay permanent.
+Watch for `qualifyFailure` re-typing a matched failure: a cause matching
+`expected` is always wrapped into a fresh `ApplicationFailure` with the declared
+`type`. When you omit `nonRetryable`, the wrapper _inherits_ a matched inner
+`ApplicationFailure`'s own `nonRetryable: true` (a permanent inner failure no
+longer silently becomes retryable); pass `{ nonRetryable: false }` to force it
+retryable, or `{ nonRetryable: true }` to make it permanent regardless.
 
 ### An activity times out but the work finished
 

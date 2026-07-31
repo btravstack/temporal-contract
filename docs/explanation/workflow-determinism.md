@@ -75,7 +75,7 @@ is the boundary worth guarding.
 
 ```typescript
 let approved = false;
-context.defineSignal("approve", () => {
+context.handleSignal("approve", () => {
   approved = true;
 });
 ```

@@ -8,8 +8,10 @@ for completed steps, and record why it ended.
 
 ```typescript
 const bound = client.getHandle("processOrder", "order-123"); // synchronous Result
-if (bound.isErr()) {
-  throw bound.error;
+if (!bound.isOk()) {
+  // Narrow positively: after ruling out Ok, the value is Err or Defect, so
+  // reading `bound.value` would not compile — a defect rides `bound.cause`.
+  throw bound.isErr() ? bound.error : bound.cause;
 }
 
 // Cooperative: the workflow observes the request and exits on its own terms.
@@ -41,12 +43,17 @@ export const processOrder = declareWorkflow({
       context.activities.chargeCard({ customerId: order.customerId, amount: order.total }),
     );
 
-    if (charged.isErr()) {
-      // Cancelled mid-charge — nothing to compensate yet.
-      return { status: "cancelled" as const };
+    // Narrow positively: an `AsyncResult` has three channels (Ok/Err/Defect),
+    // so `charged.value` only compiles after `isOk()`.
+    if (charged.isOk()) {
+      return { status: "completed" as const, transactionId: charged.value.transactionId };
+    }
+    if (charged.isDefect()) {
+      throw charged.cause; // a genuine bug thrown inside the scope, not a cancel
     }
 
-    return { status: "completed" as const, transactionId: charged.value.transactionId };
+    // Err(WorkflowCancelledError): cancelled mid-charge — nothing to compensate.
+    return { status: "cancelled" as const };
   },
 });
 ```
@@ -54,6 +61,30 @@ export const processOrder = declareWorkflow({
 The `Err` channel of a scope is exactly one type: `WorkflowCancelledError`.
 Anything _else_ thrown inside the scope is an unmodeled failure and rides the
 defect channel — so a genuine bug is never mistaken for a cancellation.
+
+### Activities that declare their own errors
+
+When an activity declares an `errors` map, cancelling it no longer throws
+through — it surfaces as `Err(ActivityCancelledError)`, one more member of that
+activity's error union. Generic handling that folds _every_ `Err` to a fallback
+value will therefore let the workflow **complete** instead of cancelling:
+
+```typescript
+import { rethrowCancellation } from "@temporal-contract/worker/workflow";
+
+const charged = await context.activities.chargeCard({ ... });
+if (!charged.isOk()) {
+  if (charged.isDefect()) throw charged.cause;
+  // Re-raise a cancellation instead of swallowing it into the fallback path.
+  // For any other declared error, handle it as usual below.
+  rethrowCancellation(charged.error);
+  return handleChargeFailure(charged.error);
+}
+```
+
+`rethrowCancellation` throws the underlying `CancelledFailure` when the error is
+a cancellation and is a no-op otherwise, so the workflow ends **Cancelled** the
+way the operator's `cancel()` intended.
 
 ## Clean up without being interrupted
 
@@ -104,6 +135,7 @@ Long-running activities receive cancellation through the Temporal activity
 runtime. Heartbeating is what makes an activity cancellable at all:
 
 ```typescript
+import { ApplicationFailure } from "@temporalio/common";
 import { Context } from "@temporalio/activity";
 import { CancelledFailure } from "@temporalio/common";
 import { fromPromise } from "unthrown";
@@ -112,9 +144,16 @@ processOrder: {
   exportLedger: ({ accountId }) =>
     fromPromise(
       (async () => {
+        const { cancellationSignal } = Context.current();
         for (const page of await ledger.pages(accountId)) {
-          // Throws CancelledFailure once cancellation is requested.
+          // heartbeat() reports liveness (and is what arms the heartbeatTimeout
+          // and cancellation); it returns void and never throws. Observe the
+          // request through the abort signal — or let a cancellation-aware call
+          // (Context.current().sleep(), a signal-wired fetch) throw for you.
           Context.current().heartbeat(page.cursor);
+          if (cancellationSignal.aborted) {
+            throw new CancelledFailure("export cancelled");
+          }
           await store.write(page);
         }
         return { exported: true };
@@ -180,12 +219,12 @@ A child's fate follows `parentClosePolicy`:
 await context.executeChildWorkflow(orderContract, "collectPayment", {
   workflowId: `payment-${order.orderId}`,
   args: { ... },
-  parentClosePolicy: "REQUEST_CANCEL", // default: cancel the child too
+  parentClosePolicy: "REQUEST_CANCEL", // opt in; Temporal's default is TERMINATE
 });
 ```
 
-- `REQUEST_CANCEL` — cancel the child when the parent closes (default)
-- `TERMINATE` — kill it, no cleanup
+- `TERMINATE` — kill the child when the parent closes, no cleanup (Temporal's default)
+- `REQUEST_CANCEL` — cancel the child so it can compensate and exit on its own terms
 - `ABANDON` — let it outlive the parent
 
 A cancelled child surfaces as `Err(ChildWorkflowCancelledError)`.

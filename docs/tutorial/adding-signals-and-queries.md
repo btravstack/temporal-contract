@@ -94,11 +94,14 @@ export const orderContract = defineContract({
 A signal has only `input` — there is nothing to return. Queries and updates
 have both.
 
-::: warning Queries must validate synchronously
-Temporal requires query handlers to complete synchronously, so a query's
-schemas must too. Plain Zod, Valibot, or ArkType object schemas are fine; an
-async refinement (`z.string().refine(async ...)`) is not. Standard Schema
-doesn't expose sync-vs-async at the type level, so this is checked at runtime.
+::: warning Queries (and update inputs) must validate synchronously
+Temporal runs query handlers synchronously, so a query's schemas must validate
+synchronously too — and so must an **update's input** schema, which feeds
+Temporal's synchronous update validator. Plain Zod, Valibot, or ArkType object
+schemas are fine; an async refinement (`z.string().refine(async ...)`) is not.
+Standard Schema doesn't expose sync-vs-async at the type level, so the worker
+probes the schema when the handler is bound and throws a `ContractMisuseError`
+at bind time.
 :::
 
 ## Step 2 — Handle them in the workflow
@@ -125,13 +128,13 @@ export const processOrder = declareWorkflow({
     let amount = order.amount;
     let approvedBy: string | undefined;
 
-    context.defineQuery("getStatus", () => ({ state, amount }));
+    context.handleQuery("getStatus", () => ({ state, amount }));
 
-    context.defineSignal("approve", (args) => {
+    context.handleSignal("approve", (args) => {
       approvedBy = args.approvedBy;
     });
 
-    context.defineUpdate("changeAmount", async (args) => {
+    context.handleUpdate("changeAmount", async (args) => {
       amount = args.amount;
       return { amount };
     });
@@ -164,7 +167,7 @@ Points worth pausing on:
 
 - **Handlers are registered inside the implementation**, not at module scope.
   That is what lets them close over `state`, `amount`, and `approvedBy`.
-- **`context.defineQuery("getStatus", ...)`** is checked against the contract.
+- **`context.handleQuery("getStatus", ...)`** is checked against the contract.
   Misspell the name and it is a compile error; the handler's argument and
   return types come from the contract's schemas.
 - **The query handler is synchronous.** The update handler is `async`. That
@@ -184,9 +187,8 @@ when you need to interact mid-flight. Use `startWorkflow` instead: it returns a
 Replace `src/client.ts`:
 
 ```typescript
-import { TypedClient } from "@temporal-contract/client";
+import { tagPatterns, TypedClient, WORKFLOW_RESULT_ERROR_TAGS } from "@temporal-contract/client";
 import { Client, Connection } from "@temporalio/client";
-import { P } from "unthrown";
 
 import { orderContract } from "./contract.js";
 
@@ -205,8 +207,15 @@ const started = await client.for(orderContract).startWorkflow("processOrder", {
   },
 });
 
-if (started.isErr()) {
-  console.error("could not start:", started.error.message);
+// `isOk()` narrows the Result. Note the shape: unthrown Results have THREE
+// variants — Ok, Err, and Defect — so "not Err" is not the same as "Ok".
+// Narrow on `isOk()` before touching `.value`.
+if (!started.isOk()) {
+  if (started.isErr()) {
+    console.error("could not start:", started.error.message);
+  } else {
+    console.error("unexpected failure:", started.cause);
+  }
   process.exit(1);
 }
 
@@ -234,9 +243,9 @@ result.match({
   ok: (output) => console.log("charged:", output.transactionId),
   errCases: (matcher) =>
     matcher.with(
-      P.tag("@temporal-contract/WorkflowValidationError"),
-      P.tag("@temporal-contract/WorkflowFailedError"),
-      P.tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+      // One arm for the whole result-phase union: validation, failure,
+      // cancelled/terminated/timed out, and a missing execution.
+      ...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS),
       (error) => console.error("workflow failed:", error.message),
     ),
   defect: (cause) => console.error("unexpected:", cause),
@@ -271,8 +280,10 @@ exactly once.
 Try an update the contract forbids:
 
 ```typescript
-const updated = await handle.updates.changeAmount({ amount: -5 });
-console.log(updated.isErr() ? updated.error.message : updated.value);
+const rejected = await handle.updates.changeAmount({ amount: -5 });
+if (rejected.isErr()) {
+  console.log(rejected.error.message);
+}
 ```
 
 ```

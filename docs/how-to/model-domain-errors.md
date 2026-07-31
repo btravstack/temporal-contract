@@ -55,12 +55,16 @@ export const activities = declareActivitiesHandler({
   activities: {
     processOrder: {
       chargeCard: ({ customerId, amount }, { errors }) =>
-        fromPromise(gateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED")).flatMap(
-          (charge) =>
-            charge.declined
-              ? // Typed on the caller's side; `nonRetryable` comes from the contract.
-                Err(errors.CardDeclined({ reason: charge.declineCode, retryAfter: 3600 }))
-              : Ok({ transactionId: charge.id }),
+        fromPromise(
+          gateway.charge(customerId, amount),
+          // `expected` is required: name the anticipated failure class (or a
+          // predicate). Anything else rides the defect channel.
+          qualifyFailure("CHARGE_FAILED", { expected: GatewayError }),
+        ).flatMap((charge) =>
+          charge.declined
+            ? // Typed on the caller's side; `nonRetryable` comes from the contract.
+              Err(errors.CardDeclined({ reason: charge.declineCode, retryAfter: 3600 }))
+            : Ok({ transactionId: charge.id }),
         ),
     },
   },
@@ -129,6 +133,7 @@ Declaring errors on an activity **changes its workflow-side call signature.**
 So an errors-declaring activity is awaited as a result, not a plain value:
 
 ```typescript
+import { CONTRACT_ERROR_TAG } from "@temporal-contract/contract";
 import { P } from "unthrown";
 
 implementation: async (context, order) => {
@@ -141,13 +146,18 @@ implementation: async (context, order) => {
     ok: (payment) => ({ status: "completed" as const, transactionId: payment.transactionId }),
     errCases: (matcher) =>
       matcher
-        .with(P.tag("@temporal-contract/ContractError"), (error) => {
-          // error.errorName narrows; error.data is typed from the schema
-          if (error.errorName === "CardDeclined") {
-            return { status: "failed" as const, reason: error.data.reason };
-          }
-          return { status: "failed" as const, reason: error.errorName };
-        })
+        // Object-pattern: every ContractError shares one `_tag`, so a specific
+        // declared error is discriminated on `errorName`. `error.data` then
+        // narrows to that error's schema.
+        .with({ errorName: "CardDeclined" }, (error) => ({
+          status: "failed" as const,
+          reason: error.data.reason,
+        }))
+        // Any other declared error on this activity (here: GatewayUnavailable).
+        .with(P.tag(CONTRACT_ERROR_TAG), (error) => ({
+          status: "failed" as const,
+          reason: error.errorName,
+        }))
         .with(
           P.tag("@temporal-contract/ActivityError"),
           P.tag("@temporal-contract/ActivityCancelledError"),
@@ -179,6 +189,7 @@ A workflow whose declared error caused the failure surfaces it as a
 `WorkflowFailedError`:
 
 ```typescript
+import { CONTRACT_ERROR_TAG } from "@temporal-contract/contract";
 import { P } from "unthrown";
 
 const result = await client.executeWorkflow("processOrder", {
@@ -190,7 +201,7 @@ result.match({
   ok: (output) => console.log("done:", output),
   errCases: (matcher) =>
     matcher
-      .with(P.tag("@temporal-contract/ContractError"), (error) => {
+      .with(P.tag(CONTRACT_ERROR_TAG), (error) => {
         switch (error.errorName) {
           case "EmptyOrder":
             return console.error("no items on order", error.data.orderId);
@@ -212,10 +223,15 @@ result.match({
 
 Two levels of discrimination are at work:
 
-- the unthrown `_tag` (`"@temporal-contract/ContractError"`) separates a
-  contract error from the client's other error classes;
+- the unthrown `_tag` — the exported `CONTRACT_ERROR_TAG` constant, whose value
+  is `"@temporal-contract/ContractError"` — separates a contract error from the
+  client's other error classes. Prefer the constant to a hand-typed string: it
+  is greppable and immune to typos. It is exported from the package root and
+  from `@temporal-contract/contract/errors`;
 - `errorName` then narrows to the specific declared error, with `data` typed
-  accordingly.
+  accordingly. Because every declared error shares that one `_tag`, matching a
+  single error by tag alone is impossible — discriminate on `errorName`,
+  either with a `switch` or an object pattern (`.with({ errorName: "EmptyOrder" }, ...)`).
 
 ## What travels on the wire
 
@@ -228,16 +244,32 @@ ApplicationFailure {
   type: "CardDeclined",          // the declared key
   message: "The card was declined",
   nonRetryable: true,            // from the contract
-  details: [{ reason: "expired" }],
+  details: [
+    { reason: "expired" },       // details[0] — the original payload
+    { $tc: 1 },                  // details[1] — the wire marker
+  ],
 }
    │
    ▼
 ContractError { errorName: "CardDeclined", data: { reason: "expired" } }
 ```
 
+`details[1]` carries a small envelope marker (`{ $tc: 1 }`) that tags the
+failure as a rehydratable contract error. It governs rehydration:
+
+- for an error **with** a `data` schema, schema validation of `details[0]` is
+  the gate — the marker is corroborating but not required;
+- for a **data-less** error, the marker is **required**. Without it, any
+  unrelated `ApplicationFailure` whose `type` happens to equal a declared
+  data-less error name would be mis-surfaced as the typed domain error.
+
 The payload is validated when it is raised _and_ re-validated when it is
 rehydrated, so a schema change that breaks compatibility surfaces as a clear
-validation error rather than a silently wrong object.
+validation error rather than a silently wrong object. When a failure does not
+correspond to a declared error — unknown `type`, a payload that no longer
+validates, or a data-less name without the marker — rehydration degrades to
+the generic failure classification instead of producing a wrong typed error,
+and reports the miss through the `onRehydrationMiss` diagnostic hook.
 
 ## Failure modes
 
@@ -245,9 +277,13 @@ validation error rather than a silently wrong object.
 throws `ContractErrorDataValidationError`:
 
 ```
-Error "CardExpired" is not declared on activity "chargeCard".
+Error "CardExpired" is not declared on activity "processOrder.chargeCard".
 Declared errors: CardDeclined, GatewayUnavailable.
 ```
+
+The activity is named by its flat label — a workflow-scoped activity appears as
+`workflowName.activityName` (here `processOrder.chargeCard`), a global activity
+as its bare name.
 
 **Payload fails its schema** — same terminal error, with the schema issues
 attached. Both are deterministic contract-misuse bugs, so they fail loudly

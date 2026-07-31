@@ -1,11 +1,13 @@
 # Migrate from neverthrow
 
-Releases before 5.0 used [neverthrow](https://github.com/supermacro/neverthrow)
-for the `Result` type. temporal-contract now uses
-[unthrown](https://github.com/btravstack/unthrown) throughout — workflows,
-activities, and the typed client.
+temporal-contract used [neverthrow](https://github.com/supermacro/neverthrow)
+for its `Result` type through contract **v2.x**; neverthrow was removed at
+**v3.0.0**. It now uses [unthrown](https://github.com/btravstack/unthrown)
+throughout — workflows, activities, and the typed client. This guide maps the
+neverthrow idioms you may still be carrying to their unthrown equivalents.
 
-If you are on a recent version and only need the 7 → 8 step, see
+This is a different step from the unthrown-4 → unthrown-5 change that landed in
+v8. If you are already on unthrown and only need the 7 → 8 upgrade, see
 [Upgrade to v8](/how-to/upgrade-to-v8) instead.
 
 ## Why the change
@@ -62,23 +64,23 @@ const activity = (): AsyncResult<Payment, ApplicationFailure> => ...
 
 ## Method mapping
 
-| neverthrow                       | unthrown                               | Note                        |
-| -------------------------------- | -------------------------------------- | --------------------------- |
-| `ok(v)`                          | `Ok(v)`                                |                             |
-| `err(e)`                         | `Err(e)`                               |                             |
-| `okAsync(v)`                     | `OkAsync(v)` or `Ok(v).toAsync()`      |                             |
-| `errAsync(e)`                    | `ErrAsync(e)` or `Err(e).toAsync()`    |                             |
-| `ResultAsync.fromPromise(p, f)`  | `fromPromise(p, f)`                    | free function               |
-| `ResultAsync.fromSafePromise(p)` | `fromSafePromise(p)`                   | free function               |
-| `.map(f)`                        | `.map(f)`                              | unchanged                   |
-| `.andThen(f)`                    | `.flatMap(f)`                          | renamed                     |
-| `.mapErr(f)`                     | `.mapErrCases(m => …)`                 | takes a matcher             |
-| `.orElse(f)`                     | `.recoverErrCases(m => …)`             | takes a matcher             |
-| `.match(ok, err)`                | `.match({ ok, errCases, defect })`     | object form, three channels |
-| `Result.combine([…])`            | `all([…])`                             | free function               |
-| `.isOk()` / `.isErr()`           | `.isOk()` / `.isErr()` / `.isDefect()` | plus free functions         |
-| `.unwrapOr(v)`                   | `.getOr(v)`                            |                             |
-| `._unsafeUnwrap()`               | `.getOrThrow()`                        |                             |
+| neverthrow                       | unthrown                               | Note                            |
+| -------------------------------- | -------------------------------------- | ------------------------------- |
+| `ok(v)`                          | `Ok(v)`                                |                                 |
+| `err(e)`                         | `Err(e)`                               |                                 |
+| `okAsync(v)`                     | `OkAsync(v)` or `Ok(v).toAsync()`      |                                 |
+| `errAsync(e)`                    | `ErrAsync(e)` or `Err(e).toAsync()`    |                                 |
+| `ResultAsync.fromPromise(p, f)`  | `fromPromise(p, f)`                    | free function                   |
+| `ResultAsync.fromSafePromise(p)` | `fromSafePromise(p)`                   | free function                   |
+| `.map(f)`                        | `.map(f)`                              | unchanged                       |
+| `.andThen(f)`                    | `.flatMap(f)`                          | renamed                         |
+| `.mapErr(f)`                     | `.mapErrCases(m => …)`                 | takes a matcher                 |
+| `.orElse(f)`                     | `.flatMapErrCases(m => …)`             | matcher; arms return a `Result` |
+| `.match(ok, err)`                | `.match({ ok, errCases, defect })`     | object form, three channels     |
+| `Result.combine([…])`            | `all([…])`                             | free function                   |
+| `.isOk()` / `.isErr()`           | `.isOk()` / `.isErr()` / `.isDefect()` | plus free functions             |
+| `.unwrapOr(v)`                   | `.getOr(v)`                            |                                 |
+| `._unsafeUnwrap()`               | `.getOrThrow()`                        |                                 |
 
 ## `andThen` becomes `flatMap`
 
@@ -217,11 +219,14 @@ import { Err, Ok, fromPromise } from "unthrown";
 import { qualifyFailure } from "@temporal-contract/worker/activity";
 
 const chargeCard = ({ customerId, amount }) =>
-  fromPromise(gateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED")).flatMap(
-    (charge) =>
-      charge.declined
-        ? Err(ApplicationFailure.create({ type: "DECLINED", nonRetryable: true }))
-        : Ok({ transactionId: charge.id }),
+  fromPromise(
+    gateway.charge(customerId, amount),
+    // `expected` names the anticipated failure class; unmatched throws stay defects.
+    qualifyFailure("CHARGE_FAILED", { expected: GatewayError }),
+  ).flatMap((charge) =>
+    charge.declined
+      ? Err(ApplicationFailure.create({ type: "DECLINED", nonRetryable: true }))
+      : Ok({ transactionId: charge.id }),
   );
 ```
 

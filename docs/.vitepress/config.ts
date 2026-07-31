@@ -78,6 +78,7 @@ const DOCS_SIDEBAR = [
       { text: "Contract surface", link: "/reference/contract-surface" },
       { text: "Worker surface", link: "/reference/worker-surface" },
       { text: "Client surface", link: "/reference/client-surface" },
+      { text: "Testing surface", link: "/reference/testing-surface" },
       { text: "Errors", link: "/reference/errors" },
       { text: "Glossary", link: "/reference/glossary" },
       { text: "API reference", link: "/api/" },

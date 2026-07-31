@@ -113,8 +113,10 @@ implementation: async (context, order) => {
 };
 ```
 
-The payload is validated before sending and parsed by the child on receive;
-for a payload-less signal (`defineSignal()`), the argument is omittable.
+The payload is validated before sending and parsed by the child on receive.
+Unlike a _client_ handle — where a payload-less signal's argument is omittable
+— a child handle's signal sender always takes an explicit argument, so pass
+`undefined` for a payload-less signal (`applyDiscount(undefined)`).
 
 ## Run children in parallel
 
@@ -181,7 +183,7 @@ await context.executeChildWorkflow(orderContract, "collectPayment", {
   workflowId: `payment-${order.orderId}`,
   args: { customerId: order.customerId, amount: order.total },
 
-  // What happens to the child if the parent closes.
+  // What happens to the child if the parent closes (Temporal's default is TERMINATE).
   parentClosePolicy: "REQUEST_CANCEL", // or "TERMINATE" | "ABANDON"
 
   workflowExecutionTimeout: "1 hour",
@@ -193,9 +195,10 @@ await context.executeChildWorkflow(orderContract, "collectPayment", {
 });
 ```
 
-`parentClosePolicy` is the one to think about: the default cancels children
-when the parent closes. Use `ABANDON` for fire-and-forget work that should
-outlive its parent.
+`parentClosePolicy` is the one to think about: the default (`TERMINATE`) kills
+children when the parent closes. Choose `REQUEST_CANCEL` if a child needs to
+compensate first, or `ABANDON` for fire-and-forget work that should outlive its
+parent.
 
 ## Choose child workflows or activities
 

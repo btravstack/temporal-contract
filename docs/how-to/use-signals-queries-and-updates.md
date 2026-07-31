@@ -15,12 +15,24 @@ and confirm.
 
 ```typescript
 import {
+  defineActivity,
+  defineContract,
   defineQuery,
   defineSignal,
   defineUpdate,
   defineWorkflow,
 } from "@temporal-contract/contract";
 import { z } from "zod";
+
+const listSkus = defineActivity({
+  input: z.object({ catalogId: z.string() }),
+  output: z.array(z.string()),
+});
+
+const importSku = defineActivity({
+  input: z.object({ sku: z.string() }),
+  output: z.void(),
+});
 
 const getProgress = defineQuery({
   // no `input` — an argument-less query
@@ -36,12 +48,18 @@ const addItems = defineUpdate({
   output: z.object({ total: z.number() }),
 });
 
-export const importCatalog = defineWorkflow({
+const importCatalog = defineWorkflow({
   input: z.object({ catalogId: z.string() }),
   output: z.object({ imported: z.number() }),
+  activities: { listSkus, importSku },
   queries: { getProgress },
   signals: { cancelRequested },
   updates: { addItems },
+});
+
+export const catalogContract = defineContract({
+  taskQueue: "catalog",
+  workflows: { importCatalog },
 });
 ```
 
@@ -50,12 +68,18 @@ export const importCatalog = defineWorkflow({
 receives `undefined` while the client-side payload argument becomes
 omittable. No `z.void()` ceremony.
 
-::: warning Query schemas must validate synchronously
-Temporal requires query handlers to complete synchronously, so a query's input
-and output schemas must too. Plain object schemas are fine; async refinements
-(`z.string().refine(async ...)`) are not. Standard Schema does not expose the
-sync/async distinction at the type level, so this is enforced at runtime — the
-worker throws if a schema returns a `Promise`.
+::: warning Query and update-input schemas must validate synchronously
+Temporal runs query handlers and the update **validator** slot synchronously,
+so a query's `input` and `output` schemas — and an update's `input` schema —
+must validate synchronously too. Plain object schemas are fine; async
+refinements (`z.string().refine(async ...)`) are not. An update's `output`
+schema may be async, because the update handler itself runs asynchronously.
+
+Standard Schema does not expose the sync/async distinction at the type level,
+so this is checked at **bind time** — when the workflow first binds its
+handlers, not on the first request. A schema whose `validate()` returns a
+`Promise` in one of those slots fails there with a `ContractMisuseError` (a
+non-retryable `ApplicationFailure`).
 :::
 
 ## Handle them in the workflow
@@ -77,18 +101,18 @@ export const importCatalog = declareWorkflow({
     let cancelReason: string | undefined;
 
     // Query: synchronous, reads only.
-    context.defineQuery("getProgress", () => ({
+    context.handleQuery("getProgress", () => ({
       completed,
       total: completed + pending.length,
     }));
 
     // Signal: fire-and-forget.
-    context.defineSignal("cancelRequested", (signalArgs) => {
+    context.handleSignal("cancelRequested", (signalArgs) => {
       cancelReason = signalArgs.reason;
     });
 
     // Update: async, returns a value to the caller.
-    context.defineUpdate("addItems", async (updateArgs) => {
+    context.handleUpdate("addItems", async (updateArgs) => {
       pending = [...pending, ...updateArgs.skus];
       return { total: completed + pending.length };
     });
@@ -139,10 +163,10 @@ const started = await catalog.startWorkflow("importCatalog", {
   args: { catalogId: "cat-1" },
 });
 
-if (started.isErr()) {
-  throw started.error;
-}
-const handle = started.value;
+// `.getOrThrow()` unwraps the `Ok` and rethrows a modeled error or a defect —
+// narrowing with `isErr()` alone would leave the defect variant, which has no
+// `.value`.
+const handle = started.getOrThrow();
 
 // Query — the payload argument is omittable for an input-less definition
 const progress = await handle.queries.getProgress();
@@ -217,10 +241,9 @@ whose error channel covers a workflow name that is not on the contract:
 
 ```typescript
 const bound = catalog.getHandle("importCatalog", "import-2024");
-if (bound.isErr()) {
-  throw bound.error;
-}
-const handle = bound.value;
+// Unwrap the sync `Result`: `.getOrThrow()` raises the modeled error (a
+// workflow name not on the contract) or a defect, and hands back the handle.
+const handle = bound.getOrThrow();
 
 const progress = await handle.queries.getProgress();
 console.log(progress.getOrThrow());
@@ -280,16 +303,16 @@ It must not call activities, sleep, mutate state, or await anything:
 
 ```typescript
 // ✅
-context.defineQuery("getProgress", () => ({ completed, total }));
+context.handleQuery("getProgress", () => ({ completed, total }));
 
 // ❌ modifies state — corrupts replay
-context.defineQuery("getProgress", () => {
+context.handleQuery("getProgress", () => {
   queryCount += 1;
   return { completed, total };
 });
 
 // ❌ not synchronous — will not type-check
-context.defineQuery("getProgress", async () => ({ completed, total }));
+context.handleQuery("getProgress", async () => ({ completed, total }));
 ```
 
 ## Next
