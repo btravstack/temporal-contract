@@ -1,3 +1,4 @@
+import { OrderRepositoryError } from "../errors.js";
 import type { OrderRepositoryPort } from "../ports/order-repository.port.js";
 
 /**
@@ -12,7 +13,7 @@ export class PurgeExpiredOrdersUseCase {
     // Business validation
     if (!Number.isInteger(olderThanDays) || olderThanDays <= 0) {
       // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
-      throw new Error("olderThanDays must be a positive integer");
+      throw new OrderRepositoryError("olderThanDays must be a positive integer");
     }
 
     // Delegate to order repository port

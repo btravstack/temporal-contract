@@ -1,4 +1,5 @@
 import type { PaymentOutcome } from "../../domain/entities/order.schema.js";
+import { PaymentError } from "../../domain/errors.js";
 import type { PaymentPort } from "../../domain/ports/payment.port.js";
 import { logger } from "../../logger.js";
 
@@ -57,7 +58,7 @@ export class MockPaymentAdapter implements PaymentPort {
     } else {
       logger.error(`❌ Refund failed`);
       // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
-      throw new Error("Payment processor rejected refund request");
+      throw new PaymentError("Payment processor rejected refund request");
     }
   }
 }

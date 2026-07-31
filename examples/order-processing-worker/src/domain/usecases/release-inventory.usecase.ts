@@ -1,3 +1,4 @@
+import { InventoryError } from "../errors.js";
 import type { InventoryPort } from "../ports/inventory.port.js";
 
 /**
@@ -12,7 +13,7 @@ export class ReleaseInventoryUseCase {
     // Business validation
     if (!reservationId || reservationId.trim() === "") {
       // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
-      throw new Error("Reservation ID is required");
+      throw new InventoryError("Reservation ID is required");
     }
 
     // Delegate to inventory port

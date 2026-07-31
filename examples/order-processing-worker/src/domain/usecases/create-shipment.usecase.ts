@@ -1,4 +1,5 @@
 import type { ShippingResult } from "../entities/order.schema.js";
+import { ShippingError } from "../errors.js";
 import type { ShippingPort } from "../ports/shipping.port.js";
 
 /**
@@ -13,12 +14,12 @@ export class CreateShipmentUseCase {
     // Business validation
     if (!orderId || orderId.trim() === "") {
       // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
-      throw new Error("Order ID is required");
+      throw new ShippingError("Order ID is required");
     }
 
     if (!customerId || customerId.trim() === "") {
       // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
-      throw new Error("Customer ID is required");
+      throw new ShippingError("Customer ID is required");
     }
 
     // Delegate to shipping port

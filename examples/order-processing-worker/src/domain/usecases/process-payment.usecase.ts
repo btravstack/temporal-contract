@@ -1,4 +1,5 @@
 import type { PaymentOutcome } from "../entities/order.schema.js";
+import { PaymentError } from "../errors.js";
 import type { PaymentPort } from "../ports/payment.port.js";
 
 /**
@@ -13,12 +14,12 @@ export class ProcessPaymentUseCase {
     // Business validation
     if (amount <= 0) {
       // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
-      throw new Error("Payment amount must be positive");
+      throw new PaymentError("Payment amount must be positive");
     }
 
     if (!customerId || customerId.trim() === "") {
       // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
-      throw new Error("Customer ID is required");
+      throw new PaymentError("Customer ID is required");
     }
 
     // Delegate to payment port
