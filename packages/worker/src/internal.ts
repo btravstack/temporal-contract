@@ -47,7 +47,7 @@ export function formatChildWorkflowValidationMessage(
 export {
   _internal_makeAsyncResult as makeAsyncResult,
   _internal_assertNoDefect as assertNoDefect,
-} from "@temporal-contract/contract/result-async";
+} from "@temporal-contract/contract/internal";
 
 /**
  * Extract the single payload from a Temporal handler's `...args` array.

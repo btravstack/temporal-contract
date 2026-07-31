@@ -22,12 +22,12 @@ import {
   type ErrorDefinition,
 } from "@temporal-contract/contract";
 import {
-  _internal_buildErrorConstructors,
   CONTRACT_ERROR_TAG,
   type AnyContractError,
   type ContractErrorConstructors,
   type ContractErrorInputUnion,
 } from "@temporal-contract/contract/errors";
+import { _internal_buildErrorConstructors } from "@temporal-contract/contract/internal";
 import { ApplicationFailure } from "@temporalio/common";
 import { P, type AsyncResult } from "unthrown";
 

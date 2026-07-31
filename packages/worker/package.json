@@ -28,42 +28,24 @@
   "sideEffects": false,
   "exports": {
     "./activity": {
-      "import": {
-        "types": "./dist/activity.d.mts",
-        "default": "./dist/activity.mjs"
-      },
-      "require": {
-        "types": "./dist/activity.d.cts",
-        "default": "./dist/activity.cjs"
-      }
+      "types": "./dist/activity.d.mts",
+      "import": "./dist/activity.mjs"
     },
     "./package.json": "./package.json",
     "./worker": {
-      "import": {
-        "types": "./dist/worker.d.mts",
-        "default": "./dist/worker.mjs"
-      },
-      "require": {
-        "types": "./dist/worker.d.cts",
-        "default": "./dist/worker.cjs"
-      }
+      "types": "./dist/worker.d.mts",
+      "import": "./dist/worker.mjs"
     },
     "./workflow": {
-      "import": {
-        "types": "./dist/workflow.d.mts",
-        "default": "./dist/workflow.mjs"
-      },
-      "require": {
-        "types": "./dist/workflow.d.cts",
-        "default": "./dist/workflow.cjs"
-      }
+      "types": "./dist/workflow.d.mts",
+      "import": "./dist/workflow.mjs"
     }
   },
   "scripts": {
-    "build": "tsdown src/activity.ts src/worker.ts src/workflow.ts --format cjs,esm --dts --clean",
+    "build": "tsdown src/activity.ts src/worker.ts src/workflow.ts --format esm --dts --clean",
     "build:docs": "typedoc",
-    "check:package": "publint --strict && attw --pack . --profile node16",
-    "dev": "tsdown src/activity.ts src/worker.ts src/workflow.ts --format cjs,esm --dts --watch",
+    "check:package": "publint --strict && attw --pack . --profile esm-only",
+    "dev": "tsdown src/activity.ts src/worker.ts src/workflow.ts --format esm --dts --watch",
     "test": "vitest run --project unit",
     "test:integration": "vitest run --project integration --project integration-inprocess",
     "test:watch": "vitest --project unit",
@@ -96,9 +78,9 @@
     "zod": "catalog:"
   },
   "peerDependencies": {
-    "@temporalio/common": "^1",
-    "@temporalio/worker": "^1",
-    "@temporalio/workflow": "^1",
+    "@temporalio/common": "^1.16.0",
+    "@temporalio/worker": "^1.16.0",
+    "@temporalio/workflow": "^1.16.0",
     "unthrown": "^5.0.0"
   },
   "engines": {

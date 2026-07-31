@@ -11,11 +11,11 @@ import type {
   SearchAttributeDefinition,
   SearchAttributeKind,
 } from "@temporal-contract/contract";
+import { type AnyContractError } from "@temporal-contract/contract/errors";
 import {
+  _internal_makeAsyncResult,
   _internal_rehydrateContractError,
-  type AnyContractError,
-} from "@temporal-contract/contract/errors";
-import { _internal_makeAsyncResult } from "@temporal-contract/contract/result-async";
+} from "@temporal-contract/contract/internal";
 import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
 import {
   QueryNotRegisteredError,

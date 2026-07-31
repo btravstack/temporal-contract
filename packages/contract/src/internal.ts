@@ -1,14 +1,12 @@
 /**
- * Internal helper shared across `@temporal-contract/client` and
- * `@temporal-contract/worker` for wrapping a result-producing async function
- * in an `AsyncResult`, routing any unanticipated rejection through unthrown's
- * `defect` channel.
+ * Internal entry point `@temporal-contract/contract/internal` — helpers
+ * shared across the sibling `@temporal-contract/client`,
+ * `@temporal-contract/worker`, and `@temporal-contract/testing` packages.
  *
- * Lives in `@temporal-contract/contract` so the two consuming packages don't
- * each carry their own copy. Exported from the package's public surface
- * under a deliberately-internal-looking name (`_internal_makeAsyncResult`)
- * so users don't import it by accident — there is no semver guarantee on
- * this entry point.
+ * They live in `@temporal-contract/contract` so the consuming packages don't
+ * each carry their own copy. **Not part of the public API** — the dedicated
+ * `./internal` subpath and the `_internal_` name prefixes both signal that
+ * there is no semver guarantee on anything exported here.
  */
 import {
   fromSafePromise,
@@ -17,6 +15,11 @@ import {
   type OkView,
   type Result,
 } from "unthrown";
+
+export {
+  _internal_buildErrorConstructors,
+  _internal_rehydrateContractError,
+} from "./errors-impl.js";
 
 /**
  * Wrap an async function returning `Promise<Result<T, E>>` in an
@@ -33,8 +36,8 @@ import {
  * unmodeled. The `.flatMap((inner) => inner)` flattens the nested
  * `Result<T, E>` the thunk resolves with, surfacing its modeled error channel.
  *
- * @internal — exported under `_internal_makeAsyncResult` for use by the
- * sibling client and worker packages. Not part of the public API.
+ * @internal — exported on the `./internal` subpath for use by the sibling
+ * client and worker packages. Not part of the public API.
  */
 export function _internal_makeAsyncResult<T, E>(
   // oxlint-disable-next-line unthrown/prefer-async-result -- this IS the Promise→AsyncResult conversion seam: the work thunk's throw/rejection is what becomes the defect, and an async implementer cannot be annotated AsyncResult
@@ -55,7 +58,7 @@ export function _internal_makeAsyncResult<T, E>(
  * narrows the result to `Ok | Err` for the caller, which can then branch on
  * `isErr` / `isOk` and reach `.value` / `.error` cleanly.
  *
- * @internal — exported under `_internal_assertNoDefect` for the sibling client
+ * @internal — exported on the `./internal` subpath for the sibling client
  * and worker packages. Not part of the public API.
  */
 export function _internal_assertNoDefect<T, E>(

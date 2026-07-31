@@ -2,8 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import {
-  _internal_buildErrorConstructors,
-  _internal_rehydrateContractError,
   CONTRACT_ERROR_TAG,
   CONTRACT_ERROR_WIRE_MARKER,
   ContractError,
@@ -11,6 +9,7 @@ import {
   TECHNICAL_ERROR_TAG,
   TechnicalError,
 } from "./errors.js";
+import { _internal_buildErrorConstructors, _internal_rehydrateContractError } from "./internal.js";
 
 describe("_internal_buildErrorConstructors", () => {
   const declaredErrors = {

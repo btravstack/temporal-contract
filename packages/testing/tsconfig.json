@@ -18,7 +18,7 @@
       "@temporal-contract/client": ["../client/src/index.ts"],
       "@temporal-contract/contract": ["../contract/src/index.ts"],
       "@temporal-contract/contract/errors": ["../contract/src/errors.ts"],
-      "@temporal-contract/contract/result-async": ["../contract/src/result-async.ts"],
+      "@temporal-contract/contract/internal": ["../contract/src/internal.ts"],
       "@temporal-contract/worker/activity": ["../worker/src/activity.ts"],
       "@temporal-contract/worker/worker": ["../worker/src/worker.ts"],
       "@temporal-contract/worker/workflow": ["../worker/src/workflow.ts"]

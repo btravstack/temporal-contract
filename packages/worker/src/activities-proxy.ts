@@ -5,10 +5,8 @@ import type {
   ErrorDefinition,
 } from "@temporal-contract/contract";
 import { summarizeIssues } from "@temporal-contract/contract";
-import {
-  _internal_rehydrateContractError,
-  type ContractErrorUnion,
-} from "@temporal-contract/contract/errors";
+import { type ContractErrorUnion } from "@temporal-contract/contract/errors";
+import { _internal_rehydrateContractError } from "@temporal-contract/contract/internal";
 import { ActivityFailure, ApplicationFailure } from "@temporalio/common";
 /**
  * Activity inference types + the validated-activities proxy used by

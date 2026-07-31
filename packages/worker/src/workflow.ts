@@ -16,11 +16,8 @@ import type {
   SignalDefinition,
   UpdateDefinition,
 } from "@temporal-contract/contract";
-import {
-  _internal_buildErrorConstructors,
-  ContractError,
-  type ContractErrorConstructors,
-} from "@temporal-contract/contract/errors";
+import { ContractError, type ContractErrorConstructors } from "@temporal-contract/contract/errors";
+import { _internal_buildErrorConstructors } from "@temporal-contract/contract/internal";
 import { type ActivityOptions, type WorkflowInfo, workflowInfo } from "@temporalio/workflow";
 import type { AsyncResult } from "unthrown";
 
