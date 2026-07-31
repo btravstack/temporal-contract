@@ -47,10 +47,14 @@
     "./time-skipping": {
       "types": "./dist/time-skipping.d.mts",
       "import": "./dist/time-skipping.mjs"
+    },
+    "./workflow-bundle": {
+      "types": "./dist/workflow-bundle.d.mts",
+      "import": "./dist/workflow-bundle.mjs"
     }
   },
   "scripts": {
-    "build": "tsdown src/global-setup.ts src/extension.ts src/time-skipping.ts src/contract.ts src/activity.ts --format esm --dts --clean",
+    "build": "tsdown src/global-setup.ts src/extension.ts src/time-skipping.ts src/contract.ts src/activity.ts src/workflow-bundle.ts --format esm --dts --clean",
     "build:docs": "typedoc",
     "check:package": "publint --strict && attw --pack . --profile esm-only",
     "test": "vitest run --project unit",
