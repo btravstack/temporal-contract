@@ -16,7 +16,7 @@ v8 audit remediation — a second full-surface pass hardening robustness, the un
 **`@temporal-contract/contract`:**
 
 - Type-helper renames to the family-standard `Infer*` prefix: `SignalNamesOf`/`QueryNamesOf`/`UpdateNamesOf`/`DeclaredErrorsOf` → `InferSignalNames`/`InferQueryNames`/`InferUpdateNames`/`InferDeclaredErrors`.
-- `defineActivity`'s `defaultOptions` key is renamed `activityOptions` (merge precedence unchanged).
+- `defineActivity`'s `defaultOptions` key is renamed `activityOptions` (merge precedence unchanged), and its type `ActivityDefaultOptions` → `ContractActivityOptions` — the new name keeps the contract-level, portable subset distinct from Temporal's own `ActivityOptions`, which is what the worker-side `activityOptionsByName` overrides take.
 - Duration strings are validated against the `ms` grammar at `defineContract` time — `"5 minutos"`, `""`, and negative durations now fail at definition, naming the offending path, instead of at the worker.
 - Temporal-reserved names are rejected at `defineContract`: the `__temporal_` prefix and the exact `__stack_trace` / `__enhanced_stack_trace` query names.
 - Activity-only contracts are allowed — `workflows` may be `{}` when at least one global activity is declared (dedicated activity-pool task queues).

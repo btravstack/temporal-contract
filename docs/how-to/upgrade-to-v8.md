@@ -642,6 +642,7 @@ integration, and family consistency. These land in the same major.
 | `SignalNamesOf` / `QueryNamesOf` / `UpdateNamesOf`      | `InferSignalNames` / `InferQueryNames` / `InferUpdateNames` |
 | `DeclaredErrorsOf`                                      | `InferDeclaredErrors`                                       |
 | `defineActivity({ defaultOptions })`                    | `defineActivity({ activityOptions })`                       |
+| `ActivityDefaultOptions` (type)                         | `ContractActivityOptions`                                   |
 | `context.defineSignal` / `defineQuery` / `defineUpdate` | `context.handleSignal` / `handleQuery` / `handleUpdate`     |
 | `@temporal-contract/contract/result-async`              | removed — internals live at `.../internal` (private)        |
 
@@ -696,6 +697,37 @@ fallback" handler will absorb, completing the workflow instead of cancelling
 it. Re-raise with the new `rethrowCancellation(error)` from
 `@temporal-contract/worker/workflow`. See
 [Handle cancellation](/how-to/handle-cancellation).
+
+### Typed errors carry a wire marker — mind the deploy order
+
+A contract error now crosses the wire with a provenance marker in
+`ApplicationFailure.details[1]` (`{ $tc: 1 }`). For an error that declares a
+`data` schema, validating `details[0]` is still the gate. For a **data-less**
+error the marker is **required** — that closes a false positive where any
+unrelated `ApplicationFailure` whose `type` happened to equal a declared
+data-less error name was surfaced as the typed domain error.
+
+::: warning Rolling upgrades
+The marker is written by 8.0 workers only. During a rolling deploy, a
+**data-less** contract error emitted by a still-7.x worker carries no marker,
+so an 8.0 workflow or client will not rehydrate it — it degrades to the
+generic failure classification. Nothing throws and nothing is logged by
+default, so a `match` arm keyed on the typed error silently stops matching for
+the duration of the window.
+
+Order the deploy **workers first, then clients/callers**, and drain in-flight
+executions before cutting callers over. To make the window observable, register
+the diagnostic hook — it fires on every degrade-to-generic:
+
+```typescript
+import { onRehydrationMiss } from "@temporal-contract/contract/errors";
+
+onRehydrationMiss((miss) => logger.warn({ miss }, "contract error degraded to generic"));
+```
+
+Errors that declare a `data` schema are unaffected: they rehydrate on schema
+validation, marker or not.
+:::
 
 ### Worker: safer declarations
 
@@ -772,7 +804,8 @@ contract-error wire round-trip) so a test fails exactly where production does.
 - [ ] No schema relies on its transform running on the send side (each
       boundary now parses once, on receive)
 - [ ] `SignalNamesOf` / `QueryNamesOf` / `UpdateNamesOf` / `DeclaredErrorsOf`
-      → the `Infer*` prefix; `defineActivity` `defaultOptions` → `activityOptions`
+      → the `Infer*` prefix; `defineActivity` `defaultOptions` → `activityOptions`;
+      the `ActivityDefaultOptions` type → `ContractActivityOptions`
 - [ ] `context.defineSignal` / `defineQuery` / `defineUpdate` →
       `handleSignal` / `handleQuery` / `handleUpdate`
 - [ ] Every `qualifyFailure(...)` passes `{ expected }` (or `{ expected: "any" }`
@@ -786,6 +819,9 @@ contract-error wire round-trip) so a test fails exactly where production does.
 - [ ] `createContractTest({ contract, ... })` and `runActivity(def, { ... })`
       use the option bag; `testcontainers` installed only where `createContractTest` runs
 - [ ] Imports of `@temporal-contract/contract/result-async` removed
+- [ ] Rolling deploy ordered **workers before callers**, and `onRehydrationMiss`
+      registered — a data-less contract error from a 7.x worker carries no wire
+      marker and degrades to a generic failure until the workers are cut over
 - [ ] `@temporalio/*` resolve to `^1.16.0`; no CJS `require` of these packages
 - [ ] `pnpm typecheck` clean
 

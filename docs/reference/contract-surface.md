@@ -75,11 +75,13 @@ relaxes when the contract exists purely to serve activities.
 | `input`           | `AnySchema`                       | yes      |
 | `output`          | `AnySchema`                       | yes      |
 | `errors`          | `Record<string, ErrorDefinition>` | no       |
-| `activityOptions` | `ActivityDefaultOptions`          | no       |
+| `activityOptions` | `ContractActivityOptions`         | no       |
 
 ::: info Renamed in 8.0
 The contract-level activity-options field is `activityOptions` (it was
-`defaultOptions` before 8.0). Its type is still `ActivityDefaultOptions`.
+`defaultOptions` before 8.0), and its type is `ContractActivityOptions` (it
+was `ActivityDefaultOptions`). The type name is now distinct from Temporal's
+own `ActivityOptions`, which is what the worker-side overrides take.
 :::
 
 ### `defineSignal(definition?)`
@@ -159,12 +161,12 @@ type ErrorDefinition = {
 | `message`      | Default message. Overridable per instance                                                     |
 | `nonRetryable` | `true` stops Temporal retrying. Default `false`                                               |
 
-### `ActivityDefaultOptions`
+### `ContractActivityOptions`
 
 A strict object — unknown keys are rejected at `defineContract` time.
 
 ```typescript
-type ActivityDefaultOptions = {
+type ContractActivityOptions = {
   startToCloseTimeout?: DurationValue;
   scheduleToCloseTimeout?: DurationValue;
   scheduleToStartTimeout?: DurationValue;
