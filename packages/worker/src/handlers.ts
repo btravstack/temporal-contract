@@ -86,6 +86,31 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
 }
 
 /**
+ * Per-call guard for the sync-only schema slots, kept shape-compatible with
+ * {@link assertSyncSchema}'s probe.
+ *
+ * Standard Schema types the async signature as `Promise<Result>`, but an
+ * implementation may legally hand back any `PromiseLike` — a wrapper, a
+ * deferred, a `then`-able from another realm. `instanceof Promise` misses
+ * those, and the caller would then read `.issues` (`undefined` → "no issues")
+ * and `.value` (`undefined`) straight off the thenable, silently handing the
+ * handler an unvalidated `undefined` instead of tripping
+ * {@link ContractMisuseError}. Matching the probe's `isThenable` closes that.
+ *
+ * A detected thenable's settlement is detached for the same reason the probe
+ * detaches its own: nothing awaits it, and a rejection would otherwise surface
+ * as an unhandled rejection while the {@link ContractMisuseError} is in flight.
+ */
+function isAsyncValidation(result: unknown): result is PromiseLike<unknown> {
+  if (!isThenable(result)) return false;
+  result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return true;
+}
+
+/**
  * Bind-time probe for the sync-only schema slots (query input/output, update
  * input). Standard Schema permits `validate` to return a Promise (e.g. Zod
  * with an async `.refine`), but Temporal runs query handlers and the update
@@ -253,7 +278,7 @@ export function bindQueryHandler(
     const input = extractHandlerInput(args);
     const inputResult = queryDef.input["~standard"].validate(input);
 
-    if (inputResult instanceof Promise) {
+    if (isAsyncValidation(inputResult)) {
       // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: non-retryable ApplicationFailure Temporal must see thrown (CLAUDE.md rule 2 exception)
       throw new ContractMisuseError(
         `Query "${queryName}" validation must be synchronous. Use a schema library that supports synchronous validation for queries.`,
@@ -267,7 +292,7 @@ export function bindQueryHandler(
     const result = handler(inputResult.value);
 
     const outputResult = queryDef.output["~standard"].validate(result);
-    if (outputResult instanceof Promise) {
+    if (isAsyncValidation(outputResult)) {
       // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: non-retryable ApplicationFailure Temporal must see thrown (CLAUDE.md rule 2 exception)
       throw new ContractMisuseError(
         `Query "${queryName}" output validation must be synchronous. Use a schema library that supports synchronous validation for queries.`,
@@ -360,7 +385,7 @@ export function bindUpdateHandler(
       // worth surfacing.
       const input = extractHandlerInput(args);
       const inputResult = updateDef.input["~standard"].validate(input);
-      if (inputResult instanceof Promise) {
+      if (isAsyncValidation(inputResult)) {
         // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: non-retryable ApplicationFailure Temporal must see thrown (CLAUDE.md rule 2 exception)
         throw new ContractMisuseError(updateInputMustBeSynchronousMessage(updateName));
       }
@@ -390,7 +415,7 @@ export function bindUpdateHandler(
         const input = extractHandlerInput(args);
         const inputResult = updateDef.input["~standard"].validate(input);
 
-        if (inputResult instanceof Promise) {
+        if (isAsyncValidation(inputResult)) {
           // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: non-retryable ApplicationFailure Temporal must see thrown (CLAUDE.md rule 2 exception)
           throw new ContractMisuseError(updateInputMustBeSynchronousMessage(updateName));
         }

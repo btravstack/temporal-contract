@@ -22,10 +22,21 @@ export const DECLARED_WORKFLOW_BRAND = Symbol.for("temporal-contract.declareWork
  * with, or `undefined` for anything else. Used by `TypedWorker`'s
  * workflow-registration completeness check.
  *
+ * The candidate is an arbitrary module export, so the property read itself is
+ * untrusted: a `Proxy` with a throwing `get` trap, or a function carrying a
+ * throwing getter, would otherwise abort the whole registration check with an
+ * unrelated exception. Anything that fails to yield a plain string brand —
+ * including by throwing — is simply "not a declared workflow".
+ *
  * @internal
  */
 export function _internal_declaredWorkflowName(candidate: unknown): string | undefined {
   if (typeof candidate !== "function") return undefined;
-  const brand = (candidate as { [DECLARED_WORKFLOW_BRAND]?: unknown })[DECLARED_WORKFLOW_BRAND];
+  let brand: unknown;
+  try {
+    brand = (candidate as { [DECLARED_WORKFLOW_BRAND]?: unknown })[DECLARED_WORKFLOW_BRAND];
+  } catch {
+    return undefined;
+  }
   return typeof brand === "string" ? brand : undefined;
 }

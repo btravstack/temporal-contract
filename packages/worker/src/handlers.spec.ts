@@ -77,6 +77,19 @@ const asyncStringSchema = {
   },
 };
 
+/**
+ * A validation result that is `PromiseLike` but NOT a `Promise` — the shape
+ * an `instanceof Promise` guard misses. The cast is the point: Standard
+ * Schema *types* the async branch as `Promise<Result>`, so only a runtime
+ * check can catch an implementation (a JS consumer, another realm's promise,
+ * a deferred wrapper) that returns a plain thenable instead.
+ */
+function bareThenable(value: unknown): Promise<{ value: unknown; issues: undefined }> {
+  // oxlint-disable-next-line unicorn/no-thenable -- the thenable IS the fixture: this test proves the sync guard catches a non-Promise PromiseLike
+  const thenable = { then: (resolve: (r: unknown) => void) => resolve({ value }) };
+  return thenable as unknown as Promise<{ value: unknown; issues: undefined }>;
+}
+
 const workflow = defineWorkflow({
   input: z.object({ id: z.string() }),
   output: z.object({}),
@@ -300,6 +313,37 @@ describe("bindQueryHandler", () => {
     const entry = captured.find((c) => c.kind === "query" && c.name === "progress")!;
     expect(() => entry.impl(["x"])).toThrow(ContractMisuseError);
     expect(() => entry.impl(["x"])).toThrow(/validation must be synchronous/);
+  });
+
+  it("the per-call guard catches a non-Promise thenable, not just a native Promise", () => {
+    // Standard Schema types the async signature as `Promise<Result>`, but an
+    // implementation may hand back any PromiseLike. An `instanceof Promise`
+    // guard would wave this through, and the helper would then read `.issues`
+    // (undefined → "valid") and `.value` (undefined) off the thenable and pass
+    // an unvalidated `undefined` to the handler.
+    captured.length = 0;
+    const thenableDodgingSchema = {
+      "~standard": {
+        version: 1 as const,
+        vendor: "test-thenable",
+        validate: (input: unknown) =>
+          typeof input === "symbol" ? { value: input, issues: undefined } : bareThenable(input),
+      },
+    };
+    const wf = defineWorkflow({
+      input: z.object({}),
+      output: z.object({}),
+      queries: {
+        progress: { input: thenableDodgingSchema, output: z.number() },
+      },
+    });
+    const handler = vi.fn().mockReturnValue(1);
+    bindQueryHandler(wf, "probe", "progress", handler as never);
+    const entry = captured.find((c) => c.kind === "query" && c.name === "progress")!;
+    expect(() => entry.impl(["x"])).toThrow(ContractMisuseError);
+    expect(() => entry.impl(["x"])).toThrow(/validation must be synchronous/);
+    // The handler never ran on the unvalidated payload.
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it("throws ContractMisuseError when the workflow has no queries block", () => {

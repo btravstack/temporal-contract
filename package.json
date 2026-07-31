@@ -16,7 +16,7 @@
     "prepare": "lefthook install",
     "release": "pnpm build && changeset publish",
     "test": "turbo run test",
-    "test:integration": "turbo run test:integration",
+    "test:integration": "turbo run test:integration --concurrency=1",
     "typecheck": "turbo run typecheck",
     "version": "changeset version"
   },
