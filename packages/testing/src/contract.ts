@@ -20,7 +20,8 @@
  *
  * const activities = declareActivitiesHandler({ contract: orderContract, activities: { ... } });
  *
- * const it = createContractTest(orderContract, {
+ * const it = createContractTest({
+ *   contract: orderContract,
  *   workflowsPath: workflowsPathFromURL(import.meta.url, "./order.workflows.js"),
  *   activities,
  * });
@@ -31,7 +32,7 @@
  *       workflowId: `order-${Date.now()}`,
  *       args: { orderId: "ORD-1" },
  *     });
- *     expect(result.isOk()).toBe(true);
+ *     await expect(result).toBeOk(); // with @unthrown/vitest matchers
  *   });
  * });
  * ```
@@ -49,6 +50,8 @@ import { it as baseIt } from "./extension.js";
  * Options for {@link createContractTest}.
  */
 export type CreateContractTestOptions<TContract extends ContractDefinition> = {
+  /** The contract under test — its task queue names the worker's queue. */
+  contract: TContract;
   /**
    * Path to the workflows file registered on the worker — typically built
    * with `workflowsPathFromURL(import.meta.url, "./x.workflows.js")` from
@@ -103,9 +106,9 @@ export type ContractTestContext<TContract extends ContractDefinition> = {
  * fixtures from `./extension` remain available on the context.
  */
 export function createContractTest<TContract extends ContractDefinition>(
-  contract: TContract,
   options: CreateContractTestOptions<TContract>,
 ) {
+  const { contract } = options;
   return baseIt.extend<ContractTestContext<TContract>>({
     worker: [
       async ({ workerConnection }, use) => {

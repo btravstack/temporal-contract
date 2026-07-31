@@ -1,5 +1,26 @@
-import { GenericContainer, Wait, Network } from "testcontainers";
 import type { TestProject } from "vitest/node";
+
+/**
+ * Load `testcontainers` lazily, with a descriptive error when it is not
+ * installed. It is an *optional* peer dependency: only this entry point (and
+ * therefore `createContractTest`, which requires the global setup to have
+ * run) needs it — the Docker-free entries (`/activity`, `/time-skipping`,
+ * `/extension`) must stay importable without it.
+ */
+async function loadTestcontainers(): Promise<typeof import("testcontainers")> {
+  try {
+    return await import("testcontainers");
+  } catch (cause) {
+    // oxlint-disable-next-line unthrown/no-throw -- declaration-time fail-fast config error: the global setup cannot run without its optional peer installed
+    throw new Error(
+      "@temporal-contract/testing/global-setup requires the optional peer dependency " +
+        '"testcontainers" (needed by createGlobalSetup / createContractTest). Install it as a ' +
+        "dev dependency — e.g. `pnpm add -D testcontainers`. The Docker-free entry points " +
+        "(/activity, /time-skipping, /extension) do not need it.",
+      { cause },
+    );
+  }
+}
 
 declare module "vitest" {
   // oxlint-disable-next-line typescript/consistent-type-definitions -- module augmentation requires interface
@@ -79,6 +100,8 @@ export function createGlobalSetup(
       };
 
   return async function setup({ provide }: TestProject) {
+    const { GenericContainer, Wait, Network } = await loadTestcontainers();
+
     log("🐳 Starting Temporal test environment...");
 
     // Create a network for containers to communicate

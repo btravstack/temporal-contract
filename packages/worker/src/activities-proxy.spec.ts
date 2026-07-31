@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { createValidatedActivities } from "./activities-proxy.js";
-import { ActivityCancelledError, ActivityError } from "./errors.js";
+import { ActivityCancelledError, type ActivityError } from "./errors.js";
 
 /**
  * The error union the Result-shaped proxy actually produces for activities
@@ -118,10 +118,7 @@ describe("createValidatedActivities — wire format (validate on send, parse on 
     const result = await activities["transformer"]!({ text: "hi" });
 
     expect(seen).toEqual([{ text: "hi" }]);
-    expect(result.isOk()).toBe(true);
-    if (result.isOk()) {
-      expect(result.value).toEqual({ n: 42 });
-    }
+    expect(result).toBeOkWith({ n: 42 });
   });
 });
 
@@ -130,10 +127,7 @@ describe("createValidatedActivities — activities with declared errors", () => 
     const activities = buildProxy(async () => ({ transactionId: "tx" }));
 
     const result = await activities["chargePayment"]!({ amount: 1 });
-    expect(result.isOk()).toBe(true);
-    if (result.isOk()) {
-      expect(result.value).toEqual({ transactionId: "tx" });
-    }
+    expect(result).toBeOkWith({ transactionId: "tx" });
   });
 
   it("rehydrates a declared ApplicationFailure into a typed ContractError", async () => {
@@ -148,7 +142,7 @@ describe("createValidatedActivities — activities with declared errors", () => 
     });
 
     const result = await activities["chargePayment"]!({ amount: 1 });
-    expect(result.isErr()).toBe(true);
+    expect(result).toBeErrTagged("@temporal-contract/ContractError");
     if (result.isErr()) {
       expect(result.error).toBeInstanceOf(ContractError);
       const error = result.error as InstanceType<typeof ContractError>;
@@ -165,9 +159,8 @@ describe("createValidatedActivities — activities with declared errors", () => 
     });
 
     const result = await activities["chargePayment"]!({ amount: 1 });
-    expect(result.isErr()).toBe(true);
+    expect(result).toBeErrTagged("@temporal-contract/ActivityError");
     if (result.isErr()) {
-      expect(result.error).toBeInstanceOf(ActivityError);
       const error = result.error as InstanceType<typeof ActivityError>;
       expect(error.activityName).toBe("chargePayment");
       expect(error.cause).toBe(failure);
@@ -184,10 +177,7 @@ describe("createValidatedActivities — activities with declared errors", () => 
     });
 
     const result = await activities["chargePayment"]!({ amount: 1 });
-    expect(result.isErr()).toBe(true);
-    if (result.isErr()) {
-      expect(result.error).toBeInstanceOf(ActivityError);
-    }
+    expect(result).toBeErrTagged("@temporal-contract/ActivityError");
   });
 
   it("discriminates cancellation as ActivityCancelledError", async () => {
@@ -196,7 +186,7 @@ describe("createValidatedActivities — activities with declared errors", () => 
     });
 
     const result = await activities["chargePayment"]!({ amount: 1 });
-    expect(result.isErr()).toBe(true);
+    expect(result).toBeErrTagged("@temporal-contract/ActivityCancelledError");
     if (result.isErr()) {
       expect(result.error).toBeInstanceOf(ActivityCancelledError);
     }
@@ -206,9 +196,8 @@ describe("createValidatedActivities — activities with declared errors", () => 
     const activities = buildProxy(async () => ({ transactionId: "tx" }));
 
     const result = await activities["chargePayment"]!({ amount: "bad" });
-    expect(result.isErr()).toBe(true);
+    expect(result).toBeErrTagged("@temporal-contract/ActivityError");
     if (result.isErr()) {
-      expect(result.error).toBeInstanceOf(ActivityError);
       expect((result.error as InstanceType<typeof ActivityError>).message).toContain(
         "input validation failed",
       );
@@ -219,9 +208,8 @@ describe("createValidatedActivities — activities with declared errors", () => 
     const activities = buildProxy(async () => ({ transactionId: 42 }));
 
     const result = await activities["chargePayment"]!({ amount: 1 });
-    expect(result.isErr()).toBe(true);
+    expect(result).toBeErrTagged("@temporal-contract/ActivityError");
     if (result.isErr()) {
-      expect(result.error).toBeInstanceOf(ActivityError);
       expect((result.error as InstanceType<typeof ActivityError>).message).toContain(
         "output validation failed",
       );

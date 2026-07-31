@@ -72,7 +72,7 @@ describe("time-skipping TestWorkflowEnvironment", () => {
       workflowsPath: workflowPath("inprocess.workflows"),
       activities,
     });
-    expect(workerResult.isOk()).toBe(true);
+    expect(workerResult).toBeOk();
     if (!workerResult.isOk()) return;
     const worker = workerResult.value;
 
@@ -80,7 +80,7 @@ describe("time-skipping TestWorkflowEnvironment", () => {
       client: testEnv.client,
       interceptors: [recording],
     });
-    expect(clientResult.isOk()).toBe(true);
+    expect(clientResult).toBeOk();
     if (!clientResult.isOk()) return;
     const client = clientResult.value.for(inprocessContract);
 
@@ -91,33 +91,24 @@ describe("time-skipping TestWorkflowEnvironment", () => {
         workflowId: "inprocess-ok",
         args: { orderId: "ORD-1", amount: 5 },
       });
-      expect(charged.isOk()).toBe(true);
-      if (charged.isOk()) {
-        expect(charged.value.status).toBe("charged:tx-5-trace-1");
-      }
+      expect(charged).toBeOkWith({ status: "charged:tx-5-trace-1" });
 
       // Activity-declared typed error, rehydrated inside the workflow.
       const declined = await client.executeWorkflow("placeOrder", {
         workflowId: "inprocess-declined",
         args: { orderId: "ORD-2", amount: -1 },
       });
-      expect(declined.isOk()).toBe(true);
-      if (declined.isOk()) {
-        expect(declined.value.status).toBe("declined:negative-amount");
-      }
+      expect(declined).toBeOkWith({ status: "declined:negative-amount" });
 
       // Workflow-declared typed error, rehydrated at the client.
       const empty = await client.executeWorkflow("placeOrder", {
         workflowId: "inprocess-empty",
         args: { orderId: "ORD-3", amount: 0 },
       });
-      expect(empty.isErr()).toBe(true);
-      if (empty.isErr()) {
-        expect(empty.error).toBeInstanceOf(ContractError);
-        if (empty.error instanceof ContractError) {
-          expect(empty.error.errorName).toBe("EmptyOrder");
-          expect(empty.error.data).toEqual({ orderId: "ORD-3" });
-        }
+      expect(empty).toBeErrTagged("@temporal-contract/ContractError");
+      if (empty.isErr() && empty.error instanceof ContractError) {
+        expect(empty.error.errorName).toBe("EmptyOrder");
+        expect(empty.error.data).toEqual({ orderId: "ORD-3" });
       }
     });
 
@@ -144,12 +135,12 @@ describe("time-skipping TestWorkflowEnvironment", () => {
       workflowsPath: workflowPath("inprocess.workflows"),
       activities,
     });
-    expect(workerResult.isOk()).toBe(true);
+    expect(workerResult).toBeOk();
     if (!workerResult.isOk()) return;
     const worker = workerResult.value;
 
     const clientResult = await TypedClient.create({ client: testEnv.client });
-    expect(clientResult.isOk()).toBe(true);
+    expect(clientResult).toBeOk();
     if (!clientResult.isOk()) return;
     const client = clientResult.value.for(inprocessContract);
 
@@ -159,11 +150,11 @@ describe("time-skipping TestWorkflowEnvironment", () => {
         workflowId,
         args: {},
       });
-      expect(started.isOk()).toBe(true);
+      expect(started).toBeOk();
       if (!started.isOk()) return;
 
       const cancelResult = await started.value.cancel();
-      expect(cancelResult.isOk()).toBe(true);
+      expect(cancelResult).toBeOk();
 
       // Await completion via the raw handle (the result rejects with the
       // cancellation failure — that rejection is the point), then assert the
@@ -182,7 +173,7 @@ describe("time-skipping TestWorkflowEnvironment", () => {
       workflowsPath: workflowPath("does-not-exist"),
       activities,
     });
-    expect(workerResult.isDefect()).toBe(true);
+    expect(workerResult).toBeDefect();
     if (workerResult.isDefect()) {
       const cause = workerResult.cause;
       expect(cause).toBeInstanceOf(TechnicalError);

@@ -19,7 +19,16 @@
       "entry": ["src/__tests__/test.workflows.ts", "src/__tests__/second.workflows.ts"]
     },
     "packages/worker": {
-      "entry": ["src/__tests__/test.workflows.ts", "src/__tests__/inprocess.workflows.ts"]
+      "entry": [
+        "src/__tests__/test.workflows.ts",
+        "src/__tests__/inprocess.workflows.ts",
+        "src/__tests__/rehydration.workflows.ts",
+        "src/__tests__/routing.workflows.ts",
+        "src/__tests__/registration-complete.workflows.ts",
+        "src/__tests__/registration-mismatch.workflows.ts",
+        "src/__tests__/registration-missing.workflows.ts",
+        "src/__tests__/registration-raw.workflows.ts"
+      ]
     },
     "examples/order-processing-worker": {
       "entry": ["src/application/workflows.ts"]

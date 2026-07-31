@@ -58,9 +58,6 @@
     "test:watch": "vitest --project unit",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "testcontainers": "catalog:"
-  },
   "devDependencies": {
     "@arethetypeswrong/cli": "catalog:",
     "@btravstack/tsconfig": "catalog:",
@@ -70,8 +67,10 @@
     "@temporalio/worker": "catalog:",
     "@temporalio/workflow": "catalog:",
     "@types/node": "catalog:",
+    "@unthrown/vitest": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "publint": "catalog:",
+    "testcontainers": "catalog:",
     "tsdown": "catalog:",
     "typedoc": "catalog:",
     "typedoc-plugin-markdown": "catalog:",
@@ -87,8 +86,14 @@
     "@temporalio/client": "^1",
     "@temporalio/testing": "^1",
     "@temporalio/worker": "^1",
+    "testcontainers": "^12",
     "unthrown": "^5.0.0",
     "vitest": "^4"
+  },
+  "peerDependenciesMeta": {
+    "testcontainers": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=22.19.0"
