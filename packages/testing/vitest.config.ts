@@ -62,6 +62,10 @@ export default defineConfig({
           include: ["src/**/__tests__/*.spec.ts"],
           setupFiles: ["./src/vitest.setup.ts"],
           testTimeout: 30_000,
+          // Fixture setup opens Temporal connections and builds a workflow
+          // bundle before the test body runs; Vitest's 10s hook default is
+          // too tight for that on a loaded CI runner.
+          hookTimeout: 60_000,
         },
       },
     ],
