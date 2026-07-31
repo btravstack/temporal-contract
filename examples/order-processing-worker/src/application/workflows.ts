@@ -2,8 +2,15 @@ import {
   orderProcessingContract,
   type OrderStatusSchema,
 } from "@temporal-contract/sample-order-processing-contract";
-import { declareWorkflow } from "@temporal-contract/worker/workflow";
-import { condition, isCancellation, log } from "@temporalio/workflow";
+import {
+  ACTIVITY_CANCELLED_ERROR_TAG,
+  ACTIVITY_ERROR_TAG,
+  declareWorkflow,
+  rethrowCancellation,
+  WORKFLOW_CANCELLED_ERROR_TAG,
+} from "@temporal-contract/worker/workflow";
+import { condition, log } from "@temporalio/workflow";
+import { P } from "unthrown";
 import type { z } from "zod";
 
 type OrderStatus = z.infer<typeof OrderStatusSchema>;
@@ -29,9 +36,13 @@ const APPROVAL_TIMEOUT = "5 minutes";
  *   (domain + infrastructure). `processPayment` declares a contract error,
  *   so its workflow-side call returns an `AsyncResult` whose error channel
  *   carries the typed `PaymentDeclined` (plus the generic activity errors).
- * - A declined payment is rethrown as this workflow's own declared contract
- *   error (`context.errors.PaymentDeclined`), so the typed client rehydrates
- *   it — the one failure path that is an *error*, not a "failed" result.
+ * - That error channel is folded once, at the call site, with
+ *   `match({ ok, errCases, defect })`: a declined payment is rethrown as
+ *   this workflow's own declared contract error
+ *   (`context.errors.PaymentDeclined`) so the typed client rehydrates it,
+ *   cancellation is re-raised with `rethrowCancellation` so the execution
+ *   ends `Cancelled`, an undeclared activity failure becomes a "failed"
+ *   order result, and a defect fails the Workflow Task.
  *
  * Determinism note: everything here is replay-safe — `condition` and `log`
  * come from `@temporalio/workflow`, signal/query state is plain local data,
@@ -138,57 +149,67 @@ export const processOrder = declareWorkflow({
 
     // `processPayment` declares `errors` in the contract, so the call returns
     // `AsyncResult<PaymentResult, PaymentDeclined | ActivityError |
-    // ActivityCancelledError>` instead of a throwing Promise.
-    const paymentResult = await activities.processPayment({
-      customerId: order.customerId,
-      amount: order.totalAmount,
-    });
+    // ActivityCancelledError>` instead of a throwing Promise. Fold all three
+    // channels once, at the call site — every arm either produces a value or
+    // deliberately ends the workflow.
+    const paymentOutcome = await activities
+      .processPayment({ customerId: order.customerId, amount: order.totalAmount })
+      .match({
+        ok: (payment) => payment,
+        errCases: (matcher) =>
+          matcher
+            // The only declared error on `processPayment` — the object
+            // pattern narrows the shared-`_tag` `ContractError` union by
+            // `errorName`, typing `failure.data` as `{ reason: string }`.
+            .with({ errorName: "PaymentDeclined" }, async (failure) => {
+              status = "failed";
+              log.error(`Payment declined for order ${order.orderId}: ${failure.data.reason}`);
 
-    if (!paymentResult.isOk()) {
-      status = "failed";
+              await activities.sendNotification({
+                customerId: order.customerId,
+                subject: "Order Failed",
+                message: `We're sorry, but your order ${order.orderId} could not be processed. Your payment was declined (${failure.data.reason}).`,
+              });
 
-      if (paymentResult.isDefect()) {
+              // Rethrow as this workflow's own declared contract error: the
+              // execution fails with `ApplicationFailure(type: "PaymentDeclined")`
+              // and the typed client rehydrates it into a `ContractError`.
+              // oxlint-disable-next-line unthrown/no-throw -- sanctioned ApplicationFailure model: `throw context.errors.X(...)` is how a workflow fails terminally with a typed contract error (CLAUDE.md rule 2 exception)
+              throw context.errors.PaymentDeclined(
+                { reason: failure.data.reason },
+                { cause: failure },
+              );
+            })
+            // Cancellation rides the modeled Err channel — mapping it to a
+            // "failed" order would complete the workflow instead of honoring
+            // the cancel. Re-raise it so the execution ends `Cancelled`.
+            .with(P.tag(ACTIVITY_CANCELLED_ERROR_TAG), (failure) => rethrowCancellation(failure))
+            // Undeclared activity failure (retries exhausted, timeout):
+            // surface a failed order result.
+            .with(P.tag(ACTIVITY_ERROR_TAG), (failure) => {
+              status = "failed";
+              log.error(`Payment activity failed for order ${order.orderId}: ${failure.message}`);
+              return {
+                orderId: order.orderId,
+                status: "failed" as const,
+                failureReason: "Payment could not be processed",
+                errorCode: "PAYMENT_UNAVAILABLE",
+              };
+            }),
         // Unmodeled failure (a bug, not an anticipated outcome) — rethrow at
         // the edge so Temporal surfaces the Workflow Task failure.
-        // oxlint-disable-next-line unthrown/no-throw -- defect-cause rethrow at the edge: an unmodeled failure must surface as a Workflow Task failure
-        throw paymentResult.cause;
-      }
-      const failure = paymentResult.error;
+        defect: (cause) => {
+          // oxlint-disable-next-line unthrown/no-throw -- defect-cause rethrow at the edge: an unmodeled failure must surface as a Workflow Task failure
+          throw cause;
+        },
+      });
 
-      switch (failure._tag) {
-        case "@temporal-contract/ContractError": {
-          // The only declared error on `processPayment` is PaymentDeclined,
-          // so `failure.data` is typed `{ reason: string }`.
-          log.error(`Payment declined for order ${order.orderId}: ${failure.data.reason}`);
-
-          await activities.sendNotification({
-            customerId: order.customerId,
-            subject: "Order Failed",
-            message: `We're sorry, but your order ${order.orderId} could not be processed. Your payment was declined (${failure.data.reason}).`,
-          });
-
-          // Rethrow as this workflow's own declared contract error: the
-          // execution fails with `ApplicationFailure(type: "PaymentDeclined")`
-          // and the typed client rehydrates it into a `ContractError`.
-          // oxlint-disable-next-line unthrown/no-throw -- sanctioned ApplicationFailure model: `throw context.errors.X(...)` is how a workflow fails terminally with a typed contract error (CLAUDE.md rule 2 exception)
-          throw context.errors.PaymentDeclined({ reason: failure.data.reason }, { cause: failure });
-        }
-        case "@temporal-contract/ActivityError":
-        case "@temporal-contract/ActivityCancelledError": {
-          // Unclassified activity failure (retries exhausted, timeout,
-          // cancellation): surface a failed order result.
-          log.error(`Payment activity failed for order ${order.orderId}: ${failure.message}`);
-          return {
-            orderId: order.orderId,
-            status: "failed" as const,
-            failureReason: "Payment could not be processed",
-            errorCode: "PAYMENT_UNAVAILABLE",
-          };
-        }
-      }
+    if ("status" in paymentOutcome) {
+      // The fold produced the workflow's failed output — return it as-is.
+      return paymentOutcome;
     }
 
-    const payment = paymentResult.value;
+    const payment = paymentOutcome;
     log.info(`Payment successful: ${payment.transactionId}`);
 
     // ------------------------------------------------------------------
@@ -235,23 +256,33 @@ export const processOrder = declareWorkflow({
 
     log.info(`Shipment created: ${shippingResult.trackingNumber}`);
 
-    // Step 5: Send success notification (non-critical)
-    try {
-      await activities.sendNotification({
-        customerId: order.customerId,
-        subject: "Order Confirmed",
-        message: `Your order ${order.orderId} has been confirmed and will be shipped. Tracking: ${shippingResult.trackingNumber}`,
+    // Step 5: Send success notification (non-critical). `sendNotification`
+    // declares no errors, so it is a throwing Promise — `cancellableScope`
+    // folds it into the Result discipline instead of a `try/catch`:
+    // cancellation surfaces as `Err(WorkflowCancelledError)`, anything else
+    // it throws is a defect.
+    await context
+      .cancellableScope(() =>
+        activities.sendNotification({
+          customerId: order.customerId,
+          subject: "Order Confirmed",
+          message: `Your order ${order.orderId} has been confirmed and will be shipped. Tracking: ${shippingResult.trackingNumber}`,
+        }),
+      )
+      .match({
+        ok: () => undefined,
+        // Cancellation must propagate — absorbing it here would complete the
+        // workflow after a cancel request instead of ending it `Cancelled`.
+        errCases: (matcher) =>
+          matcher.with(P.tag(WORKFLOW_CANCELLED_ERROR_TAG), (cancelled) =>
+            rethrowCancellation(cancelled),
+          ),
+        // Non-critical: the order is already shipped, so even an unmodeled
+        // notification failure is only worth a warning.
+        defect: (cause) => {
+          log.warn(`Failed to send confirmation notification: ${cause}`);
+        },
       });
-    } catch (error) {
-      // Cancellation must propagate — swallowing it here would leave the
-      // workflow running after a cancel request.
-      if (isCancellation(error)) {
-        // oxlint-disable-next-line unthrown/no-throw -- cancellation rethrow: swallowing a CancelledFailure would leave the workflow running after a cancel request
-        throw error;
-      }
-      // Non-critical: log but continue
-      log.warn(`Failed to send confirmation notification: ${error}`);
-    }
 
     // Success!
     status = "completed";
