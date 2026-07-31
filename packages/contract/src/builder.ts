@@ -570,7 +570,9 @@ function assertDuration(context: string, key: string, value: unknown): void {
   if (typeof value !== "string") {
     fail(`${context}: ${key} must be an ms-formatted string or a number of milliseconds`);
   }
-  if (!MS_DURATION_PATTERN.test(value) || value.length > 100) {
+  // Cheap length cap first: the regex is linear, but there is no reason to
+  // run it over an arbitrarily long string when the cap rejects it anyway.
+  if (value.length > 100 || !MS_DURATION_PATTERN.test(value)) {
     fail(
       `${context}: ${key} has invalid duration "${value}" — expected an ms-formatted string (a number followed by an optional unit ms/s/m/h/d/w/y or its long form, e.g. "30s", "5 minutes", "1.5h") or a number of milliseconds`,
     );

@@ -64,7 +64,8 @@ export type ActivityRetryPolicy = {
 };
 
 /**
- * Contract-level default `ActivityOptions` for a single activity.
+ * Contract-level default activity options for a single activity — the
+ * portable subset of Temporal's `ActivityOptions`.
  *
  * Declared on `defineActivity` so operational behavior (timeouts, retry
  * policy) ships with the contract as a single source of truth shared by
@@ -80,7 +81,7 @@ export type ActivityRetryPolicy = {
  * deliberately excluded — those belong to the worker's
  * `activityOptionsByName`, not the portable contract.
  */
-export type ActivityDefaultOptions = {
+export type ContractActivityOptions = {
   readonly startToCloseTimeout?: DurationValue;
   readonly scheduleToCloseTimeout?: DurationValue;
   readonly scheduleToStartTimeout?: DurationValue;
@@ -99,7 +100,7 @@ export type ActivityDefinition<
   readonly input: TInput;
   readonly output: TOutput;
   readonly errors?: TErrors;
-  readonly activityOptions?: ActivityDefaultOptions;
+  readonly activityOptions?: ContractActivityOptions;
 };
 
 /**
