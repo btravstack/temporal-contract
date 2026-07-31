@@ -132,12 +132,18 @@ export type TypedScheduleHandle = {
    * has no schema to check it against); prefer delete + `create` for
    * contract-level changes.
    *
-   * Implementation note: validation is asynchronous (schemas may be), so
-   * the description is fetched by this wrapper and the *already-computed*
-   * options are handed to Temporal's `ScheduleHandle.update`. `updateFn` is
-   * therefore invoked exactly once per call — on a server-side conflict the
-   * same computed options are retried, rather than `updateFn` being re-run
-   * against a fresh description.
+   * Concurrency: **last writer wins.** Temporal's `UpdateSchedule` RPC is
+   * unconditional — the TypeScript SDK sends no conflict token and does not
+   * re-run `updateFn` on a conflict — so a concurrent modification landing
+   * between the read and the write is overwritten. That is true of the raw
+   * SDK too; this wrapper does not weaken it, but it does widen the window
+   * slightly: validation is asynchronous (schemas may be), so the wrapper
+   * fetches the description itself and hands the *already-computed* options
+   * to `ScheduleHandle.update`, which describes again internally. `updateFn`
+   * is invoked exactly once per call, and the options that are validated are
+   * exactly the options that are persisted.
+   *
+   * If two writers can race on one schedule, serialize them yourself.
    */
   update: (
     updateFn: (

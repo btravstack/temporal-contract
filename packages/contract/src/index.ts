@@ -28,7 +28,7 @@ export type {
   InferErrorData,
   InferErrorDataInput,
   // Contract-level activity option defaults
-  ActivityDefaultOptions,
+  ContractActivityOptions,
   ActivityRetryPolicy,
   DurationValue,
   // Search attributes
