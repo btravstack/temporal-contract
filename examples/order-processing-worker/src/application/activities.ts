@@ -11,6 +11,13 @@ import {
   createShipmentUseCase,
   refundPaymentUseCase,
 } from "../dependencies.js";
+import {
+  InventoryError,
+  NotificationError,
+  OrderRepositoryError,
+  PaymentError,
+  ShippingError,
+} from "../domain/errors.js";
 
 /**
  * Activity implementations using unthrown's `AsyncResult` pattern.
@@ -53,10 +60,14 @@ export const activities = declareActivitiesHandler({
       fromPromise(
         sendNotificationUseCase.execute(customerId, subject, message),
         qualifyFailure("NOTIFICATION_FAILED", {
-          // Anticipated failure shape: the domain layer signals technical
-          // faults by throwing plain `Error`s. Anything else (a TypeError
-          // from a bug, ...) stays a defect and re-throws at the edge.
-          expected: Error,
+          // `expected` names the failures this activity *anticipates*. The
+          // notification port signals its faults with `NotificationError`, so
+          // only those become the modeled `NOTIFICATION_FAILED` failure.
+          // Anything else — a `TypeError` from a bug, a null deref — is not a
+          // business failure: it rides unthrown's defect channel and re-throws
+          // at the activity edge with its original stack. Use
+          // `expected: "any"` if you deliberately want the old catch-all.
+          expected: NotificationError,
           message: "Failed to send notification",
         }),
       ),
@@ -64,7 +75,10 @@ export const activities = declareActivitiesHandler({
     purgeExpiredOrders: ({ olderThanDays }) =>
       fromPromise(
         purgeExpiredOrdersUseCase.execute(olderThanDays),
-        qualifyFailure("ORDER_PURGE_FAILED", { expected: Error, message: "Order purge failed" }),
+        qualifyFailure("ORDER_PURGE_FAILED", {
+          expected: OrderRepositoryError,
+          message: "Order purge failed",
+        }),
       ).map((purgedCount) => ({ purgedCount })),
 
     processOrder: {
@@ -79,7 +93,7 @@ export const activities = declareActivitiesHandler({
         fromPromise(
           processPaymentUseCase.execute(customerId, amount),
           qualifyFailure("PAYMENT_GATEWAY_ERROR", {
-            expected: Error,
+            expected: PaymentError,
             message: "Payment gateway call failed",
           }),
         ).flatMap((outcome) => {
@@ -93,7 +107,7 @@ export const activities = declareActivitiesHandler({
         fromPromise(
           reserveInventoryUseCase.execute(items),
           qualifyFailure("INVENTORY_RESERVATION_FAILED", {
-            expected: Error,
+            expected: InventoryError,
             message: "Inventory reservation failed",
           }),
         ),
@@ -102,7 +116,7 @@ export const activities = declareActivitiesHandler({
         fromPromise(
           releaseInventoryUseCase.execute(reservationId),
           qualifyFailure("INVENTORY_RELEASE_FAILED", {
-            expected: Error,
+            expected: InventoryError,
             message: "Inventory release failed",
           }),
         ),
@@ -111,7 +125,7 @@ export const activities = declareActivitiesHandler({
         fromPromise(
           createShipmentUseCase.execute(orderId, customerId),
           qualifyFailure("SHIPMENT_CREATION_FAILED", {
-            expected: Error,
+            expected: ShippingError,
             message: "Shipment creation failed",
           }),
         ),
@@ -119,7 +133,7 @@ export const activities = declareActivitiesHandler({
       refundPayment: (transactionId) =>
         fromPromise(
           refundPaymentUseCase.execute(transactionId),
-          qualifyFailure("REFUND_FAILED", { expected: Error, message: "Refund failed" }),
+          qualifyFailure("REFUND_FAILED", { expected: PaymentError, message: "Refund failed" }),
         ),
     },
   },

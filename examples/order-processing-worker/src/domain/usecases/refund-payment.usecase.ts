@@ -1,3 +1,4 @@
+import { PaymentError } from "../errors.js";
 import type { PaymentPort } from "../ports/payment.port.js";
 
 /**
@@ -12,7 +13,7 @@ export class RefundPaymentUseCase {
     // Business validation
     if (!transactionId || transactionId.trim() === "") {
       // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
-      throw new Error("Transaction ID is required");
+      throw new PaymentError("Transaction ID is required");
     }
 
     // Delegate to payment port
