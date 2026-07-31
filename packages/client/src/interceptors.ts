@@ -20,13 +20,19 @@ import type { AnyContractError } from "@temporal-contract/contract/errors";
 import type { AsyncResult } from "unthrown";
 
 import type {
+  QueryFailedError,
   QueryValidationError,
   SignalValidationError,
+  UpdateFailedError,
+  UpdateRejectedError,
   UpdateValidationError,
   WorkflowAlreadyStartedError,
+  WorkflowCancelledError,
   WorkflowExecutionNotFoundError,
   WorkflowFailedError,
   WorkflowNotInContractError,
+  WorkflowTerminatedError,
+  WorkflowTimeoutError,
   WorkflowValidationError,
 } from "./errors.js";
 
@@ -42,10 +48,16 @@ export type ClientCallError =
   | WorkflowValidationError
   | WorkflowAlreadyStartedError
   | WorkflowFailedError
+  | WorkflowCancelledError
+  | WorkflowTerminatedError
+  | WorkflowTimeoutError
   | WorkflowExecutionNotFoundError
   | SignalValidationError
   | QueryValidationError
+  | QueryFailedError
   | UpdateValidationError
+  | UpdateFailedError
+  | UpdateRejectedError
   | AnyContractError;
 
 /**
@@ -120,15 +132,51 @@ export type ClientInterceptor = (
 ) => AsyncResult<unknown, ClientCallError>;
 
 /**
+ * The keys of a patch an interceptor is allowed to change — the two payload
+ * fields. Identity fields (`operation`, `workflowName`, `workflowId`,
+ * `name`) describe *which* call is in flight and are owned by the call site;
+ * an interceptor observing or patching a call must not be able to relabel
+ * it mid-chain.
+ */
+type InterceptorPatch = {
+  readonly input?: unknown;
+  readonly signalInput?: unknown;
+};
+
+/**
+ * Merge ONLY the payload keys of a patch over the current invocation. A key
+ * is copied when the patch *carries* it (`"input" in patch`), so patching
+ * `input: undefined` still overwrites — while any non-payload key an
+ * interceptor smuggles into the patch object is dropped.
+ */
+function mergePatch<TArgs extends object>(current: TArgs, patch: InterceptorPatch): TArgs {
+  const merged = { ...current };
+  if ("input" in patch) {
+    (merged as { input?: unknown }).input = patch.input;
+  }
+  if ("signalInput" in patch) {
+    (merged as { signalInput?: unknown }).signalInput = patch.signalInput;
+  }
+  return merged;
+}
+
+/**
  * Run `terminal` through a chain of interceptors, outermost-first. Each
- * interceptor's `next(patch)` shallow-merges the patch over the current args
- * and advances; calling `next` again re-runs the rest of the chain (retry).
+ * interceptor's `next(patch)` merges the patch's payload keys (`input`,
+ * `signalInput` — and only those; identity fields like `workflowName`
+ * cannot be rewritten) over the current args and advances; calling `next`
+ * again re-runs the rest of the chain (retry).
  *
  * Ported from amqp-contract's `chainInterceptors`.
  *
  * @internal
  */
-export function chainInterceptors<TArgs extends object, TPatch extends object, TValue, TError>(
+export function chainInterceptors<
+  TArgs extends object,
+  TPatch extends InterceptorPatch,
+  TValue,
+  TError,
+>(
   interceptors: readonly ((
     args: TArgs,
     next: (patch?: TPatch) => AsyncResult<TValue, TError>,
@@ -139,6 +187,8 @@ export function chainInterceptors<TArgs extends object, TPatch extends object, T
   const run = (index: number, current: TArgs): AsyncResult<TValue, TError> =>
     index >= interceptors.length
       ? terminal(current)
-      : interceptors[index]!(current, (patch) => run(index + 1, { ...current, ...patch }));
+      : interceptors[index]!(current, (patch) =>
+          run(index + 1, patch === undefined ? current : mergePatch(current, patch)),
+        );
   return run(0, args);
 }

@@ -1,4 +1,10 @@
-import { TypedClient } from "@temporal-contract/client";
+import {
+  tagPatterns,
+  TypedClient,
+  WORKFLOW_OUTCOME_ERROR_TAGS,
+  WORKFLOW_RESULT_ERROR_TAGS,
+  WORKFLOW_START_ERROR_TAGS,
+} from "@temporal-contract/client";
 import {
   orderProcessingContract,
   type OrderSchema,
@@ -126,14 +132,11 @@ async function run() {
             `❌ Payment declined: ${err.data.reason}`,
           ),
         )
-        .with(P.tag("@temporal-contract/WorkflowValidationError"), (err) =>
-          logger.error({ error: err }, "❌ Workflow output validation failed"),
-        )
-        .with(P.tag("@temporal-contract/WorkflowFailedError"), (err) =>
-          logger.error({ error: err, cause: err.cause }, "❌ Workflow completed with failure"),
-        )
-        .with(P.tag("@temporal-contract/WorkflowExecutionNotFoundError"), (err) =>
-          logger.error({ error: err }, "❌ Workflow execution not found in namespace"),
+        // Everything else the result phase can surface — validation, generic
+        // failure, the first-class outcome trio (cancelled/terminated/timed
+        // out), and a missing execution — grouped via the exported bundle.
+        .with(...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS), (err) =>
+          logger.error({ error: err }, "❌ Workflow did not complete successfully"),
         ),
     defect: (cause) => logger.error({ cause }, "❌ Unexpected failure awaiting result"),
   });
@@ -192,6 +195,12 @@ async function run() {
         .with(P.tag("@temporal-contract/ContractError"), (err) =>
           logger.error({ errorName: err.errorName }, "❌ Payment declined"),
         )
+        // The first-class outcome errors get their own arm here: a
+        // server-side cancel / terminate / timeout is a distinct outcome,
+        // not a generic "failure" — no `err.cause instanceof ...` digging.
+        .with(...tagPatterns(WORKFLOW_OUTCOME_ERROR_TAGS), (err) =>
+          logger.warn({ error: err }, `🛑 Workflow ${err.name}: execution was stopped`),
+        )
         .with(P.tag("@temporal-contract/WorkflowValidationError"), (err) =>
           logger.error({ error: err }, "❌ Workflow output validation failed"),
         )
@@ -246,23 +255,20 @@ async function run() {
             `❌ Payment declined: ${err.data.reason}`,
           ),
         )
-        .with(P.tag("@temporal-contract/WorkflowNotInContractError"), (err) =>
-          logger.error({ error: err }, "❌ Workflow not declared in the contract"),
-        )
-        .with(P.tag("@temporal-contract/WorkflowValidationError"), (err) =>
-          logger.error({ error: err }, "❌ Validation failed"),
-        )
         // Idempotent fast-path: a workflow with this ID is already running
         // (or in retention). Production callers can re-fetch the existing
-        // handle; here we just log and move on.
+        // handle; here we just log and move on. (Handled before the grouped
+        // bundles so it keeps its dedicated branch.)
         .with(P.tag("@temporal-contract/WorkflowAlreadyStartedError"), (err) =>
           logger.warn({ error: err }, "⏭️  Workflow already started — skipping"),
         )
-        .with(P.tag("@temporal-contract/WorkflowFailedError"), (err) =>
-          logger.error({ error: err, cause: err.cause }, "❌ Workflow completed with failure"),
-        )
-        .with(P.tag("@temporal-contract/WorkflowExecutionNotFoundError"), (err) =>
-          logger.error({ error: err }, "❌ Workflow execution not found in namespace"),
+        // Everything else executeWorkflow can err with — the start-phase and
+        // result-phase bundles together cover the full union, so a widened
+        // union in a future release fails compilation right here.
+        .with(
+          ...tagPatterns(WORKFLOW_START_ERROR_TAGS),
+          ...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS),
+          (err) => logger.error({ error: err }, "❌ Order processing failed"),
         ),
     // A defect is an unmodeled failure (a bug) — including technical/
     // infrastructure faults like a dropped connection (a `RuntimeClientError`

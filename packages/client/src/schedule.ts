@@ -1,4 +1,4 @@
-import type { ContractDefinition } from "@temporal-contract/contract";
+import type { AnyWorkflowDefinition, ContractDefinition } from "@temporal-contract/contract";
 import type {
   Backfill,
   ListScheduleOptions,
@@ -13,7 +13,7 @@ import type {
   ScheduleUpdateOptions,
   Workflow,
 } from "@temporalio/client";
-import { type AsyncResult, Ok, Err, fromPromise } from "unthrown";
+import { type AsyncResult, Ok, Err, OkAsync, fromPromise } from "unthrown";
 
 import type { TypedSearchAttributeMap } from "./client.js";
 import {
@@ -28,6 +28,7 @@ import {
   classifyScheduleHandleError,
   makeAsyncResult,
   toTypedSearchAttributes,
+  validateStandardSchema,
 } from "./internal.js";
 import type { ClientInferInput } from "./types.js";
 
@@ -119,19 +120,30 @@ export type TypedScheduleHandle = {
   /** Fire the schedule's action immediately. */
   trigger: (overlap?: ScheduleOverlapPolicy) => AsyncResult<void, ScheduleNotFoundError>;
   /**
-   * Update the schedule definition: Temporal fetches the current
+   * Update the schedule definition: the handle fetches the current
    * description, hands it to `updateFn`, and persists the returned options.
-   * `updateFn` may be invoked more than once on conflict — keep it pure.
    *
-   * Passthrough of Temporal's `ScheduleHandle.update`; the action's
-   * `workflowType`/`taskQueue`/`args` are not re-validated against the
-   * contract here — prefer delete + `create` for contract-level changes.
+   * When the returned action's `workflowType` names a workflow declared on
+   * the bound contract, the action's `args` are validated against that
+   * workflow's input schema before anything is persisted — a mismatch
+   * surfaces as {@link WorkflowValidationError} on the Err channel and the
+   * schedule is left untouched. An action whose `workflowType` is NOT
+   * declared on the contract is persisted as-is (passthrough — the contract
+   * has no schema to check it against); prefer delete + `create` for
+   * contract-level changes.
+   *
+   * Implementation note: validation is asynchronous (schemas may be), so
+   * the description is fetched by this wrapper and the *already-computed*
+   * options are handed to Temporal's `ScheduleHandle.update`. `updateFn` is
+   * therefore invoked exactly once per call — on a server-side conflict the
+   * same computed options are retried, rather than `updateFn` being re-run
+   * against a fresh description.
    */
   update: (
     updateFn: (
       previous: ScheduleDescription,
     ) => ScheduleUpdateOptions<ScheduleOptionsStartWorkflowAction<Workflow>>,
-  ) => AsyncResult<void, ScheduleNotFoundError>;
+  ) => AsyncResult<void, ScheduleNotFoundError | WorkflowValidationError>;
   /**
    * Run the schedule's action for historical time ranges, as if the
    * schedule had been active over them. Passthrough of Temporal's
@@ -147,19 +159,28 @@ export type TypedScheduleHandle = {
 /**
  * Typed wrapper around Temporal's `ScheduleClient`. Exposed as
  * `contractClient.schedule` — keeps the typed-client surface organized the
- * same way Temporal's own `Client.schedule` does.
+ * same way Temporal's own `Client.schedule` does. Not constructible
+ * directly: the class is exported for type annotations only.
  */
 export class TypedScheduleClient<TContract extends ContractDefinition> {
-  /**
-   * Constructed exclusively by {@link ContractClient}'s constructor. Not
-   * part of the public API — reach it via `typedClient.for(contract).schedule`.
-   *
-   * @internal
-   */
-  constructor(
+  private constructor(
     private readonly contract: TContract,
     private readonly scheduleClient: ScheduleClient,
   ) {}
+
+  /**
+   * Constructed exclusively by `ContractClient` (itself handed out by
+   * `TypedClient.for`). Not part of the public API — reach instances via
+   * `typedClient.for(contract).schedule`.
+   *
+   * @internal
+   */
+  static _internal_create<TContract extends ContractDefinition>(
+    contract: TContract,
+    scheduleClient: ScheduleClient,
+  ): TypedScheduleClient<TContract> {
+    return new TypedScheduleClient(contract, scheduleClient);
+  }
 
   /**
    * Create a new schedule that, on each fire, starts the named contract
@@ -183,8 +204,11 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
     TypedScheduleHandle,
     WorkflowNotInContractError | WorkflowValidationError | ScheduleAlreadyExistsError
   > {
-    type Ok = TypedScheduleHandle;
-    type Err = WorkflowNotInContractError | WorkflowValidationError | ScheduleAlreadyExistsError;
+    type CreateOk = TypedScheduleHandle;
+    type CreateErr =
+      | WorkflowNotInContractError
+      | WorkflowValidationError
+      | ScheduleAlreadyExistsError;
     const work = async () => {
       const definition = this.contract.workflows[workflowName];
       if (!definition) {
@@ -250,7 +274,7 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
           ...(options.state !== undefined ? { state: options.state } : {}),
           ...(options.memo !== undefined ? { memo: options.memo } : {}),
         });
-        return Ok(wrapScheduleHandle(handle));
+        return Ok(wrapScheduleHandle(handle, this.contract));
       } catch (error) {
         const alreadyExists = classifyScheduleCreateError(error, options.scheduleId);
         if (alreadyExists) return Err(alreadyExists);
@@ -259,7 +283,7 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
         throw new RuntimeClientError("schedule.create", error);
       }
     };
-    return makeAsyncResult<Ok, Err>(work);
+    return makeAsyncResult<CreateOk, CreateErr>(work);
   }
 
   /**
@@ -268,7 +292,7 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
    * {@link ScheduleNotFoundError} if the underlying ID is unknown.
    */
   getHandle(scheduleId: string): TypedScheduleHandle {
-    return wrapScheduleHandle(this.scheduleClient.getHandle(scheduleId));
+    return wrapScheduleHandle(this.scheduleClient.getHandle(scheduleId), this.contract);
   }
 
   /**
@@ -282,7 +306,10 @@ export class TypedScheduleClient<TContract extends ContractDefinition> {
   }
 }
 
-function wrapScheduleHandle(handle: ScheduleHandle): TypedScheduleHandle {
+function wrapScheduleHandle(
+  handle: ScheduleHandle,
+  contract: ContractDefinition,
+): TypedScheduleHandle {
   // Every lifecycle method shares the classify-or-defect tail: a missing
   // schedule is the modeled Err; anything else rides the defect channel.
   return {
@@ -309,12 +336,58 @@ function wrapScheduleHandle(handle: ScheduleHandle): TypedScheduleHandle {
           defect(new RuntimeClientError("schedule.trigger", error)),
       ).map(() => undefined),
     update: (updateFn) =>
+      // Fetch the current description here (rather than inside Temporal's
+      // own `update`) so the computed options can be validated with the
+      // same async schema machinery as `create` BEFORE anything persists.
       fromPromise(
-        handle.update(updateFn),
+        handle.describe(),
         (error, defect) =>
           classifyScheduleHandleError(error, handle.scheduleId) ??
           defect(new RuntimeClientError("schedule.update", error)),
-      ).map(() => undefined),
+      )
+        .flatMap((previous) => {
+          // A throwing updateFn is a caller bug — the flatMap net turns it
+          // into a defect, matching the raw SDK's rejection shape.
+          const updated = updateFn(previous);
+          // Temporal's action accepts a workflow *function* beside a string
+          // type name; a declared contract workflow is always addressed by
+          // its string name (that's how `create` writes it).
+          const workflowType = updated.action?.workflowType;
+          const workflowDef =
+            typeof workflowType === "string"
+              ? (contract.workflows[workflowType] as AnyWorkflowDefinition | undefined)
+              : undefined;
+          if (!workflowDef) {
+            // Action doesn't target a declared contract workflow — the
+            // contract has no schema to check it against, so persist as-is
+            // (documented passthrough).
+            return OkAsync(updated);
+          }
+          // Same machinery as `create`: async-validate the action's args
+          // against the declared workflow's input schema, fail early with
+          // the same typed error, and transmit the ORIGINAL args (D1).
+          return validateStandardSchema(workflowDef.input, updated.action.args?.[0]).flatMap(
+            (inputResult) =>
+              inputResult.issues
+                ? Err(
+                    new WorkflowValidationError(
+                      workflowType as string,
+                      "input",
+                      inputResult.issues,
+                    ),
+                  )
+                : Ok(updated),
+          );
+        })
+        .flatMap((updated) =>
+          fromPromise(
+            handle.update(() => updated),
+            (error, defect) =>
+              classifyScheduleHandleError(error, handle.scheduleId) ??
+              defect(new RuntimeClientError("schedule.update", error)),
+          ),
+        )
+        .map(() => undefined),
     backfill: (options) =>
       fromPromise(
         handle.backfill(options),

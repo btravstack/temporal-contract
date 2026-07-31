@@ -4,11 +4,11 @@ import { fileURLToPath } from "node:url";
 import { it as baseIt } from "@temporal-contract/testing/extension";
 import { Client } from "@temporalio/client";
 import { Worker } from "@temporalio/worker";
-import { P } from "unthrown";
 import { describe, expect, vi, beforeEach } from "vitest";
 
 import { type ContractClient, TypedClient } from "../client.js";
-import { WorkflowValidationError } from "../errors.js";
+import { WORKFLOW_RESULT_ERROR_TAGS, WORKFLOW_START_ERROR_TAGS } from "../error-tags.js";
+import { tagPatterns, WorkflowValidationError } from "../errors.js";
 import { secondContract } from "./second.contract.js";
 import { testContract } from "./test.contract.js";
 
@@ -547,12 +547,11 @@ describe("Client Package - Integration Tests", () => {
           expect(value).toEqual({ result: "Processed: test" });
         },
         errCases: (matcher) =>
+          // The exported tag bundles cover executeWorkflow's full error
+          // union (start phase + result phase, outcome trio included).
           matcher.with(
-            P.tag("@temporal-contract/WorkflowNotInContractError"),
-            P.tag("@temporal-contract/WorkflowValidationError"),
-            P.tag("@temporal-contract/WorkflowAlreadyStartedError"),
-            P.tag("@temporal-contract/WorkflowFailedError"),
-            P.tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+            ...tagPatterns(WORKFLOW_START_ERROR_TAGS),
+            ...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS),
             () => {
               throw new Error("Should not be called");
             },

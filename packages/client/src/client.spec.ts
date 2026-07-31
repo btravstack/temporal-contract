@@ -9,29 +9,42 @@ import {
 import { ContractError, TechnicalError } from "@temporal-contract/contract/errors";
 import {
   type Client,
+  QueryNotRegisteredError as TemporalQueryNotRegisteredError,
   WorkflowExecutionAlreadyStartedError,
   WorkflowFailedError as TemporalWorkflowFailedError,
+  WorkflowUpdateFailedError as TemporalWorkflowUpdateFailedError,
 } from "@temporalio/client";
 import {
   ApplicationFailure,
+  CancelledFailure,
   defineSearchAttributeKey,
+  TerminatedFailure,
+  TimeoutFailure,
+  TimeoutType,
   TypedSearchAttributes,
   WorkflowNotFoundError as TemporalWorkflowNotFoundError,
 } from "@temporalio/common";
-import { P } from "unthrown";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
 
 import { ContractClient, readTypedSearchAttributes, TypedClient } from "./client.js";
+import { WORKFLOW_RESULT_ERROR_TAGS, WORKFLOW_START_ERROR_TAGS } from "./error-tags.js";
 import {
+  QueryFailedError,
   QueryValidationError,
   RuntimeClientError,
   SignalValidationError,
+  tagPatterns,
+  UpdateFailedError,
+  UpdateRejectedError,
   UpdateValidationError,
   WorkflowAlreadyStartedError,
+  WorkflowCancelledError,
   WorkflowExecutionNotFoundError,
   WorkflowFailedError,
   WorkflowNotInContractError,
+  WorkflowTerminatedError,
+  WorkflowTimeoutError,
   WorkflowValidationError,
 } from "./errors.js";
 import type { ClientInterceptor } from "./interceptors.js";
@@ -122,10 +135,33 @@ vi.mock("@temporalio/client", () => {
       super(message);
     }
   }
+  // Mirrors Temporal's `WorkflowUpdateFailedError` shape (message + cause) —
+  // thrown while waiting on an update outcome, for both admission
+  // rejections and failed handlers.
+  class WorkflowUpdateFailedError extends Error {
+    constructor(
+      message: string,
+      public override readonly cause: Error | undefined,
+    ) {
+      super(message);
+    }
+  }
+  // Mirrors Temporal's `QueryNotRegisteredError` (message + gRPC code) —
+  // thrown for unregistered queries AND throwing query handlers.
+  class QueryNotRegisteredError extends Error {
+    constructor(
+      message: string,
+      public readonly code: number,
+    ) {
+      super(message);
+    }
+  }
   return {
     WorkflowHandle: vi.fn(),
     WorkflowExecutionAlreadyStartedError,
     WorkflowFailedError,
+    WorkflowUpdateFailedError,
+    QueryNotRegisteredError,
     ScheduleAlreadyRunning,
     ScheduleNotFoundError,
   };
@@ -941,12 +977,11 @@ describe("TypedClient", () => {
           expect(value).toEqual({ result: "success" });
         },
         errCases: (matcher) =>
+          // The two exported tag bundles cover executeWorkflow's full error
+          // union (start phase + result phase, outcome trio included).
           matcher.with(
-            P.tag("@temporal-contract/WorkflowNotInContractError"),
-            P.tag("@temporal-contract/WorkflowValidationError"),
-            P.tag("@temporal-contract/WorkflowAlreadyStartedError"),
-            P.tag("@temporal-contract/WorkflowFailedError"),
-            P.tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+            ...tagPatterns(WORKFLOW_START_ERROR_TAGS),
+            ...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS),
             () => {
               throw new Error("Should not be called");
             },
@@ -1347,6 +1382,84 @@ describe("TypedClient", () => {
         // The inner cause is forwarded, not Temporal's wrapper.
         expect(err.cause).toBe(innerFailure);
         expect(err.cause).not.toBeInstanceOf(TemporalWorkflowFailedError);
+      }
+    });
+
+    it("executeWorkflow classifies a CancelledFailure cause into WorkflowCancelledError", async () => {
+      const cancelled = new CancelledFailure("cancel requested");
+      mockWorkflow.execute.mockRejectedValue(
+        new TemporalWorkflowFailedError("failed", cancelled, "NON_RETRYABLE_FAILURE"),
+      );
+
+      const result = await typedClient.executeWorkflow("testWorkflow", {
+        workflowId: "test-123",
+        args: { name: "hello", value: 42 },
+      });
+
+      expect(result).toBeErr();
+      if (result.isErr()) {
+        expect(result.error).toBeInstanceOf(WorkflowCancelledError);
+        const err = result.error as WorkflowCancelledError;
+        expect(err.workflowId).toBe("test-123");
+        // The original CancelledFailure is kept as the cause.
+        expect(err.cause).toBe(cancelled);
+        // The generic wrapper is NOT used for the outcome trio.
+        expect(result.error).not.toBeInstanceOf(WorkflowFailedError);
+      }
+    });
+
+    it("executeWorkflow classifies a TimeoutFailure cause into WorkflowTimeoutError", async () => {
+      const timedOut = new TimeoutFailure(
+        "deadline exceeded",
+        undefined,
+        TimeoutType.START_TO_CLOSE,
+      );
+      mockWorkflow.execute.mockRejectedValue(
+        new TemporalWorkflowFailedError("failed", timedOut, "TIMEOUT"),
+      );
+
+      const result = await typedClient.executeWorkflow("testWorkflow", {
+        workflowId: "test-123",
+        args: { name: "hello", value: 42 },
+      });
+
+      expect(result).toBeErr();
+      if (result.isErr()) {
+        expect(result.error).toBeInstanceOf(WorkflowTimeoutError);
+        expect((result.error as WorkflowTimeoutError).cause).toBe(timedOut);
+      }
+    });
+
+    it("handle.result() classifies a TerminatedFailure cause into WorkflowTerminatedError", async () => {
+      const terminated = new TerminatedFailure("operator said so");
+      const handle = {
+        workflowId: "test-123",
+        result: vi
+          .fn()
+          .mockRejectedValue(
+            new TemporalWorkflowFailedError("failed", terminated, "NON_RETRYABLE_FAILURE"),
+          ),
+        query: vi.fn(),
+        signal: vi.fn(),
+        executeUpdate: vi.fn(),
+        terminate: vi.fn(),
+        cancel: vi.fn(),
+        describe: vi.fn(),
+        fetchHistory: vi.fn(),
+      };
+      mockWorkflow.getHandle.mockReturnValue(handle);
+
+      const handleResult = typedClient.getHandle("testWorkflow", "test-123");
+      if (!handleResult.isOk()) throw new Error("getHandle should succeed");
+      const result = await handleResult.value.result();
+
+      expect(result).toBeErr();
+      if (result.isErr()) {
+        expect(result.error).toBeInstanceOf(WorkflowTerminatedError);
+        const err = result.error as WorkflowTerminatedError;
+        expect(err.workflowId).toBe("test-123");
+        expect(err.cause).toBe(terminated);
+        expect(err.message).toContain("operator said so");
       }
     });
 
@@ -1878,6 +1991,40 @@ describe("TypedClient — interceptors", () => {
     expect(mockWorkflow.execute).not.toHaveBeenCalled();
   });
 
+  it("a patch merges ONLY the payload keys — identity fields cannot be rewritten", async () => {
+    mockWorkflow.execute.mockResolvedValue({ result: "ok" });
+    const seen: string[] = [];
+    // A hostile/buggy interceptor smuggles identity fields into the patch
+    // beside a legitimate input patch. Only the payload keys may merge.
+    const smuggling: ClientInterceptor = (_args, next) =>
+      next({
+        operation: "signal",
+        workflowName: "evil",
+        workflowId: "evil-id",
+        input: { name: "patched", value: 7 },
+      } as never);
+    const observing: ClientInterceptor = (args, next) => {
+      seen.push(`${args.operation}:${args.workflowName}:${args.workflowId}`);
+      return next();
+    };
+
+    const result = await (
+      await clientWith([smuggling, observing])
+    ).executeWorkflow("testWorkflow", {
+      workflowId: "wf-identity",
+      args: { name: "original", value: 1 },
+    });
+
+    expect(result).toBeOk();
+    // The downstream interceptor still sees the call's true identity...
+    expect(seen).toEqual(["executeWorkflow:testWorkflow:wf-identity"]);
+    // ...while the payload patch went through the normal validation pipeline.
+    expect(mockWorkflow.execute).toHaveBeenCalledWith(
+      "testWorkflow",
+      expect.objectContaining({ args: [{ name: "patched", value: 7 }] }),
+    );
+  });
+
   it("can retry by calling next again", async () => {
     mockWorkflow.execute
       .mockRejectedValueOnce(new Error("transient"))
@@ -2167,6 +2314,237 @@ describe("ContractClient — startUpdate", () => {
   });
 });
 
+describe("ContractClient — update/query operational errors", () => {
+  // Closes the defect-channel hole for routine operational outcomes: a
+  // failed/rejected update and an unserveable query are modeled Errs now,
+  // not defects.
+  const opContract = defineContract({
+    taskQueue: "op-q",
+    workflows: {
+      opWorkflow: defineWorkflow({
+        input: z.object({ id: z.string() }),
+        output: z.object({ ok: z.boolean() }),
+        queries: {
+          peek: { input: z.tuple([]), output: z.string() },
+        },
+        updates: {
+          adjust: { input: z.object({ delta: z.number() }), output: z.number() },
+        },
+      }),
+    },
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const getOpHandle = async (rawHandle: Record<string, unknown>) => {
+    mockWorkflow.getHandle.mockReturnValue(rawHandle);
+    const client = await bindContract(opContract, {
+      workflow: mockWorkflow,
+      schedule: mockSchedule,
+    } as unknown as Client);
+    const handleResult = client.getHandle("opWorkflow", "wf-op");
+    if (!handleResult.isOk()) throw new Error("expected Ok");
+    return handleResult.value;
+  };
+
+  // The wire shape of a worker-side admission rejection: the worker's
+  // update-input validator throws an ApplicationFailure whose `type` is
+  // pinned to "UpdateInputValidationError".
+  const rejectionFailure = () =>
+    ApplicationFailure.create({
+      type: "UpdateInputValidationError",
+      message: 'Update "adjust" input validation failed: at delta: expected number',
+      nonRetryable: true,
+    });
+
+  it("updates.* classifies a worker-side admission rejection into UpdateRejectedError", async () => {
+    const inner = rejectionFailure();
+    const executeUpdate = vi
+      .fn()
+      .mockRejectedValue(new TemporalWorkflowUpdateFailedError("Workflow Update failed", inner));
+    const handle = await getOpHandle({ workflowId: "wf-op", executeUpdate });
+
+    const result = await handle.updates.adjust({ delta: 1 });
+
+    expect(result).toBeErr();
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(UpdateRejectedError);
+      const err = result.error as UpdateRejectedError;
+      expect(err.updateName).toBe("adjust");
+      // The original ApplicationFailure is kept as cause (wrapper unwrapped).
+      expect(err.cause).toBe(inner);
+    }
+  });
+
+  it("updates.* classifies a failed admitted handler into UpdateFailedError with the inner cause unwrapped", async () => {
+    const inner = ApplicationFailure.create({ type: "PaymentDeclined", message: "no funds" });
+    const executeUpdate = vi
+      .fn()
+      .mockRejectedValue(new TemporalWorkflowUpdateFailedError("Workflow Update failed", inner));
+    const handle = await getOpHandle({ workflowId: "wf-op", executeUpdate });
+
+    const result = await handle.updates.adjust({ delta: 1 });
+
+    expect(result).toBeErr();
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(UpdateFailedError);
+      expect(result.error).not.toBeInstanceOf(UpdateRejectedError);
+      const err = result.error as UpdateFailedError;
+      expect(err.updateName).toBe("adjust");
+      expect(err.cause).toBe(inner);
+      expect(err.cause).not.toBeInstanceOf(TemporalWorkflowUpdateFailedError);
+    }
+  });
+
+  it("updates.* still routes unrecognized rejections to the defect channel", async () => {
+    const executeUpdate = vi.fn().mockRejectedValue(new Error("grpc blew up"));
+    const handle = await getOpHandle({ workflowId: "wf-op", executeUpdate });
+
+    const result = await handle.updates.adjust({ delta: 1 });
+
+    expect(result).toBeDefect();
+    if (result.isDefect()) {
+      expect(result.cause).toBeInstanceOf(RuntimeClientError);
+      expect((result.cause as RuntimeClientError).operation).toBe("update");
+    }
+  });
+
+  it("startUpdate classifies WorkflowUpdateFailedError (rejection at admission)", async () => {
+    const inner = rejectionFailure();
+    const startUpdate = vi
+      .fn()
+      .mockRejectedValue(new TemporalWorkflowUpdateFailedError("Workflow Update failed", inner));
+    const handle = await getOpHandle({ workflowId: "wf-op", startUpdate });
+
+    const result = await handle.startUpdate("adjust", { args: { delta: 1 } });
+
+    expect(result).toBeErr();
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(UpdateRejectedError);
+    }
+  });
+
+  it("updateHandle.result() classifies update outcomes too", async () => {
+    const inner = ApplicationFailure.create({ type: "SomethingBusiness", message: "boom" });
+    const startUpdate = vi.fn().mockResolvedValue({
+      updateId: "upd-1",
+      workflowId: "wf-op",
+      workflowRunId: "run-1",
+      result: vi
+        .fn()
+        .mockRejectedValue(new TemporalWorkflowUpdateFailedError("Workflow Update failed", inner)),
+    });
+    const handle = await getOpHandle({ workflowId: "wf-op", startUpdate });
+
+    const updateHandleResult = await handle.startUpdate("adjust", { args: { delta: 1 } });
+    expect(updateHandleResult).toBeOk();
+    if (!updateHandleResult.isOk()) return;
+
+    const result = await updateHandleResult.value.result();
+    expect(result).toBeErr();
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(UpdateFailedError);
+      expect((result.error as UpdateFailedError).cause).toBe(inner);
+    }
+  });
+
+  it("queries.* classifies QueryNotRegisteredError into QueryFailedError", async () => {
+    // Temporal reports BOTH "no handler registered" and "the handler threw"
+    // as QueryNotRegisteredError (INVALID_ARGUMENT), so both surface as the
+    // modeled QueryFailedError.
+    const inner = new TemporalQueryNotRegisteredError(
+      "Workflow did not register a handler for peek",
+      3,
+    );
+    const query = vi.fn().mockRejectedValue(inner);
+    const handle = await getOpHandle({ workflowId: "wf-op", query });
+
+    const result = await handle.queries.peek([]);
+
+    expect(result).toBeErr();
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(QueryFailedError);
+      const err = result.error as QueryFailedError;
+      expect(err.queryName).toBe("peek");
+      expect(err.cause).toBe(inner);
+    }
+  });
+
+  it("queries.* still routes unrecognized rejections to the defect channel", async () => {
+    const query = vi.fn().mockRejectedValue(new Error("network down"));
+    const handle = await getOpHandle({ workflowId: "wf-op", query });
+
+    const result = await handle.queries.peek([]);
+
+    expect(result).toBeDefect();
+    if (result.isDefect()) {
+      expect(result.cause).toBeInstanceOf(RuntimeClientError);
+      expect((result.cause as RuntimeClientError).operation).toBe("query");
+    }
+  });
+});
+
+describe("ContractClient — raw escape hatch and accessors", () => {
+  const accessorContract = defineContract({
+    taskQueue: "accessor-q",
+    workflows: {
+      plain: defineWorkflow({
+        input: z.object({ id: z.string() }),
+        output: z.object({}),
+      }),
+    },
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("handle.raw exposes the underlying Temporal WorkflowHandle", async () => {
+    const rawHandle = { workflowId: "wf-raw", result: vi.fn() };
+    mockWorkflow.getHandle.mockReturnValue(rawHandle);
+    const client = await bindContract(accessorContract, {
+      workflow: mockWorkflow,
+      schedule: mockSchedule,
+    } as unknown as Client);
+
+    const handleResult = client.getHandle("plain", "wf-raw");
+    expect(handleResult).toBeOk();
+    if (handleResult.isOk()) {
+      expect(handleResult.value.raw).toBe(rawHandle);
+    }
+  });
+
+  it("startWorkflow handles carry raw too", async () => {
+    const rawHandle = { workflowId: "wf-raw-2", firstExecutionRunId: "run-1", result: vi.fn() };
+    mockWorkflow.start.mockResolvedValue(rawHandle);
+    const client = await bindContract(accessorContract, {
+      workflow: mockWorkflow,
+      schedule: mockSchedule,
+    } as unknown as Client);
+
+    const handleResult = await client.startWorkflow("plain", {
+      workflowId: "wf-raw-2",
+      args: { id: "a" },
+    });
+    expect(handleResult).toBeOk();
+    if (handleResult.isOk()) {
+      expect(handleResult.value.raw).toBe(rawHandle);
+    }
+  });
+
+  it("exposes the bound contract and its taskQueue for logging/plumbing", async () => {
+    const client = await bindContract(accessorContract, {
+      workflow: mockWorkflow,
+      schedule: mockSchedule,
+    } as unknown as Client);
+
+    expect(client.contract).toBe(accessorContract);
+    expect(client.taskQueue).toBe("accessor-q");
+  });
+});
+
 describe("ContractClient — omittable input-less payloads (runtime)", () => {
   // Wave 1 made `defineSignal()` / `defineQuery({output})` /
   // `defineUpdate({output})` materialize an UndefinedInputSchema. The
@@ -2347,6 +2725,29 @@ describe("ContractClient — search attribute VALUE validation (runtime)", () =>
     });
 
     expect(result).toBeOk();
+  });
+
+  it("rejects an invalid Date (new Date(NaN)) for DATETIME attributes", async () => {
+    const client = await bindContract(kindContract, {
+      workflow: mockWorkflow,
+      schedule: mockSchedule,
+    } as unknown as Client);
+
+    const result = await client.startWorkflow("kinds", {
+      workflowId: "k-invalid-date",
+      args: { id: "a" },
+      searchAttributes: { placedAt: new Date(Number.NaN) },
+    });
+
+    expect(result).toBeDefect();
+    if (result.isDefect()) {
+      expect(result.cause).toBeInstanceOf(RuntimeClientError);
+      const message = (result.cause as RuntimeClientError).message;
+      expect(message).toContain("placedAt");
+      expect(message).toContain("must be a valid Date");
+      expect(message).toContain("received an invalid Date.");
+    }
+    expect(mockWorkflow.start).not.toHaveBeenCalled();
   });
 
   it("rejects non-string entries inside a KEYWORD_LIST", async () => {

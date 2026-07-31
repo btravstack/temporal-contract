@@ -7,8 +7,11 @@ import type {
 import type { AsyncResult } from "unthrown";
 
 import type {
+  QueryFailedError,
   QueryValidationError,
   SignalValidationError,
+  UpdateFailedError,
+  UpdateRejectedError,
   UpdateValidationError,
   WorkflowExecutionNotFoundError,
 } from "./errors.js";
@@ -49,13 +52,18 @@ export type ClientInferSignal<TSignal extends SignalDefinition> = (
  * an `AsyncResult`; the payload argument is omittable when the schema
  * accepts `undefined` (e.g. argument-less `defineQuery({ output })`).
  * The error union names exactly what the handle's query proxy produces:
- * input/output-validation failure or a missing execution.
+ * input/output-validation failure, a query the execution could not serve
+ * (unregistered handler or a throwing handler — `QueryFailedError`), or a
+ * missing execution.
  */
 export type ClientInferQuery<TQuery extends QueryDefinition> = (
   ...args: undefined extends ClientInferInput<TQuery>
     ? [input?: ClientInferInput<TQuery>]
     : [input: ClientInferInput<TQuery>]
-) => AsyncResult<ClientInferOutput<TQuery>, QueryValidationError | WorkflowExecutionNotFoundError>;
+) => AsyncResult<
+  ClientInferOutput<TQuery>,
+  QueryValidationError | QueryFailedError | WorkflowExecutionNotFoundError
+>;
 
 /**
  * Infer update handler signature from client perspective.
@@ -63,7 +71,9 @@ export type ClientInferQuery<TQuery extends QueryDefinition> = (
  * an `AsyncResult`; the payload argument is omittable when the schema
  * accepts `undefined` (e.g. argument-less `defineUpdate({ output })`).
  * The error union names exactly what the handle's update proxy produces:
- * input/output-validation failure or a missing execution.
+ * input/output-validation failure, a worker-side admission rejection
+ * (`UpdateRejectedError`), a failed admitted handler (`UpdateFailedError`),
+ * or a missing execution.
  */
 export type ClientInferUpdate<TUpdate extends UpdateDefinition> = (
   ...args: undefined extends ClientInferInput<TUpdate>
@@ -71,7 +81,7 @@ export type ClientInferUpdate<TUpdate extends UpdateDefinition> = (
     : [input: ClientInferInput<TUpdate>]
 ) => AsyncResult<
   ClientInferOutput<TUpdate>,
-  UpdateValidationError | WorkflowExecutionNotFoundError
+  UpdateValidationError | UpdateRejectedError | UpdateFailedError | WorkflowExecutionNotFoundError
 >;
 
 /**

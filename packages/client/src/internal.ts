@@ -5,6 +5,7 @@
  * `exports` map, so consumers can't import from `@temporal-contract/client/internal`.
  * In-package modules and tests import it directly via relative path.
  */
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type {
   AnyWorkflowDefinition,
   SearchAttributeDefinition,
@@ -16,32 +17,41 @@ import {
 } from "@temporal-contract/contract/errors";
 import { _internal_makeAsyncResult } from "@temporal-contract/contract/result-async";
 import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
-import { WorkflowFailedError as TemporalWorkflowFailedError } from "@temporalio/client";
+import {
+  QueryNotRegisteredError,
+  WorkflowFailedError as TemporalWorkflowFailedError,
+  WorkflowUpdateFailedError,
+} from "@temporalio/client";
 import {
   ScheduleAlreadyRunning,
   ScheduleNotFoundError as TemporalScheduleNotFoundError,
 } from "@temporalio/client";
 import {
   ApplicationFailure,
+  CancelledFailure,
   defineSearchAttributeKey,
   type SearchAttributePair,
+  TerminatedFailure,
+  TimeoutFailure,
   TypedSearchAttributes,
   WorkflowNotFoundError as TemporalWorkflowNotFoundError,
 } from "@temporalio/common";
-import { type AsyncResult, type Result } from "unthrown";
+import { type AsyncResult, Err, fromSafePromise, type Result } from "unthrown";
 
-// `assertNoDefect` narrows an internally-built `Result` (known to carry only
-// ok/err) to `Ok | Err`, re-throwing a stray defect's cause — so call sites
-// reach `.value` / `.error` without a manual "impossible defect" guard.
-export { _internal_assertNoDefect as assertNoDefect } from "@temporal-contract/contract/result-async";
 import {
+  QueryFailedError,
   RuntimeClientError,
   ScheduleAlreadyExistsError,
   ScheduleNotFoundError,
   type TemporalFailure,
+  UpdateFailedError,
+  UpdateRejectedError,
   WorkflowAlreadyStartedError,
+  WorkflowCancelledError,
   WorkflowExecutionNotFoundError,
   WorkflowFailedError,
+  WorkflowTerminatedError,
+  WorkflowTimeoutError,
 } from "./errors.js";
 
 /**
@@ -63,7 +73,13 @@ const searchAttributeValueChecks: Record<
   },
   DOUBLE: { expected: "a number", check: (v) => typeof v === "number" && Number.isFinite(v) },
   BOOL: { expected: "a boolean", check: (v) => typeof v === "boolean" },
-  DATETIME: { expected: "a Date", check: (v) => v instanceof Date },
+  DATETIME: {
+    expected: "a valid Date",
+    // `new Date(NaN)` is still `instanceof Date` but serializes to nothing
+    // meaningful — reject it here instead of letting the server (or the
+    // payload converter) fail long after the call site.
+    check: (v) => v instanceof Date && !Number.isNaN(v.getTime()),
+  },
   KEYWORD_LIST: {
     expected: "an array of strings",
     check: (v) => Array.isArray(v) && v.every((entry) => typeof entry === "string"),
@@ -73,12 +89,16 @@ const searchAttributeValueChecks: Record<
 /**
  * Name a value's runtime type for error messages. `typeof` alone reports
  * `"object"` for arrays, `Date`s, and `null` — the three shapes search
- * attributes actually trip over — so spell those out.
+ * attributes actually trip over — so spell those out (including the
+ * invalid-`Date` case, which would otherwise read "must be a valid Date;
+ * received a Date").
  */
 function describeRuntimeType(value: unknown): string {
   if (value === null) return "null";
   if (Array.isArray(value)) return "an array";
-  if (value instanceof Date) return "a Date";
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? "an invalid Date" : "a Date";
+  }
   return `a ${typeof value}`;
 }
 
@@ -94,11 +114,12 @@ function describeRuntimeType(value: unknown): string {
  * **Throws** a {@link RuntimeClientError} on unknown keys or on values that
  * don't match the declared kind's runtime type — a *technical*
  * misconfiguration, not a modeled domain error, so it rides the defect
- * channel (this helper always runs inside a `makeAsyncResult` work thunk,
- * whose throw→defect net captures it). The TypeScript surface already gates
- * the happy path; the runtime check catches typed escape hatches (`as never`,
- * `as any`, raw-call interop) where a typo would otherwise silently drop the
- * attribute, leaving the workflow unindexed without any signal to the caller.
+ * channel (this helper always runs inside a combinator callback or a
+ * `makeAsyncResult` work thunk, whose throw→defect net captures it). The
+ * TypeScript surface already gates the happy path; the runtime check catches
+ * typed escape hatches (`as never`, `as any`, raw-call interop) where a typo
+ * would otherwise silently drop the attribute, leaving the workflow
+ * unindexed without any signal to the caller.
  */
 export function toTypedSearchAttributes(
   workflowDef: AnyWorkflowDefinition,
@@ -119,7 +140,7 @@ export function toTypedSearchAttributes(
     if (value === undefined) continue;
     const def = declared[name];
     if (!def) {
-      // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
+      // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw is captured by the enclosing throw→defect net and becomes a defect, never a modeled Err
       throw new RuntimeClientError(
         "searchAttributes",
         new Error(
@@ -130,7 +151,7 @@ export function toTypedSearchAttributes(
     }
     const { expected, check } = searchAttributeValueChecks[def.kind];
     if (!check(value)) {
-      // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
+      // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw is captured by the enclosing throw→defect net and becomes a defect, never a modeled Err
       throw new RuntimeClientError(
         "searchAttributes",
         new Error(
@@ -155,15 +176,31 @@ export function toTypedSearchAttributes(
  * `result.isDefect()` / `result.cause`, re-thrown at the edge) rather than a
  * manufactured `RuntimeClientError`.
  *
- * Used by `client.ts` (workflow operations) and `schedule.ts` (schedule
- * operations) so the unexpected-rejection shape is identical across the
- * typed client surface. Delegates to `_internal_makeAsyncResult` from
+ * The workflow/handle pipelines compose `AsyncResult` combinators directly;
+ * this wrapper remains for the setup-shaped sites (`TypedClient.create`,
+ * `schedule.create`) whose multi-step imperative flow doesn't decompose into
+ * a chain. Delegates to `_internal_makeAsyncResult` from
  * `@temporal-contract/contract` so the same wrapper is shared between the
  * client and worker packages.
  */
 // oxlint-disable-next-line unthrown/prefer-async-result -- this IS the Promise→AsyncResult conversion seam: the work thunk's throw/rejection is what becomes the defect, and an async implementer cannot be annotated AsyncResult
 export function makeAsyncResult<T, E>(work: () => Promise<Result<T, E>>): AsyncResult<T, E> {
   return _internal_makeAsyncResult(work);
+}
+
+/**
+ * Run a Standard Schema validation as an `AsyncResult` boundary. The Ok
+ * value is the schema's own result object (issues included) — deciding
+ * whether issues become a modeled `Err` stays at the call site, which knows
+ * the right validation-error class. A schema that *throws* (instead of
+ * reporting issues) is a bug in the schema, so it surfaces on the defect
+ * channel (`fromSafePromise` — every rejection is a defect).
+ */
+export function validateStandardSchema(
+  schema: StandardSchemaV1,
+  value: unknown,
+): AsyncResult<StandardSchemaV1.Result<unknown>, never> {
+  return fromSafePromise((async () => await schema["~standard"].validate(value))());
 }
 
 /**
@@ -179,6 +216,24 @@ export async function rehydrateWorkflowContractError(
 ): Promise<AnyContractError | undefined> {
   if (!(cause instanceof ApplicationFailure)) return undefined;
   return _internal_rehydrateContractError(workflowDef.errors, cause);
+}
+
+/**
+ * Async tail of the result-error classification: a {@link WorkflowFailedError}
+ * whose `cause` matches one of the workflow's declared contract errors
+ * rehydrates into that typed error; otherwise the original error flows
+ * through unchanged. Composed via `flatMapErrCases` by the two
+ * result-awaiting paths (`executeWorkflow` and `handle.result()`) — the
+ * rehydration validates the error payload against its declared schema,
+ * which may be async, so it can't run inside a synchronous `qualify`.
+ */
+export function rehydrateFailedResult(
+  workflowDef: AnyWorkflowDefinition,
+  failed: WorkflowFailedError,
+): AsyncResult<never, AnyContractError | WorkflowFailedError> {
+  return fromSafePromise(rehydrateWorkflowContractError(workflowDef, failed.cause)).flatMap(
+    (rehydrated) => Err(rehydrated ?? failed),
+  );
 }
 
 /**
@@ -222,30 +277,60 @@ export function classifyHandleError(
 }
 
 /**
+ * Union of the modeled errors {@link classifyResultError} can produce — the
+ * result-phase classification of `handle.result()` /
+ * `client.workflow.execute()`.
+ */
+export type ClassifiedResultError =
+  | WorkflowFailedError
+  | WorkflowCancelledError
+  | WorkflowTerminatedError
+  | WorkflowTimeoutError
+  | WorkflowExecutionNotFoundError;
+
+/**
  * Recognize a thrown error from `handle.result()` / `client.workflow.execute()`
  * (the latter when waiting on the result phase) as one of the modeled
- * {@link WorkflowFailedError} / {@link WorkflowExecutionNotFoundError}
- * (Temporal's `WorkflowFailedError` / `WorkflowNotFoundError`). Returns
- * `undefined` for anything else — an unrecognized, *technical* failure the
- * caller routes to the defect channel with a {@link RuntimeClientError} cause.
+ * result-phase errors. Returns `undefined` for anything else — an
+ * unrecognized, *technical* failure the caller routes to the defect channel
+ * with a {@link RuntimeClientError} cause.
  *
  * Temporal's `WorkflowFailedError` is itself a wrapper — the actionable
  * failure (ApplicationFailure, CancelledFailure, TerminatedFailure, etc.)
- * lives on its `cause` field. We forward that inner cause directly so
- * consumers can match `err.cause` against the underlying failure class
- * without an extra unwrap step. (If Temporal's cause is `undefined`, our
- * `cause` is too — same shape as before.)
+ * lives on its `cause` field. The workflow-outcome causes classify into
+ * their own first-class errors so consumers never dig through `cause` with
+ * `instanceof`:
+ *
+ * - `CancelledFailure`  → {@link WorkflowCancelledError}
+ * - `TerminatedFailure` → {@link WorkflowTerminatedError}
+ * - `TimeoutFailure`    → {@link WorkflowTimeoutError}
+ * - anything else       → {@link WorkflowFailedError}
+ *
+ * In every branch the original inner failure is kept as the surfaced
+ * error's `cause` (Temporal's wrapper itself is seen through). If Temporal's
+ * cause is `undefined`, the generic {@link WorkflowFailedError} carries an
+ * `undefined` cause — same shape as before.
  */
 export function classifyResultError(
   error: unknown,
   workflowId: string,
-): WorkflowFailedError | WorkflowExecutionNotFoundError | undefined {
+): ClassifiedResultError | undefined {
   if (error instanceof TemporalWorkflowFailedError) {
+    const cause = error.cause;
+    if (cause instanceof CancelledFailure) {
+      return new WorkflowCancelledError(workflowId, cause);
+    }
+    if (cause instanceof TerminatedFailure) {
+      return new WorkflowTerminatedError(workflowId, cause);
+    }
+    if (cause instanceof TimeoutFailure) {
+      return new WorkflowTimeoutError(workflowId, cause);
+    }
     // Temporal types `cause` as `Error | undefined`, but the SDK only ever
     // populates it with a `TemporalFailure` subclass when surfacing a
     // workflow result failure. Narrow with the public union so consumers
     // can branch on the leaf failure types without an extra cast.
-    return new WorkflowFailedError(workflowId, error.cause as TemporalFailure | undefined);
+    return new WorkflowFailedError(workflowId, cause as TemporalFailure | undefined);
   }
   if (error instanceof TemporalWorkflowNotFoundError) {
     return new WorkflowExecutionNotFoundError(error.workflowId || workflowId, error.runId, error);
@@ -254,23 +339,66 @@ export function classifyResultError(
 }
 
 /**
- * Shared rehydrate-then-classify tail for the two result-awaiting paths
- * (`executeWorkflow` and `handle.result()`): a Temporal `WorkflowFailedError`
- * whose cause matches one of the workflow's declared contract errors
- * rehydrates into that typed error; everything else falls through to
- * {@link classifyResultError}. Returns `undefined` for unrecognized errors —
- * the caller routes those to the defect channel.
+ * The failure `type` the worker package's update-input validator stamps on
+ * the `ApplicationFailure` it throws from Temporal's synchronous validator
+ * slot — the wire-level marker of an admission rejection. Kept as a literal
+ * (not an import) so the client package doesn't depend on the worker
+ * package; the value is pinned by the worker's `UpdateInputValidationError`.
  */
-export async function classifyExecutionResultError(
-  workflowDef: AnyWorkflowDefinition,
+const UPDATE_INPUT_VALIDATION_FAILURE_TYPE = "UpdateInputValidationError";
+
+/**
+ * Recognize a thrown error from an update call (`executeUpdate`,
+ * `startUpdate`, or the update handle's `result()`) as one of the modeled
+ * update errors. Returns `undefined` for anything else — an unrecognized,
+ * *technical* failure the caller routes to the defect channel with a
+ * {@link RuntimeClientError} cause.
+ *
+ * Temporal reports both admission rejections and handler failures through
+ * the same `WorkflowUpdateFailedError` wrapper; the two are told apart by
+ * the failure `type` the `@temporal-contract/worker` validator stamps on a
+ * rejection:
+ *
+ * - cause is the worker's `UpdateInputValidationError` `ApplicationFailure`
+ *   → {@link UpdateRejectedError} (the handler never ran);
+ * - anything else → {@link UpdateFailedError} (the admitted handler failed).
+ *
+ * The original inner failure is kept as the surfaced error's `cause`.
+ */
+export function classifyUpdateError(
   error: unknown,
-  workflowId: string,
-): Promise<AnyContractError | WorkflowFailedError | WorkflowExecutionNotFoundError | undefined> {
-  if (error instanceof TemporalWorkflowFailedError) {
-    const rehydrated = await rehydrateWorkflowContractError(workflowDef, error.cause);
-    if (rehydrated) return rehydrated;
+  updateName: string,
+): UpdateFailedError | UpdateRejectedError | undefined {
+  if (error instanceof WorkflowUpdateFailedError) {
+    const cause = error.cause;
+    if (
+      cause instanceof ApplicationFailure &&
+      cause.type === UPDATE_INPUT_VALIDATION_FAILURE_TYPE
+    ) {
+      return new UpdateRejectedError(updateName, cause);
+    }
+    return new UpdateFailedError(updateName, cause);
   }
-  return classifyResultError(error, workflowId);
+  return undefined;
+}
+
+/**
+ * Recognize a thrown error from `handle.query(...)` as the modeled
+ * {@link QueryFailedError}. Temporal surfaces both "no handler registered
+ * under this name" and "the query handler threw" as
+ * `QueryNotRegisteredError` (an `INVALID_ARGUMENT` gRPC failure), so both
+ * classify here; the original error is kept as `cause`. Returns `undefined`
+ * for anything else — an unrecognized, *technical* failure the caller
+ * routes to the defect channel with a {@link RuntimeClientError} cause.
+ */
+export function classifyQueryError(
+  error: unknown,
+  queryName: string,
+): QueryFailedError | undefined {
+  if (error instanceof QueryNotRegisteredError) {
+    return new QueryFailedError(queryName, error);
+  }
+  return undefined;
 }
 
 /**
