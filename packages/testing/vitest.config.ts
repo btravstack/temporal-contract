@@ -44,6 +44,7 @@ export default defineConfig({
           name: "unit",
           include: ["src/**/*.spec.ts"],
           exclude: ["src/**/__tests__/*.spec.ts"],
+          setupFiles: ["./src/vitest.setup.ts"],
           // The unit specs exercise `extension.ts` with mocked Temporal
           // connections, so the address normally provided by the
           // testcontainers global setup is stubbed statically here.
@@ -59,6 +60,7 @@ export default defineConfig({
           name: "integration",
           globalSetup: "./src/global-setup.ts",
           include: ["src/**/__tests__/*.spec.ts"],
+          setupFiles: ["./src/vitest.setup.ts"],
           testTimeout: 30_000,
         },
       },

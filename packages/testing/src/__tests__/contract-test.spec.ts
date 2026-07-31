@@ -27,7 +27,8 @@ const activities = declareActivitiesHandler({
   },
 });
 
-const it = createContractTest(testContract, {
+const it = createContractTest({
+  contract: testContract,
   workflowsPath: fileURLToPath(
     new URL(`./test.workflows${extname(import.meta.url)}`, import.meta.url),
   ),
@@ -41,10 +42,7 @@ describe("createContractTest", () => {
       args: { name: "world" },
     });
 
-    expect(result.isOk()).toBe(true);
-    if (result.isOk()) {
-      expect(result.value).toEqual({ message: "Hello, WORLD!" });
-    }
+    expect(result).toBeOkWith({ message: "Hello, WORLD!" });
   });
 
   it("exposes the running worker and the connection-scoped root", async ({
@@ -68,14 +66,11 @@ describe("createContractTest", () => {
       args: { name: "fixtures" },
     });
 
-    expect(handleResult.isOk()).toBe(true);
+    expect(handleResult).toBeOk();
     if (!handleResult.isOk()) return;
 
     expect(handleResult.value.workflowId).toBe(workflowId);
     const result = await handleResult.value.result();
-    expect(result.isOk()).toBe(true);
-    if (result.isOk()) {
-      expect(result.value).toEqual({ message: "Hello, FIXTURES!" });
-    }
+    expect(result).toBeOkWith({ message: "Hello, FIXTURES!" });
   });
 });

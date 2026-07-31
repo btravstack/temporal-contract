@@ -141,10 +141,7 @@ describe("child workflows — wire format", () => {
       },
     ]);
     // Parent is the receiving side of the result boundary — parses once.
-    expect(result.isOk()).toBe(true);
-    if (result.isOk()) {
-      expect(result.value).toEqual({ n: 42 });
-    }
+    expect(result).toBeOkWith({ n: 42 });
   });
 
   it("startChildWorkflow sends the ORIGINAL args; handle.result() parses once", async () => {
@@ -161,13 +158,10 @@ describe("child workflows — wire format", () => {
         options: expect.objectContaining({ args: [{ text: "hi" }] }),
       },
     ]);
-    expect(handleResult.isOk()).toBe(true);
+    expect(handleResult).toBeOk();
     if (handleResult.isOk()) {
       const result = await handleResult.value.result();
-      expect(result.isOk()).toBe(true);
-      if (result.isOk()) {
-        expect(result.value).toEqual({ n: 42 });
-      }
+      expect(result).toBeOkWith({ n: 42 });
     }
   });
 });
@@ -179,7 +173,7 @@ describe("typed child workflow handle — signals and identifiers", () => {
       args: {},
     });
 
-    expect(handleResult.isOk()).toBe(true);
+    expect(handleResult).toBeOk();
     if (handleResult.isOk()) {
       expect(handleResult.value.workflowId).toBe("child-1");
       expect(handleResult.value.firstExecutionRunId).toBe("run-1");
@@ -191,12 +185,12 @@ describe("typed child workflow handle — signals and identifiers", () => {
       workflowId: "child-1",
       args: {},
     });
-    expect(handleResult.isOk()).toBe(true);
+    expect(handleResult).toBeOk();
     if (!handleResult.isOk()) return;
 
     const sent = await handleResult.value.signals.note({ text: "hi" });
 
-    expect(sent.isOk()).toBe(true);
+    expect(sent).toBeOk();
     // Validated (transform would yield "hi!") but the ORIGINAL value crosses
     // the wire — the child's signal handler parses on receive.
     expect(childSignalCalls).toEqual([{ signalName: "note", args: [{ text: "hi" }] }]);
@@ -207,12 +201,12 @@ describe("typed child workflow handle — signals and identifiers", () => {
       workflowId: "child-1",
       args: {},
     });
-    expect(handleResult.isOk()).toBe(true);
+    expect(handleResult).toBeOk();
     if (!handleResult.isOk()) return;
 
     const sent = await handleResult.value.signals.note({ text: 42 } as never);
 
-    expect(sent.isErr()).toBe(true);
+    expect(sent).toBeErr();
     if (sent.isErr()) {
       expect(sent.error.message).toContain('signal "note" input validation failed');
     }
