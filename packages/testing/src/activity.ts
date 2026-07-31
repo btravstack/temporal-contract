@@ -31,12 +31,14 @@ import type {
   WorkerInferInput,
 } from "@temporal-contract/contract";
 import {
-  _internal_buildErrorConstructors,
-  _internal_rehydrateContractError,
   type ContractErrorConstructors,
   type ContractErrorUnion,
 } from "@temporal-contract/contract/errors";
-import { _internal_makeAsyncResult } from "@temporal-contract/contract/result-async";
+import {
+  _internal_buildErrorConstructors,
+  _internal_makeAsyncResult,
+  _internal_rehydrateContractError,
+} from "@temporal-contract/contract/internal";
 import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
 import { MockActivityEnvironment } from "@temporalio/testing";
 import { Err, Ok, type AsyncResult } from "unthrown";

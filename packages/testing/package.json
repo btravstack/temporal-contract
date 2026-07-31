@@ -83,9 +83,9 @@
     "@temporal-contract/client": "^8.0.0-beta.4",
     "@temporal-contract/contract": "^8.0.0-beta.4",
     "@temporal-contract/worker": "^8.0.0-beta.4",
-    "@temporalio/client": "^1",
-    "@temporalio/testing": "^1",
-    "@temporalio/worker": "^1",
+    "@temporalio/client": "^1.16.0",
+    "@temporalio/testing": "^1.16.0",
+    "@temporalio/worker": "^1.16.0",
     "testcontainers": "^12",
     "unthrown": "^5.0.0",
     "vitest": "^4"

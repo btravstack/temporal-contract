@@ -12,7 +12,7 @@ import { Ok, Err } from "unthrown";
  */
 import { describe, expect, it } from "vitest";
 
-import { _internal_makeAsyncResult } from "./result-async.js";
+import { _internal_makeAsyncResult } from "./internal.js";
 
 class TestError extends Error {
   constructor(public readonly tag: string) {

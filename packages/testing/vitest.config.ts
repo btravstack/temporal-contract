@@ -15,8 +15,8 @@ const workspaceAliases = [
     replacement: sibling("../contract/src/errors.ts"),
   },
   {
-    find: /^@temporal-contract\/contract\/result-async$/,
-    replacement: sibling("../contract/src/result-async.ts"),
+    find: /^@temporal-contract\/contract\/internal$/,
+    replacement: sibling("../contract/src/internal.ts"),
   },
   {
     find: /^@temporal-contract\/worker\/activity$/,
