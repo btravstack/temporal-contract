@@ -18,12 +18,35 @@ import type {
   WorkflowStartOptions,
 } from "@temporalio/client";
 import { defineSearchAttributeKey, type TypedSearchAttributes } from "@temporalio/common";
-import { type AsyncResult, type Result, Ok, Err, fromPromise } from "unthrown";
+import {
+  type AsyncResult,
+  type Result,
+  Ok,
+  Err,
+  OkAsync,
+  ErrAsync,
+  fromPromise,
+  P,
+} from "unthrown";
 
 import {
+  WORKFLOW_ALREADY_STARTED_ERROR_TAG,
+  WORKFLOW_CANCELLED_ERROR_TAG,
+  WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG,
+  WORKFLOW_FAILED_ERROR_TAG,
+  WORKFLOW_TERMINATED_ERROR_TAG,
+  WORKFLOW_TIMEOUT_ERROR_TAG,
+} from "./error-tags.js";
+import {
+  type QueryFailedError,
+  type UpdateFailedError,
+  type UpdateRejectedError,
   type WorkflowAlreadyStartedError,
+  type WorkflowCancelledError,
   type WorkflowExecutionNotFoundError,
   type WorkflowFailedError,
+  type WorkflowTerminatedError,
+  type WorkflowTimeoutError,
   WorkflowNotInContractError,
   WorkflowValidationError,
   QueryValidationError,
@@ -38,12 +61,15 @@ import {
   type ClientInterceptorArgs,
 } from "./interceptors.js";
 import {
-  assertNoDefect,
-  classifyExecutionResultError,
   classifyHandleError,
+  classifyQueryError,
+  classifyResultError,
   classifyStartError,
+  classifyUpdateError,
   makeAsyncResult,
+  rehydrateFailedResult,
   toTypedSearchAttributes,
+  validateStandardSchema,
 } from "./internal.js";
 import { TypedScheduleClient } from "./schedule.js";
 import type {
@@ -68,6 +94,23 @@ export type WorkflowContractErrorsOf<TWorkflow extends AnyWorkflowDefinition> = 
 }
   ? ContractErrorUnion<TErrors>
   : never;
+
+/**
+ * Union of the modeled errors a result-awaiting call can surface for a
+ * workflow — the shared tail of {@link ContractClient.executeWorkflow} and
+ * {@link TypedWorkflowHandle.result}: any contract error declared on the
+ * workflow, plus output validation, the generic completion failure, the
+ * three first-class workflow outcomes (cancelled / terminated / timed out),
+ * and a missing execution.
+ */
+export type WorkflowResultErrorsOf<TWorkflow extends AnyWorkflowDefinition> =
+  | WorkflowContractErrorsOf<TWorkflow>
+  | WorkflowValidationError
+  | WorkflowFailedError
+  | WorkflowCancelledError
+  | WorkflowTerminatedError
+  | WorkflowTimeoutError
+  | WorkflowExecutionNotFoundError;
 
 /**
  * Typed `searchAttributes` map for a workflow, derived from the workflow's
@@ -179,7 +222,10 @@ type SignalArgsField<TSignalDef> = TSignalDef extends SignalDefinition
 
 /**
  * Options for {@link ContractClient.signalWithStart} — typed against both
- * the workflow's input schema and the named signal's input schema.
+ * the workflow's input schema and the named signal's input schema. The
+ * signal is addressed by the `signalName` field of this options bag (there
+ * is no positional signal parameter), keeping the method at two positional
+ * arguments like the rest of the surface.
  */
 export type TypedSignalWithStartOptions<
   TContract extends ContractDefinition,
@@ -218,7 +264,8 @@ export type TypedGetHandleOptions = GetWorkflowHandleOptions & {
 
 /**
  * Options for {@link TypedWorkflowHandle.startUpdate} — the update payload
- * plus the passthrough subset of Temporal's `WorkflowUpdateOptions`.
+ * plus the passthrough subset of Temporal's `WorkflowUpdateOptions`. Passed
+ * as the second (positional) argument after the update name.
  */
 export type TypedStartUpdateOptions<TUpdate extends UpdateDefinition> = {
   /**
@@ -237,6 +284,17 @@ export type TypedStartUpdateOptions<TUpdate extends UpdateDefinition> = {
   : { args: ClientInferInput<TUpdate> });
 
 /**
+ * Union of the modeled errors an update interaction can surface once the
+ * request reaches Temporal: client-side payload validation, a worker-side
+ * admission rejection, a failed (admitted) handler, or a missing execution.
+ */
+type UpdateCallError =
+  | UpdateValidationError
+  | UpdateRejectedError
+  | UpdateFailedError
+  | WorkflowExecutionNotFoundError;
+
+/**
  * Typed handle to an in-flight update, returned by
  * {@link TypedWorkflowHandle.startUpdate}. `result()` parses the update's
  * outcome against the contract's output schema on receive (the worker
@@ -251,12 +309,11 @@ export type TypedWorkflowUpdateHandle<TUpdate extends UpdateDefinition> = {
   readonly workflowRunId: string | undefined;
   /**
    * Wait for and return the update's result, parsed against the contract's
-   * output schema.
+   * output schema. A worker-side admission rejection surfaces as
+   * `UpdateRejectedError`; a failed (admitted) handler as
+   * `UpdateFailedError` — both on the Err channel, never as defects.
    */
-  result: () => AsyncResult<
-    ClientInferOutput<TUpdate>,
-    UpdateValidationError | WorkflowExecutionNotFoundError
-  >;
+  result: () => AsyncResult<ClientInferOutput<TUpdate>, UpdateCallError>;
 };
 
 /**
@@ -296,11 +353,21 @@ export type TypedWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
   readonly firstExecutionRunId: string | undefined;
 
   /**
+   * The underlying `@temporalio/client` `WorkflowHandle` — the escape hatch
+   * for anything the typed surface doesn't cover yet (e.g.
+   * `raw.getUpdateHandle(...)`, `raw.cancel()` with SDK-specific options).
+   * Calls made through `raw` bypass contract validation and the interceptor
+   * chain. Mirrors {@link TypedClient.raw} at the handle level.
+   */
+  readonly raw: WorkflowHandle;
+
+  /**
    * Type-safe queries based on workflow definition with Result pattern.
    * Each query returns an `AsyncResult` — erring with `QueryValidationError`
-   * or `WorkflowExecutionNotFoundError` — instead of a throwing `Promise`;
-   * the error union is carried by {@link ClientInferWorkflowQueries}
-   * directly.
+   * (payload/result schema mismatch), `QueryFailedError` (no handler
+   * registered on the execution, or the handler threw), or
+   * `WorkflowExecutionNotFoundError` — instead of a throwing `Promise`; the
+   * error union is carried by {@link ClientInferWorkflowQueries} directly.
    */
   queries: ClientInferWorkflowQueries<TWorkflow>;
 
@@ -317,15 +384,18 @@ export type TypedWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
    * Type-safe updates based on workflow definition with Result pattern.
    * Each update starts the update AND waits for its result (Temporal's
    * `executeUpdate`), returning an `AsyncResult` that errs with
-   * `UpdateValidationError` or `WorkflowExecutionNotFoundError`; use
-   * {@link startUpdate} to obtain an update handle without waiting for
-   * completion.
+   * `UpdateValidationError`, `UpdateRejectedError` (worker-side admission
+   * rejection), `UpdateFailedError` (the admitted handler failed), or
+   * `WorkflowExecutionNotFoundError`; use {@link startUpdate} to obtain an
+   * update handle without waiting for completion.
    */
   updates: ClientInferWorkflowUpdates<TWorkflow>;
 
   /**
    * Start an update without waiting for its completion — Temporal's
-   * `startUpdate` beside the `updates` map's execute-and-wait shape.
+   * `startUpdate` beside the `updates` map's execute-and-wait shape. The
+   * update is addressed positionally (`startUpdate(updateName, options)`);
+   * everything else rides the {@link TypedStartUpdateOptions} bag.
    * Returns a {@link TypedWorkflowUpdateHandle} whose `result()` parses the
    * outcome against the contract's output schema on receive. The `options`
    * parameter is omittable when the update's input schema accepts
@@ -344,22 +414,22 @@ export type TypedWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
         ? TWorkflow["updates"][TUpdateName]
         : never
     >,
-    UpdateValidationError | WorkflowExecutionNotFoundError
+    UpdateCallError
   >;
 
   /**
    * Get workflow result with Result pattern. When the workflow declares
    * contract errors, a failed execution whose failure matches a declared
    * error surfaces as that typed error instead of the generic
-   * {@link WorkflowFailedError}.
+   * {@link WorkflowFailedError}. A cancelled / terminated / timed-out
+   * execution surfaces as the first-class `WorkflowCancelledError` /
+   * `WorkflowTerminatedError` / `WorkflowTimeoutError` — no `instanceof`
+   * digging through `WorkflowFailedError.cause` required. Cancellation is a
+   * modeled `Err(...)`: give it its own matcher arm rather than folding it
+   * into a blanket "failed" branch, so a deliberate cancel isn't reported
+   * as a breakage.
    */
-  result: () => AsyncResult<
-    ClientInferOutput<TWorkflow>,
-    | WorkflowContractErrorsOf<TWorkflow>
-    | WorkflowValidationError
-    | WorkflowFailedError
-    | WorkflowExecutionNotFoundError
-  >;
+  result: () => AsyncResult<ClientInferOutput<TWorkflow>, WorkflowResultErrorsOf<TWorkflow>>;
 
   /**
    * Terminate workflow with Result pattern
@@ -417,6 +487,12 @@ type ResolvedWorkflow<TWorkflow extends AnyWorkflowDefinition> = {
  * worker parses them on receive, so a transforming schema is applied exactly
  * once per boundary (never here on the sending side).
  *
+ * Step 5's `toTypedSearchAttributes` throws a `RuntimeClientError` on an
+ * undeclared key or a value that doesn't match the declared kind — a
+ * technical misconfiguration. The throw happens inside the `flatMap`
+ * callback, whose throw→defect net turns it into a defect (never a modeled
+ * Err), which then flows through the composed pipeline untouched.
+ *
  * `getHandle` deliberately keeps its own three-line lookup — it doesn't
  * accept `args` or `searchAttributes`, so it can't share this helper. The
  * call-specific extras (signal validation, post-call output parsing,
@@ -436,32 +512,22 @@ function resolveDefinitionAndValidateInput<
   ResolvedWorkflow<TContract["workflows"][TWorkflowName]>,
   WorkflowNotInContractError | WorkflowValidationError
 > {
-  return makeAsyncResult<
-    ResolvedWorkflow<TContract["workflows"][TWorkflowName]>,
-    WorkflowNotInContractError | WorkflowValidationError
-  >(async () => {
-    const definition = contract.workflows[workflowName];
-    if (!definition) {
-      return Err(createWorkflowNotInContractError(workflowName, contract));
-    }
+  const definition = contract.workflows[workflowName];
+  if (!definition) {
+    return ErrAsync(createWorkflowNotInContractError(workflowName, contract));
+  }
 
-    const inputResult = await definition.input["~standard"].validate(args);
+  return validateStandardSchema(definition.input, args).flatMap((inputResult) => {
     if (inputResult.issues) {
       return Err(
         new WorkflowValidationError(workflowName, "input", inputResult.issues, workflowId),
       );
     }
-
-    // `toTypedSearchAttributes` throws a `RuntimeClientError` on an undeclared
-    // key or a value that doesn't match the declared kind — a technical
-    // misconfiguration captured as a defect (never a modeled Err) and
-    // re-thrown into the caller's throw→defect net by `assertNoDefect`.
     const typedSearchAttributes = toTypedSearchAttributes(
       definition,
       workflowName,
       searchAttributes,
     );
-
     return Ok({
       definition: definition as TContract["workflows"][TWorkflowName],
       typedSearchAttributes,
@@ -600,7 +666,11 @@ export class TypedClient {
    *
    * @example
    * ```ts
-   * import { P } from "unthrown";
+   * import {
+   *   tagPatterns,
+   *   WORKFLOW_RESULT_ERROR_TAGS,
+   *   WORKFLOW_START_ERROR_TAGS,
+   * } from "@temporal-contract/client";
    *
    * import { orderContract } from "./contracts/order.contract.js";
    *
@@ -615,11 +685,8 @@ export class TypedClient {
    *   ok: (output) => console.log("processed", output),
    *   errCases: (matcher) =>
    *     matcher.with(
-   *       P.tag("@temporal-contract/WorkflowNotInContractError"),
-   *       P.tag("@temporal-contract/WorkflowValidationError"),
-   *       P.tag("@temporal-contract/WorkflowAlreadyStartedError"),
-   *       P.tag("@temporal-contract/WorkflowFailedError"),
-   *       P.tag("@temporal-contract/WorkflowExecutionNotFoundError"),
+   *       ...tagPatterns(WORKFLOW_START_ERROR_TAGS),
+   *       ...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS),
    *       (error) => console.error("processing failed", error),
    *     ),
    *   defect: (cause) => console.error("unexpected failure", cause),
@@ -631,7 +698,7 @@ export class TypedClient {
     // restore/erase it at the memo boundary (see the field's doc).
     const memoized = this.contractClients.get(contract);
     if (memoized) return memoized as unknown as ContractClient<TContract>;
-    const bound = new ContractClient(contract, this.raw, this.interceptors);
+    const bound = ContractClient._internal_create(contract, this.raw, this.interceptors);
     this.contractClients.set(contract, bound as unknown as ContractClient<ContractDefinition>);
     return bound;
   }
@@ -644,9 +711,17 @@ export class TypedClient {
  * Provides type-safe methods to start and execute workflows defined in the
  * bound contract, with explicit error handling using the Result pattern.
  * Obtained from {@link TypedClient.for} — the connection-scoped root — and
- * inherits its underlying `Client` and interceptors.
+ * inherits its underlying `Client` and interceptors. Not constructible
+ * directly: the class is exported for type annotations only.
  */
 export class ContractClient<TContract extends ContractDefinition> {
+  /**
+   * The contract this client is bound to — handy for logging, metrics
+   * labels, and plumbing the same contract into workers/tests without
+   * threading a second reference around.
+   */
+  readonly contract: TContract;
+
   /**
    * Typed wrapper around Temporal's `client.schedule.create(...)` and
    * related lifecycle methods. Fires the underlying `startWorkflow` action
@@ -681,18 +756,41 @@ export class ContractClient<TContract extends ContractDefinition> {
    */
   readonly schedule: TypedScheduleClient<TContract>;
 
+  private readonly client: Client;
+  private readonly interceptors: readonly ClientInterceptor[];
+
+  private constructor(
+    contract: TContract,
+    client: Client,
+    interceptors: readonly ClientInterceptor[],
+  ) {
+    this.contract = contract;
+    this.client = client;
+    this.interceptors = interceptors;
+    this.schedule = TypedScheduleClient._internal_create(contract, client.schedule);
+  }
+
   /**
    * Constructed exclusively by {@link TypedClient.for}. Not part of the
    * public API — obtain instances via `typedClient.for(contract)`.
    *
    * @internal
    */
-  constructor(
-    private readonly contract: TContract,
-    private readonly client: Client,
-    private readonly interceptors: readonly ClientInterceptor[],
-  ) {
-    this.schedule = new TypedScheduleClient(contract, client.schedule);
+  static _internal_create<TContract extends ContractDefinition>(
+    contract: TContract,
+    client: Client,
+    interceptors: readonly ClientInterceptor[],
+  ): ContractClient<TContract> {
+    return new ContractClient(contract, client, interceptors);
+  }
+
+  /**
+   * The task queue this client dispatches to — the bound contract's
+   * `taskQueue`. Exposed for logging/observability so callers don't need to
+   * reach through {@link contract}.
+   */
+  get taskQueue(): TContract["taskQueue"] {
+    return this.contract.taskQueue;
   }
 
   /**
@@ -700,7 +798,7 @@ export class ContractClient<TContract extends ContractDefinition> {
    *
    * @example
    * ```ts
-   * import { P } from "unthrown";
+   * import { tagPatterns, WORKFLOW_START_ERROR_TAGS } from "@temporal-contract/client";
    *
    * const handleResult = await contractClient.startWorkflow('processOrder', {
    *   workflowId: 'order-123',
@@ -715,11 +813,8 @@ export class ContractClient<TContract extends ContractDefinition> {
    *     // ... handle result
    *   },
    *   errCases: (matcher) =>
-   *     matcher.with(
-   *       P.tag('@temporal-contract/WorkflowNotInContractError'),
-   *       P.tag('@temporal-contract/WorkflowValidationError'),
-   *       P.tag('@temporal-contract/WorkflowAlreadyStartedError'),
-   *       (error) => console.error('Failed to start:', error),
+   *     matcher.with(...tagPatterns(WORKFLOW_START_ERROR_TAGS), (error) =>
+   *       console.error('Failed to start:', error),
    *     ),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
    * });
@@ -739,50 +834,43 @@ export class ContractClient<TContract extends ContractDefinition> {
       WorkflowStartOptions,
       "taskQueue" | "args" | "searchAttributes" | "typedSearchAttributes"
     > & { args?: unknown; searchAttributes?: Record<string, unknown> };
-    type Ok = TypedWorkflowHandle<TContract["workflows"][TWorkflowName]>;
-    type Err = WorkflowNotInContractError | WorkflowValidationError | WorkflowAlreadyStartedError;
-    const runPipeline = (currentInput: unknown): AsyncResult<Ok, Err> => {
-      const work = async () => {
-        const resolved = await resolveDefinitionAndValidateInput(
-          this.contract,
-          workflowName,
-          temporalOptions.workflowId,
-          currentInput,
-          searchAttributes as Record<string, unknown> | undefined,
-        );
-        // A technical throw inside the resolver is captured as a defect;
-        // re-throw it here so it rides this thunk's throw→defect net.
-        assertNoDefect(resolved);
-        if (resolved.isErr()) return Err(resolved.error);
-        const { definition, typedSearchAttributes } = resolved.value;
+    type StartOk = TypedWorkflowHandle<TContract["workflows"][TWorkflowName]>;
+    type StartErr =
+      | WorkflowNotInContractError
+      | WorkflowValidationError
+      | WorkflowAlreadyStartedError;
 
-        try {
-          // Transmit the caller's ORIGINAL args — the input was validated
-          // above (fail early), but the worker parses on receive, so the
-          // parsed value must not cross the wire (D1). An omitted payload
-          // travels as empty args, not `[undefined]`.
-          const handle = await this.client.workflow.start(workflowName, {
+    const runPipeline = (currentInput: unknown): AsyncResult<StartOk, StartErr> =>
+      resolveDefinitionAndValidateInput(
+        this.contract,
+        workflowName,
+        temporalOptions.workflowId,
+        currentInput,
+        searchAttributes as Record<string, unknown> | undefined,
+      ).flatMap(({ definition, typedSearchAttributes }) =>
+        // Transmit the caller's ORIGINAL args — the input was validated
+        // above (fail early), but the worker parses on receive, so the
+        // parsed value must not cross the wire (D1). An omitted payload
+        // travels as empty args, not `[undefined]`.
+        fromPromise(
+          this.client.workflow.start(workflowName, {
             ...temporalOptions,
             taskQueue: this.contract.taskQueue,
             args: currentInput === undefined ? [] : [currentInput],
             ...(typedSearchAttributes ? { typedSearchAttributes } : {}),
-          });
-          return Ok(
+          }),
+          // A start collision is the modeled Err; any other rejection is an
+          // unrecognized technical failure routed to the defect channel.
+          (error, defect) =>
+            classifyStartError(error) ?? defect(new RuntimeClientError("startWorkflow", error)),
+        ).map(
+          (handle) =>
             this.createTypedHandle(handle, workflowName, definition, {
               runId: handle.firstExecutionRunId,
               firstExecutionRunId: handle.firstExecutionRunId,
-            }) as Ok,
-          );
-        } catch (error) {
-          const alreadyStarted = classifyStartError(error);
-          if (alreadyStarted) return Err(alreadyStarted);
-          // Unrecognized, technical failure — route to the defect channel.
-          // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
-          throw new RuntimeClientError("startWorkflow", error);
-        }
-      };
-      return makeAsyncResult<Ok, Err>(work);
-    };
+            }) as StartOk,
+        ),
+      );
 
     // Interceptors wrap the whole pipeline (outside validation), so a
     // patched input is validated exactly like the caller's original. Types
@@ -797,7 +885,7 @@ export class ContractClient<TContract extends ContractDefinition> {
         input: args,
       } satisfies ClientInterceptorArgs,
       (current) => runPipeline(current.input) as AsyncResult<unknown, ClientCallError>,
-    ) as AsyncResult<Ok, Err>;
+    ) as AsyncResult<StartOk, StartErr>;
   }
 
   /**
@@ -805,7 +893,8 @@ export class ContractClient<TContract extends ContractDefinition> {
    *
    * Validates both halves of the call against the contract:
    * - `args` against the workflow's input schema
-   * - `signalArgs` against the named signal's input schema
+   * - `signalArgs` against the input schema of the signal named by the
+   *   options bag's `signalName` field
    *
    * Returns a `TypedWorkflowHandleWithSignaledRunId` — the same shape as
    * `startWorkflow`'s handle, plus a `signaledRunId` field for correlating
@@ -814,6 +903,11 @@ export class ContractClient<TContract extends ContractDefinition> {
    * @example
    * ```ts
    * import { P } from "unthrown";
+   * import {
+   *   SIGNAL_VALIDATION_ERROR_TAG,
+   *   tagPatterns,
+   *   WORKFLOW_START_ERROR_TAGS,
+   * } from "@temporal-contract/client";
    *
    * const result = await contractClient.signalWithStart('processOrder', {
    *   workflowId: 'order-123',
@@ -826,10 +920,8 @@ export class ContractClient<TContract extends ContractDefinition> {
    *   ok: (handle) => console.log('signaled run', handle.signaledRunId),
    *   errCases: (matcher) =>
    *     matcher.with(
-   *       P.tag('@temporal-contract/WorkflowNotInContractError'),
-   *       P.tag('@temporal-contract/WorkflowValidationError'),
-   *       P.tag('@temporal-contract/SignalValidationError'),
-   *       P.tag('@temporal-contract/WorkflowAlreadyStartedError'),
+   *       ...tagPatterns(WORKFLOW_START_ERROR_TAGS),
+   *       P.tag(SIGNAL_VALIDATION_ERROR_TAG),
    *       (error) => console.error('signalWithStart failed', error),
    *     ),
    *   defect: (cause) => console.error('unexpected failure', cause),
@@ -861,8 +953,10 @@ export class ContractClient<TContract extends ContractDefinition> {
       signalArgs?: unknown;
       searchAttributes?: Record<string, unknown>;
     };
-    type Ok = TypedWorkflowHandleWithSignaledRunId<TContract["workflows"][TWorkflowName]>;
-    type Err =
+    type SignalStartOk = TypedWorkflowHandleWithSignaledRunId<
+      TContract["workflows"][TWorkflowName]
+    >;
+    type SignalStartErr =
       | WorkflowNotInContractError
       | WorkflowValidationError
       | SignalValidationError
@@ -871,71 +965,65 @@ export class ContractClient<TContract extends ContractDefinition> {
     const runPipeline = (
       currentInput: unknown,
       currentSignalInput: unknown,
-    ): AsyncResult<Ok, Err> => {
-      const work = async () => {
-        const resolved = await resolveDefinitionAndValidateInput(
-          this.contract,
-          workflowName,
-          temporalOptions.workflowId,
-          currentInput,
-          searchAttributes as Record<string, unknown> | undefined,
-        );
-        // A technical throw inside the resolver is captured as a defect;
-        // re-throw it here so it rides this thunk's throw→defect net.
-        assertNoDefect(resolved);
-        if (resolved.isErr()) return Err(resolved.error);
-        const { definition, typedSearchAttributes } = resolved.value;
-
-        // Validate signal input — call-site-specific, kept inline. Like the
-        // workflow input, the parsed value is discarded: the signal handler
-        // parses on receive, so the original signal args go over the wire.
-        const signalDef = (definition.signals as Record<string, SignalDefinition> | undefined)?.[
-          signalName
-        ];
-        if (!signalDef) {
-          // Type-level constraint should already prevent this; defensive for
-          // raw-call / union-typed-name corner cases.
-          return Err(
-            new SignalValidationError(signalName, [
-              {
-                message: `Signal "${signalName}" is not declared on workflow "${workflowName}".`,
-              },
-            ]),
+    ): AsyncResult<SignalStartOk, SignalStartErr> =>
+      resolveDefinitionAndValidateInput(
+        this.contract,
+        workflowName,
+        temporalOptions.workflowId,
+        currentInput,
+        searchAttributes as Record<string, unknown> | undefined,
+      )
+        .flatMap((resolved) => {
+          // Validate signal input — call-site-specific, kept inline. Like the
+          // workflow input, the parsed value is discarded: the signal handler
+          // parses on receive, so the original signal args go over the wire.
+          const signalDef = (
+            resolved.definition.signals as Record<string, SignalDefinition> | undefined
+          )?.[signalName];
+          if (!signalDef) {
+            // Type-level constraint should already prevent this; defensive for
+            // raw-call / union-typed-name corner cases.
+            return ErrAsync(
+              new SignalValidationError(signalName, [
+                {
+                  message: `Signal "${signalName}" is not declared on workflow "${workflowName}".`,
+                },
+              ]),
+            );
+          }
+          return validateStandardSchema(signalDef.input, currentSignalInput).flatMap(
+            (signalInputResult) =>
+              signalInputResult.issues
+                ? Err(new SignalValidationError(signalName, signalInputResult.issues))
+                : Ok(resolved),
           );
-        }
-        const signalInputResult = await signalDef.input["~standard"].validate(currentSignalInput);
-        if (signalInputResult.issues) {
-          return Err(new SignalValidationError(signalName, signalInputResult.issues));
-        }
-
-        try {
-          const handle = await this.client.workflow.signalWithStart(workflowName, {
-            ...temporalOptions,
-            taskQueue: this.contract.taskQueue,
-            args: currentInput === undefined ? [] : [currentInput],
-            signal: signalName,
-            // An omitted signal payload travels as empty signalArgs. The
-            // cast collapses the `[] | [unknown]` union the SDK's overload
-            // inference can't split.
-            signalArgs: (currentSignalInput === undefined ? [] : [currentSignalInput]) as unknown[],
-            ...(typedSearchAttributes ? { typedSearchAttributes } : {}),
-          });
-          const typed = this.createTypedHandle(
-            handle,
-            workflowName,
-            definition,
-          ) as TypedWorkflowHandle<TContract["workflows"][TWorkflowName]>;
-          return Ok({ ...typed, signaledRunId: handle.signaledRunId } as Ok);
-        } catch (error) {
-          const alreadyStarted = classifyStartError(error);
-          if (alreadyStarted) return Err(alreadyStarted);
-          // Unrecognized, technical failure — route to the defect channel.
-          // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
-          throw new RuntimeClientError("signalWithStart", error);
-        }
-      };
-      return makeAsyncResult<Ok, Err>(work);
-    };
+        })
+        .flatMap(({ definition, typedSearchAttributes }) =>
+          fromPromise(
+            this.client.workflow.signalWithStart(workflowName, {
+              ...temporalOptions,
+              taskQueue: this.contract.taskQueue,
+              args: currentInput === undefined ? [] : [currentInput],
+              signal: signalName,
+              // An omitted signal payload travels as empty signalArgs. The
+              // cast collapses the `[] | [unknown]` union the SDK's overload
+              // inference can't split.
+              signalArgs: (currentSignalInput === undefined
+                ? []
+                : [currentSignalInput]) as unknown[],
+              ...(typedSearchAttributes ? { typedSearchAttributes } : {}),
+            }),
+            (error, defect) =>
+              classifyStartError(error) ?? defect(new RuntimeClientError("signalWithStart", error)),
+          ).map((handle) => {
+            const typed = this.createTypedHandle(
+              handle,
+              workflowName,
+              definition,
+            ) as TypedWorkflowHandle<TContract["workflows"][TWorkflowName]>;
+            return { ...typed, signaledRunId: handle.signaledRunId } as SignalStartOk;
+          }),
+        );
 
     if (this.interceptors.length === 0) return runPipeline(args, signalArgs);
     return chainInterceptors(
@@ -953,15 +1041,26 @@ export class ContractClient<TContract extends ContractDefinition> {
           current.input,
           (current as { signalInput: unknown }).signalInput,
         ) as AsyncResult<unknown, ClientCallError>,
-    ) as AsyncResult<Ok, Err>;
+    ) as AsyncResult<SignalStartOk, SignalStartErr>;
   }
 
   /**
-   * Execute a workflow (start and wait for result) with AsyncResult pattern
+   * Execute a workflow (start and wait for result) with AsyncResult pattern.
+   *
+   * Beside the start-phase errors, the result phase surfaces the workflow's
+   * declared contract errors and the first-class outcome errors
+   * (`WorkflowCancelledError` / `WorkflowTerminatedError` /
+   * `WorkflowTimeoutError`) — see {@link TypedWorkflowHandle.result} for the
+   * cancellation-handling caveat.
    *
    * @example
    * ```ts
    * import { P } from "unthrown";
+   * import {
+   *   tagPatterns,
+   *   WORKFLOW_RESULT_ERROR_TAGS,
+   *   WORKFLOW_START_ERROR_TAGS,
+   * } from "@temporal-contract/client";
    *
    * const result = await contractClient.executeWorkflow('processOrder', {
    *   workflowId: 'order-123',
@@ -973,15 +1072,15 @@ export class ContractClient<TContract extends ContractDefinition> {
    * await result.match({
    *   ok: (output) => console.log('Order processed:', output.status),
    *   errCases: (matcher) =>
-   *     matcher.with(
-   *       P.tag('@temporal-contract/ContractError'),
-   *       P.tag('@temporal-contract/WorkflowNotInContractError'),
-   *       P.tag('@temporal-contract/WorkflowValidationError'),
-   *       P.tag('@temporal-contract/WorkflowAlreadyStartedError'),
-   *       P.tag('@temporal-contract/WorkflowFailedError'),
-   *       P.tag('@temporal-contract/WorkflowExecutionNotFoundError'),
-   *       (error) => console.error('Processing failed:', error),
-   *     ),
+   *     matcher
+   *       .with(P.tag('@temporal-contract/ContractError'), (error) =>
+   *         console.error('Domain failure:', error.errorName),
+   *       )
+   *       .with(
+   *         ...tagPatterns(WORKFLOW_START_ERROR_TAGS),
+   *         ...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS),
+   *         (error) => console.error('Processing failed:', error),
+   *       ),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
    * });
    * ```
@@ -991,89 +1090,93 @@ export class ContractClient<TContract extends ContractDefinition> {
     options: TypedWorkflowStartOptions<TContract, TWorkflowName>,
   ): AsyncResult<
     ClientInferOutput<TContract["workflows"][TWorkflowName]>,
-    | WorkflowContractErrorsOf<TContract["workflows"][TWorkflowName]>
+    | WorkflowResultErrorsOf<TContract["workflows"][TWorkflowName]>
     | WorkflowNotInContractError
-    | WorkflowValidationError
     | WorkflowAlreadyStartedError
-    | WorkflowFailedError
-    | WorkflowExecutionNotFoundError
   > {
     // Widen once at the boundary — same rationale as `startWorkflow`.
     const { args, searchAttributes, ...temporalOptions } = options as Omit<
       WorkflowStartOptions,
       "taskQueue" | "args" | "searchAttributes" | "typedSearchAttributes"
     > & { args?: unknown; searchAttributes?: Record<string, unknown> };
-    type Ok = ClientInferOutput<TContract["workflows"][TWorkflowName]>;
-    type Err =
-      | WorkflowContractErrorsOf<TContract["workflows"][TWorkflowName]>
+    type ExecuteOk = ClientInferOutput<TContract["workflows"][TWorkflowName]>;
+    type ExecuteErr =
+      | WorkflowResultErrorsOf<TContract["workflows"][TWorkflowName]>
       | WorkflowNotInContractError
-      | WorkflowValidationError
-      | WorkflowAlreadyStartedError
-      | WorkflowFailedError
-      | WorkflowExecutionNotFoundError;
-    const runPipeline = (currentInput: unknown): AsyncResult<Ok, Err> => {
-      const work = async () => {
-        const resolved = await resolveDefinitionAndValidateInput(
-          this.contract,
-          workflowName,
-          temporalOptions.workflowId,
-          currentInput,
-          searchAttributes as Record<string, unknown> | undefined,
-        );
-        // A technical throw inside the resolver is captured as a defect;
-        // re-throw it here so it rides this thunk's throw→defect net.
-        assertNoDefect(resolved);
-        if (resolved.isErr()) return Err(resolved.error);
-        const { definition, typedSearchAttributes } = resolved.value;
+      | WorkflowAlreadyStartedError;
 
-        try {
-          // Transmit the caller's ORIGINAL args (validated above, parsed by
-          // the worker on receive — D1).
-          const result = await this.client.workflow.execute(workflowName, {
+    const runPipeline = (currentInput: unknown): AsyncResult<ExecuteOk, ExecuteErr> =>
+      resolveDefinitionAndValidateInput(
+        this.contract,
+        workflowName,
+        temporalOptions.workflowId,
+        currentInput,
+        searchAttributes as Record<string, unknown> | undefined,
+      ).flatMap(({ definition, typedSearchAttributes }) =>
+        // Transmit the caller's ORIGINAL args (validated above, parsed by
+        // the worker on receive — D1).
+        fromPromise(
+          this.client.workflow.execute(workflowName, {
             ...temporalOptions,
             taskQueue: this.contract.taskQueue,
             args: currentInput === undefined ? [] : [currentInput],
             ...(typedSearchAttributes ? { typedSearchAttributes } : {}),
-          });
-
-          // Output parsing runs *after* the Temporal call returns — kept
-          // inline because it's specific to executeWorkflow's start-and-wait
-          // shape; the helper only handles pre-call concerns. This is the
-          // RECEIVING side of the result boundary: the worker validated and
-          // transmitted its original return value, so the parse (and any
-          // schema transform) happens exactly once, here.
-          const outputResult = await definition.output["~standard"].validate(result);
-          if (outputResult.issues) {
-            return Err(
-              new WorkflowValidationError(
-                workflowName,
-                "output",
-                outputResult.issues,
-                temporalOptions.workflowId,
-              ),
-            );
-          }
-
-          return Ok(outputResult.value as Ok);
-        } catch (error) {
+          }),
           // executeWorkflow combines start + result, so it can surface any
           // of the discriminated kinds: the start-phase classification
-          // first, then the shared rehydrate-then-classify result tail.
-          const alreadyStarted = classifyStartError(error);
-          if (alreadyStarted) return Err(alreadyStarted);
-          const classified = await classifyExecutionResultError(
-            definition,
-            error,
-            temporalOptions.workflowId,
-          );
-          if (classified) return Err(classified as Err);
-          // Unrecognized, technical failure — route to the defect channel.
-          // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
-          throw new RuntimeClientError("executeWorkflow", error);
-        }
-      };
-      return makeAsyncResult<Ok, Err>(work);
-    };
+          // first, then the shared result-phase classification (which
+          // splits the outcome trio off the generic failure). Anything
+          // unrecognized is a technical failure on the defect channel.
+          (error, defect) =>
+            classifyStartError(error) ??
+            classifyResultError(error, temporalOptions.workflowId) ??
+            defect(new RuntimeClientError("executeWorkflow", error)),
+        )
+          .flatMapErrCases((matcher) =>
+            matcher
+              // Async tail: a failure matching one of the workflow's
+              // declared contract errors rehydrates into the typed error;
+              // otherwise the generic WorkflowFailedError flows through.
+              // The cast narrows `AnyContractError` to this workflow's
+              // precise declared-error union (same erase/restore pattern
+              // as the interceptor boundary).
+              .with(
+                P.tag(WORKFLOW_FAILED_ERROR_TAG),
+                (failed) =>
+                  rehydrateFailedResult(definition, failed) as AsyncResult<
+                    never,
+                    | WorkflowContractErrorsOf<TContract["workflows"][TWorkflowName]>
+                    | WorkflowFailedError
+                  >,
+              )
+              .with(
+                P.tag(WORKFLOW_ALREADY_STARTED_ERROR_TAG),
+                P.tag(WORKFLOW_CANCELLED_ERROR_TAG),
+                P.tag(WORKFLOW_TERMINATED_ERROR_TAG),
+                P.tag(WORKFLOW_TIMEOUT_ERROR_TAG),
+                P.tag(WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG),
+                (error) => Err(error),
+              ),
+          )
+          .flatMap((result) =>
+            // Output parsing runs *after* the Temporal call returns — the
+            // RECEIVING side of the result boundary: the worker validated
+            // and transmitted its original return value, so the parse (and
+            // any schema transform) happens exactly once, here.
+            validateStandardSchema(definition.output, result).flatMap((outputResult) =>
+              outputResult.issues
+                ? Err(
+                    new WorkflowValidationError(
+                      workflowName,
+                      "output",
+                      outputResult.issues,
+                      temporalOptions.workflowId,
+                    ),
+                  )
+                : Ok(outputResult.value as ExecuteOk),
+            ),
+          ),
+      );
 
     if (this.interceptors.length === 0) return runPipeline(args);
     return chainInterceptors(
@@ -1085,7 +1188,7 @@ export class ContractClient<TContract extends ContractDefinition> {
         input: args,
       } satisfies ClientInterceptorArgs,
       (current) => runPipeline(current.input) as AsyncResult<unknown, ClientCallError>,
-    ) as AsyncResult<Ok, Err>;
+    ) as AsyncResult<ExecuteOk, ExecuteErr>;
   }
 
   /**
@@ -1154,6 +1257,10 @@ export class ContractClient<TContract extends ContractDefinition> {
       invoke: (name, input) =>
         input === undefined ? workflowHandle.query(name) : workflowHandle.query(name, input),
       validateOutput: (def) => def.output,
+      // An unregistered handler / a throwing query handler is a routine
+      // operational outcome, modeled beside the missing execution.
+      classifyError: (error, name) =>
+        classifyHandleError(error, workflowHandle.workflowId) ?? classifyQueryError(error, name),
     }) as TypedWorkflowHandle<TWorkflow>["queries"];
 
     const signals = buildValidatedProxy({
@@ -1173,6 +1280,7 @@ export class ContractClient<TContract extends ContractDefinition> {
         return undefined;
       },
       validateOutput: () => null,
+      classifyError: (error) => classifyHandleError(error, workflowHandle.workflowId),
     }) as TypedWorkflowHandle<TWorkflow>["signals"];
 
     const updates = buildValidatedProxy({
@@ -1188,9 +1296,11 @@ export class ContractClient<TContract extends ContractDefinition> {
           args: (input === undefined ? [] : [input]) as [unknown],
         }),
       validateOutput: (def) => def.output,
+      // A rejected admission / failed handler is a routine business
+      // failure, modeled beside the missing execution.
+      classifyError: (error, name) =>
+        classifyHandleError(error, workflowHandle.workflowId) ?? classifyUpdateError(error, name),
     }) as TypedWorkflowHandle<TWorkflow>["updates"];
-
-    type StartUpdateErr = UpdateValidationError | WorkflowExecutionNotFoundError;
 
     const wrapUpdateHandle = (
       updateHandle: WorkflowUpdateHandle<unknown>,
@@ -1200,72 +1310,63 @@ export class ContractClient<TContract extends ContractDefinition> {
       updateId: updateHandle.updateId,
       workflowId: updateHandle.workflowId,
       workflowRunId: updateHandle.workflowRunId,
-      result: (): AsyncResult<unknown, StartUpdateErr> => {
-        const work = async () => {
-          try {
-            const raw = await updateHandle.result();
-            // Receive side of the update-result boundary: the handler
-            // transmitted its original return value; parse it here (D1).
-            const outputResult = await updateDef.output["~standard"].validate(raw);
-            if (outputResult.issues) {
-              return Err(new UpdateValidationError(updateName, "output", outputResult.issues));
-            }
-            return Ok(outputResult.value);
-          } catch (error) {
-            const notFound = classifyHandleError(error, updateHandle.workflowId);
-            if (notFound) return Err(notFound);
-            // Unrecognized, technical failure — route to the defect channel.
-            // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
-            throw new RuntimeClientError("update.result", error);
-          }
-        };
-        return makeAsyncResult<unknown, StartUpdateErr>(work);
-      },
+      result: (): AsyncResult<unknown, UpdateCallError> =>
+        fromPromise(
+          updateHandle.result(),
+          (error, defect) =>
+            classifyHandleError(error, updateHandle.workflowId) ??
+            classifyUpdateError(error, updateName) ??
+            defect(new RuntimeClientError("update.result", error)),
+        ).flatMap((raw) =>
+          // Receive side of the update-result boundary: the handler
+          // transmitted its original return value; parse it here (D1).
+          validateStandardSchema(updateDef.output, raw).flatMap((outputResult) =>
+            outputResult.issues
+              ? Err(new UpdateValidationError(updateName, "output", outputResult.issues))
+              : Ok(outputResult.value),
+          ),
+        ),
     });
 
     const startUpdate = (
       updateName: string,
       options?: { args?: unknown; updateId?: string; waitForStage?: "ACCEPTED" },
-    ): AsyncResult<unknown, StartUpdateErr> => {
-      const runPipeline = (currentInput: unknown): AsyncResult<unknown, StartUpdateErr> => {
-        const work = async () => {
-          const updateDef = (definition.updates as Record<string, UpdateDefinition> | undefined)?.[
-            updateName
-          ];
-          if (!updateDef) {
-            // Type-level constraint should already prevent this; defensive
-            // for raw-call / union-typed-name corner cases.
-            return Err(
-              new UpdateValidationError(updateName, "input", [
-                {
-                  message: `Update "${updateName}" is not declared on workflow "${workflowName}".`,
-                },
-              ]),
-            );
-          }
-          const inputResult = await updateDef.input["~standard"].validate(currentInput);
-          if (inputResult.issues) {
-            return Err(new UpdateValidationError(updateName, "input", inputResult.issues));
-          }
-
-          try {
+    ): AsyncResult<unknown, UpdateCallError> => {
+      const runPipeline = (currentInput: unknown): AsyncResult<unknown, UpdateCallError> => {
+        const updateDef = (definition.updates as Record<string, UpdateDefinition> | undefined)?.[
+          updateName
+        ];
+        if (!updateDef) {
+          // Type-level constraint should already prevent this; defensive
+          // for raw-call / union-typed-name corner cases.
+          return ErrAsync(
+            new UpdateValidationError(updateName, "input", [
+              {
+                message: `Update "${updateName}" is not declared on workflow "${workflowName}".`,
+              },
+            ]),
+          );
+        }
+        return validateStandardSchema(updateDef.input, currentInput).flatMap(
+          (inputResult): AsyncResult<unknown, UpdateCallError> => {
+            if (inputResult.issues) {
+              return ErrAsync(new UpdateValidationError(updateName, "input", inputResult.issues));
+            }
             // Send the ORIGINAL input — the update handler parses on
             // receive (D1). An omitted payload travels as empty args.
-            const updateHandle = await workflowHandle.startUpdate(updateName, {
-              args: (currentInput === undefined ? [] : [currentInput]) as [unknown],
-              waitForStage: options?.waitForStage ?? "ACCEPTED",
-              ...(options?.updateId !== undefined ? { updateId: options.updateId } : {}),
-            });
-            return Ok(wrapUpdateHandle(updateHandle, updateName, updateDef));
-          } catch (error) {
-            const notFound = classifyHandleError(error, workflowHandle.workflowId);
-            if (notFound) return Err(notFound);
-            // Unrecognized, technical failure — route to the defect channel.
-            // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
-            throw new RuntimeClientError("startUpdate", error);
-          }
-        };
-        return makeAsyncResult<unknown, StartUpdateErr>(work);
+            return fromPromise(
+              workflowHandle.startUpdate(updateName, {
+                args: (currentInput === undefined ? [] : [currentInput]) as [unknown],
+                waitForStage: options?.waitForStage ?? "ACCEPTED",
+                ...(options?.updateId !== undefined ? { updateId: options.updateId } : {}),
+              }),
+              (error, defect) =>
+                classifyHandleError(error, workflowHandle.workflowId) ??
+                classifyUpdateError(error, updateName) ??
+                defect(new RuntimeClientError("startUpdate", error)),
+            ).map((updateHandle) => wrapUpdateHandle(updateHandle, updateName, updateDef));
+          },
+        );
       };
 
       // Interceptors wrap the whole pipeline (outside validation), same
@@ -1281,62 +1382,64 @@ export class ContractClient<TContract extends ContractDefinition> {
           input: options?.args,
         } satisfies ClientInterceptorArgs,
         (current) => runPipeline(current.input) as AsyncResult<unknown, ClientCallError>,
-      ) as AsyncResult<unknown, StartUpdateErr>;
+      ) as AsyncResult<unknown, UpdateCallError>;
     };
 
     return {
       workflowId: workflowHandle.workflowId,
       runId: ids.runId,
       firstExecutionRunId: ids.firstExecutionRunId,
+      raw: workflowHandle,
       queries,
       signals,
       updates,
       startUpdate: startUpdate as TypedWorkflowHandle<TWorkflow>["startUpdate"],
-      result: (): AsyncResult<
-        ClientInferOutput<TWorkflow>,
-        | WorkflowContractErrorsOf<TWorkflow>
-        | WorkflowValidationError
-        | WorkflowFailedError
-        | WorkflowExecutionNotFoundError
-      > => {
-        type Ok = ClientInferOutput<TWorkflow>;
-        type Err =
-          | WorkflowContractErrorsOf<TWorkflow>
-          | WorkflowValidationError
-          | WorkflowFailedError
-          | WorkflowExecutionNotFoundError;
-        const work = async () => {
-          try {
-            const result = await workflowHandle.result();
-            const outputResult = await definition.output["~standard"].validate(result);
-            if (outputResult.issues) {
-              return Err(
-                new WorkflowValidationError(
-                  workflowName,
-                  "output",
-                  outputResult.issues,
-                  workflowHandle.workflowId,
-                ),
-              );
-            }
-            return Ok(outputResult.value as Ok);
-          } catch (error) {
-            // Shared rehydrate-then-classify tail: a failure matching one of
-            // the workflow's declared contract errors rehydrates into the
-            // typed error; everything else falls through to the generic
-            // classification.
-            const classified = await classifyExecutionResultError(
-              definition,
-              error,
-              workflowHandle.workflowId,
-            );
-            if (classified) return Err(classified as Err);
-            // Unrecognized, technical failure — route to the defect channel.
-            // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
-            throw new RuntimeClientError("result", error);
-          }
-        };
-        return makeAsyncResult<Ok, Err>(work);
+      result: (): AsyncResult<ClientInferOutput<TWorkflow>, WorkflowResultErrorsOf<TWorkflow>> => {
+        type ResultOk = ClientInferOutput<TWorkflow>;
+        return fromPromise(
+          workflowHandle.result(),
+          // Result-phase classification: contract-error rehydration happens
+          // in the async errCases tail below; everything unrecognized is a
+          // technical failure on the defect channel.
+          (error, defect) =>
+            classifyResultError(error, workflowHandle.workflowId) ??
+            defect(new RuntimeClientError("result", error)),
+        )
+          .flatMapErrCases((matcher) =>
+            matcher
+              // A failure matching one of the workflow's declared contract
+              // errors rehydrates into the typed error; everything else
+              // flows through unchanged.
+              .with(
+                P.tag(WORKFLOW_FAILED_ERROR_TAG),
+                (failed) =>
+                  rehydrateFailedResult(definition, failed) as AsyncResult<
+                    never,
+                    WorkflowContractErrorsOf<TWorkflow> | WorkflowFailedError
+                  >,
+              )
+              .with(
+                P.tag(WORKFLOW_CANCELLED_ERROR_TAG),
+                P.tag(WORKFLOW_TERMINATED_ERROR_TAG),
+                P.tag(WORKFLOW_TIMEOUT_ERROR_TAG),
+                P.tag(WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG),
+                (error) => Err(error),
+              ),
+          )
+          .flatMap((result) =>
+            validateStandardSchema(definition.output, result).flatMap((outputResult) =>
+              outputResult.issues
+                ? Err(
+                    new WorkflowValidationError(
+                      workflowName,
+                      "output",
+                      outputResult.issues,
+                      workflowHandle.workflowId,
+                    ),
+                  )
+                : Ok(outputResult.value as ResultOk),
+            ),
+          );
       },
       terminate: (reason?: string): AsyncResult<void, WorkflowExecutionNotFoundError> =>
         fromPromise(
@@ -1385,14 +1488,28 @@ function createWorkflowNotInContractError(
 
 type DefWithInput = { readonly input: StandardSchemaV1 };
 
+/**
+ * Union of the modeled operation errors the three handle proxies can
+ * classify an invoke rejection into. The builder is typed against this
+ * widened union (each call site's `classifyError` produces the relevant
+ * subset); the public per-operation precision lives on the
+ * `ClientInferSignal` / `ClientInferQuery` / `ClientInferUpdate` types the
+ * proxies are cast to.
+ */
+type ProxyOperationError =
+  | WorkflowExecutionNotFoundError
+  | QueryFailedError
+  | UpdateFailedError
+  | UpdateRejectedError;
+
 type ProxyOptions<TDef extends DefWithInput, TValidationError extends Error> = {
   readonly defs: Record<string, TDef> | undefined;
   readonly operation: "signal" | "query" | "update";
   /** Contract workflow name of the handle — surfaced to interceptors. */
   readonly workflowName: string;
   /**
-   * Workflow ID of the handle these proxies bind to. Used by
-   * {@link classifyHandleError} to surface
+   * Workflow ID of the handle these proxies bind to. Used by the
+   * `classifyError` callbacks to surface
    * {@link WorkflowExecutionNotFoundError} with the targeted ID even when
    * Temporal's error doesn't carry it.
    */
@@ -1416,16 +1533,27 @@ type ProxyOptions<TDef extends DefWithInput, TValidationError extends Error> = {
    * output parsing (used by signals, which don't return a value).
    */
   readonly validateOutput: (def: TDef) => StandardSchemaV1 | null;
+  /**
+   * Recognize an `invoke` rejection as a modeled operation error (a missing
+   * execution, a rejected update, an unregistered query, …). Returns
+   * `undefined` for anything else — an unrecognized, technical failure the
+   * proxy routes to the defect channel with a {@link RuntimeClientError}
+   * cause.
+   */
+  readonly classifyError: (error: unknown, name: string) => ProxyOperationError | undefined;
 };
 
 /**
  * Build a `{ name: (args) => AsyncResult<...> }` proxy for a contract's
  * queries/signals/updates. The three call sites differ only in how they
- * invoke Temporal and whether they parse output, so the shared
- * input-validate → invoke(original) → output-parse → wrap-Result pipeline
- * lives here once. Per the wire-format contract (D1), input validation only
- * gates the call — the original value is transmitted and the worker parses
- * it — while the result is parsed here on the receiving side.
+ * invoke Temporal, whether they parse output, and how they classify invoke
+ * rejections, so the shared input-validate → invoke(original) →
+ * output-parse pipeline lives here once — as an `AsyncResult` combinator
+ * chain whose boundary (`fromPromise`) triages every rejection through the
+ * per-operation `classifyError`. Per the wire-format contract (D1), input
+ * validation only gates the call — the original value is transmitted and
+ * the worker parses it — while the result is parsed here on the receiving
+ * side.
  */
 function buildValidatedProxy<TDef extends DefWithInput, TValidationError extends Error>({
   defs,
@@ -1436,44 +1564,40 @@ function buildValidatedProxy<TDef extends DefWithInput, TValidationError extends
   makeValidationError,
   invoke,
   validateOutput,
+  classifyError,
 }: ProxyOptions<TDef, TValidationError>): Record<
   string,
-  (args?: unknown) => AsyncResult<unknown, TValidationError | WorkflowExecutionNotFoundError>
+  (args?: unknown) => AsyncResult<unknown, TValidationError | ProxyOperationError>
 > {
-  type ProxyError = TValidationError | WorkflowExecutionNotFoundError;
+  type ProxyError = TValidationError | ProxyOperationError;
   const proxy: Record<string, (args?: unknown) => AsyncResult<unknown, ProxyError>> = {};
   if (!defs) return proxy;
 
   for (const [name, def] of Object.entries(defs)) {
-    const runPipeline = (currentInput: unknown): AsyncResult<unknown, ProxyError> => {
-      const work = async () => {
-        const inputResult = await def.input["~standard"].validate(currentInput);
-        if (inputResult.issues) {
-          return Err(makeValidationError(name, "input", inputResult.issues));
-        }
-
-        try {
+    const runPipeline = (currentInput: unknown): AsyncResult<unknown, ProxyError> =>
+      validateStandardSchema(def.input, currentInput).flatMap(
+        (inputResult): AsyncResult<unknown, ProxyError> => {
+          if (inputResult.issues) {
+            return ErrAsync(makeValidationError(name, "input", inputResult.issues));
+          }
           // Send the ORIGINAL input — the worker parses on receive (D1).
-          const result = await invoke(name, currentInput);
-          const outputSchema = validateOutput(def);
-          if (!outputSchema) {
-            return Ok(result);
-          }
-          const outputResult = await outputSchema["~standard"].validate(result);
-          if (outputResult.issues) {
-            return Err(makeValidationError(name, "output", outputResult.issues));
-          }
-          return Ok(outputResult.value);
-        } catch (error) {
-          const notFound = classifyHandleError(error, workflowId);
-          if (notFound) return Err(notFound);
-          // Unrecognized, technical failure — route to the defect channel.
-          // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw inside the makeAsyncResult work thunk IS how a technical fault becomes a defect, never a modeled Err
-          throw new RuntimeClientError(operation, error);
-        }
-      };
-      return makeAsyncResult<unknown, ProxyError>(work);
-    };
+          return fromPromise(
+            invoke(name, currentInput),
+            (error, defect) =>
+              classifyError(error, name) ?? defect(new RuntimeClientError(operation, error)),
+          ).flatMap((result) => {
+            const outputSchema = validateOutput(def);
+            if (!outputSchema) {
+              return OkAsync(result);
+            }
+            return validateStandardSchema(outputSchema, result).flatMap((outputResult) =>
+              outputResult.issues
+                ? Err(makeValidationError(name, "output", outputResult.issues))
+                : Ok(outputResult.value),
+            );
+          });
+        },
+      );
 
     proxy[name] = (args) => {
       // Interceptors wrap the whole pipeline (outside validation), so a

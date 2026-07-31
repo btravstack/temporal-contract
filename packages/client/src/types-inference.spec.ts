@@ -31,17 +31,24 @@ import {
 import { describe, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 
+import { ContractClient, type TypedClient } from "./client.js";
+import type { TypedSignalWithStartOptions, TypedWorkflowStartOptions } from "./client.js";
 import type {
-  ContractClient,
-  TypedClient,
-  TypedSignalWithStartOptions,
-  TypedWorkflowStartOptions,
-} from "./client.js";
-import type {
+  QueryFailedError,
+  QueryValidationError,
+  UpdateFailedError,
+  UpdateRejectedError,
+  UpdateValidationError,
   WorkflowAlreadyStartedError,
+  WorkflowCancelledError,
+  WorkflowExecutionNotFoundError,
+  WorkflowFailedError,
   WorkflowNotInContractError,
+  WorkflowTerminatedError,
+  WorkflowTimeoutError,
   WorkflowValidationError,
 } from "./errors.js";
+import { TypedScheduleClient } from "./schedule.js";
 
 const contractWithSignal = defineContract({
   taskQueue: "q",
@@ -284,6 +291,113 @@ describe("method-level pins", () => {
         args: { orderId: "o" },
         signalName: "setPriority",
       });
+    };
+    void _pin;
+  });
+
+  it("executeWorkflow's error union includes the first-class outcome errors, precisely", () => {
+    const _pin = async (bound: ContractClient<typeof contractNoSignals>) => {
+      const result = await bound.executeWorkflow("bare", { workflowId: "x", args: { a: "s" } });
+      if (result.isErr()) {
+        // `bare` declares no contract errors, so this is the exact union —
+        // cancellation/termination/timeout are first-class members, not
+        // `WorkflowFailedError.cause` variants.
+        expectTypeOf(result.error).toEqualTypeOf<
+          | WorkflowNotInContractError
+          | WorkflowValidationError
+          | WorkflowAlreadyStartedError
+          | WorkflowFailedError
+          | WorkflowCancelledError
+          | WorkflowTerminatedError
+          | WorkflowTimeoutError
+          | WorkflowExecutionNotFoundError
+        >();
+      }
+    };
+    void _pin;
+  });
+
+  it("handle.result() surfaces the same outcome-aware union", () => {
+    const _pin = async (bound: ContractClient<typeof contractNoSignals>) => {
+      const handleResult = bound.getHandle("bare", "id-1");
+      if (!handleResult.isOk()) return;
+      const result = await handleResult.value.result();
+      if (result.isErr()) {
+        expectTypeOf(result.error).toEqualTypeOf<
+          | WorkflowValidationError
+          | WorkflowFailedError
+          | WorkflowCancelledError
+          | WorkflowTerminatedError
+          | WorkflowTimeoutError
+          | WorkflowExecutionNotFoundError
+        >();
+      }
+    };
+    void _pin;
+  });
+
+  it("queries err with QueryFailedError beside validation and not-found", () => {
+    const _pin = async (bound: ContractClient<typeof richContract>) => {
+      const handleResult = bound.getHandle("processOrder", "id-1");
+      if (!handleResult.isOk()) return;
+      const result = await handleResult.value.queries.progress();
+      if (result.isErr()) {
+        expectTypeOf(result.error).toEqualTypeOf<
+          QueryValidationError | QueryFailedError | WorkflowExecutionNotFoundError
+        >();
+      }
+    };
+    void _pin;
+  });
+
+  it("updates err with UpdateRejectedError/UpdateFailedError beside validation and not-found", () => {
+    const _pin = async (bound: ContractClient<typeof richContract>) => {
+      const handleResult = bound.getHandle("processOrder", "id-1");
+      if (!handleResult.isOk()) return;
+      const handle = handleResult.value;
+
+      const executed = await handle.updates.refresh();
+      if (executed.isErr()) {
+        expectTypeOf(executed.error).toEqualTypeOf<
+          | UpdateValidationError
+          | UpdateRejectedError
+          | UpdateFailedError
+          | WorkflowExecutionNotFoundError
+        >();
+      }
+
+      const started = await handle.startUpdate("refresh");
+      if (started.isErr()) {
+        expectTypeOf(started.error).toEqualTypeOf<
+          | UpdateValidationError
+          | UpdateRejectedError
+          | UpdateFailedError
+          | WorkflowExecutionNotFoundError
+        >();
+      }
+      if (started.isOk()) {
+        const outcome = await started.value.result();
+        if (outcome.isErr()) {
+          expectTypeOf(outcome.error).toEqualTypeOf<
+            | UpdateValidationError
+            | UpdateRejectedError
+            | UpdateFailedError
+            | WorkflowExecutionNotFoundError
+          >();
+        }
+      }
+    };
+    void _pin;
+  });
+
+  it("ContractClient and TypedScheduleClient are not publicly constructible", () => {
+    const _pin = () => {
+      // @ts-expect-error — private constructor: obtain instances via typedClient.for(contract).
+      const _client = new ContractClient(contractNoSignals, undefined as never, []);
+      // @ts-expect-error — private constructor: reach it via typedClient.for(contract).schedule.
+      const _schedule = new TypedScheduleClient(contractNoSignals, undefined as never);
+      void _client;
+      void _schedule;
     };
     void _pin;
   });

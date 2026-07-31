@@ -441,17 +441,116 @@ describe("TypedClient.schedule", () => {
       }
     });
 
-    it("routes update through Temporal's ScheduleHandle.update", async () => {
+    it("update fetches the description, applies updateFn once, and persists the computed options", async () => {
+      const tempHandle = createMockHandle();
+      tempHandle.update.mockResolvedValue(undefined);
+      tempHandle.describe.mockResolvedValue({ scheduleId: "daily-sweep", spec: { intervals: [] } });
+      mockSchedule.getHandle.mockReturnValue(tempHandle);
+
+      const handle = client.schedule.getHandle("daily-sweep");
+      const updateFn = vi.fn((previous: { spec?: unknown }) => ({ spec: previous.spec ?? {} }));
+      const result = await handle.update(updateFn as never);
+
+      expect(result).toBeOk();
+      // The wrapper fetches the description itself (so it can async-validate
+      // before anything persists) and hands Temporal a thunk returning the
+      // already-computed options — updateFn runs exactly once.
+      expect(tempHandle.describe).toHaveBeenCalledTimes(1);
+      expect(updateFn).toHaveBeenCalledTimes(1);
+      expect(updateFn).toHaveBeenCalledWith({ scheduleId: "daily-sweep", spec: { intervals: [] } });
+      expect(tempHandle.update).toHaveBeenCalledTimes(1);
+      const persistFn = tempHandle.update.mock.calls[0]?.[0] as (previous: unknown) => unknown;
+      expect(persistFn({})).toEqual({ spec: { intervals: [] } });
+    });
+
+    it("update validates args against the contract when the action targets a declared workflow", async () => {
       const tempHandle = createMockHandle();
       tempHandle.update.mockResolvedValue(undefined);
       mockSchedule.getHandle.mockReturnValue(tempHandle);
 
       const handle = client.schedule.getHandle("daily-sweep");
-      const updateFn = (previous: { spec?: unknown }) => ({ spec: previous.spec ?? {} });
-      const result = await handle.update(updateFn as never);
+      const result = await handle.update((() => ({
+        spec: {},
+        action: {
+          type: "startWorkflow",
+          workflowType: "processOrder",
+          taskQueue: "schedules-q",
+          // orderId must be a string — this must be rejected.
+          args: [{ orderId: 123 }],
+        },
+      })) as never);
+
+      expect(result).toBeErr();
+      if (result.isErr()) {
+        expect(result.error).toBeInstanceOf(WorkflowValidationError);
+        const error = result.error as WorkflowValidationError;
+        expect(error.workflowName).toBe("processOrder");
+        expect(error.direction).toBe("input");
+      }
+      // Nothing persisted on a validation failure.
+      expect(tempHandle.update).not.toHaveBeenCalled();
+    });
+
+    it("update accepts valid args for a declared workflow and persists them unchanged", async () => {
+      const tempHandle = createMockHandle();
+      tempHandle.update.mockResolvedValue(undefined);
+      mockSchedule.getHandle.mockReturnValue(tempHandle);
+
+      const updated = {
+        spec: {},
+        action: {
+          type: "startWorkflow",
+          workflowType: "processOrder",
+          taskQueue: "schedules-q",
+          args: [{ orderId: "sweep-2" }],
+        },
+      };
+      const handle = client.schedule.getHandle("daily-sweep");
+      const result = await handle.update((() => updated) as never);
 
       expect(result).toBeOk();
-      expect(tempHandle.update).toHaveBeenCalledWith(updateFn);
+      const persistFn = tempHandle.update.mock.calls[0]?.[0] as (previous: unknown) => unknown;
+      // Original args on the wire — validated, not transformed (D1).
+      expect(persistFn({})).toBe(updated);
+    });
+
+    it("update passes through actions whose workflowType isn't declared on the contract", async () => {
+      // Documented passthrough: the contract has no schema to check an
+      // undeclared workflowType against, so the options persist as-is.
+      const tempHandle = createMockHandle();
+      tempHandle.update.mockResolvedValue(undefined);
+      mockSchedule.getHandle.mockReturnValue(tempHandle);
+
+      const handle = client.schedule.getHandle("daily-sweep");
+      const result = await handle.update((() => ({
+        spec: {},
+        action: {
+          type: "startWorkflow",
+          workflowType: "someForeignWorkflow",
+          taskQueue: "other-q",
+          args: [{ anything: true }],
+        },
+      })) as never);
+
+      expect(result).toBeOk();
+      expect(tempHandle.update).toHaveBeenCalledTimes(1);
+    });
+
+    it("update surfaces ScheduleNotFoundError when the describe phase hits a missing schedule", async () => {
+      const tempHandle = { ...createMockHandle(), scheduleId: "missing" };
+      tempHandle.describe.mockRejectedValue(
+        new MockTemporalScheduleNotFoundError("not found", "missing"),
+      );
+      mockSchedule.getHandle.mockReturnValue(tempHandle);
+
+      const handle = client.schedule.getHandle("missing");
+      const result = await handle.update(((previous: unknown) => previous) as never);
+
+      expect(result).toBeErr();
+      if (result.isErr()) {
+        expect(result.error).toBeInstanceOf(ScheduleNotFoundError);
+      }
+      expect(tempHandle.update).not.toHaveBeenCalled();
     });
 
     it("routes backfill through Temporal's ScheduleHandle.backfill", async () => {
