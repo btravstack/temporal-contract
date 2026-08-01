@@ -43,10 +43,17 @@ export const resolvesLayeredOptions = declareWorkflow({
   activityOptions: { startToCloseTimeout: "30 seconds", retry: { maximumAttempts: 1 } },
   // `flakyActivity`'s contract-level `activityOptions` caps retries at 1
   // attempt. This override replaces that `retry` block wholesale (shallow
-  // merge — it does not carry `maximumAttempts` forward), so retries are
-  // effectively unbounded again; see the doc comment on `flakyActivity` in
-  // the contract for the full argument.
-  activityOptionsByName: { flakyActivity: { retry: { backoffCoefficient: 1 } } },
+  // merge — it does not carry the lower layer's `maximumAttempts: 1`
+  // forward); see the doc comment on `flakyActivity` in the contract for the
+  // full argument. The override supplies its OWN `maximumAttempts: 2` rather
+  // than leaving it unset: `flakyActivity`'s implementation fails once then
+  // succeeds, so 2 attempts is exactly what the happy path needs, and capping
+  // it (instead of falling through to Temporal's unbounded default) turns a
+  // merge-precedence regression that broke the "succeeds on retry" path into
+  // a fast assertion failure instead of a 120s test-timeout hang.
+  activityOptionsByName: {
+    flakyActivity: { retry: { backoffCoefficient: 1, maximumAttempts: 2 } },
+  },
   implementation: async (context, args) => {
     const [contractTimeout, usesDefault, flaky, globalTimeout] = await Promise.all([
       context.activities.contractTimeoutActivity({ sleepMs: args.sleepMs }),
