@@ -1,9 +1,14 @@
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { ContractError, TypedClient } from "@temporal-contract/client";
+import { ContractError, TypedClient, WorkflowFailedError } from "@temporal-contract/client";
 import { onRehydrationMiss, type RehydrationMiss } from "@temporal-contract/contract/errors";
 import { it } from "@temporal-contract/testing/time-skipping";
+import {
+  bundleFor,
+  nextTaskQueueId,
+  withTaskQueue,
+} from "@temporal-contract/testing/workflow-bundle";
 import { OkAsync, ErrAsync } from "unthrown";
 /**
  * E2e coverage for the two rehydration audit gaps (in-process, no Docker):
@@ -19,6 +24,18 @@ import { OkAsync, ErrAsync } from "unthrown";
  *    an activity) must NOT rehydrate as the typed error on the workflow
  *    side; only the marker-carrying failure produced by the typed
  *    constructors does.
+ *
+ * Also covers `declareWorkflow`'s error-conversion boundary — the catch
+ * block wrapping a workflow `implementation` that turns a thrown
+ * `context.errors.X(...)` into the `ApplicationFailure` wire shape (see
+ * `../workflow.ts`):
+ *
+ * 3. A thrown contract error whose data fails its OWN declared schema fails
+ *    fast with `ContractErrorDataValidationError` rather than crossing the
+ *    wire malformed.
+ * 4. A thrown error that is NOT a `ContractError` (e.g. a hand-built
+ *    `ApplicationFailure`) is rethrown untouched — not misclassified, not
+ *    swallowed.
  */
 import { describe, expect } from "vitest";
 
@@ -62,15 +79,18 @@ describe("rehydration at the e2e boundary", () => {
   it("does not rehydrate a marker-less ApplicationFailure as a data-less declared error", async ({
     testEnv,
   }) => {
+    const contract = withTaskQueue(rehydrationWorkerContract, nextTaskQueueId("rehydration"));
+    const bundle = await bundleFor(workflowPath("rehydration.workflows"));
+
     const worker = await TypedWorker.create({
-      contract: rehydrationWorkerContract,
+      contract,
       connection: testEnv.nativeConnection,
-      workflowsPath: workflowPath("rehydration.workflows"),
+      workflowBundle: bundle,
       activities,
     }).get();
 
     const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(rehydrationWorkerContract);
+    const client = typedClient.for(contract);
 
     await worker.raw.runUntil(async () => {
       // Control: the typed constructor's failure carries the marker and DOES
@@ -94,23 +114,30 @@ describe("rehydration at the e2e boundary", () => {
   it("degrades to the generic failure and fires onRehydrationMiss when the client schema is stricter", async ({
     testEnv,
   }) => {
+    const queueId = nextTaskQueueId("rehydration");
+    const workerContract = withTaskQueue(rehydrationWorkerContract, queueId);
+    const clientContract = withTaskQueue(rehydrationClientContract, queueId);
+    const bundle = await bundleFor(workflowPath("rehydration.workflows"));
+
     const worker = await TypedWorker.create({
-      contract: rehydrationWorkerContract,
+      contract: workerContract,
       connection: testEnv.nativeConnection,
-      workflowsPath: workflowPath("rehydration.workflows"),
+      workflowBundle: bundle,
       activities,
     }).get();
 
     const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const workerSideClient = typedClient.for(rehydrationWorkerContract);
-    const skewedClient = typedClient.for(rehydrationClientContract);
+    const workerSideClient = typedClient.for(workerContract);
+    const skewedClient = typedClient.for(clientContract);
 
     const misses: RehydrationMiss[] = [];
     onRehydrationMiss((miss) => misses.push(miss));
     try {
       await worker.raw.runUntil(async () => {
         // Control: with matching schemas the failure rehydrates into the
-        // typed error, data parsed against the declared schema.
+        // typed error, data parsed against the declared schema — and the
+        // contract-declared `message` survives the workflow → wire →
+        // client-rehydration round trip.
         const matching = await workerSideClient.executeWorkflow("quote", {
           workflowId: "rehydration-skew-control",
           args: { mode: "expired" },
@@ -119,6 +146,7 @@ describe("rehydration at the e2e boundary", () => {
         if (matching.isErr() && matching.error instanceof ContractError) {
           expect(matching.error.errorName).toBe("QuoteExpired");
           expect(matching.error.data).toEqual({ quoteId: "legacy-1" });
+          expect(matching.error.message).toBe("Quote has expired");
         }
 
         // Skew: the stricter client-side schema rejects the (worker-valid)
@@ -141,5 +169,84 @@ describe("rehydration at the e2e boundary", () => {
     } finally {
       onRehydrationMiss(undefined);
     }
+  });
+});
+
+describe("declareWorkflow — contract-error conversion", () => {
+  it("fails fast when the thrown error's data does not validate against its own schema", async ({
+    testEnv,
+  }) => {
+    const contract = withTaskQueue(rehydrationWorkerContract, nextTaskQueueId("rehydration"));
+    const bundle = await bundleFor(workflowPath("rehydration.workflows"));
+
+    const worker = await TypedWorker.create({
+      contract,
+      connection: testEnv.nativeConnection,
+      workflowBundle: bundle,
+      activities,
+    }).get();
+
+    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
+    const client = typedClient.for(contract);
+
+    await worker.raw.runUntil(async () => {
+      const result = await client.executeWorkflow("quote", {
+        workflowId: "rehydration-bad-data",
+        args: { mode: "bad-data" },
+        // Bound: a regression that let this hang (e.g. reverting to a plain
+        // `throw` that Temporal retries as a Workflow Task failure forever)
+        // must fail fast, not ride the 120s suite timeout.
+        workflowExecutionTimeout: "30 seconds",
+      });
+
+      // EFFECT: the execution fails terminally with the deterministic
+      // contract-misuse failure — never rehydrated as `QuoteExpired` (its
+      // data never validated) and never left `Running`.
+      expect(result.isErr()).toBe(true);
+      if (!result.isErr()) return;
+      expect(result.error).toBeInstanceOf(WorkflowFailedError);
+      const cause = (result.error as WorkflowFailedError).cause;
+      expect(cause).toBeInstanceOf(ApplicationFailure);
+      expect((cause as ApplicationFailure).type).toBe("ContractErrorDataValidationError");
+      expect((cause as ApplicationFailure).nonRetryable).toBe(true);
+    });
+  });
+
+  it("leaves a thrown error that is not a ContractError untouched", async ({ testEnv }) => {
+    const contract = withTaskQueue(rehydrationWorkerContract, nextTaskQueueId("rehydration"));
+    const bundle = await bundleFor(workflowPath("rehydration.workflows"));
+
+    const worker = await TypedWorker.create({
+      contract,
+      connection: testEnv.nativeConnection,
+      workflowBundle: bundle,
+      activities,
+    }).get();
+
+    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
+    const client = typedClient.for(contract);
+
+    await worker.raw.runUntil(async () => {
+      const result = await client.executeWorkflow("quote", {
+        workflowId: "rehydration-boom",
+        args: { mode: "boom" },
+        workflowExecutionTimeout: "30 seconds",
+      });
+
+      // EFFECT: the hand-built `ApplicationFailure` crosses the wire with
+      // its own `type`/`message`/`nonRetryable` intact — proving
+      // `declareWorkflow`'s catch block rethrew it rather than routing it
+      // through the contract-error conversion (which would have thrown
+      // `ContractErrorDataValidationError` for an undeclared name) or
+      // swallowing it into a generic failure.
+      expect(result.isErr()).toBe(true);
+      if (!result.isErr()) return;
+      expect(result.error).toBeInstanceOf(WorkflowFailedError);
+      const cause = (result.error as WorkflowFailedError).cause;
+      expect(cause).toBeInstanceOf(ApplicationFailure);
+      expect((cause as ApplicationFailure).type).toBe("SOMETHING_ELSE");
+      expect((cause as ApplicationFailure).message).toBe("boom");
+      expect((cause as ApplicationFailure).nonRetryable).toBe(true);
+    });
   });
 });

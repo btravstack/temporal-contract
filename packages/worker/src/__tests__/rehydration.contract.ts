@@ -28,6 +28,7 @@ const quote = defineWorkflow({
   errors: {
     QuoteExpired: {
       data: z.object({ quoteId: z.string() }),
+      message: "Quote has expired",
       nonRetryable: true,
     },
   },
