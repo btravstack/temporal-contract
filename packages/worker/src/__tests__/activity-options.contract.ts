@@ -92,18 +92,25 @@ const usesDefaultActivity = defineActivity({
  *   won), the override would never take effect.
  * - Overrides shallow-merge, they don't deep-merge into the layer below —
  *   the contract-level `retry` here caps `maximumAttempts` at 1. The
- *   workflow's override supplies a *different* `retry` field
- *   (`backoffCoefficient`) and says nothing about `maximumAttempts`. If the
- *   merge were deep (field-by-field), the lower layer's `maximumAttempts: 1`
- *   would survive inside the merged `retry` and the activity would be
- *   allowed exactly one attempt — permanently failing, since the
- *   implementation only succeeds on the second call. Because the real merge
- *   is shallow, the override's `retry` object replaces the contract-level
- *   one *wholesale*: `maximumAttempts` is gone, Temporal's own (unbounded)
- *   default applies, a second attempt happens, and the workflow completes.
- *   A scratch probe against the real time-skipping server confirmed this
- *   resolves in well under a second — server-side retry backoff is skipped
- *   the same way workflow timers are.
+ *   workflow's override (`activity-options.workflows.ts`) supplies its own
+ *   `retry` block (`backoffCoefficient` + an explicit `maximumAttempts: 2`)
+ *   rather than inheriting anything from this layer. If the merge were deep
+ *   (field-by-field), the lower layer's `maximumAttempts: 1` would survive
+ *   inside the merged `retry` and the activity would be allowed exactly one
+ *   attempt — permanently failing, since the implementation only succeeds on
+ *   the second call. Because the real merge is shallow, the override's
+ *   `retry` object replaces the contract-level one *wholesale*: this
+ *   layer's `maximumAttempts: 1` is gone, the override's own `2` applies
+ *   instead, a second attempt happens, and the workflow completes.
+ *
+ *   Whether the time-skipping server also skips retry BACKOFF DELAY the same
+ *   way it skips workflow timers is a claim this suite does not rely on —
+ *   an earlier version of this comment asserted it from an informal, un-
+ *   reproduced probe, which is not evidence this test's correctness should
+ *   depend on. The explicit `maximumAttempts: 2` on the override makes that
+ *   moot either way: retries are bounded regardless of backoff timing, so a
+ *   merge-precedence regression fails the assertion instead of hanging the
+ *   test to its timeout.
  */
 const flakyActivity = defineActivity({
   input: z.object({}),
