@@ -133,6 +133,11 @@ export const dispatchHeuristic = declareWorkflow({
         await bypass({ ...args, hop: args.hop + 1 }, "ignored-target-name");
       }
     }
-    return { status: "completed-same-workflow" };
+    // `hop` proves exactly ONE continuation happened and stayed
+    // same-workflow: a misrouted dispatch would fail the execution before
+    // ever reaching this return (see the two branches above), and a
+    // regression that skipped the continuation entirely would return
+    // `hop: 0` instead of `1`, which `status` alone can't distinguish.
+    return { status: "completed-same-workflow", hop: args.hop };
   },
 });

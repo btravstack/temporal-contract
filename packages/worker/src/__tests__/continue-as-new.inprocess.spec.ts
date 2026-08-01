@@ -35,9 +35,33 @@ function workflowPath(filename: string): string {
  * services, or (for `invalidContinuation`, which continues unconditionally)
  * spin an unbounded continue-as-new chain. Without this bound such a
  * regression would hang to the project's 120s `integration-inprocess`
- * timeout; with it, the execution ends `TimedOut` well inside that window
- * (an idle wait on an unpolled queue is fast-forwarded by time-skipping
- * almost instantly — see the cancellation suite for the same technique).
+ * timeout; with it, the execution ends `TimedOut` well inside that window.
+ * Measured, not assumed: reality-checking the smuggle guard and the
+ * `workflows`-null dispatch-heuristic guard (both regressions land the
+ * continuation on a queue nothing polls) took ~31s real time each to reach
+ * `TimedOut` — comfortably under the 120s outer bound, but NOT "almost
+ * instant"; size any future bound against that, not against time-skipping
+ * fast-forwarding the idle wait away for free.
+ *
+ * SHARED STATIC QUEUE CAVEAT: same-workflow continuation (`accumulate`,
+ * `invalidContinuation`, `transformOnce`, `dispatchHeuristic`) cannot use a
+ * per-test `withTaskQueue`-scoped contract — `context.continueAsNew`'s
+ * same-workflow branch derives its destination task queue from the
+ * CONTRACT OBJECT `declareWorkflow` was bound to at module-load time
+ * (`continueAsNewContract`, statically imported by the bundled workflow
+ * module and cached once per file by `bundleFor`), never from whatever
+ * contract a given test's worker/client happen to be scoped to. Those tests
+ * bind to the plain, unscoped `continueAsNewContract` instead, and so all
+ * share its one real task queue. That's only safe because Vitest runs this
+ * file's tests sequentially (the project default — nothing here uses
+ * `describe.concurrent`/`test.concurrent`) and `worker.raw.runUntil` drains
+ * each worker before its test returns, so no two workers are ever polling
+ * that queue at once. Marking any test in this file concurrent would race
+ * two workers on the same queue and needs revisiting this note first.
+ * Cross-contract dispatch (`crossContractDispatcher`) doesn't have this
+ * constraint — it rebuilds its destination contract from an
+ * `otherTaskQueue` argument at runtime, so those tests keep per-test
+ * `withTaskQueue`/`nextTaskQueueId` scoping.
  */
 const WORKFLOW_EXECUTION_TIMEOUT = "30 seconds";
 
@@ -45,13 +69,7 @@ describe("continue-as-new against a real server", () => {
   it("carries accumulated state across two continue-as-new boundaries, and forwards continuation options to Temporal", async ({
     testEnv,
   }) => {
-    // NOT `withTaskQueue`-scoped: the same-workflow branch of
-    // `context.continueAsNew` derives its destination task queue from the
-    // CONTRACT OBJECT `declareWorkflow` was bound to at module-load time
-    // (`continueAsNewContract`, statically imported by the bundled workflow
-    // module) — not from whatever contract the test's worker/client happen
-    // to be scoped to. Only the module's own, real `taskQueue` lines up with
-    // where the continuation actually lands.
+    // NOT `withTaskQueue`-scoped — see "SHARED STATIC QUEUE CAVEAT" above.
     const contract = continueAsNewContract;
     const bundle = await bundleFor(workflowPath("continue-as-new.workflows"));
 
@@ -91,9 +109,7 @@ describe("continue-as-new against a real server", () => {
   it("the validated target wins: a smuggled workflowType/taskQueue override cannot redirect a continuation", async ({
     testEnv,
   }) => {
-    // Same reason as the test above: same-workflow continuation targets the
-    // MODULE's own `continueAsNewContract.taskQueue`, so the worker/client
-    // must be bound to the unscoped contract, not a per-test queue.
+    // NOT `withTaskQueue`-scoped — see "SHARED STATIC QUEUE CAVEAT" above.
     const contract = continueAsNewContract;
     const bundle = await bundleFor(workflowPath("continue-as-new.workflows"));
 
@@ -132,6 +148,7 @@ describe("continue-as-new against a real server", () => {
   it("rejects a same-workflow continuation whose args fail its own input schema", async ({
     testEnv,
   }) => {
+    // NOT `withTaskQueue`-scoped — see "SHARED STATIC QUEUE CAVEAT" above.
     const contract = continueAsNewContract;
     const bundle = await bundleFor(workflowPath("continue-as-new.workflows"));
 
@@ -144,7 +161,7 @@ describe("continue-as-new against a real server", () => {
     const typedClient = await TypedClient.create({ client: testEnv.client }).get();
     const client = typedClient.for(contract);
 
-    const result = await worker.raw.runUntil(async () => {
+    const { result, firstExecutionRunId, latestRunId } = await worker.raw.runUntil(async () => {
       const handle = await client
         .startWorkflow("invalidContinuation", {
           workflowId: "continue-as-new-invalid",
@@ -153,7 +170,13 @@ describe("continue-as-new against a real server", () => {
         })
         .getOrThrow();
 
-      return handle.result();
+      const result = await handle.result();
+      const described = await handle.raw.describe();
+      return {
+        result,
+        firstExecutionRunId: handle.firstExecutionRunId,
+        latestRunId: described.runId,
+      };
     });
 
     // EFFECT: the execution fails terminally, on its very first Workflow
@@ -169,11 +192,22 @@ describe("continue-as-new against a real server", () => {
     expect((cause as ApplicationFailure).message).toBe(
       'Workflow "invalidContinuation" input validation failed: at n: Invalid input',
     );
+
+    // EFFECT (send-side guard, not just the receive-side echo of it): the
+    // execution's LATEST run is still its FIRST run — no continuation ever
+    // reached Temporal. Without this, deleting `createContinueAsNew`'s
+    // pre-send validation would go unnoticed: the invalid args would cross
+    // the wire, and the RECEIVING run's own incoming-input validation
+    // (`declareWorkflow`) would raise the IDENTICAL WorkflowInputValidationError
+    // with the identical message, satisfying every assertion above while a
+    // real (unwanted) continuation happened underneath.
+    expect(latestRunId).toBe(firstExecutionRunId);
   });
 
   it("sends the original args across a continuation, not the schema-parsed value", async ({
     testEnv,
   }) => {
+    // NOT `withTaskQueue`-scoped — see "SHARED STATIC QUEUE CAVEAT" above.
     const contract = continueAsNewContract;
     const bundle = await bundleFor(workflowPath("continue-as-new.workflows"));
 
@@ -262,7 +296,7 @@ describe("continue-as-new against a real server", () => {
     const typedClient = await TypedClient.create({ client: testEnv.client }).get();
     const client = typedClient.for(contract);
 
-    const result = await worker.raw.runUntil(async () => {
+    const { result, firstExecutionRunId, latestRunId } = await worker.raw.runUntil(async () => {
       const handle = await client
         .startWorkflow("crossContractDispatcher", {
           workflowId: "continue-as-new-cross-invalid-args",
@@ -271,7 +305,13 @@ describe("continue-as-new against a real server", () => {
         })
         .getOrThrow();
 
-      return handle.result();
+      const result = await handle.result();
+      const described = await handle.raw.describe();
+      return {
+        result,
+        firstExecutionRunId: handle.firstExecutionRunId,
+        latestRunId: described.runId,
+      };
     });
 
     // EFFECT: validated against the DESTINATION's ("archive") schema, not
@@ -286,6 +326,16 @@ describe("continue-as-new against a real server", () => {
     expect((cause as ApplicationFailure).message).toBe(
       'Workflow "archive" input validation failed: at batchId: Invalid input',
     );
+
+    // EFFECT (send-side guard, not just the receive-side echo of it): the
+    // execution's LATEST run is still its FIRST run — `archive` was never
+    // actually reached. Without this, deleting `createContinueAsNew`'s
+    // pre-send validation would go unnoticed: the invalid `batchId` would
+    // cross the wire, and `archive`'s own incoming-input validation would
+    // raise the IDENTICAL WorkflowInputValidationError with the identical
+    // message, satisfying every assertion above while a real (unwanted)
+    // cross-contract continuation happened underneath.
+    expect(latestRunId).toBe(firstExecutionRunId);
   });
 
   it("rejects a cross-contract continuation naming an undeclared target workflow", async ({
@@ -330,6 +380,7 @@ describe("continue-as-new against a real server", () => {
   it("a same-workflow continuation isn't misrouted when its args merely look contract-shaped (no second positional arg)", async ({
     testEnv,
   }) => {
+    // NOT `withTaskQueue`-scoped — see "SHARED STATIC QUEUE CAVEAT" above.
     const contract = continueAsNewContract;
     const bundle = await bundleFor(workflowPath("continue-as-new.workflows"));
 
@@ -357,13 +408,18 @@ describe("continue-as-new against a real server", () => {
     // EFFECT: the single-arg continuation stayed same-workflow and ran to
     // completion — a misrouted (cross-contract) dispatch would instead fail
     // the execution (the treacherous `workflows` object has no matching
-    // workflow definition to validate against).
-    expect(result.status).toBe("completed-same-workflow");
+    // workflow definition to validate against). `hop: 1` (not just
+    // `status`) proves EXACTLY ONE continuation happened: `status` alone is
+    // returned unconditionally regardless of whether the continuation ran,
+    // so it can't by itself distinguish "continued once and stayed
+    // same-workflow" from "never continued at all".
+    expect(result).toEqual({ status: "completed-same-workflow", hop: 1 });
   });
 
   it("a same-workflow continuation isn't misrouted when args.workflows is null, even with a stray second positional arg", async ({
     testEnv,
   }) => {
+    // NOT `withTaskQueue`-scoped — see "SHARED STATIC QUEUE CAVEAT" above.
     const contract = continueAsNewContract;
     const bundle = await bundleFor(workflowPath("continue-as-new.workflows"));
 
@@ -388,6 +444,7 @@ describe("continue-as-new against a real server", () => {
       return handle.result().getOrThrow();
     });
 
-    expect(result.status).toBe("completed-same-workflow");
+    // `hop: 1`, matching the sibling test above — see its comment.
+    expect(result).toEqual({ status: "completed-same-workflow", hop: 1 });
   });
 });
