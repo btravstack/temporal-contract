@@ -196,6 +196,14 @@ describe("time-skipping TestWorkflowEnvironment", () => {
       // unnoticed here — the defect/TechnicalError shape stays identical
       // either way.
       expect((cause as TechnicalError).message).not.toContain("Workflow registration check");
+      // EFFECT: the real bundler failure survives on `.cause` untouched — not
+      // fabricated, not swallowed by the `TechnicalError` wrap at
+      // `worker.ts`'s `create()` qualifier. Pinned on both sides: the cause
+      // is a genuine `Error` (not e.g. a string) AND its own message names
+      // the actual missing module, proving this is `Worker.create`'s bundler
+      // error passed through, not a generic placeholder.
+      expect((cause as TechnicalError).cause).toBeInstanceOf(Error);
+      expect(((cause as TechnicalError).cause as Error).message).toContain("does-not-exist");
     }
   });
 
@@ -275,23 +283,31 @@ describe("time-skipping TestWorkflowEnvironment", () => {
     // `TypedWorker.run()`'s `fromPromise` wrapping for both.
     const firstRun = worker.run();
 
-    const secondRunResult = await worker.run();
+    // Cleanup lives in `finally` so a failing assertion below — the precise
+    // regression this test exists to catch — cannot leak a live worker still
+    // polling in the worker-process-scoped time-skipping environment (shared
+    // across every other test in this file and process).
+    try {
+      const secondRunResult = await worker.run();
 
-    expect(secondRunResult).toBeDefect();
-    if (secondRunResult.isDefect()) {
-      const cause = secondRunResult.cause;
-      expect(cause).toBeInstanceOf(TechnicalError);
-      expect((cause as TechnicalError).message).toContain(
-        `task queue "${inprocessContract.taskQueue}"`,
-      );
-      expect((cause as TechnicalError).message).toContain("failed while running");
-      // EFFECT: the real underlying error survived on `.cause` untouched —
-      // not fabricated, not swallowed.
-      expect((cause as TechnicalError).cause).toBeInstanceOf(Error);
-      expect(((cause as TechnicalError).cause as Error).message).toBe("Poller was already started");
+      expect(secondRunResult).toBeDefect();
+      if (secondRunResult.isDefect()) {
+        const cause = secondRunResult.cause;
+        expect(cause).toBeInstanceOf(TechnicalError);
+        expect((cause as TechnicalError).message).toContain(
+          `task queue "${inprocessContract.taskQueue}"`,
+        );
+        expect((cause as TechnicalError).message).toContain("failed while running");
+        // EFFECT: the real underlying error survived on `.cause` untouched —
+        // not fabricated, not swallowed.
+        expect((cause as TechnicalError).cause).toBeInstanceOf(Error);
+        expect(((cause as TechnicalError).cause as Error).message).toBe(
+          "Poller was already started",
+        );
+      }
+    } finally {
+      worker.shutdown();
+      await firstRun.get();
     }
-
-    worker.shutdown();
-    await firstRun.get();
   });
 });
