@@ -70,7 +70,7 @@ export const continueAsNewContract = defineContract({
         taskQueue: z.string(),
         workflows: z.union([z.record(z.string(), z.unknown()), z.null()]),
       }),
-      output: z.object({ status: z.string() }),
+      output: z.object({ status: z.string(), hop: z.number() }),
     }),
   },
 });
