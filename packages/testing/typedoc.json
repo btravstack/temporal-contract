@@ -5,7 +5,8 @@
     "src/contract.ts",
     "src/extension.ts",
     "src/global-setup.ts",
-    "src/time-skipping.ts"
+    "src/time-skipping.ts",
+    "src/workflow-bundle.ts"
   ],
   "out": "docs"
 }
