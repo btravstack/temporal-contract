@@ -1,7 +1,11 @@
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { TypedClient, WORKFLOW_CANCELLED_ERROR_TAG } from "@temporal-contract/client";
+import {
+  TypedClient,
+  WORKFLOW_CANCELLED_ERROR_TAG,
+  WorkflowCancelledError,
+} from "@temporal-contract/client";
 import { it } from "@temporal-contract/testing/time-skipping";
 import {
   bundleFor,
@@ -9,6 +13,7 @@ import {
   withTaskQueue,
 } from "@temporal-contract/testing/workflow-bundle";
 import { Context } from "@temporalio/activity";
+import { CancelledFailure } from "@temporalio/common";
 import { fromSafePromise } from "unthrown";
 import { describe, expect } from "vitest";
 
@@ -33,6 +38,23 @@ import { inprocessContract } from "./inprocess.contract.js";
 function workflowPath(filename: string): string {
   return fileURLToPath(new URL(`./${filename}${extname(import.meta.url)}`, import.meta.url));
 }
+
+/**
+ * Bounds every workflow started below. A regression in the `context`
+ * wiring that mounts `cancellableScope`/`nonCancellableScope` (e.g. a
+ * missing property) throws a `TypeError` INSIDE the workflow, which
+ * Temporal reports as a Workflow Task failure and retries indefinitely —
+ * that is not a hang this suite can catch with an assertion alone. Without
+ * this bound, such a regression would hang every test below to the
+ * project's 120s `integration-inprocess` timeout; with it, the execution
+ * ends `TimedOut` (surfaced as `Err(WorkflowTimeoutError)`, distinct from
+ * every value this file's assertions actually expect) well inside that
+ * window. 30s comfortably exceeds the longest legitimate real-time wait in
+ * this file (the ~2s `nonCancellableWorkflow` activity sleep, or the
+ * hazard/fix tests' up-to-5s sleep cut short by heartbeat-detected
+ * cancellation) while still failing far faster than the outer test timeout.
+ */
+const WORKFLOW_EXECUTION_TIMEOUT = "30 seconds";
 
 /**
  * A real (wall-clock), cancellation-aware activity implementation for
@@ -87,7 +109,11 @@ describe("cancellation against a real server", () => {
 
     const outcome = await worker.raw.runUntil(async () => {
       const handle = await client
-        .startWorkflow("waitForever", { workflowId: "cancellation-blocked-scope", args: {} })
+        .startWorkflow("waitForever", {
+          workflowId: "cancellation-blocked-scope",
+          args: {},
+          workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
+        })
         .getOrThrow();
       await handle.cancel().getOrThrow();
       return handle.result();
@@ -97,6 +123,18 @@ describe("cancellation against a real server", () => {
     // WorkflowCancelledError, not a blanket "some Err happened" (which a
     // timeout, a terminate, or a business failure would also satisfy).
     expect(outcome).toBeErrTagged(WORKFLOW_CANCELLED_ERROR_TAG);
+
+    // EFFECT (cause preservation): the ORIGINAL CancelledFailure Temporal
+    // raised is still reachable on `.cause` — not dropped in the fold from
+    // the SDK's `WorkflowFailedError` into this package's typed
+    // `WorkflowCancelledError`. Structural (`instanceof`), not an exact
+    // message string: unlike the manufactured-cancellation tests below, this
+    // cancellation is genuinely issued by the real server, whose internal
+    // CancelledFailure message text is not this test's to dictate.
+    if (!outcome.isErr()) return;
+    expect(outcome.error).toBeInstanceOf(WorkflowCancelledError);
+    if (!(outcome.error instanceof WorkflowCancelledError)) return;
+    expect(outcome.error.cause).toBeInstanceOf(CancelledFailure);
   });
 
   it("proves the swallowed-cancellation hazard: a generic Err-to-fallback handler absorbs a cancelled activity call and completes normally", async ({
@@ -122,7 +160,11 @@ describe("cancellation against a real server", () => {
 
     const outcome = await worker.raw.runUntil(async () => {
       const handle = await client
-        .startWorkflow("swallowsCancellation", { workflowId: "cancellation-swallow", args: {} })
+        .startWorkflow("swallowsCancellation", {
+          workflowId: "cancellation-swallow",
+          args: {},
+          workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
+        })
         .getOrThrow();
       await handle.cancel().getOrThrow();
       return handle.result();
@@ -158,7 +200,11 @@ describe("cancellation against a real server", () => {
 
     const outcome = await worker.raw.runUntil(async () => {
       const handle = await client
-        .startWorkflow("honorsCancellation", { workflowId: "cancellation-honor", args: {} })
+        .startWorkflow("honorsCancellation", {
+          workflowId: "cancellation-honor",
+          args: {},
+          workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
+        })
         .getOrThrow();
       await handle.cancel().getOrThrow();
       return handle.result();
@@ -194,6 +240,7 @@ describe("cancellation against a real server", () => {
         .startWorkflow("nonCancellableWorkflow", {
           workflowId: "cancellation-non-cancellable",
           args: {},
+          workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
         })
         .getOrThrow();
       await handle.cancel().getOrThrow();
@@ -234,6 +281,7 @@ describe("cancellableScope / nonCancellableScope mechanics against a real server
       client.executeWorkflow("scopeMechanics", {
         workflowId: "cancellation-scope-cancellable-ok",
         args: { mode: "cancellable-ok" },
+        workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
       }),
     );
 
@@ -259,13 +307,17 @@ describe("cancellableScope / nonCancellableScope mechanics against a real server
       client.executeWorkflow("scopeMechanics", {
         workflowId: "cancellation-scope-cancellable-defect",
         args: { mode: "cancellable-defect" },
+        workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
       }),
     );
 
-    // EFFECT: specifically "defect" — not "err" (which the hazard tests
-    // above prove IS what a cancellation produces), proving the two
-    // channels are genuinely distinguished rather than both landing on Err.
-    expect(outcome).toBeOkWith({ outcome: "defect" });
+    // EFFECT: specifically "defect:<the original cause's own message>" — not
+    // "err" (which the hazard tests above prove IS what a cancellation
+    // produces), proving both that the two channels are genuinely
+    // distinguished AND that the original cause (`result.cause` inside
+    // `cancellableScope`) survives intact rather than being dropped or
+    // replaced en route to the defect channel.
+    expect(outcome).toBeOkWith({ outcome: "defect:cancellable-scope-bug" });
   });
 
   it("nonCancellableScope resolves a synchronous (non-Promise) callback to Ok", async ({
@@ -287,6 +339,7 @@ describe("cancellableScope / nonCancellableScope mechanics against a real server
       client.executeWorkflow("scopeMechanics", {
         workflowId: "cancellation-scope-noncancellable-ok",
         args: { mode: "noncancellable-ok" },
+        workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
       }),
     );
 
@@ -312,10 +365,14 @@ describe("cancellableScope / nonCancellableScope mechanics against a real server
       client.executeWorkflow("scopeMechanics", {
         workflowId: "cancellation-scope-noncancellable-defect",
         args: { mode: "noncancellable-defect" },
+        workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
       }),
     );
 
-    expect(outcome).toBeOkWith({ outcome: "defect" });
+    // EFFECT: exact cause message, mirroring the `cancellableScope` variant
+    // above — proves `nonCancellableScope`'s catch block preserves the
+    // original cause too, not just its own equivalent classification.
+    expect(outcome).toBeOkWith({ outcome: "defect:non-cancellable-scope-bug" });
   });
 
   it("nonCancellableScope still folds an internally-raised (real) CancelledFailure into Err(WorkflowCancelledError)", async ({
@@ -337,13 +394,19 @@ describe("cancellableScope / nonCancellableScope mechanics against a real server
       client.executeWorkflow("scopeMechanics", {
         workflowId: "cancellation-scope-noncancellable-internal-cancel",
         args: { mode: "noncancellable-internal-cancel" },
+        workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
       }),
     );
 
     // EFFECT: a genuinely cancellation-shaped internal failure (a real
     // `CancelledFailure`, not a mocked `isCancellation`) is still folded
     // into the typed Err — distinct from the "any other throw is a defect"
-    // case proven above.
-    expect(outcome).toBeOkWith({ outcome: "err:WorkflowCancelledError" });
+    // case proven above — AND the exact cause message ("manufactured
+    // internal cancel", the literal string this test threw) survives onto
+    // `WorkflowCancelledError.cause`, proving cause preservation on the Err
+    // path too, not just the defect path.
+    expect(outcome).toBeOkWith({
+      outcome: "err:WorkflowCancelledError:manufactured internal cancel",
+    });
   });
 });

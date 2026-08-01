@@ -28,7 +28,23 @@ const slowActivity = defineActivity({
   // notification rides the heartbeat RPC's response) — see
   // `@temporalio/activity`'s `Context.cancelled` doc. Without it, the
   // cancellable-activity tests below could not observe cancellation at all.
-  activityOptions: { startToCloseTimeout: "30 seconds", heartbeatTimeout: "5 seconds" },
+  //
+  // `retry: { maximumAttempts: 1 }` mirrors every activity in
+  // `activity-options.contract.ts`. Verified empirically (not just assumed):
+  // an always-failing implementation with NO cap still resolved in under a
+  // second under the time-skipping server, which — like workflow timers —
+  // skips retry backoff delay entirely, so an unbounded retry loop does not
+  // itself produce a WALL-CLOCK hang in this test tier. The cap earns its
+  // place anyway: it (a) matches the sibling contract's own precedent so
+  // this file isn't a silent outlier, and (b) gives a single, precise
+  // failure instead of leaving this activity's actual attempt count to
+  // Temporal's default (unbounded) policy — which is exactly the kind of
+  // implicit behavior this suite's assertions should not depend on.
+  activityOptions: {
+    startToCloseTimeout: "30 seconds",
+    heartbeatTimeout: "5 seconds",
+    retry: { maximumAttempts: 1 },
+  },
 });
 
 /**
