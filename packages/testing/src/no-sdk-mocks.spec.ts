@@ -26,7 +26,17 @@ const ALLOWLIST: Record<string, string> = {
   "packages/client/src/schedule.spec.ts": "constructs real SDK failures; fakes only transport",
 };
 
-const SDK_MOCK = /vi\.mock\(\s*["'`]@temporalio\//;
+// Flags a Temporal-SDK mock in three call shapes: the plain string-specifier
+// form, its `doMock` sibling (same shape, deferred registration), and the
+// type-safe form that wraps the specifier in an `import(...)` call — the one
+// Vitest's own docs recommend, supported by the installed 4.1.10. A bare
+// string-first check misses the latter two.
+//
+// NOTE for anyone editing this pattern: don't spell out a real matching
+// example in a comment near this constant — this very file is itself walked
+// by the corpus below, and a literal example would flag this file as an
+// offender.
+const SDK_MOCK = /vi\.(mock|doMock)\s*\(\s*(import\s*\(\s*)?["'`]@temporalio\//;
 
 async function specFiles(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -47,6 +57,16 @@ async function specFiles(dir: string): Promise<string[]> {
 describe("no SDK mocks outside the allowlist", () => {
   it("keeps Temporal's real semantics under test", async () => {
     const files = await specFiles(WORKSPACE_ROOT);
+
+    // Positive control on the directory walk itself: if the skip logic in
+    // `specFiles` ever broadens (e.g. an overly greedy dotfile/name check)
+    // and silently stops descending into real spec directories, `files`
+    // could shrink toward empty and the loop below would pass vacuously —
+    // "no offenders" because nothing was scanned, not because nothing
+    // offends. The workspace has many more than 20 `*.spec.ts` files today;
+    // guard against that regression.
+    expect(files.length).toBeGreaterThan(20);
+
     const offenders: string[] = [];
 
     for (const file of files) {
