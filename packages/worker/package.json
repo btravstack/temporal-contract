@@ -61,6 +61,7 @@
     "@btravstack/typedoc": "catalog:",
     "@temporal-contract/client": "workspace:*",
     "@temporal-contract/testing": "workspace:*",
+    "@temporalio/activity": "catalog:",
     "@temporalio/client": "catalog:",
     "@temporalio/common": "catalog:",
     "@temporalio/worker": "catalog:",
