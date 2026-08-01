@@ -22,7 +22,6 @@ const ALLOWLIST: Record<string, string> = {
   "packages/testing/src/time-skipping.spec.ts": "fixture plumbing, not Temporal semantics",
 
   // --- Migration debt. Each entry is deleted by its migration task. ---
-  "packages/worker/src/cancellation.spec.ts": "TODO Task 5",
   "packages/worker/src/continue-as-new.spec.ts": "TODO Task 6",
   "packages/worker/src/wire-format.spec.ts": "TODO Task 7",
   "packages/worker/src/workflow-errors.spec.ts": "TODO Task 8",

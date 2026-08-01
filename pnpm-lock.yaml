@@ -36,6 +36,9 @@ catalogs:
     '@standard-schema/spec':
       specifier: 1.1.0
       version: 1.1.0
+    '@temporalio/activity':
+      specifier: 1.20.3
+      version: 1.20.3
     '@temporalio/client':
       specifier: 1.20.3
       version: 1.20.3
@@ -536,6 +539,9 @@ importers:
       '@temporal-contract/testing':
         specifier: workspace:*
         version: link:../testing
+      '@temporalio/activity':
+        specifier: 'catalog:'
+        version: 1.20.3
       '@temporalio/client':
         specifier: 'catalog:'
         version: 1.20.3
