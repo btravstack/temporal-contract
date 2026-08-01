@@ -109,6 +109,13 @@ export default withMermaid(
     base: BASE,
     lang: "en-US",
 
+    // `docs/superpowers/**` holds internal planning/spec documents for this
+    // repo's own development process, not end-user documentation. Without
+    // this exclusion VitePress builds and publishes them like any other
+    // page, and `deploy-docs.yml` (triggered on `push` to `main` with
+    // `paths: ["docs/**"]`) would ship them to the public site.
+    srcExclude: ["superpowers/**"],
+
     // `@btravstack/theme` re-exports VitePress's default theme, which imports
     // `.css`. Externalizing it during SSR makes Node try to `import` those
     // stylesheets and throw `ERR_UNKNOWN_FILE_EXTENSION`. Transform the theme
