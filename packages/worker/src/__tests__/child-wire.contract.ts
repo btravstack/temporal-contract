@@ -101,6 +101,9 @@ export const childWireContract = defineContract({
      * `ChildWorkflowError` message when the invalid mode's send is rejected
      * client-side; `noteText` (echoed back from the child's own completed
      * result) proves whether the signal actually reached the handler.
+     * `childWorkflowId` (the typed handle's own `workflowId`, not a locally
+     * computed value) lets the spec independently look up the SAME child
+     * execution the parent signaled.
      */
     parentSignal: defineWorkflow({
       input: z.object({ mode: z.enum(["valid", "invalid"]) }),
@@ -108,6 +111,7 @@ export const childWireContract = defineContract({
         status: z.string(),
         sendError: z.string().nullable(),
         noteText: z.string().nullable(),
+        childWorkflowId: z.string().optional(),
       }),
     }),
   },

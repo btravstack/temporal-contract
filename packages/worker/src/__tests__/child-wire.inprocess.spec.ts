@@ -219,12 +219,14 @@ describe("child-workflow boundary — wire format against a real server", () => 
 
       const parentResult = await handle.result().getOrThrow();
 
-      // Independent verification of `firstExecutionRunId`: fetch the
-      // CHILD's own execution directly from Temporal (by the deterministic
-      // `childWorkflowId` the parent returned), bypassing whatever the
-      // parent captured entirely. The mocked spec this replaces could only
-      // assert the handle carried a hardcoded stub ("run-1"); this proves
-      // the value is the child's ACTUAL run id.
+      // Independent verification of `firstExecutionRunId` AND `workflowId`:
+      // fetch the CHILD's own execution directly from Temporal (by the
+      // `childWorkflowId` the parent's typed handle reported — see
+      // `child-wire.workflows.ts`'s `handle.workflowId`, not a locally
+      // computed value), bypassing whatever the parent captured entirely.
+      // The mocked spec this replaces could only assert the handle carried
+      // hardcoded stubs (`workflowId: "child-1"`, `firstExecutionRunId:
+      // "run-1"`); this proves both are the child's ACTUAL identifiers.
       if (!parentResult.childWorkflowId) {
         throw new Error("expected parentChild to return a childWorkflowId");
       }
@@ -238,11 +240,14 @@ describe("child-workflow boundary — wire format against a real server", () => 
     // the startChildWorkflow + handle.result() path instead.
     expect(parentResult.label).toBe("y!");
     expect(parentResult.n).toBe(42);
+    // EFFECT: the typed handle's `workflowId` is the id Temporal actually
+    // started the child under — the SAME id fed back into `getHandle` above,
+    // which would 404 (not merely mismatch) if `workflowId` were ever a
+    // fabricated/unrelated value instead of a genuine passthrough.
+    expect(parentResult.childWorkflowId).toBe("child-wire-start-child-child");
     // EFFECT: the handle's `firstExecutionRunId` matches Temporal's own
-    // record of the child's run id — not a fabricated/stubbed value, and
-    // not empty.
+    // record of the child's run id — not a fabricated/stubbed value.
     expect(parentResult.firstExecutionRunId).toBe(actualRunId);
-    expect(parentResult.firstExecutionRunId).not.toBe("");
   });
 
   it("a valid child signal reaches the child's handler, with its transforming schema applied exactly once", async ({
@@ -272,10 +277,11 @@ describe("child-workflow boundary — wire format against a real server", () => 
       const result = await handle.result().getOrThrow();
 
       // Independent check, straight from the child's own Temporal history:
-      // exactly which signals actually arrived, and in what order.
-      const childHandle = client
-        .getHandle("signalful", "child-wire-signal-valid-child")
-        .getOrThrow();
+      // exactly which signals actually arrived, and in what order. Looked up
+      // by the parent's own reported `childWorkflowId` (the typed handle's
+      // real `workflowId`, not a hardcoded/duplicated derivation).
+      if (!result.childWorkflowId) throw new Error("expected a childWorkflowId");
+      const childHandle = client.getHandle("signalful", result.childWorkflowId).getOrThrow();
       const history = await childHandle.raw.fetchHistory();
       const events = history.events ?? [];
       const signalNames = events
@@ -325,9 +331,8 @@ describe("child-workflow boundary — wire format against a real server", () => 
 
       const result = await handle.result().getOrThrow();
 
-      const childHandle = client
-        .getHandle("signalful", "child-wire-signal-invalid-child")
-        .getOrThrow();
+      if (!result.childWorkflowId) throw new Error("expected a childWorkflowId");
+      const childHandle = client.getHandle("signalful", result.childWorkflowId).getOrThrow();
       const history = await childHandle.raw.fetchHistory();
       const events = history.events ?? [];
       const signalNames = events
