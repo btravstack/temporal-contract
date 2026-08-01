@@ -13,6 +13,7 @@ on:
 jobs:
   mutation:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -20,5 +21,19 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
 
+      # `test:mutation` (= `pnpm build && stryker run`) builds first: worker's
+      # unit specs import `@temporal-contract/contract` by package name, which
+      # resolves through its `exports` map to `dist/`. `dist/` is gitignored
+      # and nothing else in `setup` builds it, so skipping this leaves a fresh
+      # runner's dry run failing on missing dist output.
       - name: Run mutation testing
         run: pnpm test:mutation
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutation-report
+          path: reports/mutation/
+          retention-days: 14
+          if-no-files-found: ignore
