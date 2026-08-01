@@ -11,7 +11,8 @@ import {
 } from "@temporal-contract/testing/workflow-bundle";
 import { OkAsync, ErrAsync } from "unthrown";
 /**
- * E2e coverage for the two rehydration audit gaps (in-process, no Docker):
+ * E2e coverage for the two rehydration audit gaps (in-process, no Docker),
+ * in `describe("rehydration at the e2e boundary", ...)` below:
  *
  * 1. **Contract skew** — a worker emits a declared error whose data is valid
  *    against the worker's schema but fails a STRICTER client-side schema:
@@ -25,15 +26,16 @@ import { OkAsync, ErrAsync } from "unthrown";
  *    side; only the marker-carrying failure produced by the typed
  *    constructors does.
  *
- * Also covers `declareWorkflow`'s error-conversion boundary — the catch
+ * A separate `describe("declareWorkflow — contract-error conversion", ...)`
+ * below covers `declareWorkflow`'s error-conversion boundary — the catch
  * block wrapping a workflow `implementation` that turns a thrown
  * `context.errors.X(...)` into the `ApplicationFailure` wire shape (see
  * `../workflow.ts`):
  *
- * 3. A thrown contract error whose data fails its OWN declared schema fails
+ * a. A thrown contract error whose data fails its OWN declared schema fails
  *    fast with `ContractErrorDataValidationError` rather than crossing the
  *    wire malformed.
- * 4. A thrown error that is NOT a `ContractError` (e.g. a hand-built
+ * b. A thrown error that is NOT a `ContractError` (e.g. a hand-built
  *    `ApplicationFailure`) is rethrown untouched — not misclassified, not
  *    swallowed.
  */
@@ -147,6 +149,20 @@ describe("rehydration at the e2e boundary", () => {
           expect(matching.error.errorName).toBe("QuoteExpired");
           expect(matching.error.data).toEqual({ quoteId: "legacy-1" });
           expect(matching.error.message).toBe("Quote has expired");
+
+          // The raw wire failure, preserved on `.cause` (rehydration assigns
+          // it there — see `_internal_rehydrateContractError`). `nonRetryable`
+          // has no ContractError-level surface, and the wire marker at
+          // `details[1]` is NOT gated on for a data-carrying error like
+          // `QuoteExpired` (`_internal_rehydrateContractError`'s
+          // `hasWireMarker` check only runs in the data-LESS `else if`
+          // branch) — so without this, a regression that stopped the
+          // workflow boundary from emitting the marker would still pass
+          // every other assertion in this file.
+          const raw = matching.error.cause as ApplicationFailure;
+          expect(raw.message).toBe("Quote has expired");
+          expect(raw.nonRetryable).toBe(true);
+          expect(raw.details).toEqual([{ quoteId: "legacy-1" }, { $tc: 1 }]);
         }
 
         // Skew: the stricter client-side schema rejects the (worker-valid)
