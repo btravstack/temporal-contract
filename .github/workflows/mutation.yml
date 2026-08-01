@@ -5,6 +5,19 @@ permissions:
 # Nightly baseline only — mutation testing is too slow to run per-PR. See
 # stryker.config.json: "break" is null because this establishes a baseline,
 # not a gate.
+#
+# Reading the baseline scores — a runner-scope caveat: `vitest.stryker.config.ts`
+# only composes each mutated package's "unit" Vitest project, deliberately
+# excluding the "integration"/"integration-inprocess" projects (real or
+# time-skipping Temporal servers, too slow to run per-mutant). That means
+# `packages/worker/src/internal.ts`'s score is measured WITHOUT the 11
+# mock-free suites under `packages/worker/src/__tests__/` — notably
+# `rehydration.inprocess.spec.ts`, which is what exercises `internal.ts`'s
+# `ChildWorkflowFailure` branch (around line 401). So `internal.ts`'s mutation
+# score understates its real coverage: it is partly a scope artifact, not
+# purely a test-quality gap. By contrast, `error-tags.ts`'s low score IS a
+# genuine gap — its only assertions in `errors.spec.ts` are tautological
+# (`_tag`-vs-own-constant). Don't read the two the same way.
 on:
   schedule:
     - cron: "0 3 * * *"
