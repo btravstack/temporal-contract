@@ -130,6 +130,23 @@ const bindsAsyncQueryOutputSchema = defineWorkflow({
 });
 
 /**
+ * Async-validating update INPUT schema — the update-side counterpart of
+ * `asyncCheckedQuery`. `bindUpdateHandler` runs its own, separate
+ * `assertSyncSchema(updateDef.input, ...)` call site; proving the query
+ * side alone doesn't cover a regression that removes this specific call.
+ */
+const asyncCheckedUpdateInput = defineUpdate({
+  input: alwaysAsyncSchema,
+  output: z.object({ ok: z.boolean() }),
+});
+
+const bindsAsyncUpdateSchema = defineWorkflow({
+  input: z.object({}),
+  output: z.object({}),
+  updates: { asyncCheckedUpdateInput },
+});
+
+/**
  * A schema whose `validate()` throws SYNCHRONOUSLY when fed the bind-time
  * probe's opaque sentinel (not a string), and validates normally for real
  * string payloads. The probe must treat a synchronous throw as "fine, it's
@@ -246,6 +263,7 @@ export const handlersContract = defineContract({
     counter,
     bindsAsyncQuerySchema,
     bindsAsyncQueryOutputSchema,
+    bindsAsyncUpdateSchema,
     probeEdgeCases,
     transformWorkflow,
   },

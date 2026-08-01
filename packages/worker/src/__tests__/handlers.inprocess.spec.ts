@@ -548,6 +548,48 @@ describe("handler binding against a real server", () => {
     });
   });
 
+  it("trips ContractMisuseError at bind time for an async-validating update INPUT schema", async ({
+    testEnv,
+  }) => {
+    const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
+    const bundle = await bundleFor(workflowPath("handlers.workflows"));
+
+    const worker = await TypedWorker.create({
+      contract,
+      connection: testEnv.nativeConnection,
+      workflowBundle: bundle,
+    }).get();
+
+    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
+    const client = typedClient.for(contract);
+
+    await worker.raw.runUntil(async () => {
+      const handle = await client
+        .startWorkflow("bindsAsyncUpdateSchema", {
+          workflowId: "handlers-async-update-schema-bind",
+          args: {},
+        })
+        .getOrThrow();
+
+      const result = await handle.result();
+
+      // `bindUpdateHandler` runs its own, separate `assertSyncSchema` call
+      // for the update's input schema — this is NOT the same code path as
+      // the query-input variant above (different call site in
+      // `handlers.ts`), so that test alone wouldn't catch a regression
+      // here specifically.
+      expect(result.isErr()).toBe(true);
+      if (!result.isErr()) return;
+      expect(result.error).toBeInstanceOf(WorkflowFailedError);
+      const cause = (result.error as WorkflowFailedError).cause;
+      expect(cause).toBeInstanceOf(ApplicationFailure);
+      expect((cause as ApplicationFailure).type).toBe("ContractMisuseError");
+      expect((cause as ApplicationFailure).message).toContain(
+        "the input schema validates asynchronously",
+      );
+    });
+  });
+
   it("schema-probe edge cases: a synchronous throw passes the bind probe; probe-dodging and thenable-dodging schemas still trip the per-call guard", async ({
     testEnv,
   }) => {

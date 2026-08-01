@@ -82,6 +82,22 @@ export const bindsAsyncQueryOutputSchema = declareWorkflow({
 });
 
 /**
+ * Async-validating update INPUT schema — the update-side counterpart of
+ * `bindsAsyncQuerySchema`. `bindUpdateHandler` runs its own
+ * `assertSyncSchema(updateDef.input, ...)` call, separate from
+ * `bindQueryHandler`'s; this proves that specific call site independently.
+ */
+export const bindsAsyncUpdateSchema = declareWorkflow({
+  workflowName: "bindsAsyncUpdateSchema",
+  contract: handlersContract,
+  implementation: async (context) => {
+    context.handleUpdate("asyncCheckedUpdateInput", async () => ({ ok: true }));
+    await condition(() => false);
+    return {};
+  },
+});
+
+/**
  * The three schema-probe edge cases: a synchronously-throwing schema must
  * pass the bind-time probe (not a false positive); a schema that answers
  * the probe synchronously but validates real payloads asynchronously must
