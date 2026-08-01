@@ -47,7 +47,7 @@
     "check:package": "publint --strict && attw --pack . --profile esm-only",
     "dev": "tsdown src/activity.ts src/worker.ts src/workflow.ts --format esm --dts --watch",
     "test": "vitest run --project unit",
-    "test:integration": "vitest run --project integration --project integration-inprocess",
+    "test:integration": "vitest run --project integration && vitest run --project integration-inprocess",
     "test:watch": "vitest --project unit",
     "typecheck": "tsc --noEmit"
   },
