@@ -30,6 +30,11 @@ Thumbs.db
 
 coverage/
 
+# Stryker mutation testing
+.stryker-tmp/
+reports/mutation/
+stryker.log
+
 # VitePress
 **/.vitepress/cache/
 **/.vitepress/dist/
