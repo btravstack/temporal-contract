@@ -69,7 +69,11 @@ export const parentChild = declareWorkflow({
       label: result.value.label,
       n: result.value.n,
       firstExecutionRunId: handle.firstExecutionRunId,
-      childWorkflowId,
+      // `handle.workflowId`, NOT the locally computed `childWorkflowId` —
+      // proves the typed handle's own `workflowId` passthrough (not just
+      // the caller's own input echoed back), matching the original mocked
+      // spec's `expect(handleResult.value.workflowId).toBe("child-1")`.
+      childWorkflowId: handle.workflowId,
     };
   },
 });
@@ -98,9 +102,9 @@ export const parentSignal = declareWorkflow({
   workflowName: "parentSignal",
   contract: childWireContract,
   implementation: async (context, args) => {
-    const childWorkflowId = `${context.info.workflowId}-child`;
+    const requestedChildWorkflowId = `${context.info.workflowId}-child`;
     const handleResult = await context.startChildWorkflow(childWireContract, "signalful", {
-      workflowId: childWorkflowId,
+      workflowId: requestedChildWorkflowId,
       args: {},
     });
     if (handleResult.isDefect()) {
@@ -144,6 +148,13 @@ export const parentSignal = declareWorkflow({
       return { status: `err:${childResult.error._tag}`, sendError, noteText: null };
     }
 
-    return { status: "ok", sendError, noteText: childResult.value.noteText };
+    return {
+      status: "ok",
+      sendError,
+      noteText: childResult.value.noteText,
+      // `handle.workflowId`, not the locally computed `childWorkflowId` used
+      // to START the child — see `parentChild`'s identical rationale above.
+      childWorkflowId: handle.workflowId,
+    };
   },
 });
