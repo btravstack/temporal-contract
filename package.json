@@ -17,6 +17,7 @@
     "release": "pnpm build && changeset publish",
     "test": "turbo run test",
     "test:integration": "turbo run test:integration",
+    "test:mutation": "stryker run",
     "typecheck": "turbo run typecheck",
     "version": "changeset version"
   },
@@ -26,12 +27,15 @@
     "@btravstack/oxlint": "catalog:",
     "@changesets/cli": "catalog:",
     "@commitlint/cli": "catalog:",
+    "@stryker-mutator/core": "catalog:",
+    "@stryker-mutator/vitest-runner": "catalog:",
     "@unthrown/oxlint": "catalog:",
     "knip": "catalog:",
     "lefthook": "catalog:",
     "oxfmt": "catalog:",
     "oxlint": "catalog:",
-    "turbo": "catalog:"
+    "turbo": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22.19.0"

@@ -10,7 +10,7 @@
   ],
   "workspaces": {
     ".": {
-      "entry": ["lefthook.yml"]
+      "entry": ["lefthook.yml", "vitest.stryker.config.ts"]
     },
     "packages/*": {
       "project": ["src/**/*.ts"]

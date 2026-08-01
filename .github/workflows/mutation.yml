@@ -1,0 +1,24 @@
+name: Mutation Testing
+permissions:
+  contents: read
+
+# Nightly baseline only — mutation testing is too slow to run per-PR. See
+# stryker.config.json: "break" is null because this establishes a baseline,
+# not a gate.
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Run mutation testing
+        run: pnpm test:mutation
