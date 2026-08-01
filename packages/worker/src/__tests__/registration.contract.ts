@@ -2,9 +2,9 @@ import { defineContract, defineWorkflow } from "@temporal-contract/contract";
 import { z } from "zod";
 
 /**
- * Activity-less contract used by the workflow-registration-check unit specs
- * (`../worker.spec.ts`). Two workflows so the specs can cover "one missing"
- * and "one mismatched" independently.
+ * Activity-less contract used by the workflow-registration-check specs
+ * (`./registration.inprocess.spec.ts`). Two workflows so the specs can cover
+ * "one missing" and "one mismatched" independently.
  */
 
 const alpha = defineWorkflow({

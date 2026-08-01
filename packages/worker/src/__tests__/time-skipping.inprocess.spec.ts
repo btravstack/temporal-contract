@@ -64,6 +64,9 @@ function workflowPath(filename: string): string {
   return fileURLToPath(new URL(`./${filename}${extname(import.meta.url)}`, import.meta.url));
 }
 
+/** `EVENT_TYPE_WORKFLOW_TASK_COMPLETED` from `@temporalio/proto`'s `EventType` enum. */
+const WORKFLOW_TASK_COMPLETED_EVENT_TYPE = 7;
+
 describe("time-skipping TestWorkflowEnvironment", () => {
   it("runs the full contract pipeline in-process", async ({ testEnv }) => {
     const workerResult = await TypedWorker.create({
@@ -166,7 +169,9 @@ describe("time-skipping TestWorkflowEnvironment", () => {
     });
   });
 
-  it("surfaces worker bundling failures on the defect channel", async ({ testEnv }) => {
+  it("surfaces worker bundling failures on the defect channel — and the registration check silently skipped rather than reporting its own error", async ({
+    testEnv,
+  }) => {
     const workerResult = await TypedWorker.create({
       contract: inprocessContract,
       connection: testEnv.nativeConnection,
@@ -179,6 +184,114 @@ describe("time-skipping TestWorkflowEnvironment", () => {
       expect(cause).toBeInstanceOf(TechnicalError);
       expect((cause as TechnicalError)._tag).toBe("@temporal-contract/TechnicalError");
       expect((cause as TechnicalError).message).toContain("inprocess-tests");
+      // EFFECT: `workflowsPath` cannot be imported in the main thread either
+      // — the registration check's best-effort import fails silently (per
+      // its JSDoc, "a module that cannot be imported in the main thread is
+      // skipped silently"), so this defect is `Worker.create`'s OWN real
+      // bundler failure, not the check's "Workflow registration check
+      // failed" diagnostic (that message is covered, with its own real
+      // trigger, by `registration.inprocess.spec.ts`'s "no workflow export"
+      // and "export-name mismatch" tests). Without this assertion, deleting
+      // the check's silent-skip behavior (making it throw instead) would go
+      // unnoticed here — the defect/TechnicalError shape stays identical
+      // either way.
+      expect((cause as TechnicalError).message).not.toContain("Workflow registration check");
     }
+  });
+
+  it("passes through arbitrary WorkerOptions untouched — a custom identity reaches Temporal's own history", async ({
+    testEnv,
+  }) => {
+    const workerResult = await TypedWorker.create({
+      contract: inprocessContract,
+      connection: testEnv.nativeConnection,
+      workflowsPath: workflowPath("inprocess.workflows"),
+      activities,
+      identity: "custom-worker-identity-9000",
+    });
+    expect(workerResult).toBeOk();
+    if (!workerResult.isOk()) return;
+    const worker = workerResult.value;
+
+    const clientResult = await TypedClient.create({ client: testEnv.client });
+    expect(clientResult).toBeOk();
+    if (!clientResult.isOk()) return;
+    const client = clientResult.value.for(inprocessContract);
+
+    const identity = await worker.raw.runUntil(async () => {
+      // No `workflowExecutionTimeout` bound here — `placeOrder` deliberately
+      // sleeps 1 SIMULATED hour to prove time skipping (see
+      // `inprocess.workflows.ts`); under the time-skipping environment that
+      // sleep resolves almost instantly in real time (the whole point of
+      // this environment), but a 30-second bound would be measured against
+      // the SAME simulated clock and trip long before the sleep ever
+      // resolves. Matches the other tests in this file, which bind nothing
+      // for the same reason.
+      const handle = await client
+        .startWorkflow("placeOrder", {
+          workflowId: "inprocess-identity",
+          args: { orderId: "ORD-IDENT", amount: 5 },
+        })
+        .getOrThrow();
+      await handle.result().getOrThrow();
+
+      const history = await handle.raw.fetchHistory();
+      const completed = (history.events ?? []).find(
+        (event) => event.eventType === WORKFLOW_TASK_COMPLETED_EVENT_TYPE,
+      );
+      return completed?.workflowTaskCompletedEventAttributes?.identity;
+    });
+
+    // EFFECT: Temporal's own record of who completed the workflow task
+    // carries the EXACT identity string passed through `CreateWorkerOptions`
+    // — proving arbitrary `WorkerOptions` fields (not just the ones this
+    // typed layer names explicitly: `contract`, `activities`,
+    // `verifyWorkflowRegistration`) reach the real `Worker.create` call
+    // untouched, rather than being dropped by the options spread.
+    expect(identity).toBe("custom-worker-identity-9000");
+  });
+
+  it("run() surfaces a genuine double-run failure on the defect channel", async ({ testEnv }) => {
+    const workerResult = await TypedWorker.create({
+      contract: inprocessContract,
+      connection: testEnv.nativeConnection,
+      workflowsPath: workflowPath("inprocess.workflows"),
+      activities,
+    });
+    expect(workerResult).toBeOk();
+    if (!workerResult.isOk()) return;
+    const worker = workerResult.value;
+
+    // `@temporalio/worker`'s `Worker.run()` is itself declared `async` (see
+    // `runInternal` in its source), so calling it advances synchronously
+    // past its `this.state = 'RUNNING'` assignment before yielding control
+    // back here — no `await` precedes that line. The immediate second call
+    // below therefore deterministically observes `state === 'RUNNING'` and
+    // rejects with Temporal's own `IllegalStateError('Poller was already
+    // started')`. Because `run()` is `async`, JS folds a throw from inside
+    // it into the SAME rejected-promise path as any other async failure —
+    // there is no code path in this codebase or Temporal's own `run()` that
+    // throws synchronously instead of rejecting, so one real trigger proves
+    // `TypedWorker.run()`'s `fromPromise` wrapping for both.
+    const firstRun = worker.run();
+
+    const secondRunResult = await worker.run();
+
+    expect(secondRunResult).toBeDefect();
+    if (secondRunResult.isDefect()) {
+      const cause = secondRunResult.cause;
+      expect(cause).toBeInstanceOf(TechnicalError);
+      expect((cause as TechnicalError).message).toContain(
+        `task queue "${inprocessContract.taskQueue}"`,
+      );
+      expect((cause as TechnicalError).message).toContain("failed while running");
+      // EFFECT: the real underlying error survived on `.cause` untouched —
+      // not fabricated, not swallowed.
+      expect((cause as TechnicalError).cause).toBeInstanceOf(Error);
+      expect(((cause as TechnicalError).cause as Error).message).toBe("Poller was already started");
+    }
+
+    worker.shutdown();
+    await firstRun.get();
   });
 });

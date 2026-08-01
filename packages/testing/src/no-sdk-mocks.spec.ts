@@ -21,9 +21,6 @@ const ALLOWLIST: Record<string, string> = {
   "packages/testing/src/extension.spec.ts": "fixture plumbing, not Temporal semantics",
   "packages/testing/src/time-skipping.spec.ts": "fixture plumbing, not Temporal semantics",
 
-  // --- Migration debt. Each entry is deleted by its migration task. ---
-  "packages/worker/src/worker.spec.ts": "TODO Task 9",
-
   // Real SDK failure objects with faked transport — satisfies the rule.
   "packages/client/src/client.spec.ts": "constructs real SDK failures; fakes only transport",
   "packages/client/src/schedule.spec.ts": "constructs real SDK failures; fakes only transport",
