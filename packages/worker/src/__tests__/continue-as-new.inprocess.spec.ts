@@ -1,10 +1,8 @@
-import { extname } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { TypedClient, WorkflowFailedError } from "@temporal-contract/client";
 import { it } from "@temporal-contract/testing/time-skipping";
 import {
   bundleFor,
+  fixturePath,
   nextTaskQueueId,
   withTaskQueue,
 } from "@temporal-contract/testing/workflow-bundle";
@@ -22,10 +20,6 @@ import { continueAsNewContract } from "./continue-as-new.contract.js";
  * which is the whole point of continue-as-new. Losing state across a
  * continue-as-new boundary loses money.
  */
-function workflowPath(filename: string): string {
-  return fileURLToPath(new URL(`./${filename}${extname(import.meta.url)}`, import.meta.url));
-}
-
 /**
  * Bounds every workflow started below. `createContinueAsNew` validates
  * before calling Temporal and throws a non-retryable `ApplicationFailure`
@@ -71,7 +65,7 @@ describe("continue-as-new against a real server", () => {
   }) => {
     // NOT `withTaskQueue`-scoped — see "SHARED STATIC QUEUE CAVEAT" above.
     const contract = continueAsNewContract;
-    const bundle = await bundleFor(workflowPath("continue-as-new.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "continue-as-new.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -111,7 +105,7 @@ describe("continue-as-new against a real server", () => {
   }) => {
     // NOT `withTaskQueue`-scoped — see "SHARED STATIC QUEUE CAVEAT" above.
     const contract = continueAsNewContract;
-    const bundle = await bundleFor(workflowPath("continue-as-new.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "continue-as-new.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -150,7 +144,7 @@ describe("continue-as-new against a real server", () => {
   }) => {
     // NOT `withTaskQueue`-scoped — see "SHARED STATIC QUEUE CAVEAT" above.
     const contract = continueAsNewContract;
-    const bundle = await bundleFor(workflowPath("continue-as-new.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "continue-as-new.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -209,7 +203,7 @@ describe("continue-as-new against a real server", () => {
   }) => {
     // NOT `withTaskQueue`-scoped — see "SHARED STATIC QUEUE CAVEAT" above.
     const contract = continueAsNewContract;
-    const bundle = await bundleFor(workflowPath("continue-as-new.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "continue-as-new.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -245,7 +239,7 @@ describe("continue-as-new against a real server", () => {
   }) => {
     const queueId = nextTaskQueueId("continue-as-new");
     const contract = withTaskQueue(continueAsNewContract, queueId);
-    const bundle = await bundleFor(workflowPath("continue-as-new.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "continue-as-new.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -285,7 +279,7 @@ describe("continue-as-new against a real server", () => {
   }) => {
     const queueId = nextTaskQueueId("continue-as-new");
     const contract = withTaskQueue(continueAsNewContract, queueId);
-    const bundle = await bundleFor(workflowPath("continue-as-new.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "continue-as-new.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -343,7 +337,7 @@ describe("continue-as-new against a real server", () => {
   }) => {
     const queueId = nextTaskQueueId("continue-as-new");
     const contract = withTaskQueue(continueAsNewContract, queueId);
-    const bundle = await bundleFor(workflowPath("continue-as-new.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "continue-as-new.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -382,7 +376,7 @@ describe("continue-as-new against a real server", () => {
   }) => {
     // NOT `withTaskQueue`-scoped — see "SHARED STATIC QUEUE CAVEAT" above.
     const contract = continueAsNewContract;
-    const bundle = await bundleFor(workflowPath("continue-as-new.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "continue-as-new.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -421,7 +415,7 @@ describe("continue-as-new against a real server", () => {
   }) => {
     // NOT `withTaskQueue`-scoped — see "SHARED STATIC QUEUE CAVEAT" above.
     const contract = continueAsNewContract;
-    const bundle = await bundleFor(workflowPath("continue-as-new.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "continue-as-new.workflows"));
 
     const worker = await TypedWorker.create({
       contract,

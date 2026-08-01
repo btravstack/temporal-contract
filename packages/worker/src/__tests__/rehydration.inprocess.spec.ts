@@ -1,11 +1,9 @@
-import { extname } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { ContractError, TypedClient, WorkflowFailedError } from "@temporal-contract/client";
 import { onRehydrationMiss, type RehydrationMiss } from "@temporal-contract/contract/errors";
 import { it } from "@temporal-contract/testing/time-skipping";
 import {
   bundleFor,
+  fixturePath,
   nextTaskQueueId,
   withTaskQueue,
 } from "@temporal-contract/testing/workflow-bundle";
@@ -73,16 +71,12 @@ const activities = declareActivitiesHandler({
   },
 });
 
-function workflowPath(filename: string): string {
-  return fileURLToPath(new URL(`./${filename}${extname(import.meta.url)}`, import.meta.url));
-}
-
 describe("rehydration at the e2e boundary", () => {
   it("does not rehydrate a marker-less ApplicationFailure as a data-less declared error", async ({
     testEnv,
   }) => {
     const contract = withTaskQueue(rehydrationWorkerContract, nextTaskQueueId("rehydration"));
-    const bundle = await bundleFor(workflowPath("rehydration.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "rehydration.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -119,7 +113,7 @@ describe("rehydration at the e2e boundary", () => {
     const queueId = nextTaskQueueId("rehydration");
     const workerContract = withTaskQueue(rehydrationWorkerContract, queueId);
     const clientContract = withTaskQueue(rehydrationClientContract, queueId);
-    const bundle = await bundleFor(workflowPath("rehydration.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "rehydration.workflows"));
 
     const worker = await TypedWorker.create({
       contract: workerContract,
@@ -193,7 +187,7 @@ describe("declareWorkflow — contract-error conversion", () => {
     testEnv,
   }) => {
     const contract = withTaskQueue(rehydrationWorkerContract, nextTaskQueueId("rehydration"));
-    const bundle = await bundleFor(workflowPath("rehydration.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "rehydration.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -230,7 +224,7 @@ describe("declareWorkflow — contract-error conversion", () => {
 
   it("leaves a thrown error that is not a ContractError untouched", async ({ testEnv }) => {
     const contract = withTaskQueue(rehydrationWorkerContract, nextTaskQueueId("rehydration"));
-    const bundle = await bundleFor(workflowPath("rehydration.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "rehydration.workflows"));
 
     const worker = await TypedWorker.create({
       contract,

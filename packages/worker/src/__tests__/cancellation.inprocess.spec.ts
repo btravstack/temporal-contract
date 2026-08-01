@@ -1,6 +1,3 @@
-import { extname } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import {
   TypedClient,
   WORKFLOW_CANCELLED_ERROR_TAG,
@@ -9,6 +6,7 @@ import {
 import { it } from "@temporal-contract/testing/time-skipping";
 import {
   bundleFor,
+  fixturePath,
   nextTaskQueueId,
   withTaskQueue,
 } from "@temporal-contract/testing/workflow-bundle";
@@ -35,10 +33,6 @@ import { inprocessContract } from "./inprocess.contract.js";
  * `Completed` instead of `Cancelled`, silently overriding the cancel
  * request.
  */
-function workflowPath(filename: string): string {
-  return fileURLToPath(new URL(`./${filename}${extname(import.meta.url)}`, import.meta.url));
-}
-
 /**
  * Bounds every workflow started below. A regression in the `context`
  * wiring that mounts `cancellableScope`/`nonCancellableScope` (e.g. a
@@ -96,7 +90,7 @@ function cancellableSleep({ sleepMs }: { sleepMs: number }) {
 describe("cancellation against a real server", () => {
   it("ends the execution Cancelled when a blocked scope is cancelled", async ({ testEnv }) => {
     const contract = withTaskQueue(inprocessContract, nextTaskQueueId("cancellation"));
-    const bundle = await bundleFor(workflowPath("inprocess.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "inprocess.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -141,7 +135,7 @@ describe("cancellation against a real server", () => {
     testEnv,
   }) => {
     const contract = withTaskQueue(cancellationContract, nextTaskQueueId("cancellation"));
-    const bundle = await bundleFor(workflowPath("cancellation.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "cancellation.workflows"));
 
     const activities = declareActivitiesHandler({
       contract,
@@ -181,7 +175,7 @@ describe("cancellation against a real server", () => {
     testEnv,
   }) => {
     const contract = withTaskQueue(cancellationContract, nextTaskQueueId("cancellation"));
-    const bundle = await bundleFor(workflowPath("cancellation.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "cancellation.workflows"));
 
     const activities = declareActivitiesHandler({
       contract,
@@ -218,7 +212,7 @@ describe("cancellation against a real server", () => {
 
   it("runs a nonCancellable scope to completion despite an outer cancel", async ({ testEnv }) => {
     const contract = withTaskQueue(cancellationContract, nextTaskQueueId("cancellation"));
-    const bundle = await bundleFor(workflowPath("cancellation.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "cancellation.workflows"));
 
     const activities = declareActivitiesHandler({
       contract,
@@ -266,7 +260,7 @@ describe("cancellableScope / nonCancellableScope mechanics against a real server
     testEnv,
   }) => {
     const contract = withTaskQueue(cancellationContract, nextTaskQueueId("cancellation"));
-    const bundle = await bundleFor(workflowPath("cancellation.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "cancellation.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -292,7 +286,7 @@ describe("cancellableScope / nonCancellableScope mechanics against a real server
     testEnv,
   }) => {
     const contract = withTaskQueue(cancellationContract, nextTaskQueueId("cancellation"));
-    const bundle = await bundleFor(workflowPath("cancellation.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "cancellation.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -324,7 +318,7 @@ describe("cancellableScope / nonCancellableScope mechanics against a real server
     testEnv,
   }) => {
     const contract = withTaskQueue(cancellationContract, nextTaskQueueId("cancellation"));
-    const bundle = await bundleFor(workflowPath("cancellation.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "cancellation.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -350,7 +344,7 @@ describe("cancellableScope / nonCancellableScope mechanics against a real server
     testEnv,
   }) => {
     const contract = withTaskQueue(cancellationContract, nextTaskQueueId("cancellation"));
-    const bundle = await bundleFor(workflowPath("cancellation.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "cancellation.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -379,7 +373,7 @@ describe("cancellableScope / nonCancellableScope mechanics against a real server
     testEnv,
   }) => {
     const contract = withTaskQueue(cancellationContract, nextTaskQueueId("cancellation"));
-    const bundle = await bundleFor(workflowPath("cancellation.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "cancellation.workflows"));
 
     const worker = await TypedWorker.create({
       contract,

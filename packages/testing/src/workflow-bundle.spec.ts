@@ -1,8 +1,10 @@
+import { fileURLToPath } from "node:url";
+
 import { defineContract, defineWorkflow } from "@temporal-contract/contract";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { bundleFor, nextTaskQueueId, withTaskQueue } from "./workflow-bundle.js";
+import { bundleFor, fixturePath, nextTaskQueueId, withTaskQueue } from "./workflow-bundle.js";
 
 const contract = defineContract({
   taskQueue: "original-queue",
@@ -67,5 +69,23 @@ describe("nextTaskQueueId", () => {
 
     expect(a).not.toBe(b);
     expect(a.startsWith("t-")).toBe(true);
+  });
+});
+
+describe("fixturePath", () => {
+  it("resolves the filename as a sibling of the given caller URL, not this module's own URL", () => {
+    const callerUrl = "file:///project/packages/worker/src/__tests__/example.inprocess.spec.ts";
+
+    const result = fixturePath(callerUrl, "example.workflows");
+
+    expect(result).toBe(fileURLToPath(new URL("./example.workflows.ts", callerUrl)));
+  });
+
+  it("derives the extension from the caller URL rather than hard-coding one, so built output resolves too", () => {
+    const callerUrl = "file:///project/dist/example.spec.mjs";
+
+    const result = fixturePath(callerUrl, "example.workflows");
+
+    expect(result).toBe(fileURLToPath(new URL("./example.workflows.mjs", callerUrl)));
   });
 });

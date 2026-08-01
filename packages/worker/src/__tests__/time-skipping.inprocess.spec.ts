@@ -1,8 +1,6 @@
-import { extname } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { ContractError, TypedClient, type ClientInterceptor } from "@temporal-contract/client";
 import { it } from "@temporal-contract/testing/time-skipping";
+import { fixturePath } from "@temporal-contract/testing/workflow-bundle";
 import { OkAsync, ErrAsync } from "unthrown";
 /**
  * Full contract-pipeline coverage against the time-skipping
@@ -60,10 +58,6 @@ const recording: ClientInterceptor = (args, next) => {
   return next();
 };
 
-function workflowPath(filename: string): string {
-  return fileURLToPath(new URL(`./${filename}${extname(import.meta.url)}`, import.meta.url));
-}
-
 /** `EVENT_TYPE_WORKFLOW_TASK_COMPLETED` from `@temporalio/proto`'s `EventType` enum. */
 const WORKFLOW_TASK_COMPLETED_EVENT_TYPE = 7;
 
@@ -72,7 +66,7 @@ describe("time-skipping TestWorkflowEnvironment", () => {
     const workerResult = await TypedWorker.create({
       contract: inprocessContract,
       connection: testEnv.nativeConnection,
-      workflowsPath: workflowPath("inprocess.workflows"),
+      workflowsPath: fixturePath(import.meta.url, "inprocess.workflows"),
       activities,
     });
     expect(workerResult).toBeOk();
@@ -135,7 +129,7 @@ describe("time-skipping TestWorkflowEnvironment", () => {
     const workerResult = await TypedWorker.create({
       contract: inprocessContract,
       connection: testEnv.nativeConnection,
-      workflowsPath: workflowPath("inprocess.workflows"),
+      workflowsPath: fixturePath(import.meta.url, "inprocess.workflows"),
       activities,
     });
     expect(workerResult).toBeOk();
@@ -175,7 +169,7 @@ describe("time-skipping TestWorkflowEnvironment", () => {
     const workerResult = await TypedWorker.create({
       contract: inprocessContract,
       connection: testEnv.nativeConnection,
-      workflowsPath: workflowPath("does-not-exist"),
+      workflowsPath: fixturePath(import.meta.url, "does-not-exist"),
       activities,
     });
     expect(workerResult).toBeDefect();
@@ -213,7 +207,7 @@ describe("time-skipping TestWorkflowEnvironment", () => {
     const workerResult = await TypedWorker.create({
       contract: inprocessContract,
       connection: testEnv.nativeConnection,
-      workflowsPath: workflowPath("inprocess.workflows"),
+      workflowsPath: fixturePath(import.meta.url, "inprocess.workflows"),
       activities,
       identity: "custom-worker-identity-9000",
     });
@@ -263,7 +257,7 @@ describe("time-skipping TestWorkflowEnvironment", () => {
     const workerResult = await TypedWorker.create({
       contract: inprocessContract,
       connection: testEnv.nativeConnection,
-      workflowsPath: workflowPath("inprocess.workflows"),
+      workflowsPath: fixturePath(import.meta.url, "inprocess.workflows"),
       activities,
     });
     expect(workerResult).toBeOk();
