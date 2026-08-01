@@ -1,12 +1,10 @@
-import { extname } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import {
   TypedClient,
   WorkflowValidationError,
   type ContractClient,
 } from "@temporal-contract/client";
 import { it as baseIt } from "@temporal-contract/testing/extension";
+import { fixturePath } from "@temporal-contract/testing/workflow-bundle";
 import { Client, WorkflowFailedError } from "@temporalio/client";
 import { OkAsync, ErrAsync } from "unthrown";
 import { describe, expect, vi, beforeEach } from "vitest";
@@ -31,7 +29,7 @@ const it = baseIt.extend<{
         contract: testContract,
         connection: workerConnection,
         namespace: "default",
-        workflowsPath: workflowPath("test.workflows"),
+        workflowsPath: fixturePath(import.meta.url, "test.workflows"),
         activities,
       }).get();
 
@@ -529,7 +527,3 @@ describe("Worker Package - Integration Tests", () => {
     });
   });
 });
-
-function workflowPath(filename: string): string {
-  return fileURLToPath(new URL(`./${filename}${extname(import.meta.url)}`, import.meta.url));
-}

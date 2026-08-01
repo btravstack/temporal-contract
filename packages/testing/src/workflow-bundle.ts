@@ -1,3 +1,6 @@
+import { extname } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import type { ContractDefinition } from "@temporal-contract/contract";
 import { bundleWorkflowCode, type WorkflowBundleWithSourceMap } from "@temporalio/worker";
 
@@ -58,4 +61,22 @@ let counter = 0;
 export function nextTaskQueueId(prefix: string): string {
   counter += 1;
   return `${prefix}-${String(counter)}`;
+}
+
+/**
+ * Resolve a sibling fixture file's path — e.g. a `*.workflows.ts` module
+ * next to a spec file, passed to {@link bundleFor} or a `workflowsPath`
+ * option. Was copy-pasted verbatim (as `workflowPath`, or `fixturePath` in
+ * one file) into every `*.inprocess.spec.ts` file plus a couple of
+ * Docker-tier specs before being lifted here.
+ *
+ * `callerUrl` MUST be the caller's own `import.meta.url`, not this module's
+ * — the whole point is resolving relative to where the *caller* lives, and
+ * `import.meta.url` is only meaningful read from the module that owns it.
+ * That's also why this derives the extension from `callerUrl` rather than
+ * hard-coding `.ts`/`.js`: it lets the same call resolve correctly whether
+ * the caller is running from `.ts` source (vitest) or built `.js` output.
+ */
+export function fixturePath(callerUrl: string, filename: string): string {
+  return fileURLToPath(new URL(`./${filename}${extname(callerUrl)}`, callerUrl));
 }

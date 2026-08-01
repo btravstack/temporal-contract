@@ -1,10 +1,8 @@
-import { extname } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { TypedClient, WorkflowFailedError } from "@temporal-contract/client";
 import { it } from "@temporal-contract/testing/time-skipping";
 import {
   bundleFor,
+  fixturePath,
   nextTaskQueueId,
   withTaskQueue,
 } from "@temporal-contract/testing/workflow-bundle";
@@ -32,10 +30,6 @@ import { childWireContract } from "./child-wire.contract.js";
  * the workflow entry point (`declareWorkflow` input/output) and the child
  * boundary (`executeChildWorkflow`/`startChildWorkflow`/child signals).
  */
-function workflowPath(filename: string): string {
-  return fileURLToPath(new URL(`./${filename}${extname(import.meta.url)}`, import.meta.url));
-}
-
 /**
  * Bounds every workflow started below — see `continue-as-new.inprocess.spec.ts`'s
  * identical constant for the measured real-time rationale. A regression that
@@ -52,7 +46,7 @@ describe("workflow entry point — wire format against a real server", () => {
     testEnv,
   }) => {
     const contract = withTaskQueue(childWireContract, nextTaskQueueId("child-wire"));
-    const bundle = await bundleFor(workflowPath("child-wire.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "child-wire.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -100,7 +94,7 @@ describe("workflow entry point — wire format against a real server", () => {
     testEnv,
   }) => {
     const contract = withTaskQueue(childWireContract, nextTaskQueueId("child-wire"));
-    const bundle = await bundleFor(workflowPath("child-wire.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "child-wire.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -159,7 +153,7 @@ describe("child-workflow boundary — wire format against a real server", () => 
     testEnv,
   }) => {
     const contract = childWireContract;
-    const bundle = await bundleFor(workflowPath("child-wire.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "child-wire.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -197,7 +191,7 @@ describe("child-workflow boundary — wire format against a real server", () => 
     testEnv,
   }) => {
     const contract = childWireContract;
-    const bundle = await bundleFor(workflowPath("child-wire.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "child-wire.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -254,7 +248,7 @@ describe("child-workflow boundary — wire format against a real server", () => 
     testEnv,
   }) => {
     const contract = childWireContract;
-    const bundle = await bundleFor(workflowPath("child-wire.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "child-wire.workflows"));
 
     const worker = await TypedWorker.create({
       contract,
@@ -309,7 +303,7 @@ describe("child-workflow boundary — wire format against a real server", () => 
     testEnv,
   }) => {
     const contract = childWireContract;
-    const bundle = await bundleFor(workflowPath("child-wire.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "child-wire.workflows"));
 
     const worker = await TypedWorker.create({
       contract,

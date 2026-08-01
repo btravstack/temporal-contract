@@ -1,9 +1,10 @@
-import { extname } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { TypedClient } from "@temporal-contract/client";
 import { it } from "@temporal-contract/testing/time-skipping";
-import { nextTaskQueueId, withTaskQueue } from "@temporal-contract/testing/workflow-bundle";
+import {
+  fixturePath,
+  nextTaskQueueId,
+  withTaskQueue,
+} from "@temporal-contract/testing/workflow-bundle";
 import { describe, expect } from "vitest";
 
 import { TechnicalError, TypedWorker } from "../worker.js";
@@ -27,9 +28,6 @@ import { registrationContract } from "./registration.contract.js";
  * would vacuously pass regardless of whether the check still works — so
  * every test passes a real `workflowsPath` fixture instead.
  */
-function fixturePath(basename: string): string {
-  return fileURLToPath(new URL(`./${basename}${extname(import.meta.url)}`, import.meta.url));
-}
 
 /**
  * Bounds every workflow started below — see `continue-as-new.inprocess.spec.ts`'s
@@ -48,7 +46,7 @@ describe("workflow-registration completeness check — real server", () => {
     const worker = await TypedWorker.create({
       contract,
       connection: testEnv.nativeConnection,
-      workflowsPath: fixturePath("registration-complete.workflows"),
+      workflowsPath: fixturePath(import.meta.url, "registration-complete.workflows"),
     }).get();
 
     const typedClient = await TypedClient.create({ client: testEnv.client }).get();
@@ -82,7 +80,7 @@ describe("workflow-registration completeness check — real server", () => {
     const worker = await TypedWorker.create({
       contract,
       connection: testEnv.nativeConnection,
-      workflowsPath: fixturePath("registration-raw.workflows"),
+      workflowsPath: fixturePath(import.meta.url, "registration-raw.workflows"),
     }).get();
 
     const typedClient = await TypedClient.create({ client: testEnv.client }).get();
@@ -117,7 +115,7 @@ describe("workflow-registration completeness check — real server", () => {
     const workerResult = await TypedWorker.create({
       contract,
       connection: testEnv.nativeConnection,
-      workflowsPath: fixturePath("registration-missing.workflows"),
+      workflowsPath: fixturePath(import.meta.url, "registration-missing.workflows"),
     });
 
     expect(workerResult).toBeDefect();
@@ -139,7 +137,7 @@ describe("workflow-registration completeness check — real server", () => {
     const workerResult = await TypedWorker.create({
       contract,
       connection: testEnv.nativeConnection,
-      workflowsPath: fixturePath("registration-mismatch.workflows"),
+      workflowsPath: fixturePath(import.meta.url, "registration-mismatch.workflows"),
     });
 
     expect(workerResult).toBeDefect();
@@ -158,7 +156,7 @@ describe("workflow-registration completeness check — real server", () => {
     const worker = await TypedWorker.create({
       contract,
       connection: testEnv.nativeConnection,
-      workflowsPath: fixturePath("registration-missing.workflows"),
+      workflowsPath: fixturePath(import.meta.url, "registration-missing.workflows"),
       verifyWorkflowRegistration: false,
     }).get();
 

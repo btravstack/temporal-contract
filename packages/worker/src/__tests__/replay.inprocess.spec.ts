@@ -1,8 +1,6 @@
-import { extname } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { TypedClient } from "@temporal-contract/client";
 import { it } from "@temporal-contract/testing/time-skipping";
+import { fixturePath } from "@temporal-contract/testing/workflow-bundle";
 import { Worker } from "@temporalio/worker";
 import { OkAsync, ErrAsync } from "unthrown";
 /**
@@ -43,10 +41,6 @@ const activities = declareActivitiesHandler({
   },
 });
 
-function workflowPath(filename: string): string {
-  return fileURLToPath(new URL(`./${filename}${extname(import.meta.url)}`, import.meta.url));
-}
-
 describe("declareWorkflow replay determinism", () => {
   it("replays histories produced by Result-shaped workflows without determinism violations", async ({
     testEnv,
@@ -54,7 +48,7 @@ describe("declareWorkflow replay determinism", () => {
     const worker = await TypedWorker.create({
       contract: inprocessContract,
       connection: testEnv.nativeConnection,
-      workflowsPath: workflowPath("inprocess.workflows"),
+      workflowsPath: fixturePath(import.meta.url, "inprocess.workflows"),
       activities,
     }).get();
 
@@ -91,7 +85,7 @@ describe("declareWorkflow replay determinism", () => {
       const history = await testEnv.client.workflow.getHandle(workflowId).fetchHistory();
       await expect(
         Worker.runReplayHistory(
-          { workflowsPath: workflowPath("inprocess.workflows") },
+          { workflowsPath: fixturePath(import.meta.url, "inprocess.workflows") },
           history,
           workflowId,
         ),

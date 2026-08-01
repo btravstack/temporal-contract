@@ -1,7 +1,5 @@
-import { extname } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { it as baseIt } from "@temporal-contract/testing/extension";
+import { fixturePath } from "@temporal-contract/testing/workflow-bundle";
 import { Client } from "@temporalio/client";
 import { Worker } from "@temporalio/worker";
 import { describe, expect, vi, beforeEach } from "vitest";
@@ -31,7 +29,7 @@ const it = baseIt.extend<WorkerFixtures>({
         connection: workerConnection,
         namespace: "default",
         taskQueue: testContract.taskQueue,
-        workflowsPath: workflowPath("test.workflows"),
+        workflowsPath: fixturePath(import.meta.url, "test.workflows"),
         activities: {
           // Global activities
           logMessage: async ({ message }: { message: string }) => {
@@ -71,7 +69,7 @@ const it = baseIt.extend<WorkerFixtures>({
         connection: workerConnection,
         namespace: "default",
         taskQueue: secondContract.taskQueue,
-        workflowsPath: workflowPath("second.workflows"),
+        workflowsPath: fixturePath(import.meta.url, "second.workflows"),
       });
 
       worker.run().catch((err) => {
@@ -582,7 +580,3 @@ describe("Client Package - Integration Tests", () => {
     });
   });
 });
-
-function workflowPath(filename: string): string {
-  return fileURLToPath(new URL(`./${filename}${extname(import.meta.url)}`, import.meta.url));
-}

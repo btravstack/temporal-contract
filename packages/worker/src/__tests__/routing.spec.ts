@@ -1,8 +1,6 @@
-import { extname } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { TypedClient, type ContractClient } from "@temporal-contract/client";
 import { it as baseIt } from "@temporal-contract/testing/extension";
+import { fixturePath } from "@temporal-contract/testing/workflow-bundle";
 import { Client } from "@temporalio/client";
 import { Worker } from "@temporalio/worker";
 import { OkAsync } from "unthrown";
@@ -37,10 +35,6 @@ const activities = declareActivitiesHandler({
   },
 });
 
-function workflowPath(filename: string): string {
-  return fileURLToPath(new URL(`./${filename}${extname(import.meta.url)}`, import.meta.url));
-}
-
 const it = baseIt.extend<{
   workflowWorker: TypedWorker;
   activityWorker: Worker;
@@ -54,7 +48,7 @@ const it = baseIt.extend<{
         contract: routingContract,
         connection: workerConnection,
         namespace: "default",
-        workflowsPath: workflowPath("routing.workflows"),
+        workflowsPath: fixturePath(import.meta.url, "routing.workflows"),
       }).get();
 
       const running = worker.run();

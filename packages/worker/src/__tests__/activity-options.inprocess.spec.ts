@@ -1,10 +1,8 @@
-import { extname } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { TypedClient } from "@temporal-contract/client";
 import { it } from "@temporal-contract/testing/time-skipping";
 import {
   bundleFor,
+  fixturePath,
   nextTaskQueueId,
   withTaskQueue,
 } from "@temporal-contract/testing/workflow-bundle";
@@ -15,10 +13,6 @@ import { describe, expect } from "vitest";
 import { declareActivitiesHandler } from "../activity.js";
 import { TypedWorker } from "../worker.js";
 import { activityOptionsContract, layeredOptionsContract } from "./activity-options.contract.js";
-
-function workflowPath(filename: string): string {
-  return fileURLToPath(new URL(`./${filename}${extname(import.meta.url)}`, import.meta.url));
-}
 
 /**
  * Real `setTimeout`-backed activity body shared by every "outlives its
@@ -43,7 +37,7 @@ function sleepThenDone({ sleepMs }: { sleepMs: number }) {
 describe("contract-level activityOptions reach Temporal", () => {
   it("times out an activity that outlives its startToCloseTimeout", async ({ testEnv }) => {
     const contract = withTaskQueue(activityOptionsContract, nextTaskQueueId("activity-options"));
-    const bundle = await bundleFor(workflowPath("activity-options.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "activity-options.workflows"));
 
     const activities = declareActivitiesHandler({
       contract,
@@ -90,7 +84,7 @@ describe("activityOptions merge precedence across layers", () => {
     testEnv,
   }) => {
     const contract = withTaskQueue(layeredOptionsContract, nextTaskQueueId("layered-options"));
-    const bundle = await bundleFor(workflowPath("activity-options.workflows"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "activity-options.workflows"));
 
     let flakyCalls = 0;
     const activities = declareActivitiesHandler({
