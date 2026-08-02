@@ -225,6 +225,72 @@ describe("activity collision detection", () => {
     };
     expectTypeOf<TypeEq<CollidingActivityNames<C>, never>>().toEqualTypeOf<true>();
   });
+
+  it("does NOT flag an optional activity key declared identically in two workflows", () => {
+    // Regression (fix round 2): the round-1 fix guarded the outer
+    // conditional with `ScopesDeclaring`, but `DefinitionsFor`'s inner
+    // extraction (`A extends Record<N, infer D> ? D : never`) still went
+    // `never` for an optional key in *every* declaring scope, which put the
+    // same never-takes-the-true-branch trap one level deeper. Two workflows
+    // both declaring `charge?:` must not collide with each other.
+    type C = {
+      taskQueue: "q";
+      workflows: {
+        a: { input: unknown; output: unknown; activities: { charge?: ChargeA } };
+        b: { input: unknown; output: unknown; activities: { charge?: ChargeA } };
+      };
+    };
+    expectTypeOf<TypeEq<CollidingActivityNames<C>, never>>().toEqualTypeOf<true>();
+  });
+
+  it("does NOT flag the hoist pattern when the shared key is optional", () => {
+    // Regression (fix round 2): same root cause as above, exercised through
+    // the documented hoist pattern (global + one workflow) instead of two
+    // workflows.
+    type C = {
+      taskQueue: "q";
+      activities: { charge?: ChargeA };
+      workflows: { a: { input: unknown; output: unknown; activities: { charge?: ChargeA } } };
+    };
+    expectTypeOf<TypeEq<CollidingActivityNames<C>, never>>().toEqualTypeOf<true>();
+  });
+
+  it("does NOT flag a contract with no activities, even when workflows fall back to the default activities type", () => {
+    // Regression (fix round 2): `WorkflowDefinition["activities"]` defaults
+    // to `Record<string, never>` (`types.ts:189`) when a workflow declares
+    // no activities. `keyof Record<string, never>` is `string`, so
+    // `AllActivityNames` picks up the *type* `string` as a name candidate on
+    // a contract that declares no activities at all. Two workflows both
+    // falling back to that default must not "collide" on it.
+    type C = {
+      taskQueue: "q";
+      workflows: {
+        a: { input: unknown; output: unknown; activities: Record<string, never> };
+        b: { input: unknown; output: unknown; activities: Record<string, never> };
+      };
+    };
+    expectTypeOf<TypeEq<CollidingActivityNames<C>, never>>().toEqualTypeOf<true>();
+  });
+
+  it("does NOT flag two scopes binding the SAME union-typed definition", () => {
+    // Regression (fix round 2): this is the shared-`defineActivity`-result
+    // pattern (`builder.ts:816`) where the shared value itself happens to be
+    // a union type, e.g. `const charge = isProd ? chargeA : chargeB`. Before
+    // `DefinitionsFor` tuple-wrapped each scope's contribution, a union
+    // *within* one scope's binding was indistinguishable from *disagreement
+    // between* scopes: both looked like a multi-member union to `IsUnion`.
+    // The runtime accepts this unconditionally (same object reference in
+    // both scopes), so the type layer must too.
+    type Charge = ChargeA | ChargeB;
+    type C = {
+      taskQueue: "q";
+      workflows: {
+        a: { input: unknown; output: unknown; activities: { charge: Charge } };
+        b: { input: unknown; output: unknown; activities: { charge: Charge } };
+      };
+    };
+    expectTypeOf<TypeEq<CollidingActivityNames<C>, never>>().toEqualTypeOf<true>();
+  });
 });
 
 describe("workflow vs global activity name clashes", () => {
