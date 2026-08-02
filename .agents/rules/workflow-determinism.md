@@ -1,22 +1,37 @@
 # Workflow Determinism
 
-Workflow code runs inside Temporal's deterministic replay sandbox. Every time a workflow is rehydrated (worker restart, sticky-task reassignment, history replay), Temporal re-runs the implementation from the start and **must produce the exact same sequence of commands**. Any non-determinism — wall-clock reads, native randomness, direct I/O — will desync from history and crash the workflow with a non-determinism error.
+Workflow code runs inside Temporal's deterministic replay sandbox. Every time a workflow is rehydrated (worker restart, sticky-task reassignment, history replay), Temporal re-runs the implementation from the start and **must produce the exact same sequence of commands**. A desync from history crashes the workflow with a non-determinism error.
 
-This is THE most error-prone area in any Temporal codebase. Read it.
+**The sandbox does more than people assume.** `@temporalio/workflow/lib/global-overrides.js` rewrites the common hazards before your code runs, and hard-blocks a couple more. So the guidance below is mostly about **semantics, not safety** — the patched APIs work, they just don't mean what their names suggest. Knowing which column a thing is in tells you whether a mistake shows up as a crash, a surprise, or silent corruption.
 
-## Banned in workflow code
+### Patched — safe, but the semantics differ
 
-| Don't                              | Use instead                                                                                           |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `Date.now()` / `new Date()`        | `workflowInfo().startTime` or `Date` from `@temporalio/workflow` (it's monkey-patched in the sandbox) |
-| `Math.random()`                    | `uuid4()` from `@temporalio/workflow`, or do RNG inside an activity                                   |
-| `crypto.randomUUID()` / `crypto.*` | `uuid4()` from `@temporalio/workflow`, or activity                                                    |
-| `setTimeout` / `setInterval`       | `sleep(duration)` from `@temporalio/workflow`                                                         |
-| `process.env.*`                    | Pass via `args` or read inside an activity                                                            |
-| `fetch` / `http` / database / disk | Wrap in an activity — workflows must not touch I/O                                                    |
-| `import.meta.*` / `__dirname`      | Constant inputs; or read inside an activity                                                           |
+These are rewritten in the sandbox. Using them will not break replay. Prefer the explicit primitive anyway, because the behavior is not what the name implies.
 
-The rule of thumb: **if it can return a different value on a second call with the same inputs, it doesn't belong in workflow code.** Push it into an activity, where retries and non-determinism are explicitly handled.
+| API                          | What it actually does                                                                                                        | Prefer                                                         |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `Date.now()` / `new Date()`  | Returns **workflow time** (`getActivator().now`), not wall clock. On replay it returns the historical value.                 | `workflowInfo().startTime` when you mean "when did this start" |
+| `Math.random()`              | A **seeded deterministic stream**. Replay-safe, but the sequence shifts when you change consuming code.                      | `uuid4()`, or do RNG in an activity                            |
+| `setTimeout` / `setInterval` | Becomes a **durable Temporal timer** wrapped in a cancellation scope. Survives worker restarts; advances with workflow time. | `sleep(duration)` — same thing, honest name                    |
+
+### Blocked loudly — you cannot get this wrong silently
+
+| API                                  | What happens                                                                    |
+| ------------------------------------ | ------------------------------------------------------------------------------- |
+| `WeakRef` / `FinalizationRegistry`   | Throws `DeterminismViolationError` — "v8 GC is non-deterministic"               |
+| `crypto.*`, `fetch`, `fs`, net, disk | Not present in the sandbox context; reference errors rather than nondeterminism |
+
+### Genuinely unprotected — this is where the real risk lives
+
+Nothing patches these. They are the reason this rule exists.
+
+| Hazard                        | Why it bites                                                                                            | Do instead                              |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `process.env.*`               | Legitimately differs per worker and per deployment. Two workers replaying the same history can diverge. | Pass via `args`, or read in an activity |
+| Module-level mutable state    | Shared across executions in a reused VM context; ordering is not yours to control.                      | Keep workflow modules pure              |
+| `import.meta.*` / `__dirname` | Environment-dependent, and not something history records.                                               | Constant inputs                         |
+
+The rule of thumb still holds — **if it can return a different value on a second call with the same inputs, it doesn't belong in workflow code** — but note the sandbox already enforces most of it. Spend your vigilance on the third table.
 
 ## Why activities can do anything
 

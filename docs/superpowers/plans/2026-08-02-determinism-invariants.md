@@ -12,7 +12,7 @@
 
 Copied from `CLAUDE.md` and the spec. Every task's requirements implicitly include this section.
 
-- **Workflow code is deterministic.** No `Date.now()`, `Math.random()`, `setTimeout`, `crypto.randomUUID()`, native I/O, or `process.env` inside `declareWorkflow`'s `implementation`. Activities are not sandboxed and may use them.
+- **Workflow code is deterministic — the sandbox enforces most of it.** `Date.now()`, `new Date()`, `Math.random()`, and `setTimeout` are patched and replay-safe; prefer `sleep` / `uuid4` / `workflowInfo()` from `@temporalio/workflow` because the patched APIs don't mean what their names suggest. `WeakRef`/`FinalizationRegistry` throw; `crypto.*` and native I/O aren't in the sandbox context. The genuinely unprotected hazards are **`process.env`, module-level mutable state, and `import.meta`** — those must stay out of `declareWorkflow`'s `implementation`. Activities are not sandboxed and may use anything.
 - **`.js` extensions in every relative import.** ESM only. No CommonJS.
 - **No `any`.** Use `unknown` and narrow. Enforced by oxlint.
 - **Catalog versions.** New dependency versions go in `pnpm-workspace.yaml`'s `catalog:` block; per-package entries use `"catalog:"`.
