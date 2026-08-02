@@ -1,4 +1,5 @@
-import { TypedClient, WorkflowFailedError } from "@temporal-contract/client";
+import { WorkflowFailedError } from "@temporal-contract/client";
+import { testRig } from "@temporal-contract/testing/test-rig";
 import { it } from "@temporal-contract/testing/time-skipping";
 import {
   bundleFor,
@@ -9,7 +10,6 @@ import {
 import { ApplicationFailure } from "@temporalio/client";
 import { describe, expect } from "vitest";
 
-import { TypedWorker } from "../worker.js";
 import { childWireContract } from "./child-wire.contract.js";
 
 /**
@@ -48,14 +48,7 @@ describe("workflow entry point — wire format against a real server", () => {
     const contract = withTaskQueue(childWireContract, nextTaskQueueId("child-wire"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "child-wire.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const { raw, parsed } = await worker.raw.runUntil(async () => {
       const handle = await client
@@ -96,14 +89,7 @@ describe("workflow entry point — wire format against a real server", () => {
     const contract = withTaskQueue(childWireContract, nextTaskQueueId("child-wire"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "child-wire.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const result = await worker.raw.runUntil(async () => {
       const handle = await client
@@ -155,14 +141,7 @@ describe("child-workflow boundary — wire format against a real server", () => 
     const contract = childWireContract;
     const bundle = await bundleFor(fixturePath(import.meta.url, "child-wire.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const result = await worker.raw.runUntil(async () => {
       const handle = await client
@@ -193,14 +172,7 @@ describe("child-workflow boundary — wire format against a real server", () => 
     const contract = childWireContract;
     const bundle = await bundleFor(fixturePath(import.meta.url, "child-wire.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const { parentResult, actualRunId } = await worker.raw.runUntil(async () => {
       const handle = await client
@@ -250,14 +222,7 @@ describe("child-workflow boundary — wire format against a real server", () => 
     const contract = childWireContract;
     const bundle = await bundleFor(fixturePath(import.meta.url, "child-wire.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const { result, signalNames } = await worker.raw.runUntil(async () => {
       const handle = await client
@@ -305,14 +270,7 @@ describe("child-workflow boundary — wire format against a real server", () => 
     const contract = childWireContract;
     const bundle = await bundleFor(fixturePath(import.meta.url, "child-wire.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const { result, signalNames } = await worker.raw.runUntil(async () => {
       const handle = await client

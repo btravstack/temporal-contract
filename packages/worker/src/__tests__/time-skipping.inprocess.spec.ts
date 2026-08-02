@@ -1,6 +1,7 @@
 import { ContractError, TypedClient, type ClientInterceptor } from "@temporal-contract/client";
+import { testRig } from "@temporal-contract/testing/test-rig";
 import { it } from "@temporal-contract/testing/time-skipping";
-import { fixturePath } from "@temporal-contract/testing/workflow-bundle";
+import { bundleFor, fixturePath } from "@temporal-contract/testing/workflow-bundle";
 import { OkAsync, ErrAsync } from "unthrown";
 /**
  * Full contract-pipeline coverage against the time-skipping
@@ -126,20 +127,12 @@ describe("time-skipping TestWorkflowEnvironment", () => {
   it("a workflow that re-raises cancellation via rethrowCancellation ends Cancelled", async ({
     testEnv,
   }) => {
-    const workerResult = await TypedWorker.create({
+    const bundle = await bundleFor(fixturePath(import.meta.url, "inprocess.workflows"));
+    const { worker, client } = await testRig(testEnv, {
       contract: inprocessContract,
-      connection: testEnv.nativeConnection,
-      workflowsPath: fixturePath(import.meta.url, "inprocess.workflows"),
+      bundle,
       activities,
     });
-    expect(workerResult).toBeOk();
-    if (!workerResult.isOk()) return;
-    const worker = workerResult.value;
-
-    const clientResult = await TypedClient.create({ client: testEnv.client });
-    expect(clientResult).toBeOk();
-    if (!clientResult.isOk()) return;
-    const client = clientResult.value.for(inprocessContract);
 
     await worker.raw.runUntil(async () => {
       const workflowId = "inprocess-cancelled-outcome";
