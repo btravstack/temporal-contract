@@ -19,7 +19,17 @@ import { onTestFinished } from "vitest";
  * replay coverage it does not have — exactly the rot this rig exists to
  * prevent — so an unlisted non-terminal execution fails the test instead.
  */
-export const REPLAY_SKIP_ALLOWLIST: Readonly<Record<string, string>> = {};
+export const REPLAY_SKIP_ALLOWLIST: Readonly<Record<string, string>> = {
+  "handlers-probe-edge-cases":
+    "handlers.workflows.ts's probeEdgeCases blocks on condition(() => false) and is never " +
+    "signaled to finish — the spec only issues queries against it, so its execution is " +
+    "deliberately left running forever.",
+  "handlers-wire-":
+    "handlers.workflows.ts's transformWorkflow blocks on condition(() => false) and is never " +
+    "signaled to finish — the spec only signals/queries/updates against it directly (workflow " +
+    "IDs handlers-wire-signal, handlers-wire-query, handlers-wire-update), so its execution is " +
+    "deliberately left running forever.",
+};
 
 /** Statuses whose history is complete and therefore replayable. */
 const TERMINAL_STATUSES = new Set([
