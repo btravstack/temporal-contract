@@ -166,17 +166,34 @@ type AllActivityNames<C extends ContractLike> =
       : never);
 
 /**
- * Every definition bound to activity name `N`, as a union. One member means
- * one shape; more than one means the scopes disagree.
+ * Every definition bound to activity name `N`, one tuple-wrapped member per
+ * *declaring scope*. One member means every declaring scope agrees; more
+ * than one means they disagree.
  *
- * This alone is not sufficient to detect a collision: `N` might be declared
- * in only one scope with a `never`-producing or union-typed definition (see
- * `ScopesDeclaring` below for why). `CollidingActivityNames` gates on both.
+ * Extraction is `N extends keyof A ? [A[N]] : never`, not `A extends
+ * Record<N, infer D> ? D : never`. Two things ride on this:
+ *
+ * - `N extends keyof A` (matching `ScopesDeclaring`) correctly reports an
+ *   optional key as declaring `N` — `keyof { charge?: D }` contains
+ *   `"charge"` — where `A extends Record<N, infer D>` does not, because an
+ *   optional source property never structurally satisfies a required target
+ *   property. Every scope that actually declares `N` therefore contributes
+ *   a member here; the type no longer has a `never` case to fall into.
+ * - The `[...]` tuple wrap is load-bearing, not decorative: without it, a
+ *   *single* scope binding `N` to an already-union-typed value (e.g. the
+ *   result of a ternary between two activity definitions) would flatten
+ *   into the same shape as *two scopes disagreeing* — both are unions of
+ *   more than one member as far as `IsUnion` can see. Wrapping each scope's
+ *   contribution in a one-element tuple keeps that union type intact as a
+ *   single opaque member, so `IsUnion` counts declaring scopes whose bound
+ *   types differ, not the union arms inside any one scope's type.
  */
 type DefinitionsFor<C extends ContractLike, N extends PropertyKey> =
-  | (GlobalActivitiesOf<C> extends Record<N, infer D> ? D : never)
+  | (N extends keyof GlobalActivitiesOf<C> ? [GlobalActivitiesOf<C>[N]] : never)
   | (C extends { workflows: infer W }
-      ? { [K in keyof W]: ActivitiesOf<W[K]> extends Record<N, infer D> ? D : never }[keyof W]
+      ? {
+          [K in keyof W]: N extends keyof ActivitiesOf<W[K]> ? [ActivitiesOf<W[K]>[N]] : never;
+        }[keyof W]
       : never);
 
 /**
@@ -185,21 +202,23 @@ type DefinitionsFor<C extends ContractLike, N extends PropertyKey> =
  * compares definitions once a *previous owner* exists for the name — i.e.
  * once at least two scopes are in play.
  *
- * `DefinitionsFor` alone cannot stand in for this: it collapses "how many
- * scopes bind N" into "how many distinct types are bound to N", so it
- * misfires in two ways it cannot tell apart from a genuine collision —
- * `never` when a single scope's binding is optional (or is the `Record<
- * string, never>` default `WorkflowDefinition["activities"]` falls back to),
- * and `boolean`-shaped noise when a single scope binds a union-typed
- * definition. Gating on scope count sidesteps both: a name declared in only
- * one scope can never be flagged, regardless of what `DefinitionsFor`
- * resolves to for it.
+ * A name declared in only one scope can never disagree with itself, so
+ * gating on scope count here — before `DefinitionsFor` is even consulted —
+ * is what makes a single-scope name unconditionally safe, independent of
+ * whatever shape (optional key, union-typed value, etc.) its lone binding
+ * has.
  *
- * The global scope is tagged `0` rather than a `unique symbol` — unlike the
- * runtime's `GLOBAL_OWNER` (`builder.ts:789-793`), this is safe here because
- * `keyof W` on an object-literal-shaped `workflows` map is always
- * string-keyed, so the numeric literal `0` can never collide with a
- * workflow-name tag.
+ * The global scope is tagged `0` rather than a `unique symbol`. Naively,
+ * `keyof W` could contain the numeric literal `0` too — a workflow whose key
+ * is the string `"0"` has `keyof` type `0`, not `"0"` — which would make the
+ * tag ambiguous in principle. In practice this never happens: `builder.ts:
+ * 496-499`'s `assertIdentifier` requires every workflow name to match
+ * `IDENTIFIER_PATTERN` (`/^[a-zA-Z_$][a-zA-Z0-9_$]*$/`), which a name
+ * starting with a digit can never satisfy, so a workflow named `"0"` is
+ * already rejected before name-collision checking runs. (The runtime uses a
+ * `unique symbol` for `GLOBAL_OWNER`, `builder.ts:789-793`, specifically
+ * because *workflow* names have no such restriction there — see that
+ * comment. Only *activity* names route through `ScopesDeclaring`.)
  *
  * Membership is tested with `N extends keyof …`, not `… extends Record<N,
  * unknown>`. The two are not equivalent for an optional activity key:
@@ -207,11 +226,8 @@ type DefinitionsFor<C extends ContractLike, N extends PropertyKey> =
  * `AllActivityNames` gathers names in the first place), but `{ charge?: D }`
  * does not structurally extend `Record<"charge", unknown>` — TypeScript
  * treats an optional source property as incompatible with a required target
- * property regardless of the value type. Using `Record<N, unknown>` here
- * would silently drop every optional activity key from `ScopesDeclaring`,
- * which resolves to `never` for a single, legitimate declaration and walks
- * straight back into the same `never`-takes-the-`true`-branch trap this type
- * exists to close.
+ * property regardless of the value type. `DefinitionsFor` uses the same
+ * `N extends keyof …` extraction for the same reason.
  */
 type ScopesDeclaring<C extends ContractLike, N extends PropertyKey> =
   | (N extends keyof GlobalActivitiesOf<C> ? 0 : never)
@@ -238,13 +254,20 @@ type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : 
  * runtime, or the documented pattern of sharing one `defineActivity` result
  * across scopes would stop compiling.
  *
- * A name is flagged only when at least two scopes declare it (`ScopesDeclaring`
- * gate — see there for why `DefinitionsFor` cannot be trusted alone) *and* no
- * single bound definition is a supertype of all the others (the `IsUnion`
- * check on `DefinitionsFor`: `IsUnion` returns plain `boolean`, not `true`,
- * whenever the union collapses under mutual assignability — e.g. `Wide` and
- * `Wide & { extra: string }` are not mutually assignable but are still not
- * flagged, since one is a supertype of the other).
+ * A name is flagged only when at least two scopes declare it (the
+ * `ScopesDeclaring` gate) *and* no single bound definition is a supertype of
+ * all the others (the `IsUnion` check on `DefinitionsFor`: `IsUnion` returns
+ * plain `boolean`, not `true`, whenever the union collapses under mutual
+ * assignability — e.g. `Wide` and `Wide & { extra: string }` are not
+ * mutually assignable but are still not flagged, since one is a supertype of
+ * the other; two scopes binding the exact same union-typed definition
+ * collapse the same way, since `DefinitionsFor` tuple-wraps each scope's
+ * contribution — see there).
+ *
+ * The `ScopesDeclaring` gate is checked first and short-circuits to `never`
+ * before `DefinitionsFor` is evaluated at all when fewer than two scopes
+ * declare the name — so there is no remaining case where a name is flagged
+ * despite there being nothing to actually compare.
  */
 export type CollidingActivityNames<C extends ContractLike> = {
   [N in AllActivityNames<C>]: IsUnion<ScopesDeclaring<C, N>> extends true
