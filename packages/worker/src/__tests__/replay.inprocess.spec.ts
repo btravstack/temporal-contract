@@ -1,7 +1,6 @@
-import { TypedClient } from "@temporal-contract/client";
+import { testRig } from "@temporal-contract/testing/test-rig";
 import { it } from "@temporal-contract/testing/time-skipping";
-import { fixturePath } from "@temporal-contract/testing/workflow-bundle";
-import { Worker } from "@temporalio/worker";
+import { bundleFor, fixturePath } from "@temporal-contract/testing/workflow-bundle";
 import { OkAsync, ErrAsync } from "unthrown";
 /**
  * Replay-determinism coverage for the Result/AsyncResult machinery inside
@@ -17,14 +16,13 @@ import { OkAsync, ErrAsync } from "unthrown";
  *
  * This spec runs the full pipeline to completion — one happy path and one
  * typed-activity-error path (ContractError → ApplicationFailure wire shape →
- * rehydration inside the workflow) — fetches each execution's history, and
- * replays it with `Worker.runReplayHistory`, which rejects on any
- * determinism violation.
+ * rehydration inside the workflow). `testRig`'s `onTestFinished` hook then
+ * fetches each started execution's history and replays it with
+ * `Worker.runReplayHistory`, which rejects on any determinism violation.
  */
 import { describe, expect } from "vitest";
 
 import { declareActivitiesHandler } from "../activity.js";
-import { TypedWorker } from "../worker.js";
 import { inprocessContract } from "./inprocess.contract.js";
 
 const activities = declareActivitiesHandler({
@@ -45,15 +43,11 @@ describe("declareWorkflow replay determinism", () => {
   it("replays histories produced by Result-shaped workflows without determinism violations", async ({
     testEnv,
   }) => {
-    const worker = await TypedWorker.create({
+    const { worker, client } = await testRig(testEnv, {
       contract: inprocessContract,
-      connection: testEnv.nativeConnection,
-      workflowsPath: fixturePath(import.meta.url, "inprocess.workflows"),
+      bundle: await bundleFor(fixturePath(import.meta.url, "inprocess.workflows")),
       activities,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(inprocessContract);
+    });
 
     const happyId = "replay-happy";
     const declinedId = "replay-declined";
@@ -77,19 +71,5 @@ describe("declareWorkflow replay determinism", () => {
       });
       expect(declined).toBeOkWith({ status: "declined:negative-amount" });
     });
-
-    // Replay both histories against the same workflow code.
-    // `runReplayHistory` rejects with a DeterminismViolationError (or
-    // ReplayError) if the unthrown machinery diverges on replay.
-    for (const workflowId of [happyId, declinedId]) {
-      const history = await testEnv.client.workflow.getHandle(workflowId).fetchHistory();
-      await expect(
-        Worker.runReplayHistory(
-          { workflowsPath: fixturePath(import.meta.url, "inprocess.workflows") },
-          history,
-          workflowId,
-        ),
-      ).resolves.toBeUndefined();
-    }
   });
 });
