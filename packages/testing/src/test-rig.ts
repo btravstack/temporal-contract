@@ -24,10 +24,21 @@ export const REPLAY_SKIP_ALLOWLIST: Readonly<Record<string, string>> = {
     "handlers.workflows.ts's probeEdgeCases blocks on condition(() => false) and is never " +
     "signaled to finish — the spec only issues queries against it, so its execution is " +
     "deliberately left running forever.",
-  "handlers-wire-":
+  // Three exact IDs (not a shared prefix): each is a static literal, not
+  // counter-suffixed, so a narrower key here means a future
+  // "handlers-wire-*" workflow that hangs by accident isn't silently
+  // swept into this entry too.
+  "handlers-wire-signal":
     "handlers.workflows.ts's transformWorkflow blocks on condition(() => false) and is never " +
-    "signaled to finish — the spec only signals/queries/updates against it directly (workflow " +
-    "IDs handlers-wire-signal, handlers-wire-query, handlers-wire-update), so its execution is " +
+    "signaled to finish — this spec only signals against it directly, so its execution is " +
+    "deliberately left running forever.",
+  "handlers-wire-query":
+    "handlers.workflows.ts's transformWorkflow blocks on condition(() => false) and is never " +
+    "signaled to finish — this spec only queries it directly, so its execution is " +
+    "deliberately left running forever.",
+  "handlers-wire-update":
+    "handlers.workflows.ts's transformWorkflow blocks on condition(() => false) and is never " +
+    "signaled to finish — this spec only updates it directly, so its execution is " +
     "deliberately left running forever.",
 };
 
