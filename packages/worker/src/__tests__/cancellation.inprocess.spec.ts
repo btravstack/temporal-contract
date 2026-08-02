@@ -1,8 +1,5 @@
-import {
-  TypedClient,
-  WORKFLOW_CANCELLED_ERROR_TAG,
-  WorkflowCancelledError,
-} from "@temporal-contract/client";
+import { WORKFLOW_CANCELLED_ERROR_TAG, WorkflowCancelledError } from "@temporal-contract/client";
+import { testRig } from "@temporal-contract/testing/test-rig";
 import { it } from "@temporal-contract/testing/time-skipping";
 import {
   bundleFor,
@@ -16,7 +13,6 @@ import { fromSafePromise } from "unthrown";
 import { describe, expect } from "vitest";
 
 import { ACTIVITY_CANCELLED_ERROR_TAG, declareActivitiesHandler } from "../activity.js";
-import { TypedWorker } from "../worker.js";
 import { cancellationContract } from "./cancellation.contract.js";
 import { inprocessContract } from "./inprocess.contract.js";
 
@@ -92,14 +88,7 @@ describe("cancellation against a real server", () => {
     const contract = withTaskQueue(inprocessContract, nextTaskQueueId("cancellation"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "inprocess.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const outcome = await worker.raw.runUntil(async () => {
       const handle = await client
@@ -142,15 +131,7 @@ describe("cancellation against a real server", () => {
       activities: { slowActivity: cancellableSleep },
     });
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-      activities,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle, activities });
 
     const outcome = await worker.raw.runUntil(async () => {
       const handle = await client
@@ -182,15 +163,7 @@ describe("cancellation against a real server", () => {
       activities: { slowActivity: cancellableSleep },
     });
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-      activities,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle, activities });
 
     const outcome = await worker.raw.runUntil(async () => {
       const handle = await client
@@ -219,15 +192,7 @@ describe("cancellation against a real server", () => {
       activities: { slowActivity: cancellableSleep },
     });
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-      activities,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle, activities });
 
     const outcome = await worker.raw.runUntil(async () => {
       const handle = await client
@@ -262,14 +227,7 @@ describe("cancellableScope / nonCancellableScope mechanics against a real server
     const contract = withTaskQueue(cancellationContract, nextTaskQueueId("cancellation"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "cancellation.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const outcome = await worker.raw.runUntil(async () =>
       client.executeWorkflow("scopeMechanics", {
@@ -288,14 +246,7 @@ describe("cancellableScope / nonCancellableScope mechanics against a real server
     const contract = withTaskQueue(cancellationContract, nextTaskQueueId("cancellation"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "cancellation.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const outcome = await worker.raw.runUntil(async () =>
       client.executeWorkflow("scopeMechanics", {
@@ -320,14 +271,7 @@ describe("cancellableScope / nonCancellableScope mechanics against a real server
     const contract = withTaskQueue(cancellationContract, nextTaskQueueId("cancellation"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "cancellation.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const outcome = await worker.raw.runUntil(async () =>
       client.executeWorkflow("scopeMechanics", {
@@ -346,14 +290,7 @@ describe("cancellableScope / nonCancellableScope mechanics against a real server
     const contract = withTaskQueue(cancellationContract, nextTaskQueueId("cancellation"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "cancellation.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const outcome = await worker.raw.runUntil(async () =>
       client.executeWorkflow("scopeMechanics", {
@@ -375,14 +312,7 @@ describe("cancellableScope / nonCancellableScope mechanics against a real server
     const contract = withTaskQueue(cancellationContract, nextTaskQueueId("cancellation"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "cancellation.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const outcome = await worker.raw.runUntil(async () =>
       client.executeWorkflow("scopeMechanics", {
