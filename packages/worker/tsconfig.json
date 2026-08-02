@@ -2,10 +2,15 @@
   "extends": "@btravstack/tsconfig/base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src",
+    // `rootDir` spans the packages dir: the `paths` below intentionally pull
+    // sibling sources into the program, which a src-scoped rootDir would
+    // reject (TS6059). The config never emits (base sets `noEmit`), so this
+    // only satisfies the compiler's emit-layout validation. Mirrors
+    // `packages/testing/tsconfig.json`'s identical setup.
+    "rootDir": "..",
     // `@temporal-contract/client`, `@temporal-contract/contract`, and
-    // `@temporal-contract/worker/activity` are `peerDependencies` (not
-    // `devDependencies`) of `@temporal-contract/testing` — see the long
+    // `@temporal-contract/worker/activity` + `/worker` are `peerDependencies`
+    // (not `devDependencies`) of `@temporal-contract/testing` — see the long
     // comment on `workspaceAliases` in `vitest.config.ts` for why. That
     // alias only fixes Vite/Vitest's *runtime* module resolution; `tsc`
     // doesn't read `vitest.config.ts` at all. Left unfixed here, `tsc`
@@ -15,19 +20,24 @@
     // has no route to peer-only packages) — and because `skipLibCheck` is
     // `true` (below, inherited from the base config), that failure never
     // surfaces as a diagnostic. It just silently collapses `testRig`'s
-    // `ContractClient<TContract>` return type to `any`, which then only
-    // becomes visible far downstream, as a `noImplicitAny` error on some
-    // unrelated callback parameter (see the `events.filter((event) => ...)`
-    // calls in `handlers.inprocess.spec.ts` for a concrete example). These
-    // three `paths` entries are `tsc`'s equivalent of that Vite alias —
-    // pointed at the exact same built `dist` these specifiers already
-    // resolve to everywhere else in this package, so type identity for
-    // `ContractClient`, `ContractDefinition`, etc. stays consistent whether
-    // a file imports them directly or reaches them through `testRig`.
+    // `ContractClient<TContract>` and `TypedWorker` types to `any`, which
+    // then only becomes visible far downstream, as a `noImplicitAny` error
+    // on some unrelated callback parameter (see the
+    // `events.filter((event) => ...)` calls in `handlers.inprocess.spec.ts`
+    // for a concrete example) or, worse, as NO error at all when the `any`
+    // flows into a zero-argument callback (`worker.raw.runUntil(async () =>
+    // {...})`), silently un-typechecking every property access on its
+    // result. These four `paths` entries are `tsc`'s equivalent of that Vite
+    // alias, mapped to sibling *source* exactly like
+    // `packages/testing/tsconfig.json` already does for the same peer-dep
+    // cycle — not to built `dist`, which would coincidentally cover 3 of the
+    // 4 specifiers actually imported by `test-rig.d.mts` and miss the
+    // fourth.
     "paths": {
-      "@temporal-contract/client": ["../client/dist/index.d.mts"],
-      "@temporal-contract/contract": ["../contract/dist/index.d.mts"],
-      "@temporal-contract/worker/activity": ["./src/activity.ts"]
+      "@temporal-contract/client": ["../client/src/index.ts"],
+      "@temporal-contract/contract": ["../contract/src/index.ts"],
+      "@temporal-contract/worker/activity": ["./src/activity.ts"],
+      "@temporal-contract/worker/worker": ["./src/worker.ts"]
     }
   },
   "include": ["src/**/*"],
