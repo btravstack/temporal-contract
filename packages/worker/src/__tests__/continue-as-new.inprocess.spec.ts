@@ -1,4 +1,5 @@
-import { TypedClient, WorkflowFailedError } from "@temporal-contract/client";
+import { WorkflowFailedError } from "@temporal-contract/client";
+import { testRig } from "@temporal-contract/testing/test-rig";
 import { it } from "@temporal-contract/testing/time-skipping";
 import {
   bundleFor,
@@ -9,7 +10,6 @@ import {
 import { ApplicationFailure } from "@temporalio/client";
 import { describe, expect } from "vitest";
 
-import { TypedWorker } from "../worker.js";
 import { continueAsNewContract } from "./continue-as-new.contract.js";
 
 /**
@@ -67,14 +67,7 @@ describe("continue-as-new against a real server", () => {
     const contract = continueAsNewContract;
     const bundle = await bundleFor(fixturePath(import.meta.url, "continue-as-new.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const { total, memo } = await worker.raw.runUntil(async () => {
       const handle = await client
@@ -107,14 +100,7 @@ describe("continue-as-new against a real server", () => {
     const contract = continueAsNewContract;
     const bundle = await bundleFor(fixturePath(import.meta.url, "continue-as-new.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const total = await worker.raw.runUntil(async () => {
       const handle = await client
@@ -146,14 +132,7 @@ describe("continue-as-new against a real server", () => {
     const contract = continueAsNewContract;
     const bundle = await bundleFor(fixturePath(import.meta.url, "continue-as-new.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const { result, firstExecutionRunId, latestRunId } = await worker.raw.runUntil(async () => {
       const handle = await client
@@ -205,14 +184,7 @@ describe("continue-as-new against a real server", () => {
     const contract = continueAsNewContract;
     const bundle = await bundleFor(fixturePath(import.meta.url, "continue-as-new.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const result = await worker.raw.runUntil(async () => {
       const handle = await client
@@ -241,14 +213,7 @@ describe("continue-as-new against a real server", () => {
     const contract = withTaskQueue(continueAsNewContract, queueId);
     const bundle = await bundleFor(fixturePath(import.meta.url, "continue-as-new.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const raw = await worker.raw.runUntil(async () => {
       const handle = await client
@@ -281,14 +246,7 @@ describe("continue-as-new against a real server", () => {
     const contract = withTaskQueue(continueAsNewContract, queueId);
     const bundle = await bundleFor(fixturePath(import.meta.url, "continue-as-new.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const { result, firstExecutionRunId, latestRunId } = await worker.raw.runUntil(async () => {
       const handle = await client
@@ -339,14 +297,7 @@ describe("continue-as-new against a real server", () => {
     const contract = withTaskQueue(continueAsNewContract, queueId);
     const bundle = await bundleFor(fixturePath(import.meta.url, "continue-as-new.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const result = await worker.raw.runUntil(async () => {
       const handle = await client
@@ -378,14 +329,7 @@ describe("continue-as-new against a real server", () => {
     const contract = continueAsNewContract;
     const bundle = await bundleFor(fixturePath(import.meta.url, "continue-as-new.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const result = await worker.raw.runUntil(async () => {
       const handle = await client
@@ -417,14 +361,7 @@ describe("continue-as-new against a real server", () => {
     const contract = continueAsNewContract;
     const bundle = await bundleFor(fixturePath(import.meta.url, "continue-as-new.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     const result = await worker.raw.runUntil(async () => {
       const handle = await client
