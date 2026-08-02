@@ -11,37 +11,6 @@ import { Worker } from "@temporalio/worker";
 import type { History, WorkflowBundleWithSourceMap } from "@temporalio/worker";
 import { onTestFinished } from "vitest";
 
-/**
- * Workflow-ID prefixes whose executions are deliberately left non-terminal, so
- * their histories cannot be replayed. Every entry needs a reason.
- *
- * This list may only ever shrink. A silently-skipped execution would report
- * replay coverage it does not have — exactly the rot this rig exists to
- * prevent — so an unlisted non-terminal execution fails the test instead.
- */
-export const REPLAY_SKIP_ALLOWLIST: Readonly<Record<string, string>> = {
-  "handlers-probe-edge-cases":
-    "handlers.workflows.ts's probeEdgeCases blocks on condition(() => false) and is never " +
-    "signaled to finish — the spec only issues queries against it, so its execution is " +
-    "deliberately left running forever.",
-  // Three exact IDs (not a shared prefix): each is a static literal, not
-  // counter-suffixed, so a narrower key here means a future
-  // "handlers-wire-*" workflow that hangs by accident isn't silently
-  // swept into this entry too.
-  "handlers-wire-signal":
-    "handlers.workflows.ts's transformWorkflow blocks on condition(() => false) and is never " +
-    "signaled to finish — this spec only signals against it directly, so its execution is " +
-    "deliberately left running forever.",
-  "handlers-wire-query":
-    "handlers.workflows.ts's transformWorkflow blocks on condition(() => false) and is never " +
-    "signaled to finish — this spec only queries it directly, so its execution is " +
-    "deliberately left running forever.",
-  "handlers-wire-update":
-    "handlers.workflows.ts's transformWorkflow blocks on condition(() => false) and is never " +
-    "signaled to finish — this spec only updates it directly, so its execution is " +
-    "deliberately left running forever.",
-};
-
 /** Statuses whose history is complete and therefore replayable. */
 const TERMINAL_STATUSES = new Set([
   "COMPLETED",
@@ -67,13 +36,13 @@ export function isTerminalStatus(name: string): boolean {
 }
 
 /**
- * Look up the {@link REPLAY_SKIP_ALLOWLIST} reason for a non-terminal
- * execution, matching by workflow-ID *prefix* so one entry covers every
- * workflow ID `nextTaskQueueId`-style counters generate from a shared base
- * (e.g. `"probe-edge-cases"` matches `"probe-edge-cases-1"`,
- * `"probe-edge-cases-2"`, ...). Returns `undefined` for anything unlisted,
- * so the caller can fail loudly instead of silently under-reporting replay
- * coverage.
+ * Look up the caller-supplied `replaySkipAllowlist` reason (see
+ * {@link RigOptions}) for a non-terminal execution, matching by workflow-ID
+ * *prefix* so one entry covers every workflow ID `nextTaskQueueId`-style
+ * counters generate from a shared base (e.g. `"probe-edge-cases"` matches
+ * `"probe-edge-cases-1"`, `"probe-edge-cases-2"`, ...). Returns `undefined`
+ * for anything unlisted, so the caller can fail loudly instead of silently
+ * under-reporting replay coverage.
  */
 export function skipReasonFor(
   workflowId: string,
@@ -85,8 +54,14 @@ export function skipReasonFor(
   return undefined;
 }
 
-/** The three `ContractClient` methods that can start an execution. */
-const START_METHODS = new Set(["startWorkflow", "executeWorkflow", "signalWithStart"]);
+/**
+ * The three `ContractClient` methods that can start an execution. Pinned
+ * against `ContractClient`'s actual method surface by a unit test in
+ * `test-rig.spec.ts` — exported so that test can import it; guarded again at
+ * runtime inside {@link testRig} itself, since a unit test only catches drift
+ * when someone remembers to run it.
+ */
+export const START_METHODS = new Set(["startWorkflow", "executeWorkflow", "signalWithStart"]);
 
 /**
  * Pull the `workflowId` out of a start method's options bag (its second
@@ -133,6 +108,19 @@ type RigOptions<TContract extends ContractDefinition> = {
   readonly contract: TContract;
   readonly bundle: WorkflowBundleWithSourceMap;
   readonly activities?: ActivitiesHandler<TContract>;
+  /**
+   * Workflow-ID prefixes (matched via {@link skipReasonFor}) whose executions
+   * are deliberately left non-terminal, so their histories cannot be
+   * replayed. Every entry needs a reason. Defaults to `{}` — a published rig
+   * cannot know a consuming repo's fixture IDs, so nothing is skipped unless
+   * the caller opts a workflow ID in explicitly.
+   *
+   * This list may only ever shrink per caller. A silently-skipped execution
+   * would report replay coverage it does not have — exactly the rot this rig
+   * exists to prevent — so an unlisted non-terminal execution fails the test
+   * instead.
+   */
+  readonly replaySkipAllowlist?: Readonly<Record<string, string>>;
 };
 
 /**
@@ -176,12 +164,16 @@ async function replayChain(
  * `withTaskQueue` themselves. A same-workflow continue-as-new must land on the
  * contract's static queue, because the contract is closed over inside the
  * bundled workflow module and a test-side copy can never reach it.
+ *
+ * @public consumed from sibling packages' suites via the
+ * `@temporal-contract/testing/test-rig` subpath; the tsconfig `paths`
+ * indirection hides that usage from knip.
  */
 export async function testRig<TContract extends ContractDefinition>(
   testEnv: TestWorkflowEnvironment,
   options: RigOptions<TContract>,
 ): Promise<{ worker: TypedWorker; client: ContractClient<TContract> }> {
-  const { contract, bundle, activities } = options;
+  const { contract, bundle, activities, replaySkipAllowlist = {} } = options;
 
   const worker = await TypedWorker.create({
     contract,
@@ -195,6 +187,24 @@ export async function testRig<TContract extends ContractDefinition>(
 
   const typedClient = await TypedClient.create({ client: testEnv.client }).get();
   const bound = typedClient.for(contract);
+
+  // Guards the Proxy's own load-bearing assumption below: every name in
+  // `START_METHODS` must resolve to an actual method on `bound`. A rename
+  // (or a fourth start method `START_METHODS` doesn't know about yet) would
+  // otherwise make the Proxy silently stop intercepting that method —
+  // `startedIds` stays empty, `onTestFinished` iterates nothing, and the
+  // whole tier goes green proving zero replay coverage. Thrown eagerly, at
+  // rig setup, rather than left to surface as a quiet coverage gap later.
+  for (const methodName of START_METHODS) {
+    if (typeof (bound as unknown as Record<string, unknown>)[methodName] !== "function") {
+      // oxlint-disable-next-line unthrown/no-throw -- test-harness assertion: guards the rig's load-bearing assumption that every START_METHODS name is a real ContractClient method
+      throw new Error(
+        `testRig's START_METHODS names "${methodName}", but ContractClient has no such method. ` +
+          `Either the method was renamed or removed (update START_METHODS in ` +
+          `packages/testing/src/test-rig.ts to match), or this is a typo.`,
+      );
+    }
+  }
 
   // A `Set`: a test that calls e.g. `signalWithStart` more than once against
   // the same workflow ID must not queue the same replay twice.
@@ -230,14 +240,14 @@ export async function testRig<TContract extends ContractDefinition>(
       }
 
       if (!isTerminalStatus(described.status.name)) {
-        const reason = skipReasonFor(workflowId, REPLAY_SKIP_ALLOWLIST);
+        const reason = skipReasonFor(workflowId, replaySkipAllowlist);
         if (reason === undefined) {
           // oxlint-disable-next-line unthrown/no-throw -- test-harness assertion: onTestFinished has no Result seam, and Vitest surfaces test failures via throw
           throw new Error(
             `Workflow "${workflowId}" ended ${described.status.name}, so its history cannot be ` +
               `replayed and this test proves nothing about replay determinism for it. Either make ` +
-              `the execution terminal, or add a REPLAY_SKIP_ALLOWLIST entry in ` +
-              `packages/testing/src/test-rig.ts with a reason.`,
+              `the execution terminal, or add an entry with a reason to the "replaySkipAllowlist" ` +
+              `passed to this testRig(...) call.`,
           );
         }
         continue;
