@@ -94,3 +94,37 @@ describe("extractStartedWorkflowId", () => {
     ).toThrow(/signalWithStart.*workflowId/s);
   });
 });
+
+describe("skipReasonFor — overlapping prefixes", () => {
+  it("returns the longest match, not the first declared", () => {
+    // Declaration order puts the broader prefix first; a first-match
+    // implementation would return "broad" and shadow the narrower entry.
+    const allowlist = { order: "broad", "order-cancel": "narrow" };
+    expect(skipReasonFor("order-cancel-1", allowlist)).toBe("narrow");
+  });
+
+  it("is order-independent", () => {
+    const a = { order: "broad", "order-cancel": "narrow" };
+    const b = { "order-cancel": "narrow", order: "broad" };
+    expect(skipReasonFor("order-cancel-1", a)).toBe(skipReasonFor("order-cancel-1", b));
+  });
+});
+
+describe("extractStartedWorkflowId — unserializable options bag", () => {
+  it("still reports the guard error when the bag cannot be JSON-stringified", () => {
+    // A BigInt makes JSON.stringify throw. The guard's own error must survive
+    // that, or an unrelated TypeError replaces the actionable diagnostic.
+    const bag = { workflowId: 1n as unknown as string, nested: 2n };
+    expect(() => extractStartedWorkflowId("startWorkflow", ["wf", bag])).toThrowError(
+      /testRig expected "startWorkflow"/,
+    );
+  });
+
+  it("does not let a circular bag mask the guard error", () => {
+    const bag: Record<string, unknown> = {};
+    bag["self"] = bag;
+    expect(() => extractStartedWorkflowId("executeWorkflow", ["wf", bag])).toThrowError(
+      /testRig expected "executeWorkflow"/,
+    );
+  });
+});
