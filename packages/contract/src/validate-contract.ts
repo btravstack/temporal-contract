@@ -145,3 +145,67 @@ export type CheckName<K, TKind extends string> = TKind extends TemporalNamedKind
           : K
     : K
   : K;
+
+/** A contract shape loose enough to inspect before it is known to be valid. */
+type ContractLike = {
+  workflows?: unknown;
+  activities?: unknown;
+};
+
+/** The `activities` map of one workflow, or `{}` when the slot is absent. */
+type ActivitiesOf<W> = W extends { activities: infer A } ? A : Record<never, never>;
+
+/** The global `activities` map, or `{}` when the slot is absent. */
+type GlobalActivitiesOf<C> = C extends { activities: infer A } ? A : Record<never, never>;
+
+/** Every activity name declared anywhere in the contract. */
+type AllActivityNames<C extends ContractLike> =
+  | keyof GlobalActivitiesOf<C>
+  | (C extends { workflows: infer W }
+      ? { [K in keyof W]: keyof ActivitiesOf<W[K]> }[keyof W]
+      : never);
+
+/**
+ * Every definition bound to activity name `N`, as a union. One member means
+ * one shape; more than one means the scopes disagree.
+ */
+type DefinitionsFor<C extends ContractLike, N extends PropertyKey> =
+  | (GlobalActivitiesOf<C> extends Record<N, infer D> ? D : never)
+  | (C extends { workflows: infer W }
+      ? { [K in keyof W]: ActivitiesOf<W[K]> extends Record<N, infer D> ? D : never }[keyof W]
+      : never);
+
+/**
+ * Is `T` a union of more than one member? A single-member union satisfies
+ * `[U] extends [T]` on its own distribution; a wider one does not.
+ */
+type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : never;
+
+/**
+ * Activity names bound to structurally different definitions.
+ *
+ * This is a deliberate approximation of the runtime rule. `builder.ts:816`
+ * permits a duplicate name when both scopes reference the *same object*, and
+ * reference identity is invisible to the type system — so the comparison here
+ * is structural instead. Two structurally identical but referentially distinct
+ * definitions therefore pass this check and are still rejected at runtime.
+ *
+ * That asymmetry is intended: the type layer must never be stricter than the
+ * runtime, or the documented pattern of sharing one `defineActivity` result
+ * across scopes would stop compiling.
+ */
+export type CollidingActivityNames<C extends ContractLike> = {
+  [N in AllActivityNames<C>]: IsUnion<DefinitionsFor<C, N>> extends true ? N : never;
+}[AllActivityNames<C>];
+
+/**
+ * Names used by both a workflow and a global activity. Mirrors
+ * `builder.ts:779-787`: workflow implementations and global activity
+ * implementations share the root of the worker's implementations map, so a
+ * shared name is ambiguous. No escape hatch — this lifts exactly.
+ */
+export type WorkflowActivityNameClashes<C extends ContractLike> = C extends {
+  workflows: infer W;
+}
+  ? Extract<keyof GlobalActivitiesOf<C>, keyof W>
+  : never;
