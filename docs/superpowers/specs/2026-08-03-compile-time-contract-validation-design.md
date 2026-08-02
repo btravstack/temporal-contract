@@ -61,6 +61,41 @@ regardless of `const`. Verified end-to-end: a `__temporal_evil` workflow key
 and a `charge` activity declared both globally and workflow-scoped each produce
 a compile error, while a well-formed contract compiles clean.
 
+**The reserved-name rule applies to exactly six kinds**, matching
+`TEMPORAL_NAMED_KINDS` in `builder.ts:442-449`: workflow, activity, global
+activity, signal, query, update. Error names and search-attribute names are
+deliberately excluded at runtime, with the rationale documented at
+`builder.ts:435-436` — they never become Temporal handler names. The type layer
+must mirror this exactly. Rejecting a reserved-looking error name at compile
+time would be a **false positive breaking valid contracts**, which is worse
+than the gap it closes.
+
+### The collision check must be structural, and that is an approximation
+
+The runtime rule has an escape hatch at `builder.ts:816`: a duplicate activity
+name is **allowed** when every scope references the _same object_
+(`previousOwner.definition === definition`) — the documented pattern of sharing
+one `defineActivity` result across workflows. That test is reference identity,
+which the type system cannot observe.
+
+The type-level rule is therefore **structural**: flag an activity name only
+when the definitions bound to it are not mutually assignable. Verified against
+five cases, with a positive control confirming the assertions discriminate:
+
+| Case                                                       | Runtime  | Types    |
+| ---------------------------------------------------------- | -------- | -------- |
+| Same definition shared across two workflows                | allowed  | allowed  |
+| Different definitions under one name                       | rejected | rejected |
+| Global vs workflow-scoped, different definitions           | rejected | rejected |
+| Global vs workflow-scoped, same definition (hoist pattern) | allowed  | allowed  |
+| No activities declared                                     | allowed  | allowed  |
+
+The one divergence: two **structurally identical but referentially distinct**
+definitions pass the type check and still fail at runtime. That direction is
+safe — the type layer is permissive, never a false positive — and it is exactly
+why the runtime check must stay. This asymmetry is intended, not a defect to
+"fix" by tightening the type.
+
 ### The duration grammar needs `const T`
 
 `defineContract` is currently
@@ -193,17 +228,23 @@ removing the validation makes the test fail.
 
 ## Success criteria
 
-1. A reserved workflow / activity / signal / query / update / search-attribute
-   / error name is a **compile error**, with the offending name in the message.
-2. An activity name declared both globally and workflow-scoped, or under two
-   workflows with different definitions, is a **compile error**.
-3. A malformed `ms` duration in any `activityOptions` timeout or retry interval
+1. A reserved workflow / activity / global activity / signal / query / update
+   name is a **compile error**, with the offending name in the message. A
+   reserved-looking _error_ name or _search-attribute_ name still compiles —
+   mirroring the runtime, which excludes those two kinds deliberately.
+2. An activity name bound to structurally different definitions — whether
+   across two workflows or between global and workflow scope — is a **compile
+   error**. Sharing one definition across scopes still compiles, in both the
+   workflow-to-workflow and global-to-workflow directions.
+3. A workflow name colliding with a global activity name is a **compile
+   error**; that rule has no escape hatch and lifts exactly.
+4. A malformed `ms` duration in any `activityOptions` timeout or retry interval
    is a **compile error**, with the offending value in the message.
-4. Every runtime `fail()` site still exists and still fires for an untyped
+5. Every runtime `fail()` site still exists and still fires for an untyped
    caller — proven by a test that constructs the violation through an `as never`
    escape.
-5. The canary consumers typecheck unchanged under `const T`.
-6. The new type-level test file is confirmed to be visited by `tsc` — a
+6. The canary consumers typecheck unchanged under `const T`.
+7. The new type-level test file is confirmed to be visited by `tsc` — a
    deliberate violation was observed failing before the suite was trusted.
-7. `tsc` wall time across the repo does not regress materially; the measured
+8. `tsc` wall time across the repo does not regress materially; the measured
    before/after is reported.
