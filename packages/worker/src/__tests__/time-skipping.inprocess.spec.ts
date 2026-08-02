@@ -124,6 +124,11 @@ describe("time-skipping TestWorkflowEnvironment", () => {
     ]);
   });
 
+  // The one test below that uses testRig — the other four in this file build
+  // TypedWorker.create / TypedClient.create by hand instead: two assert on
+  // the creation Result itself (Ok/Defect), which testRig's `.get()`-unwrapping
+  // helper hides, and two need `interceptors` / arbitrary WorkerOptions
+  // passthrough that RigOptions doesn't expose.
   it("a workflow that re-raises cancellation via rethrowCancellation ends Cancelled", async ({
     testEnv,
   }) => {
