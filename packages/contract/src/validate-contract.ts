@@ -104,3 +104,44 @@ export type CheckDuration<V> = V extends string
     ? V
     : `Invalid duration "${V}": expected an ms-formatted string — a number followed by an optional unit ms/s/m/h/d/w/y or its long form, e.g. "30s", "5 minutes", "1.5h" — or a number of milliseconds`
   : V;
+
+/**
+ * The kinds whose names become Temporal handler names, mirroring
+ * `TEMPORAL_NAMED_KINDS` (`builder.ts:442-449`).
+ *
+ * `error` and `search attribute` are absent on purpose: `builder.ts:435-436`
+ * documents that those names never reach the SDK's handler registry, so the
+ * runtime exempts them. Adding them here would reject contracts that are
+ * valid today.
+ */
+type TemporalNamedKind =
+  | "workflow"
+  | "activity"
+  | "global activity"
+  | "signal"
+  | "query"
+  | "update";
+
+/** The two exact query names Temporal registers for stack-trace introspection. */
+type TemporalReservedName = "__stack_trace" | "__enhanced_stack_trace";
+
+/**
+ * Compile-time mirror of the reserved-name half of `assertIdentifier`
+ * (`builder.ts:500-507`). Valid names pass through unchanged; a reserved name
+ * maps to a string literal whose text is the diagnostic.
+ *
+ * `TKind` is deliberately `string` rather than `TemporalNamedKind` so callers
+ * can pass any kind label — non-handler kinds simply fall through the first
+ * conditional and are never checked.
+ */
+export type CheckName<K, TKind extends string> = TKind extends TemporalNamedKind
+  ? K extends string
+    ? string extends K
+      ? K
+      : K extends `__temporal_${string}`
+        ? `${TKind} name "${K}" is reserved by Temporal — names starting with "__temporal_" are used internally by the Temporal SDK. Rename it.`
+        : K extends TemporalReservedName
+          ? `${TKind} name "${K}" is reserved by Temporal — "__stack_trace" and "__enhanced_stack_trace" are used internally by the Temporal SDK. Rename it.`
+          : K
+    : K
+  : K;
