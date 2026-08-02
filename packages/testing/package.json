@@ -44,6 +44,10 @@
       "import": "./dist/global-setup.mjs"
     },
     "./package.json": "./package.json",
+    "./test-rig": {
+      "types": "./dist/test-rig.d.mts",
+      "import": "./dist/test-rig.mjs"
+    },
     "./time-skipping": {
       "types": "./dist/time-skipping.d.mts",
       "import": "./dist/time-skipping.mjs"
@@ -54,7 +58,7 @@
     }
   },
   "scripts": {
-    "build": "tsdown src/global-setup.ts src/extension.ts src/time-skipping.ts src/contract.ts src/activity.ts src/workflow-bundle.ts --format esm --dts --clean",
+    "build": "tsdown src/global-setup.ts src/extension.ts src/time-skipping.ts src/contract.ts src/activity.ts src/workflow-bundle.ts src/test-rig.ts --format esm --dts --clean",
     "build:docs": "typedoc",
     "check:package": "publint --strict && attw --pack . --profile esm-only",
     "test": "vitest run --project unit",

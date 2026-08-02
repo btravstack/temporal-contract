@@ -5,6 +5,7 @@
     "src/contract.ts",
     "src/extension.ts",
     "src/global-setup.ts",
+    "src/test-rig.ts",
     "src/time-skipping.ts",
     "src/workflow-bundle.ts"
   ],
