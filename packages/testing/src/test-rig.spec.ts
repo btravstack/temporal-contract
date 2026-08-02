@@ -1,10 +1,11 @@
+import { ContractClient } from "@temporal-contract/client";
 import { describe, expect, it } from "vitest";
 
 import {
   extractStartedWorkflowId,
   isTerminalStatus,
-  REPLAY_SKIP_ALLOWLIST,
   skipReasonFor,
+  START_METHODS,
 } from "./test-rig.js";
 
 describe("isTerminalStatus", () => {
@@ -38,10 +39,33 @@ describe("skipReasonFor", () => {
     ).toBeUndefined();
   });
 
-  it("ships an allowlist whose every entry carries a non-empty reason", () => {
-    for (const [prefix, reason] of Object.entries(REPLAY_SKIP_ALLOWLIST)) {
-      expect(reason, `allowlist entry "${prefix}" needs a reason`).not.toBe("");
-    }
+  it("returns undefined against an empty allowlist — testRig's own default", () => {
+    expect(skipReasonFor("anything", {})).toBeUndefined();
+  });
+});
+
+describe("START_METHODS", () => {
+  it("names exactly ContractClient's start-capable public methods", () => {
+    // `createTypedHandle` is `private` in the TypeScript source, but
+    // `private` is compile-time only — it still shows up in runtime
+    // reflection below, so it's named and excluded explicitly rather than
+    // silently swallowed by some naming convention that could just as
+    // easily hide a real public method in the future.
+    const PRIVATE_HELPER = "createTypedHandle";
+    // `getHandle` is ContractClient's one public method that does NOT start
+    // an execution — everything else public is in START_METHODS.
+    const NON_START_METHOD = "getHandle";
+
+    const publicMethods = Object.getOwnPropertyNames(ContractClient.prototype).filter((name) => {
+      if (name === "constructor" || name === PRIVATE_HELPER) return false;
+      // `getOwnPropertyDescriptor` (rather than direct property access)
+      // avoids invoking `taskQueue`'s getter on the bare prototype, which
+      // has no bound instance state and would throw.
+      const descriptor = Object.getOwnPropertyDescriptor(ContractClient.prototype, name);
+      return typeof descriptor?.value === "function";
+    });
+
+    expect(new Set(publicMethods)).toEqual(new Set([...START_METHODS, NON_START_METHOD]));
   });
 });
 
