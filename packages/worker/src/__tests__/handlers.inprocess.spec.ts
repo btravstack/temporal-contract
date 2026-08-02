@@ -16,6 +16,7 @@ import {
 import { Runtime, type Logger } from "@temporalio/worker";
 import { describe, expect } from "vitest";
 
+import { HANDLERS_REPLAY_SKIP_ALLOWLIST } from "./handlers-replay-skip-allowlist.js";
 import { handlersContract } from "./handlers.contract.js";
 
 /**
@@ -513,7 +514,13 @@ describe("handler binding against a real server", () => {
     const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
 
-    const { worker, client } = await testRig(testEnv, { contract, bundle });
+    const { worker, client } = await testRig(testEnv, {
+      contract,
+      bundle,
+      // `probeEdgeCases` deliberately never finishes — see
+      // `handlers-replay-skip-allowlist.ts`.
+      replaySkipAllowlist: HANDLERS_REPLAY_SKIP_ALLOWLIST,
+    });
 
     await worker.raw.runUntil(async () => {
       const handle = await client
@@ -568,7 +575,13 @@ describe("handler binding against a real server", () => {
     const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
 
-    const { worker, client } = await testRig(testEnv, { contract, bundle });
+    const { worker, client } = await testRig(testEnv, {
+      contract,
+      bundle,
+      // `transformWorkflow` deliberately never finishes — see
+      // `handlers-replay-skip-allowlist.ts`.
+      replaySkipAllowlist: HANDLERS_REPLAY_SKIP_ALLOWLIST,
+    });
 
     await worker.raw.runUntil(async () => {
       const handle = await client
@@ -591,7 +604,13 @@ describe("handler binding against a real server", () => {
     const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
 
-    const { worker, client } = await testRig(testEnv, { contract, bundle });
+    const { worker, client } = await testRig(testEnv, {
+      contract,
+      bundle,
+      // `transformWorkflow` deliberately never finishes — see
+      // `handlers-replay-skip-allowlist.ts`.
+      replaySkipAllowlist: HANDLERS_REPLAY_SKIP_ALLOWLIST,
+    });
 
     await worker.raw.runUntil(async () => {
       const handle = await client
@@ -621,7 +640,13 @@ describe("handler binding against a real server", () => {
     const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
 
-    const { worker, client } = await testRig(testEnv, { contract, bundle });
+    const { worker, client } = await testRig(testEnv, {
+      contract,
+      bundle,
+      // `transformWorkflow` deliberately never finishes — see
+      // `handlers-replay-skip-allowlist.ts`.
+      replaySkipAllowlist: HANDLERS_REPLAY_SKIP_ALLOWLIST,
+    });
 
     await worker.raw.runUntil(async () => {
       const handle = await client
