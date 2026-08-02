@@ -90,6 +90,30 @@ overrides:
   # 6.4.3 (the first fixed version) — the docs `vitepress build` is verified
   # against it. This also drags esbuild to a patched 0.25.x, resolving GHSA-gv7w-rqvm-qjhr.
   "vite@<6.4.3": "6.4.3"
+  # GHSA-3ppc-4f35-3m26, GHSA-7r86-cg39-jmmj, GHSA-23c5-xmqv-rm74 (all High,
+  # ReDoS): minimatch 10.x. Reaches us via @stryker-mutator/core, added for the
+  # nightly mutation run. Only the 10.x line is present, and 10.2.3 is the first
+  # release patching all three, so the override is version-scoped to that line
+  # rather than applied across majors.
+  "minimatch@10": "10.2.3"
+  # GHSA-2g4f-4pwh-qvx6 (Moderate, ReDoS via the `$data` option): ajv 8.x, also
+  # via @stryker-mutator/core. We never pass `$data` schemas — Stryker uses ajv
+  # to validate its own config — but 8.18.0 is a patch-level lift within the
+  # major already in use, so there is no reason not to take it.
+  "ajv@8": "8.18.0"
+  # GHSA-4x5r-pxfx-6jf8 (Low, arbitrary file read via a sourceMappingURL
+  # comment): @babel/core, via @stryker-mutator/core's instrumenter. Build-time
+  # tooling only, reading sources we already trust. The advisory names 7.29.1 as
+  # the first patched version, but that was never published — the 7.29.x line
+  # goes 7.29.0 -> 7.29.6 -> 7.29.7 — so pin the head of the 7.x line, staying
+  # within the major already in use.
+  "@babel/core@<7.29.7": "7.29.7"
+  # GHSA-c2j3-45gr-mqc4 (Low): DOMPurify `CUSTOM_ELEMENT_HANDLING` bypasses
+  # `afterSanitizeAttributes`. Reaches us via docs > mermaid > dompurify, and is
+  # unrelated to this branch — the advisory was disclosed after main's last
+  # green audit, so main is affected too. Only 3.4.11 is present and 3.4.12 is
+  # the first patched release; the docs `vitepress build` is verified against it.
+  "dompurify@<3.4.12": "3.4.12"
 
 allowBuilds:
   "@swc/core": true
