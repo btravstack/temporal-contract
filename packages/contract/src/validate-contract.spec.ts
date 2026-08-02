@@ -197,6 +197,34 @@ describe("activity collision detection", () => {
     };
     expectTypeOf<TypeEq<CollidingActivityNames<C>, "charge">>().toEqualTypeOf<true>();
   });
+
+  it("does NOT flag an optional activity key declared in only one scope", () => {
+    // Regression: `DefinitionsFor` resolves to `never` for an optional
+    // property (`ActivitiesOf<W[K]> extends Record<N, infer D>` is false for
+    // `charge?:`), and `IsUnion<never>` distributes to `never`, which took
+    // the `true` branch of `extends true`. A single scope can never collide
+    // with itself — the `ScopesDeclaring` gate must suppress this.
+    type C = {
+      taskQueue: "q";
+      workflows: { a: { input: unknown; output: unknown; activities: { charge?: ChargeA } } };
+    };
+    expectTypeOf<TypeEq<CollidingActivityNames<C>, never>>().toEqualTypeOf<true>();
+  });
+
+  it("does NOT flag a single scope binding a union-typed definition", () => {
+    // Regression: one workflow binding `charge` to `ChargeA | ChargeB` (e.g.
+    // from a ternary at the call site) makes `DefinitionsFor` itself a
+    // union, which `IsUnion` can't distinguish from two scopes disagreeing.
+    // Only one scope declares the name, so the runtime never even reaches a
+    // comparison (`builder.ts:811-812` finds no previous owner and stores).
+    type C = {
+      taskQueue: "q";
+      workflows: {
+        a: { input: unknown; output: unknown; activities: { charge: ChargeA | ChargeB } };
+      };
+    };
+    expectTypeOf<TypeEq<CollidingActivityNames<C>, never>>().toEqualTypeOf<true>();
+  });
 });
 
 describe("workflow vs global activity name clashes", () => {

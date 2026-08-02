@@ -168,11 +168,55 @@ type AllActivityNames<C extends ContractLike> =
 /**
  * Every definition bound to activity name `N`, as a union. One member means
  * one shape; more than one means the scopes disagree.
+ *
+ * This alone is not sufficient to detect a collision: `N` might be declared
+ * in only one scope with a `never`-producing or union-typed definition (see
+ * `ScopesDeclaring` below for why). `CollidingActivityNames` gates on both.
  */
 type DefinitionsFor<C extends ContractLike, N extends PropertyKey> =
   | (GlobalActivitiesOf<C> extends Record<N, infer D> ? D : never)
   | (C extends { workflows: infer W }
       ? { [K in keyof W]: ActivitiesOf<W[K]> extends Record<N, infer D> ? D : never }[keyof W]
+      : never);
+
+/**
+ * Which scopes declare activity name `N`, tagged by scope identity rather
+ * than by the definition bound there. Mirrors `builder.ts:811`, which only
+ * compares definitions once a *previous owner* exists for the name — i.e.
+ * once at least two scopes are in play.
+ *
+ * `DefinitionsFor` alone cannot stand in for this: it collapses "how many
+ * scopes bind N" into "how many distinct types are bound to N", so it
+ * misfires in two ways it cannot tell apart from a genuine collision —
+ * `never` when a single scope's binding is optional (or is the `Record<
+ * string, never>` default `WorkflowDefinition["activities"]` falls back to),
+ * and `boolean`-shaped noise when a single scope binds a union-typed
+ * definition. Gating on scope count sidesteps both: a name declared in only
+ * one scope can never be flagged, regardless of what `DefinitionsFor`
+ * resolves to for it.
+ *
+ * The global scope is tagged `0` rather than a `unique symbol` — unlike the
+ * runtime's `GLOBAL_OWNER` (`builder.ts:789-793`), this is safe here because
+ * `keyof W` on an object-literal-shaped `workflows` map is always
+ * string-keyed, so the numeric literal `0` can never collide with a
+ * workflow-name tag.
+ *
+ * Membership is tested with `N extends keyof …`, not `… extends Record<N,
+ * unknown>`. The two are not equivalent for an optional activity key:
+ * `keyof { charge?: D }` still contains `"charge"` (matching how
+ * `AllActivityNames` gathers names in the first place), but `{ charge?: D }`
+ * does not structurally extend `Record<"charge", unknown>` — TypeScript
+ * treats an optional source property as incompatible with a required target
+ * property regardless of the value type. Using `Record<N, unknown>` here
+ * would silently drop every optional activity key from `ScopesDeclaring`,
+ * which resolves to `never` for a single, legitimate declaration and walks
+ * straight back into the same `never`-takes-the-`true`-branch trap this type
+ * exists to close.
+ */
+type ScopesDeclaring<C extends ContractLike, N extends PropertyKey> =
+  | (N extends keyof GlobalActivitiesOf<C> ? 0 : never)
+  | (C extends { workflows: infer W }
+      ? { [K in keyof W]: N extends keyof ActivitiesOf<W[K]> ? K : never }[keyof W]
       : never);
 
 /**
@@ -193,9 +237,21 @@ type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : 
  * That asymmetry is intended: the type layer must never be stricter than the
  * runtime, or the documented pattern of sharing one `defineActivity` result
  * across scopes would stop compiling.
+ *
+ * A name is flagged only when at least two scopes declare it (`ScopesDeclaring`
+ * gate — see there for why `DefinitionsFor` cannot be trusted alone) *and* no
+ * single bound definition is a supertype of all the others (the `IsUnion`
+ * check on `DefinitionsFor`: `IsUnion` returns plain `boolean`, not `true`,
+ * whenever the union collapses under mutual assignability — e.g. `Wide` and
+ * `Wide & { extra: string }` are not mutually assignable but are still not
+ * flagged, since one is a supertype of the other).
  */
 export type CollidingActivityNames<C extends ContractLike> = {
-  [N in AllActivityNames<C>]: IsUnion<DefinitionsFor<C, N>> extends true ? N : never;
+  [N in AllActivityNames<C>]: IsUnion<ScopesDeclaring<C, N>> extends true
+    ? IsUnion<DefinitionsFor<C, N>> extends true
+      ? N
+      : never
+    : never;
 }[AllActivityNames<C>];
 
 /**
