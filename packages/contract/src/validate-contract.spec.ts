@@ -8,7 +8,7 @@
  */
 import { describe, expectTypeOf, it } from "vitest";
 
-import type { CheckDuration, IsMsDuration } from "./validate-contract.js";
+import type { CheckDuration, CheckName, IsMsDuration } from "./validate-contract.js";
 
 /**
  * Invariant type equality. Unlike `extends`, this does not accept a subtype,
@@ -73,5 +73,56 @@ describe("CheckDuration", () => {
     expectTypeOf<Result>().toExtend<`Invalid duration "5 minutos": ${string}`>();
     // And it must NOT be the input, or the check is a no-op.
     expectTypeOf<TypeEq<Result, "5 minutos">>().toEqualTypeOf<false>();
+  });
+});
+
+describe("CheckName", () => {
+  it("passes an ordinary name through unchanged", () => {
+    expectTypeOf<
+      TypeEq<CheckName<"processOrder", "workflow">, "processOrder">
+    >().toEqualTypeOf<true>();
+  });
+
+  it("rejects the __temporal_ prefix for every handler kind", () => {
+    type W = CheckName<"__temporal_evil", "workflow">;
+    type S = CheckName<"__temporal_evil", "signal">;
+    expectTypeOf<TypeEq<W, "__temporal_evil">>().toEqualTypeOf<false>();
+    expectTypeOf<TypeEq<S, "__temporal_evil">>().toEqualTypeOf<false>();
+    expectTypeOf<W>().toExtend<`workflow name "__temporal_evil" is reserved${string}`>();
+  });
+
+  it("rejects the two exact reserved query names", () => {
+    expectTypeOf<
+      TypeEq<CheckName<"__stack_trace", "query">, "__stack_trace">
+    >().toEqualTypeOf<false>();
+    expectTypeOf<
+      TypeEq<CheckName<"__enhanced_stack_trace", "query">, "__enhanced_stack_trace">
+    >().toEqualTypeOf<false>();
+  });
+
+  it("does NOT reject a lookalike that the runtime allows", () => {
+    // `__temporal` without the trailing underscore is not the reserved prefix,
+    // and `__stack_traces` is not one of the two exact names. The runtime
+    // permits both; flagging them would be a false positive.
+    expectTypeOf<TypeEq<CheckName<"__temporal", "workflow">, "__temporal">>().toEqualTypeOf<true>();
+    expectTypeOf<
+      TypeEq<CheckName<"__stack_traces", "query">, "__stack_traces">
+    >().toEqualTypeOf<true>();
+  });
+
+  it("does NOT apply to error or search-attribute names", () => {
+    // builder.ts:435-436 — these never become Temporal handler names, so the
+    // runtime deliberately exempts them. The type layer must match, or valid
+    // contracts stop compiling.
+    expectTypeOf<
+      TypeEq<CheckName<"__temporal_evil", "error">, "__temporal_evil">
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      TypeEq<CheckName<"__temporal_evil", "search attribute">, "__temporal_evil">
+    >().toEqualTypeOf<true>();
+  });
+
+  it("leaves a non-literal key alone", () => {
+    expectTypeOf<TypeEq<CheckName<string, "workflow">, string>>().toEqualTypeOf<true>();
   });
 });
