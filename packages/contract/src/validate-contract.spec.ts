@@ -8,7 +8,13 @@
  */
 import { describe, expectTypeOf, it } from "vitest";
 
-import type { CheckDuration, CheckName, IsMsDuration } from "./validate-contract.js";
+import type {
+  CheckDuration,
+  CheckName,
+  CollidingActivityNames,
+  IsMsDuration,
+  WorkflowActivityNameClashes,
+} from "./validate-contract.js";
 
 /**
  * Invariant type equality. Unlike `extends`, this does not accept a subtype,
@@ -124,5 +130,98 @@ describe("CheckName", () => {
 
   it("leaves a non-literal key alone", () => {
     expectTypeOf<TypeEq<CheckName<string, "workflow">, string>>().toEqualTypeOf<true>();
+  });
+});
+
+describe("activity collision detection", () => {
+  // Two structurally DIFFERENT activity shapes. Distinct `input` types are
+  // what makes them non-mutually-assignable, which is the signal the type
+  // layer keys on.
+  type ChargeA = { input: { amount: number }; output: { ok: boolean } };
+  type ChargeB = { input: { cents: number }; output: { ok: boolean } };
+
+  it("allows one definition shared across two workflows", () => {
+    // The documented pattern: a single `defineActivity` result referenced in
+    // both workflows. Same type on both sides, so nothing to flag.
+    type C = {
+      taskQueue: "q";
+      workflows: {
+        a: { input: unknown; output: unknown; activities: { charge: ChargeA } };
+        b: { input: unknown; output: unknown; activities: { charge: ChargeA } };
+      };
+    };
+    expectTypeOf<TypeEq<CollidingActivityNames<C>, never>>().toEqualTypeOf<true>();
+  });
+
+  it("flags one name bound to different definitions in two workflows", () => {
+    type C = {
+      taskQueue: "q";
+      workflows: {
+        a: { input: unknown; output: unknown; activities: { charge: ChargeA } };
+        b: { input: unknown; output: unknown; activities: { charge: ChargeB } };
+      };
+    };
+    expectTypeOf<TypeEq<CollidingActivityNames<C>, "charge">>().toEqualTypeOf<true>();
+  });
+
+  it("flags a workflow-scoped activity clashing with a different global one", () => {
+    type C = {
+      taskQueue: "q";
+      activities: { charge: ChargeA };
+      workflows: { a: { input: unknown; output: unknown; activities: { charge: ChargeB } } };
+    };
+    expectTypeOf<TypeEq<CollidingActivityNames<C>, "charge">>().toEqualTypeOf<true>();
+  });
+
+  it("allows the hoist pattern — global and workflow scope sharing one definition", () => {
+    type C = {
+      taskQueue: "q";
+      activities: { charge: ChargeA };
+      workflows: { a: { input: unknown; output: unknown; activities: { charge: ChargeA } } };
+    };
+    expectTypeOf<TypeEq<CollidingActivityNames<C>, never>>().toEqualTypeOf<true>();
+  });
+
+  it("is inert on a contract with no activities", () => {
+    type C = { taskQueue: "q"; workflows: { a: { input: unknown; output: unknown } } };
+    expectTypeOf<TypeEq<CollidingActivityNames<C>, never>>().toEqualTypeOf<true>();
+  });
+
+  it("flags only the colliding name when other activities are fine", () => {
+    type C = {
+      taskQueue: "q";
+      workflows: {
+        a: { input: unknown; output: unknown; activities: { charge: ChargeA; log: ChargeA } };
+        b: { input: unknown; output: unknown; activities: { charge: ChargeB; log: ChargeA } };
+      };
+    };
+    expectTypeOf<TypeEq<CollidingActivityNames<C>, "charge">>().toEqualTypeOf<true>();
+  });
+});
+
+describe("workflow vs global activity name clashes", () => {
+  type Act = { input: unknown; output: unknown };
+
+  it("flags a global activity sharing a workflow's name", () => {
+    type C = {
+      taskQueue: "q";
+      activities: { processOrder: Act };
+      workflows: { processOrder: { input: unknown; output: unknown } };
+    };
+    expectTypeOf<TypeEq<WorkflowActivityNameClashes<C>, "processOrder">>().toEqualTypeOf<true>();
+  });
+
+  it("allows distinct names", () => {
+    type C = {
+      taskQueue: "q";
+      activities: { logEvent: Act };
+      workflows: { processOrder: { input: unknown; output: unknown } };
+    };
+    expectTypeOf<TypeEq<WorkflowActivityNameClashes<C>, never>>().toEqualTypeOf<true>();
+  });
+
+  it("is inert when the contract declares no global activities", () => {
+    type C = { taskQueue: "q"; workflows: { processOrder: { input: unknown; output: unknown } } };
+    expectTypeOf<TypeEq<WorkflowActivityNameClashes<C>, never>>().toEqualTypeOf<true>();
   });
 });
