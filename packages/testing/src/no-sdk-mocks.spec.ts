@@ -1,10 +1,24 @@
 import { readFile, readdir } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
 const WORKSPACE_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
+
+/**
+ * Workspace-relative path in POSIX form, whatever the host separator is.
+ *
+ * `relative()` yields `packages\testing\…` on Windows, which matches none of
+ * the forward-slash {@link ALLOWLIST} keys — every allowlisted spec would be
+ * reported as an offender and the guard would fail for the wrong reason. A
+ * guard that cries wolf is a guard someone disables, so normalize before the
+ * lookup. The offender list is reported in the same form, so its output is
+ * copy-pasteable into the allowlist on any platform.
+ */
+function workspaceRelative(absolutePath: string): string {
+  return relative(WORKSPACE_ROOT, absolutePath).split(sep).join("/");
+}
 
 /**
  * Spec files permitted to mock the Temporal SDK. Every entry needs a reason
@@ -70,7 +84,7 @@ describe("no SDK mocks outside the allowlist", () => {
     const offenders: string[] = [];
 
     for (const file of files) {
-      const rel = relative(WORKSPACE_ROOT, file);
+      const rel = workspaceRelative(file);
       const source = await readFile(file, "utf8");
       if (SDK_MOCK.test(source) && !(rel in ALLOWLIST)) {
         offenders.push(rel);
