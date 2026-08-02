@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { isTerminalStatus, REPLAY_SKIP_ALLOWLIST, skipReasonFor } from "./test-rig.js";
+import {
+  extractStartedWorkflowId,
+  isTerminalStatus,
+  REPLAY_SKIP_ALLOWLIST,
+  skipReasonFor,
+} from "./test-rig.js";
 
 describe("isTerminalStatus", () => {
   it("treats every finished status as terminal", () => {
@@ -37,5 +42,31 @@ describe("skipReasonFor", () => {
     for (const [prefix, reason] of Object.entries(REPLAY_SKIP_ALLOWLIST)) {
       expect(reason, `allowlist entry "${prefix}" needs a reason`).not.toBe("");
     }
+  });
+});
+
+describe("extractStartedWorkflowId", () => {
+  it("extracts the workflowId from the options bag at args[1]", () => {
+    expect(
+      extractStartedWorkflowId("startWorkflow", ["myWorkflow", { workflowId: "order-123" }]),
+    ).toBe("order-123");
+  });
+
+  it("throws naming the method and the received bag when workflowId is missing", () => {
+    expect(() => extractStartedWorkflowId("startWorkflow", ["myWorkflow", {}])).toThrow(
+      /startWorkflow.*workflowId/s,
+    );
+  });
+
+  it("throws when the second argument isn't an object at all", () => {
+    expect(() => extractStartedWorkflowId("executeWorkflow", ["myWorkflow", undefined])).toThrow(
+      /executeWorkflow.*workflowId/s,
+    );
+  });
+
+  it("throws when workflowId is present but not a string", () => {
+    expect(() =>
+      extractStartedWorkflowId("signalWithStart", ["myWorkflow", { workflowId: 123 }]),
+    ).toThrow(/signalWithStart.*workflowId/s);
   });
 });
