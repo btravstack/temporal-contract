@@ -1,5 +1,6 @@
 import { ContractError, TypedClient, WorkflowFailedError } from "@temporal-contract/client";
 import { onRehydrationMiss, type RehydrationMiss } from "@temporal-contract/contract/errors";
+import { testRig } from "@temporal-contract/testing/test-rig";
 import { it } from "@temporal-contract/testing/time-skipping";
 import {
   bundleFor,
@@ -40,7 +41,6 @@ import { OkAsync, ErrAsync } from "unthrown";
 import { describe, expect } from "vitest";
 
 import { ApplicationFailure, declareActivitiesHandler } from "../activity.js";
-import { TypedWorker } from "../worker.js";
 import { rehydrationClientContract, rehydrationWorkerContract } from "./rehydration.contract.js";
 
 const activities = declareActivitiesHandler({
@@ -78,15 +78,7 @@ describe("rehydration at the e2e boundary", () => {
     const contract = withTaskQueue(rehydrationWorkerContract, nextTaskQueueId("rehydration"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "rehydration.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-      activities,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle, activities });
 
     await worker.raw.runUntil(async () => {
       // Control: the typed constructor's failure carries the marker and DOES
@@ -115,15 +107,17 @@ describe("rehydration at the e2e boundary", () => {
     const clientContract = withTaskQueue(rehydrationClientContract, queueId);
     const bundle = await bundleFor(fixturePath(import.meta.url, "rehydration.workflows"));
 
-    const worker = await TypedWorker.create({
+    // Two contract views of the same worker (worker-side and client-side
+    // schema skew), so `testRig` — which binds one client to one contract —
+    // only covers the worker-side half; `skewedClient` is a second,
+    // independent `TypedClient` bound to `clientContract` on top of it.
+    const { worker, client: workerSideClient } = await testRig(testEnv, {
       contract: workerContract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
+      bundle,
       activities,
-    }).get();
+    });
 
     const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const workerSideClient = typedClient.for(workerContract);
     const skewedClient = typedClient.for(clientContract);
 
     const misses: RehydrationMiss[] = [];
@@ -189,15 +183,7 @@ describe("declareWorkflow — contract-error conversion", () => {
     const contract = withTaskQueue(rehydrationWorkerContract, nextTaskQueueId("rehydration"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "rehydration.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-      activities,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle, activities });
 
     await worker.raw.runUntil(async () => {
       const result = await client.executeWorkflow("quote", {
@@ -226,15 +212,7 @@ describe("declareWorkflow — contract-error conversion", () => {
     const contract = withTaskQueue(rehydrationWorkerContract, nextTaskQueueId("rehydration"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "rehydration.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-      activities,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle, activities });
 
     await worker.raw.runUntil(async () => {
       const result = await client.executeWorkflow("quote", {
