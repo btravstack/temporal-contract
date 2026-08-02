@@ -1,4 +1,5 @@
-import { TypedClient, WorkflowFailedError } from "@temporal-contract/client";
+import { WorkflowFailedError } from "@temporal-contract/client";
+import { testRig } from "@temporal-contract/testing/test-rig";
 import { it } from "@temporal-contract/testing/time-skipping";
 import {
   bundleFor,
@@ -15,7 +16,6 @@ import {
 import { Runtime, type Logger } from "@temporalio/worker";
 import { describe, expect } from "vitest";
 
-import { TypedWorker } from "../worker.js";
 import { handlersContract } from "./handlers.contract.js";
 
 /**
@@ -96,14 +96,7 @@ describe("handler binding against a real server", () => {
     const { logs: capturedLogs, restore: restoreLogger } = captureWorkflowLogs();
 
     try {
-      const worker = await TypedWorker.create({
-        contract,
-        connection: testEnv.nativeConnection,
-        workflowBundle: bundle,
-      }).get();
-
-      const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-      const client = typedClient.for(contract);
+      const { worker, client } = await testRig(testEnv, { contract, bundle });
 
       const total = await worker.raw.runUntil(async () => {
         const handle = await client
@@ -153,14 +146,7 @@ describe("handler binding against a real server", () => {
     const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     await worker.raw.runUntil(async () => {
       const handle = await client
@@ -185,14 +171,7 @@ describe("handler binding against a real server", () => {
     const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     await worker.raw.runUntil(async () => {
       const handle = await client
@@ -233,14 +212,7 @@ describe("handler binding against a real server", () => {
     const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     await worker.raw.runUntil(async () => {
       const handle = await client
@@ -274,14 +246,7 @@ describe("handler binding against a real server", () => {
     const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     await worker.raw.runUntil(async () => {
       const handle = await client
@@ -304,14 +269,7 @@ describe("handler binding against a real server", () => {
     const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     await worker.raw.runUntil(async () => {
       const handle = await client
@@ -383,14 +341,7 @@ describe("handler binding against a real server", () => {
     const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     await worker.raw.runUntil(async () => {
       const handle = await client
@@ -428,14 +379,7 @@ describe("handler binding against a real server", () => {
     const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     await worker.raw.runUntil(async () => {
       const handle = await client
@@ -464,14 +408,7 @@ describe("handler binding against a real server", () => {
     const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     await worker.raw.runUntil(async () => {
       const handle = await client
@@ -508,14 +445,7 @@ describe("handler binding against a real server", () => {
     const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     await worker.raw.runUntil(async () => {
       const handle = await client
@@ -548,14 +478,7 @@ describe("handler binding against a real server", () => {
     const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     await worker.raw.runUntil(async () => {
       const handle = await client
@@ -590,14 +513,7 @@ describe("handler binding against a real server", () => {
     const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     await worker.raw.runUntil(async () => {
       const handle = await client
@@ -652,14 +568,7 @@ describe("handler binding against a real server", () => {
     const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     await worker.raw.runUntil(async () => {
       const handle = await client
@@ -682,14 +591,7 @@ describe("handler binding against a real server", () => {
     const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     await worker.raw.runUntil(async () => {
       const handle = await client
@@ -719,14 +621,7 @@ describe("handler binding against a real server", () => {
     const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
 
     await worker.raw.runUntil(async () => {
       const handle = await client

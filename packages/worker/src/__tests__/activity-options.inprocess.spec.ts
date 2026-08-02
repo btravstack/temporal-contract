@@ -1,4 +1,4 @@
-import { TypedClient } from "@temporal-contract/client";
+import { testRig } from "@temporal-contract/testing/test-rig";
 import { it } from "@temporal-contract/testing/time-skipping";
 import {
   bundleFor,
@@ -11,7 +11,6 @@ import { ErrAsync, fromSafePromise, OkAsync } from "unthrown";
 import { describe, expect } from "vitest";
 
 import { declareActivitiesHandler } from "../activity.js";
-import { TypedWorker } from "../worker.js";
 import { activityOptionsContract, layeredOptionsContract } from "./activity-options.contract.js";
 
 /**
@@ -48,15 +47,7 @@ describe("contract-level activityOptions reach Temporal", () => {
       },
     });
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-      activities,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle, activities });
 
     const outcome = await worker.raw.runUntil(async () => {
       // `.getOrThrow()`, not `.get()`: both calls carry a real (non-`never`)
@@ -115,15 +106,7 @@ describe("activityOptions merge precedence across layers", () => {
       },
     });
 
-    const worker = await TypedWorker.create({
-      contract,
-      connection: testEnv.nativeConnection,
-      workflowBundle: bundle,
-      activities,
-    }).get();
-
-    const typedClient = await TypedClient.create({ client: testEnv.client }).get();
-    const client = typedClient.for(contract);
+    const { worker, client } = await testRig(testEnv, { contract, bundle, activities });
 
     const outcome = await worker.raw.runUntil(async () => {
       const handle = await client

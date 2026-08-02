@@ -2,7 +2,33 @@
   "extends": "@btravstack/tsconfig/base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": "./src",
+    // `@temporal-contract/client`, `@temporal-contract/contract`, and
+    // `@temporal-contract/worker/activity` are `peerDependencies` (not
+    // `devDependencies`) of `@temporal-contract/testing` — see the long
+    // comment on `workspaceAliases` in `vitest.config.ts` for why. That
+    // alias only fixes Vite/Vitest's *runtime* module resolution; `tsc`
+    // doesn't read `vitest.config.ts` at all. Left unfixed here, `tsc`
+    // silently fails to resolve these bare specifiers when they're imported
+    // from inside `@temporal-contract/testing`'s built `test-rig.d.mts`
+    // (Node module resolution walks up from *that file's* directory, which
+    // has no route to peer-only packages) — and because `skipLibCheck` is
+    // `true` (below, inherited from the base config), that failure never
+    // surfaces as a diagnostic. It just silently collapses `testRig`'s
+    // `ContractClient<TContract>` return type to `any`, which then only
+    // becomes visible far downstream, as a `noImplicitAny` error on some
+    // unrelated callback parameter (see the `events.filter((event) => ...)`
+    // calls in `handlers.inprocess.spec.ts` for a concrete example). These
+    // three `paths` entries are `tsc`'s equivalent of that Vite alias —
+    // pointed at the exact same built `dist` these specifiers already
+    // resolve to everywhere else in this package, so type identity for
+    // `ContractClient`, `ContractDefinition`, etc. stays consistent whether
+    // a file imports them directly or reaches them through `testRig`.
+    "paths": {
+      "@temporal-contract/client": ["../client/dist/index.d.mts"],
+      "@temporal-contract/contract": ["../contract/dist/index.d.mts"],
+      "@temporal-contract/worker/activity": ["./src/activity.ts"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
