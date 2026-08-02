@@ -48,10 +48,17 @@ export function skipReasonFor(
   workflowId: string,
   allowlist: Readonly<Record<string, string>>,
 ): string | undefined {
+  // Longest match wins, not first. `Object.entries` order would otherwise make
+  // overlapping prefixes ("order" and "order-cancel") resolve to whichever was
+  // declared first — so the same workflow ID could pick up a different reason
+  // purely from key ordering, and a deliberately narrower entry could be
+  // shadowed by a broader one.
+  let best: { prefix: string; reason: string } | undefined;
   for (const [prefix, reason] of Object.entries(allowlist)) {
-    if (workflowId.startsWith(prefix)) return reason;
+    if (!workflowId.startsWith(prefix)) continue;
+    if (best === undefined || prefix.length > best.prefix.length) best = { prefix, reason };
   }
-  return undefined;
+  return best?.reason;
 }
 
 /**
@@ -63,6 +70,20 @@ export function skipReasonFor(
  */
 export const START_METHODS = new Set(["startWorkflow", "executeWorkflow", "signalWithStart"]);
 
+/**
+ * `JSON.stringify` for a diagnostic message, but never at the cost of the
+ * diagnostic. A bag containing a BigInt (or a circular reference) makes
+ * `JSON.stringify` throw, which would replace the guard's actionable error
+ * with an unrelated TypeError — hiding exactly the problem it exists to
+ * surface. Falls back to a coarse description.
+ */
+function describeBag(bag: unknown): string {
+  try {
+    return JSON.stringify(bag) ?? String(bag);
+  } catch {
+    return `[unserializable ${typeof bag}]`;
+  }
+}
 /**
  * Pull the `workflowId` out of a start method's options bag (its second
  * argument, per every `START_METHODS` signature) so the rig knows which
@@ -86,7 +107,7 @@ export function extractStartedWorkflowId(methodName: string, args: readonly unkn
     // oxlint-disable-next-line unthrown/no-throw -- test-harness assertion: guards the rig's one load-bearing assumption about ContractClient's call shape; see this function's JSDoc
     throw new Error(
       `testRig expected "${methodName}"'s second argument to carry a string "workflowId" ` +
-        `(every Temporal WorkflowOptions requires one) but received: ${JSON.stringify(bag)}. ` +
+        `(every Temporal WorkflowOptions requires one) but received: ${describeBag(bag)}. ` +
         `Without it, this execution's history can never be harvested for replay.`,
     );
   }

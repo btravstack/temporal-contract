@@ -52,8 +52,29 @@ async function inprocessSpecFiles(dir: string): Promise<string[]> {
   return found;
 }
 
-/** Matches a top-level `it(` test declaration — see `no-sdk-mocks.spec.ts` for the sibling pattern. */
-const TEST_START = /^\s*it\(/;
+/**
+ * Matches a top-level test declaration in any of Vitest's spellings — `it(`,
+ * `test(`, and every modifier chain (`it.each`, `it.concurrent`, `it.skip`,
+ * `test.only`, …).
+ *
+ * Deliberately broader than `^\s*it\(`. A narrower pattern makes this guard
+ * fail *open*: a file written entirely with `test(` or `it.each(` yields zero
+ * blocks, the loop below never runs, and the file passes while enforcing
+ * nothing. The corpus-level block assertion is the second net for that.
+ *
+ * `\b` keeps `itemCount` / `testEnv` from matching.
+ */
+const TEST_START = /^\s*(?:it|test)\b/;
+
+/**
+ * Strip comments before looking for `testRig(`. Without this, a block that
+ * merely *mentions* the rig in prose — "// migrated off testRig(...)" —
+ * satisfies the check without calling it, which is the same fail-open shape
+ * the pattern above guards against.
+ */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
 
 /**
  * Split a spec file's source into one chunk per `it(` block, each running
@@ -76,7 +97,9 @@ function testBlocks(source: string): string[] {
 
 /** Pulls the `it("...")` description out of a test block, for readable offender messages. */
 function testDescription(block: string): string {
-  const match = /it\(\s*"([^"]*)"/.exec(block);
+  // Mirrors TEST_START's breadth — a `test(` or `it.each(` offender should be
+  // named in the failure, not reported as "(description not found)".
+  const match = /(?:it|test)\b[^(]*\(\s*["'`]([^"'`]*)["'`]/.exec(block);
   return match?.[1] ?? "(description not found)";
 }
 
@@ -90,6 +113,13 @@ describe("every in-process test uses the rig", () => {
     // `*.inprocess.spec.ts` files today.
     expect(files.length).toBeGreaterThan(10);
 
+    // Second, block-level positive control. The file count above proves the
+    // corpus walk found files; it does NOT prove `testBlocks` found tests
+    // inside them. If TEST_START ever stops matching this repo's spelling,
+    // every file yields zero blocks and the offender loop passes while
+    // checking nothing — the precise fail-open this guard exists to prevent.
+    let totalBlocks = 0;
+
     const offenders: string[] = [];
 
     for (const file of files) {
@@ -97,12 +127,18 @@ describe("every in-process test uses the rig", () => {
       if (rel in ALLOWLIST) continue;
 
       const source = await readFile(file, "utf8");
-      for (const block of testBlocks(source)) {
-        if (!block.includes("testRig(")) {
+      const blocks = testBlocks(source);
+      totalBlocks += blocks.length;
+      for (const block of blocks) {
+        if (!stripComments(block).includes("testRig(")) {
           offenders.push(`${rel}: "${testDescription(block)}"`);
         }
       }
     }
+
+    // The tier has ~59 tests; anything near zero means TEST_START stopped
+    // matching, not that the tests vanished.
+    expect(totalBlocks).toBeGreaterThan(40);
 
     expect(
       offenders,
@@ -116,7 +152,9 @@ describe("every in-process test uses the rig", () => {
     const stale: string[] = [];
     for (const rel of Object.keys(ALLOWLIST)) {
       const source = await readFile(join(WORKSPACE_ROOT, rel), "utf8").catch(() => "");
-      const stillOffRig = testBlocks(source).some((block) => !block.includes("testRig("));
+      const stillOffRig = testBlocks(source).some(
+        (block) => !stripComments(block).includes("testRig("),
+      );
       if (!stillOffRig) stale.push(rel);
     }
 
