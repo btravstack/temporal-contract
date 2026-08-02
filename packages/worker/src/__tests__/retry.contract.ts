@@ -4,9 +4,11 @@ import { z } from "zod";
 // Composition-first: resources defined individually, then composed.
 
 /**
- * Two declared errors identical but for `nonRetryable`. The activity chooses
- * which to raise from its input, so a single fixture proves both directions
- * and the only variable between them is the flag under test.
+ * Two declared errors identical but for `nonRetryable`. Each `retry.inprocess.spec.ts`
+ * test supplies its own activity handler that hardcodes which one to raise —
+ * `mode` only threads client → workflow → activity input, unread by the
+ * handler itself — so a single fixture proves both directions and the only
+ * variable between them is the flag under test.
  *
  * `maximumAttempts: 3` bounds the retryable case: it must retry (proving the
  * flag reached Temporal) without retrying forever if the flag regresses.

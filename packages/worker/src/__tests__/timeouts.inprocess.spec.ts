@@ -54,7 +54,7 @@ describe("activity timeouts reach Temporal through every merge layer", () => {
     );
 
     expect(result).toEqual({
-      startToCloseMs: 9_000, // activityOptionsByName wins — most specific layer
+      startToCloseMs: 9_000, // contributed by activityOptionsByName
       scheduleToCloseMs: 20_000, // declareWorkflow's workflow-wide default
       heartbeatMs: 7_000, // contract-level, the layer with no competitor
     });
