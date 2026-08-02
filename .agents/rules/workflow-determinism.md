@@ -45,7 +45,9 @@ Use `context.cancellableScope` / `context.nonCancellableScope` (`packages/worker
 
 ## Side-effect escape hatch
 
-If you absolutely need non-determinism inside workflow code (e.g. logging at a checkpoint), use `LocalActivity` with `proxyLocalActivities` from `@temporalio/workflow` — same sandboxing rules but lower overhead than a full network round-trip. Even logging via `console.log` is fine in workflow code (`@temporalio/workflow` patches it through Temporal's logger), but `console.log({ now: Date.now() })` is not — the _value_ is non-deterministic.
+If you need something the sandbox genuinely cannot provide — reading `process.env`, hitting a real clock, calling out — use `LocalActivity` with `proxyLocalActivities` from `@temporalio/workflow`: it runs outside the sandbox like a normal activity, but with lower overhead than a full network round-trip.
+
+Logging via `console.log` is fine in workflow code (`@temporalio/workflow` patches it through Temporal's logger). `console.log({ now: Date.now() })` is fine too — per the first table, that value is workflow time and is stable across replays. What is _not_ fine is `console.log({ env: process.env.REGION })`, because that value can differ between the worker that ran the workflow and the worker that replays it.
 
 ## Canonical examples
 
