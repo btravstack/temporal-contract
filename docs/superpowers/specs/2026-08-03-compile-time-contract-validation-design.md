@@ -64,13 +64,13 @@ typed caller.
 So this workstream is narrower than "strengthen the types". It targets the
 validations that are **genuinely runtime-only and genuinely type-expressible**:
 
-| Validation                                                                 | Runtime today           | Lift?                       |
-| -------------------------------------------------------------------------- | ----------------------- | --------------------------- |
-| Reserved names (`__temporal_*`, `__stack_trace`, `__enhanced_stack_trace`) | `defineContract` throws | **Yes**                     |
-| Flat-namespace activity collisions                                         | `defineContract` throws | **Yes**                     |
-| `ms` duration grammar                                                      | `defineContract` throws | **Yes**, needs `const T`    |
-| Valid JS identifier                                                        | `defineContract` throws | Partially — out of scope    |
-| Standard Schema compatibility                                              | structural probe        | **No** — inherently runtime |
+| Validation                                                                 | Runtime today           | Lift?                                                                          |
+| -------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------ |
+| Reserved names (`__temporal_*`, `__stack_trace`, `__enhanced_stack_trace`) | `defineContract` throws | **Yes**                                                                        |
+| Flat-namespace activity collisions                                         | `defineContract` throws | **Yes**                                                                        |
+| `ms` duration grammar                                                      | `defineContract` throws | **Yes**, needs a narrowed `DurationValue` **and** `const T` — see correction 1 |
+| Valid JS identifier                                                        | `defineContract` throws | Partially — out of scope                                                       |
+| Standard Schema compatibility                                              | structural probe        | **No** — inherently runtime                                                    |
 
 ## What is NOT changing
 
