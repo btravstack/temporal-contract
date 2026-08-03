@@ -55,8 +55,9 @@ describe("IsMsDuration", () => {
   });
 
   it("rejects a negative duration, matching the runtime's deliberate exclusion", () => {
-    // builder.ts:543-545 — the `ms` grammar allows a leading `-`, but a
-    // negative Temporal timeout is never valid, so the sign is rejected.
+    // The comment above `MS_DURATION_PATTERN` in builder.ts — the `ms`
+    // grammar allows a leading `-`, but a negative Temporal timeout is never
+    // valid, so the sign is rejected.
     expectTypeOf<TypeEq<IsMsDuration<"-5s">, false>>().toEqualTypeOf<true>();
   });
 
@@ -121,9 +122,10 @@ describe("CheckName", () => {
   });
 
   it("does NOT apply to error or search-attribute names", () => {
-    // builder.ts:435-436 — these never become Temporal handler names, so the
-    // runtime deliberately exempts them. The type layer must match, or valid
-    // contracts stop compiling.
+    // The comment above `TEMPORAL_RESERVED_PREFIX` in builder.ts — these
+    // never become Temporal handler names, so the runtime deliberately
+    // exempts them. The type layer must match, or valid contracts stop
+    // compiling.
     expectTypeOf<
       TypeEq<CheckName<"__temporal_evil", "error">, "__temporal_evil">
     >().toEqualTypeOf<true>();
@@ -220,7 +222,9 @@ describe("activity collision detection", () => {
     // from a ternary at the call site) makes `DefinitionsFor` itself a
     // union, which `IsUnion` can't distinguish from two scopes disagreeing.
     // Only one scope declares the name, so the runtime never even reaches a
-    // comparison (`builder.ts:811-812` finds no previous owner and stores).
+    // comparison (the `if (!previousOwner)` store-and-continue branch in
+    // `validateNameCollisions`, builder.ts, finds no previous owner and
+    // stores).
     type C = {
       taskQueue: "q";
       workflows: {
@@ -278,8 +282,10 @@ describe("activity collision detection", () => {
 
   it("does NOT flag two scopes binding the SAME union-typed definition", () => {
     // Regression (fix round 2): this is the shared-`defineActivity`-result
-    // pattern (`builder.ts:816`) where the shared value itself happens to be
-    // a union type, e.g. `const charge = isProd ? chargeA : chargeB`. Before
+    // pattern (the identity escape hatch in `validateNameCollisions` —
+    // `previousOwner.definition === definition`, builder.ts) where the
+    // shared value itself happens to be a union type, e.g. `const charge =
+    // isProd ? chargeA : chargeB`. Before
     // `DefinitionsFor` tuple-wrapped each scope's contribution, a union
     // *within* one scope's binding was indistinguishable from *disagreement
     // between* scopes: both looked like a multi-member union to `IsUnion`.
@@ -531,7 +537,8 @@ describe("ValidateContract", () => {
   });
 
   it("does NOT flag a reserved-looking error name", () => {
-    // builder.ts:435-436 — error names never become handler names.
+    // The comment above `TEMPORAL_RESERVED_PREFIX` in builder.ts — error
+    // names never become handler names.
     type C = {
       taskQueue: "orders";
       workflows: {
@@ -608,7 +615,8 @@ describe("ValidateContract", () => {
 
 /**
  * Task 5: `ValidateContract` wired into `defineContract` itself
- * (`builder.ts:359-372`), rather than exercised as a standalone type. Every
+ * (the `defineContract` overload and implementation signatures in
+ * `builder.ts`), rather than exercised as a standalone type. Every
  * test in this block goes through the real, exported `defineContract` — not
  * a hand-reimplementation of the wiring — because the defect this task
  * guards against is specific to *how* the wiring is done: `definition:
@@ -784,7 +792,8 @@ describe("defineContract wiring", () => {
     // candidate the slot is assigned, dot-prefixed or not, so a second
     // narrower member restricted to the dot case would be redundant —
     // mutation-tested by removing it (round 1 of 5) without breaking
-    // anything. The runtime regex (builder.ts:547) accepts the leading dot,
+    // anything. The runtime regex (`MS_DURATION_PATTERN` in builder.ts)
+    // accepts the leading dot,
     // so this must compile and — the part a bare "does it compile" check
     // can't tell apart from a silent widen-to-`string` — the duration must
     // still show up as the literal `".5s"`, not plain `string`.

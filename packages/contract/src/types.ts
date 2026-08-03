@@ -55,11 +55,12 @@ export type ErrorDefinition<TData extends AnySchema = AnySchema> = {
  *
  * - `` `${number}${string}` `` — preserves *every* literal duration string
  *   as itself instead of widening it to `string`, including a leading-dot
- *   literal like `".5s"` (the runtime regex accepts the leading dot,
- *   `builder.ts:547`). One template-literal member anywhere in the union is
- *   enough to enable literal inference for every string literal candidate —
- *   a second, narrower template-literal member for the dot case specifically
- *   is not needed for inference and was removed (mutation-tested: deleting
+ *   literal like `".5s"` (the runtime regex, `MS_DURATION_PATTERN` in
+ *   `builder.ts`, accepts the leading dot). One template-literal member
+ *   anywhere in the union is enough to enable literal inference for every
+ *   string literal candidate — a second, narrower template-literal member
+ *   for the dot case specifically is not needed for inference and was
+ *   removed (mutation-tested: deleting
  *   it, alone or together with `CheckDuration`'s corresponding
  *   `` `.${number}${string}` `` branch, leaves the package green).
  *   `CheckDuration`'s `` `.${number}${string}` `` branch (`validate-contract.ts`)

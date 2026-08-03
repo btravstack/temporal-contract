@@ -12,8 +12,9 @@
 type Digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
 
 /**
- * The unit suffixes of the `ms` grammar (`builder.ts:547-548`), lowercase.
- * Matching is case-insensitive, handled by `Lowercase<S>` at the entry point.
+ * The unit suffixes of the `ms` grammar (`MS_DURATION_PATTERN` in
+ * `builder.ts`), lowercase. Matching is case-insensitive, handled by
+ * `Lowercase<S>` at the entry point.
  */
 type MsUnit =
   | "milliseconds"
@@ -150,7 +151,8 @@ type IsExactly<A, B> =
  *   anyway, at no cost, so `CheckDuration` stays correct for the
  *   leading-dot pattern specifically if it's ever fed one directly — by a
  *   future `DurationValue` shape or any other caller — matching the
- *   runtime's acceptance of a leading dot (`builder.ts:547`).
+ *   runtime's acceptance of a leading dot (`MS_DURATION_PATTERN` in
+ *   `builder.ts`).
  */
 export type CheckDuration<V> = V extends string
   ? string extends V
@@ -166,12 +168,12 @@ export type CheckDuration<V> = V extends string
 
 /**
  * The kinds whose names become Temporal handler names, mirroring
- * `TEMPORAL_NAMED_KINDS` (`builder.ts:442-449`).
+ * `TEMPORAL_NAMED_KINDS` in `builder.ts`.
  *
- * `error` and `search attribute` are absent on purpose: `builder.ts:435-436`
- * documents that those names never reach the SDK's handler registry, so the
- * runtime exempts them. Adding them here would reject contracts that are
- * valid today.
+ * `error` and `search attribute` are absent on purpose: the comment above
+ * `TEMPORAL_RESERVED_PREFIX` in `builder.ts` documents that those names never
+ * reach the SDK's handler registry, so the runtime exempts them. Adding them
+ * here would reject contracts that are valid today.
  */
 type TemporalNamedKind =
   | "workflow"
@@ -185,8 +187,8 @@ type TemporalNamedKind =
 type TemporalReservedName = "__stack_trace" | "__enhanced_stack_trace";
 
 /**
- * Compile-time mirror of the reserved-name half of `assertIdentifier`
- * (`builder.ts:500-507`). Valid names pass through unchanged; a reserved name
+ * Compile-time mirror of the reserved-name half of `assertIdentifier` in
+ * `builder.ts`. Valid names pass through unchanged; a reserved name
  * maps to a string literal whose text is the diagnostic.
  *
  * `TKind` is deliberately `string` rather than `TemporalNamedKind` so callers
@@ -257,9 +259,10 @@ type DefinitionsFor<C extends ContractLike, N extends PropertyKey> =
 
 /**
  * Which scopes declare activity name `N`, tagged by scope identity rather
- * than by the definition bound there. Mirrors `builder.ts:811`, which only
- * compares definitions once a *previous owner* exists for the name — i.e.
- * once at least two scopes are in play.
+ * than by the definition bound there. Mirrors the `if (!previousOwner)`
+ * store-and-continue branch in `validateNameCollisions` (`builder.ts`), which
+ * only compares definitions once a *previous owner* exists for the name —
+ * i.e. once at least two scopes are in play.
  *
  * A name declared in only one scope can never disagree with itself, so
  * gating on scope count here — before `DefinitionsFor` is even consulted —
@@ -270,20 +273,20 @@ type DefinitionsFor<C extends ContractLike, N extends PropertyKey> =
  * The global scope is tagged `0` rather than a `unique symbol`. Naively,
  * `keyof W` could contain the numeric literal `0` too — a workflow whose key
  * is the string `"0"` has `keyof` type `0`, not `"0"` — which would make the
- * tag ambiguous in principle. In practice this never happens: `builder.ts:
- * 496-499`'s `assertIdentifier` requires every workflow name to match
+ * tag ambiguous in principle. In practice this never happens:
+ * `assertIdentifier` in `builder.ts` requires every workflow name to match
  * `IDENTIFIER_PATTERN` (`/^[a-zA-Z_$][a-zA-Z0-9_$]*$/`), which a name
  * starting with a digit can never satisfy, so a workflow named `"0"` is
  * already rejected before name-collision checking runs. (The runtime's
  * `GLOBAL_OWNER` still needs a `unique symbol` rather than a string
- * sentinel like `"global"` (`builder.ts:817-821`) — but not because
+ * sentinel like `"global"` (`GLOBAL_OWNER` in `builder.ts`) — but not because
  * workflow names are unrestricted there. Workflow names go through the
- * exact same `assertIdentifier` check as activity names (`builder.ts:885`,
- * in the loop that runs before `validateNameCollisions` is called at
- * `builder.ts:907`); the restriction is identical. The difference is that
- * `"global"` is a legal identifier — unlike `"0"` — so a user can
- * legitimately name a workflow `"global"`, and a string sentinel would
- * misclassify that collision as belonging to the global scope.)
+ * exact same `assertIdentifier` check as activity names (the loop over
+ * workflow names in `validateContractDefinition`, which runs before
+ * `validateNameCollisions` is called); the restriction is identical. The
+ * difference is that `"global"` is a legal identifier — unlike `"0"` — so a
+ * user can legitimately name a workflow `"global"`, and a string sentinel
+ * would misclassify that collision as belonging to the global scope.)
  *
  * Membership is tested with `N extends keyof …`, not `… extends Record<N,
  * unknown>`. The two are not equivalent for an optional activity key:
@@ -309,11 +312,13 @@ type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : 
 /**
  * Activity names bound to structurally different definitions.
  *
- * This is a deliberate approximation of the runtime rule. `builder.ts:816`
- * permits a duplicate name when both scopes reference the *same object*, and
- * reference identity is invisible to the type system — so the comparison here
- * is structural instead. Two structurally identical but referentially distinct
- * definitions therefore pass this check and are still rejected at runtime.
+ * This is a deliberate approximation of the runtime rule. The identity
+ * escape hatch in `validateNameCollisions` (`previousOwner.definition ===
+ * definition`, in `builder.ts`) permits a duplicate name when both scopes
+ * reference the *same object*, and reference identity is invisible to the
+ * type system — so the comparison here is structural instead. Two
+ * structurally identical but referentially distinct definitions therefore
+ * pass this check and are still rejected at runtime.
  *
  * That asymmetry is intended: the type layer must never be stricter than the
  * runtime, or the documented pattern of sharing one `defineActivity` result
@@ -373,8 +378,9 @@ export type CollidingActivityNames<C extends ContractLike> = {
 }[AllActivityNames<C>];
 
 /**
- * Names used by both a workflow and a global activity. Mirrors
- * `builder.ts:779-787`: workflow implementations and global activity
+ * Names used by both a workflow and a global activity. Mirrors the
+ * workflow-vs-global-activity clash loop in `validateNameCollisions`
+ * (`builder.ts`): workflow implementations and global activity
  * implementations share the root of the worker's implementations map, so a
  * shared name is ambiguous. No escape hatch — this lifts exactly.
  *
@@ -407,8 +413,9 @@ type ValidateRetry<R> = {
 
 /**
  * Validate an `activityOptions` bag: the four timeout slots
- * (`builder.ts:470-475`) plus the two retry intervals
- * (`builder.ts:632-633`).
+ * (`ACTIVITY_OPTIONS_DURATION_KEYS` in `builder.ts`) plus the two retry
+ * intervals (the `assertDuration` calls for `initialInterval` and
+ * `maximumInterval` inside `validateActivityOptions` in `builder.ts`).
  */
 type ValidateActivityOptions<O> = {
   [K in keyof O]: K extends
@@ -462,8 +469,9 @@ type ValidateHandlerMap<M, TKind extends string> = {
 
 /**
  * Validate a workflow definition. `errors` and `searchAttributes` are
- * deliberately absent: `builder.ts:435-436` exempts both kinds from the
- * reserved-name rule, and nothing else about them is type-checkable here.
+ * deliberately absent: the comment above `TEMPORAL_RESERVED_PREFIX` in
+ * `builder.ts` exempts both kinds from the reserved-name rule, and nothing
+ * else about them is type-checkable here.
  */
 type ValidateWorkflow<W> = {
   [K in keyof W]: K extends "activities"
