@@ -64,20 +64,23 @@ peerDependencyRules:
 # version lines. High-severity advisories gate CI's `pnpm audit --audit-level=high`.
 overrides:
   # GHSA-v2hh-gcrm-f6hx (High): fast-uri host confusion via literal backslash
-  # authority delimiter. Only the vulnerable <3.1.4 line is present (transitive,
-  # dev/build tooling); 3.1.4 is the first patched release. Newly disclosed.
-  # fast-uri is added to minimumReleaseAgeExclude below because 3.1.4 is younger
+  # authority delimiter. The advisory widened after disclosure; the vulnerable
+  # range is now <3.1.5, so pin the transitive dev/build line to 3.1.5.
+  # fast-uri is added to minimumReleaseAgeExclude below because 3.1.5 is younger
   # than the 7-day cutoff.
-  "fast-uri@<3.1.4": "3.1.4"
-  # GHSA-3jxr-9vmj-r5cp (ReDoS) + GHSA-mh99-v99m-4gvg (DoS via unbounded
-  # expansion length): brace-expansion. Two lines are present — 2.x via
-  # testcontainers>archiver>minimatch and 5.x via typedoc>minimatch@10. The 5.x
-  # line is pulled to 5.0.8 (the only release patched for GHSA-mh99); the 2.x
-  # line stays on its ReDoS-patched release — GHSA-mh99 has NO patched release
-  # for it (vulnerable range <=5.0.7), so that advisory is ignored via
-  # auditConfig.ignoreGhsas below rather than force-upgrading across majors.
-  "brace-expansion@2": "2.1.2"
-  "brace-expansion@5": "5.0.8"
+  "fast-uri@<3.1.5": "3.1.5"
+  # GHSA-3jxr-9vmj-r5cp, GHSA-mh99-v99m-4gvg, GHSA-7p8r-x3mc-p8w7, and
+  # GHSA-rgw5-rvv9-x895 (all ReDoS / expansion-DoS): brace-expansion. Two lines
+  # are present — 2.x via testcontainers>archiver>minimatch and 5.x via
+  # typedoc>minimatch@10. Both majors now have patched releases, so pin each line
+  # to its first fixed version without crossing majors.
+  "brace-expansion@2": "2.1.4"
+  "brace-expansion@5": "5.0.9"
+  # GHSA-4cwx-7wf7-3272 (High): undici cross-user information disclosure and
+  # parse-time crash via degenerate private-cache directives. Reaches us only via
+  # packages/testing > testcontainers, which currently resolves undici 8.x.
+  # Pin that major line to its first patched release.
+  "undici@8": "8.9.0"
   # GHSA-52cp-r559-cp3m: js-yaml quadratic-CPU merge keys. Two lines present —
   # 3.x via @changesets/cli>@manypkg/get-packages>read-yaml-file and 4.x via
   # @changesets/cli>@changesets/parse. Each major line is version-scoped and
@@ -140,21 +143,12 @@ minimumReleaseAgeExclude:
   - "unthrown"
   - "@unthrown/oxlint"
   - "@unthrown/vitest"
-  # Temporary: fast-uri 3.1.4 (the GHSA-v2hh-gcrm-f6hx override above) is younger
-  # than the 7-day cutoff. Remove once 3.1.4 is 7 days old (published 2026-07-19).
+  # Temporary: fast-uri 3.1.5 (the GHSA-v2hh-gcrm-f6hx override above) is younger
+  # than the 7-day cutoff. Remove once 3.1.5 is 7 days old.
   - fast-uri
-  # Temporary: brace-expansion 5.0.8 (the GHSA-mh99-v99m-4gvg override above) is
-  # younger than the 7-day cutoff. Remove once 5.0.8 is 7 days old (published
-  # 2026-07-23).
+  # Temporary: brace-expansion 5.0.9 / 2.1.4 (the overrides above) are younger
+  # than the 7-day cutoff. Remove once both patched releases are 7 days old.
   - brace-expansion
-
-# GHSA-mh99-v99m-4gvg (brace-expansion DoS via unbounded expansion length) has a
-# patched release ONLY on the 5.x line (>=5.0.8, applied via the override above);
-# the 2.x line resolved under testcontainers > archiver has no patched release,
-# and forcing it to 5.x across majors is unsafe. Accepted risk: the expansion
-# input there is library-internal glob patterns, never user input. Remove this
-# ignore as soon as upstream ships a patched 2.x (or archiver moves to
-# minimatch@10).
-auditConfig:
-  ignoreGhsas:
-    - GHSA-mh99-v99m-4gvg
+  # Temporary: undici 8.9.0 (the GHSA-4cwx-7wf7-3272 override above) is younger
+  # than the 7-day cutoff. Remove once 8.9.0 is 7 days old.
+  - undici
