@@ -1390,3 +1390,35 @@ No gaps.
 **3. Type consistency.** `IsMsDuration`, `CheckDuration`, `CheckName`, `CollidingActivityNames`, `WorkflowActivityNameClashes`, `ValidateContract`, `ContractLike`, `TypeEq` are each named identically at definition and every use. `ContractLike` is defined in Task 3 and reused as the constraint in Task 4 — Task 4's implementation depends on Task 3's file state, which the sequencing guarantees.
 
 **One risk the plan cannot eliminate:** Task 4's `ValidateContract` is written against the loose `ContractLike`, but Task 5 applies it to `TContract extends ContractDefinition`, whose real shape involves Standard Schema objects and the `AnyWorkflowDefinition` widened constraint. The interaction between the mapped type and those generics is the plan's least-verified seam. Task 5 Step 4 is where it surfaces; if the mapped type fails to preserve a valid contract there, the fix belongs in `ValidateContract`, not in loosening `defineContract`.
+
+---
+
+## Post-implementation note
+
+**Tasks 5 and 6 as written above were superseded during execution.** Their
+replacements live in the SDD workspace as `task-5-brief.md` and
+`task-6-brief.md`, and the full defect history is in `progress.md` there.
+
+Task 5's original text was wrong in three ways, each verified by probe:
+
+- It required `const` as _the_ fix for duration widening. `const` is necessary
+  but not sufficient — `DurationValue` had to be narrowed as well, because the
+  literal is lost inside the separate `defineActivity` call before
+  `defineContract` runs.
+- It specified `definition: T & ValidateContract<T>`. The intersection
+  collapses to `never` and prints `not assignable to type 'never'`, hiding
+  every crafted message. The parameter is `ValidateContract<T>` alone.
+- It reported reserved-name errors by remapping keys, which surfaces as
+  `'__temporal_evil' does not exist in type …`. Errors go in the value
+  position.
+
+Task 6's steps 1–4 (compile-cost baseline, fallout inventory, fallout fixes)
+were completed during Task 5, which landed repo-wide typecheck green.
+
+**Five defects were found across the branch, every one a false positive** — the
+type layer rejecting code the runtime accepts. Three originated in this plan
+rather than in implementation. If this plan is used as a template, the lesson
+that generalizes is: **test type-level code through real builder calls, not
+hand-written `type` aliases.** Aliases preserve literals that real inference
+discards, and two separate Critical-severity defects hid behind exactly that
+gap.

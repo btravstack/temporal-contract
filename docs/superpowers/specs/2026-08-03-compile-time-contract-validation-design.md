@@ -1,8 +1,40 @@
 # Compile-time contract validation
 
 **Date:** 2026-08-03
-**Status:** Approved
+**Status:** Implemented — **with four corrections recorded below**
 **Scope:** Workstream 3 of 4 in the production-hardening effort
+
+## Corrections after implementation
+
+Four claims in the original design were **verified false** during
+implementation. They are corrected in place below; this section exists so the
+history is not lost, because three of the four are the kind of mistake that
+looks obviously right on paper.
+
+1. **`const` alone does not make durations checkable.** `DurationValue` was
+   `string | number`, which contains no literal types, so a duration literal
+   widened to `string` inside the _separate_ `defineActivity` call — before
+   `defineContract` ever ran. The fix was to narrow `DurationValue` itself.
+   `const` is still required, but for a different case: durations written
+   _inline_ in `defineContract`. The two mechanisms are complementary, not
+   alternatives.
+2. **`T & ValidateContract<T>` hides every error message.** The intersection
+   collapses `"5 minutos" & "Invalid duration …"` to `never`, producing
+   `Type 'string' is not assignable to type 'never'` — verbatim the error this
+   spec rejects below. The wiring is `ValidateContract<T>` **alone**. Inference
+   is unaffected.
+3. **Key remapping hides messages a second way.** Errors reported by remapping
+   a key (`as CheckName<K, …>`) surface as `'__temporal_evil' does not exist in
+type …`, which reads as nonsense to the person declaring that property.
+   Reserved-name errors go in the **value** position.
+4. **The collision check needed to gate on scope count, not definition types.**
+   Comparing the _set of types_ bound to a name flags a single scope binding a
+   union-typed value, and `IsUnion<never>` resolving to `never` made
+   `never extends true` take the true branch. Both were false positives.
+
+**Every defect found during implementation — five in total — was a false
+positive: the type layer rejecting code the runtime accepts.** That direction
+is the one to design against here.
 
 ## Context
 
@@ -96,20 +128,39 @@ safe — the type layer is permissive, never a false positive — and it is exac
 why the runtime check must stay. This asymmetry is intended, not a defect to
 "fix" by tightening the type.
 
-### The duration grammar needs `const T`
+### The duration grammar needs BOTH a narrowed `DurationValue` and `const T`
 
-`defineContract` is currently
-`defineContract<TContract extends ContractDefinition>(definition: TContract)`
-(`packages/contract/src/builder.ts:359`) — **no `const`**. Verified: without
-it, `startToCloseTimeout: "5 minutos"` widens to `string` before any type can
-inspect it, so the check can never fire. With `const`, the literal survives.
+This section originally claimed `const` alone was sufficient. **It is not**, and
+the reason is worth keeping: there are two distinct paths by which a duration
+literal reaches `defineContract`, and each loses the literal differently.
 
-**Accepted cost:** `const` narrows _all_ inferred literals — arrays in a
-contract become readonly tuples, string values stay literal. A consumer
-assigning a contract to a mutably-typed variable may need a change. This is
-acceptable because 8.0.0 has not shipped (14 unreleased changesets, currently
-`8.0.0-beta.4`), so the signature change costs nothing now and would be
-expensive later.
+**Path 1 — a separate `defineActivity` call** (the pattern the docs teach,
+`docs/how-to/tune-activity-options.md:44-52`). `DurationValue` was
+`string | number`, which contains **no literal types**, so `"30s"` widened to
+`string` during inference _inside `defineActivity`_ — before `defineContract`
+ran. `const` on `defineContract` cannot undo that. The fix is to narrow the
+type itself:
+
+```ts
+export type DurationValue = `${number}${string}` | number | (string & {});
+```
+
+Each member is load-bearing, mutation-tested: the template literal is what
+preserves literals (one such member anywhere in a union enables literal
+inference for _every_ candidate, including `".5s"`); `number` carries numeric
+milliseconds; and `string & {}` is what keeps a **computed** string — a timeout
+read from config — assignable. Collapsing it to `string` widens every literal
+back and silently kills the feature.
+
+**Path 2 — a duration written inline in `defineContract({…})`.** Here there is
+no intervening call, so `defineContract`'s own constraint is all inference has
+to lean on, and without `const` the constraint-derived contextual type wins and
+widens the literal. **This is where `const` is required.**
+
+**Measured cost of `const`, repo-wide: one line.** A single test wrote an
+invalid duration inline to assert the _runtime_ throws; the compile-time check
+now catches it too, so it carries a `@ts-expect-error` and keeps its runtime
+assertion. None of the feared readonly-array narrowing materialized.
 
 ### The obvious duration parser is wrong
 
@@ -134,16 +185,38 @@ Verified with 5 positives compiling (`"30s"`, `"5 minutes"`, `"1.5h"`,
 
 ## Architecture
 
-### Validation by intersection
+### Validation by substitution — **not** intersection
 
 ```ts
 export function defineContract<const T extends ContractDefinition>(
-  definition: T & ValidateContract<T>,
+  definition: ValidateContract<T>,
 ): T;
 ```
 
-`ValidateContract<T>` is a mapped type that leaves every valid key alone and
-replaces each offending one with an error type.
+`ValidateContract<T>` is a mapped type that leaves every valid property alone
+and replaces each offending one with an error type.
+
+**The parameter is the validated type alone.** The originally-specified
+intersection `T & ValidateContract<T>` was implemented and then reverted: it
+collapses `"5 minutos" & "Invalid duration …"` to `never` and prints
+`Type 'string' is not assignable to type 'never'` — defeating the entire
+message design below. Dropping the intersection surfaces the real message, and
+literal inference for workflow names and `taskQueue` is identical either way
+(verified).
+
+Because the parameter is no longer `T`, the body cannot prove `return
+definition` against the generic return type under
+`exactOptionalPropertyTypes`. An **implementation signature** typed
+identity-style sits below the public overload to absorb that. It is not
+publicly callable — a signature with a body never is, once a separate overload
+exists — verified by probing explicit type arguments, aliased function values,
+and `.call`.
+
+**Errors go in the value position, never by remapping the key.** Remapping
+turns a reserved name into `'__temporal_evil' does not exist in type …`, which
+tells the user their property does not exist when they are the one declaring
+it. Keeping the key and replacing its _value_ with the message type produces a
+diagnostic that names both the property and the reason.
 
 ### Error messages are string literals, not `never`
 
@@ -207,12 +280,12 @@ removing the validation makes the test fail.
 
 ## Risks
 
-| Risk                                                                                        | Mitigation                                                                                                                                                                                                                                                                                                                                       |
-| ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Compile-time cost of recursive template-literal parsing on every duration in every contract | Measure `tsc` wall time on the repo before and after; the plan gates on it, and the duration piece is revertible independently of the other two                                                                                                                                                                                                  |
-| `const` narrowing breaks a consumer                                                         | Three in-repo consumers act as canaries and must typecheck unchanged: the `examples/order-processing-{contract,worker,client}` packages, and the existing heavy `defineContract` callers `packages/contract/src/types-inference.spec.ts` and `builder.spec.ts` (1351 lines). Any change they need is a finding to report, not to absorb silently |
-| Error messages worse than the runtime ones they shadow                                      | String-literal error types, message text matched to the runtime `fail()` wording                                                                                                                                                                                                                                                                 |
-| Deep recursion hitting TypeScript's instantiation limit on a pathological string            | Bound the numeric-run recursion; test a long input explicitly                                                                                                                                                                                                                                                                                    |
+| Risk                                                                                        | Mitigation                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Compile-time cost of recursive template-literal parsing on every duration in every contract | **Measured; did not materialize.** Cost is sub-linear in contract size: 10 activities / 50 duration slots → 6,158 instantiations, 0.06s check; 40 activities / 200 slots → 13,508 instantiations, **0.06s** check. 4× the activities, identical check time. The contract package's own +98% instantiation figure is dominated by the type-level test suite, not user-facing cost |
+| `const` narrowing breaks a consumer                                                         | Three in-repo consumers act as canaries and must typecheck unchanged: the `examples/order-processing-{contract,worker,client}` packages, and the existing heavy `defineContract` callers `packages/contract/src/types-inference.spec.ts` and `builder.spec.ts` (1351 lines). Any change they need is a finding to report, not to absorb silently                                 |
+| Error messages worse than the runtime ones they shadow                                      | String-literal error types, message text matched to the runtime `fail()` wording                                                                                                                                                                                                                                                                                                 |
+| Deep recursion hitting TypeScript's instantiation limit on a pathological string            | Bound the numeric-run recursion; test a long input explicitly                                                                                                                                                                                                                                                                                                                    |
 
 ## Out of scope
 
