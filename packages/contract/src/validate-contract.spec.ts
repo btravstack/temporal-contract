@@ -261,7 +261,7 @@ describe("activity collision detection", () => {
 
   it("does NOT flag a contract with no activities, even when workflows fall back to the default activities type", () => {
     // Regression (fix round 2): `WorkflowDefinition["activities"]` defaults
-    // to `Record<string, never>` (`types.ts:189`) when a workflow declares
+    // to `Record<string, never>` (`types.ts:218`) when a workflow declares
     // no activities. `keyof Record<string, never>` is `string`, so
     // `AllActivityNames` picks up the *type* `string` as a name candidate on
     // a contract that declares no activities at all. Two workflows both
