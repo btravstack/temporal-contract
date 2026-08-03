@@ -723,9 +723,21 @@ describe("defineContract wiring", () => {
     });
   });
 
-  it('compiles a leading-dot duration literal like ".5s"', () => {
-    // Guards the `` `.${number}${string}` `` member of `DurationValue`
-    // (types.ts:51): the runtime regex accepts a leading dot (builder.ts:547).
+  it('compiles a leading-dot duration literal like ".5s", and preserves it as a literal', () => {
+    // Guards `IsMsDuration`'s leading-dot handling (`SplitNumber` allows "."
+    // in the digit run) and `CheckDuration`'s corresponding
+    // `` `.${number}${string}` `` `IsExactly` branch (validate-contract.ts) —
+    // *not* a dedicated `DurationValue` union member for the dot case.
+    // `DurationValue` (types.ts:51) has only one template-literal member,
+    // `` `${number}${string}` ``: any single template-literal member already
+    // enables literal-preserving inference for every string literal
+    // candidate the slot is assigned, dot-prefixed or not, so a second
+    // narrower member restricted to the dot case would be redundant —
+    // mutation-tested by removing it (round 1 of 5) without breaking
+    // anything. The runtime regex (builder.ts:547) accepts the leading dot,
+    // so this must compile and — the part a bare "does it compile" check
+    // can't tell apart from a silent widen-to-`string` — the duration must
+    // still show up as the literal `".5s"`, not plain `string`.
     const charge = defineActivity({
       input: z.object({ amount: z.number() }),
       output: z.object({ ok: z.boolean() }),
@@ -738,10 +750,14 @@ describe("defineContract wiring", () => {
       activities: { charge },
     });
 
-    defineContract({
+    const contract = defineContract({
       taskQueue: "orders",
       workflows: { processOrder },
     });
+
+    expectTypeOf<
+      (typeof contract)["workflows"]["processOrder"]["activities"]["charge"]["activityOptions"]["startToCloseTimeout"]
+    >().toEqualTypeOf<".5s">();
   });
 
   it("compiles when the workflows map widens to Record<string, AnyWorkflowDefinition>", () => {
