@@ -306,10 +306,28 @@ Make the whole contract the generic parameter instead, so the argument _is_
 the type parameter rather than an object literal containing one:
 
 ```typescript
-function makeContract<T extends ContractDefinition>(contract: T) {
-  return defineContract(contract);
+function makeContract<const T extends ContractDefinition>(contract: T): T {
+  return defineContract(contract as never) as T;
 }
 ```
+
+Three details here are load-bearing, and getting any of them wrong fails
+silently:
+
+- **`as never`** is what opts the helper out of the compile-time checks. That
+  is unavoidable — validating through a generic is precisely what cannot work.
+  **`defineContract`'s runtime validation still runs and still throws**, so a
+  contract built this way is still fully checked; the check simply happens at
+  call time instead of at `tsc` time.
+- **`const T`** preserves literal types. Without it, workflow and activity
+  names widen to `string`.
+- **The explicit `: T` return type** is what propagates your contract's type to
+  the caller. Omit it — writing just
+  `function makeContract<T extends ContractDefinition>(contract: T)` — and the
+  helper returns bare `ContractDefinition`: `InferWorkflowNames` becomes
+  `string`, every workflow and activity name is erased, and **nothing anywhere
+  reports an error**. Every typed API downstream of that contract silently
+  loses its types.
 
 :::
 

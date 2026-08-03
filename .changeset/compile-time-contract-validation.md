@@ -19,7 +19,9 @@ A duration whose value is a computed `string` rather than a literal (read from c
 **Known limitation:** a contract assembled inside a generic helper (a contract-factory or multi-tenant-builder pattern, with a generic `workflows` map or a generic `activities` map) now fails to type-check, reported as an unreadable "not assignable" error on a raw conditional type. TypeScript cannot check a generic argument against `defineContract`'s computed parameter type. The runtime still accepts and validates these contracts exactly as before. Workaround — make the whole contract generic instead of a piece of it:
 
 ```typescript
-function makeContract<T extends ContractDefinition>(contract: T) {
-  return defineContract(contract);
+function makeContract<const T extends ContractDefinition>(contract: T): T {
+  return defineContract(contract as never) as T;
 }
 ```
+
+The cast is what opts this helper out of the _compile-time_ checks — unavoidable, since checking through a generic is the thing that cannot work. `defineContract`'s runtime validation still runs and still throws, so these contracts remain fully checked, just at call time rather than at `tsc` time. The `const T` and explicit `: T` are load-bearing: without them the helper returns bare `ContractDefinition` and every workflow and activity name is silently erased to `string`.
