@@ -66,8 +66,14 @@ type SplitNumber<S extends string, Acc extends string = ""> = S extends `${infer
 type TrimLeft<S extends string> = S extends ` ${infer Rest}` ? TrimLeft<Rest> : S;
 
 /**
- * Does the consumed run parse as a number? `${number}` rejects "" and "." and
- * "1.2.3" — exactly the cases the runtime regex rejects.
+ * Does the consumed run parse as a number? `${number}` rejects "" and "."
+ * and "1.2.3", same as the runtime regex — but it is not an exact match: a
+ * differential check against `MS_DURATION_PATTERN` found trailing-dot forms
+ * like "1." that `${number}` accepts and the runtime regex rejects. That
+ * divergence is deliberately left as-is: it only ever makes this layer more
+ * permissive than the runtime, never stricter, and the runtime regex remains
+ * authoritative — it still rejects "1." at `defineContract` time regardless
+ * of what this type concludes.
  */
 type IsNumeric<S extends string> = S extends `${number}` ? true : false;
 
@@ -334,13 +340,36 @@ type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : 
  * least one scope. That safety depends on the two types staying in
  * lockstep: if `AllActivityNames` is ever widened independently of
  * `ScopesDeclaring`, this invariant breaks silently.
+ *
+ * Guarded against a widened key type in any declaring scope, mirroring
+ * {@link WorkflowActivityNameClashes}'s guard. An activities map with an
+ * index signature — `Record<string, ActivityDefinition>`, or the equivalent
+ * `{ [key: string]: ActivityDefinition }` literal — widens `keyof` to
+ * `string` (or, for a numeric index signature, `number`), and that widened
+ * type becomes a member of `AllActivityNames<C>` alongside any concrete
+ * names. When two such scopes disagree on the bound value type,
+ * `ScopesDeclaring<C, string>` is a two-member union and `DefinitionsFor<C,
+ * string>` is too, so without a guard the check would fire on the *type*
+ * `string` as though it were an activity name — surfacing as the unresolved
+ * template `` Contract error: activity "${string}" is declared with
+ * different definitions…`` `` that can never resolve to a real name. That is
+ * exactly the shape `defineContract` accepts today (a caller building an
+ * activities map dynamically), so without the guard this type falsely flags
+ * every such contract. `string extends N` (and `number extends N`, since
+ * `keyof { [k: string]: X }` is `string | number`) asks "did this candidate
+ * widen all the way to the key-signature type itself?" — true only for the
+ * widened case, never for a concrete activity name literal.
  */
 export type CollidingActivityNames<C extends ContractLike> = {
-  [N in AllActivityNames<C>]: IsUnion<ScopesDeclaring<C, N>> extends true
-    ? IsUnion<DefinitionsFor<C, N>> extends true
-      ? N
-      : never
-    : never;
+  [N in AllActivityNames<C>]: string extends N
+    ? never
+    : number extends N
+      ? never
+      : IsUnion<ScopesDeclaring<C, N>> extends true
+        ? IsUnion<DefinitionsFor<C, N>> extends true
+          ? N
+          : never
+        : never;
 }[AllActivityNames<C>];
 
 /**

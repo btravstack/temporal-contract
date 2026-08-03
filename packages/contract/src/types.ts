@@ -61,13 +61,14 @@ export type ErrorDefinition<TData extends AnySchema = AnySchema> = {
  *   a second, narrower template-literal member for the dot case specifically
  *   is not needed for inference and was removed (mutation-tested: deleting
  *   it, alone or together with `CheckDuration`'s corresponding
- *   `` `.${number}${string}` `` branch, leaves the package green). What *is*
- *   load-bearing is `CheckDuration`'s `` `.${number}${string}` `` branch
- *   itself (`validate-contract.ts`) — removing only that branch, while
- *   leaving this union as-is, breaks `validate-contract.spec.ts`'s literal-
- *   preservation coverage for `".5s"`, because `IsMsDuration` cannot resolve
- *   the abstract (unliteral) pattern the same way it can't resolve
- *   `` `${number}${string}` `` itself — see `CheckDuration`'s doc comment.
+ *   `` `.${number}${string}` `` branch, leaves the package green).
+ *   `CheckDuration`'s `` `.${number}${string}` `` branch (`validate-contract.ts`)
+ *   is likewise not load-bearing today: removing it alone also leaves the
+ *   package green, because `IsMsDuration` already resolves a concrete
+ *   literal like `".5s"` on its own — the branch only matters for the
+ *   *unresolved pattern* case `IsExactly` guards against, which no current
+ *   `DurationValue` shape produces. See `CheckDuration`'s doc comment for why
+ *   the branch is kept anyway.
  * - `number` — a plain number of milliseconds.
  * - `string & {}` — deliberate, not a mistake: it is what keeps a *computed*
  *   string (e.g. a timeout read from config, which has no literal to

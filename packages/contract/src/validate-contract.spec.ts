@@ -295,6 +295,56 @@ describe("activity collision detection", () => {
     };
     expectTypeOf<TypeEq<CollidingActivityNames<C>, never>>().toEqualTypeOf<true>();
   });
+
+  it("does NOT flag two widened workflow-scoped activity maps (F2 regression)", () => {
+    // Both `a` and `b` type `activities` as an index signature rather than a
+    // literal key union — `Record<string, ChargeA>` for one workflow,
+    // `Record<string, ChargeB>` for the other. `keyof` on each widens to
+    // plain `string`, so `AllActivityNames<C>` picks up the *type* `string`
+    // as a name candidate, same trigger as the existing "falls back to the
+    // default activities type" regression above — except here the two scopes
+    // also disagree on the bound VALUE type. Without a guard,
+    // `ScopesDeclaring<C, string>` becomes a two-member union (both `a` and
+    // `b` declare it) and `DefinitionsFor<C, string>` is also a union
+    // (`ChargeA` vs `ChargeB`), so the check fires on the type `string` as
+    // though it were an activity name — an unresolved template literal that
+    // can never name a real activity. The runtime accepts this
+    // unconditionally.
+    type C = {
+      taskQueue: "q";
+      workflows: {
+        a: { input: unknown; output: unknown; activities: Record<string, ChargeA> };
+        b: { input: unknown; output: unknown; activities: Record<string, ChargeB> };
+      };
+    };
+    expectTypeOf<TypeEq<CollidingActivityNames<C>, never>>().toEqualTypeOf<true>();
+  });
+
+  it("does NOT flag a widened workflow-scoped map against a widened global map (F2 regression)", () => {
+    // Same root cause as above, but one side is the top-level `activities`
+    // map instead of a second workflow's.
+    type C = {
+      taskQueue: "q";
+      activities: Record<string, ChargeA>;
+      workflows: {
+        a: { input: unknown; output: unknown; activities: Record<string, ChargeB> };
+      };
+    };
+    expectTypeOf<TypeEq<CollidingActivityNames<C>, never>>().toEqualTypeOf<true>();
+  });
+
+  it("does NOT flag two index-signature literals with differing value types (F2 regression)", () => {
+    // Same root cause, written as an inline index-signature literal rather
+    // than `Record<string, X>` — both widen `keyof` to `string` the same way.
+    type C = {
+      taskQueue: "q";
+      workflows: {
+        a: { input: unknown; output: unknown; activities: { [key: string]: ChargeA } };
+        b: { input: unknown; output: unknown; activities: { [key: string]: ChargeB } };
+      };
+    };
+    expectTypeOf<TypeEq<CollidingActivityNames<C>, never>>().toEqualTypeOf<true>();
+  });
 });
 
 describe("workflow vs global activity name clashes", () => {

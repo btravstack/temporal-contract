@@ -12,6 +12,6 @@ Caught at compile time:
 
 A duration whose value is a computed `string` rather than a literal (read from config, built dynamically, etc.) cannot be checked at compile time — there is no literal to inspect. The runtime still validates it at `defineContract` time, exactly as it always has.
 
-**Breaking:** `defineContract`'s type parameter is now `const`. This preserves literal types through inference and infers array properties as `readonly` tuples instead of mutable arrays. Code that assigns a contract literal to a variable typed for mutation may need a `readonly` annotation.
+**Breaking:** `defineContract`'s type parameter is now `const`. This preserves literal types through inference and infers array properties as `readonly` tuples instead of mutable arrays. It also makes the returned contract's own properties `readonly` (`c.taskQueue = "x"` and `c.workflows = …`, which compiled before, are now errors) and infers string properties as literals rather than `string` (`(typeof c)["taskQueue"]` was `string`, is now e.g. `"orders"`). Code that assigns a contract literal to a variable typed for mutation, mutates a contract's top-level properties, or relies on a widened `string` type for `taskQueue` or similar fields may need adjustment.
 
 **Breaking:** `DurationValue` changed from `string | number` to `` `${number}${string}` | number | (string & {}) ``. Every value the runtime accepts still type-checks, including computed `string`s — but code that reads the type directly (e.g. `Extract<DurationValue, string>`) may see a different shape than before.

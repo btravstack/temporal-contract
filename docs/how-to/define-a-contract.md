@@ -265,18 +265,27 @@ It validates at call time and throws on:
 - any name that is not a valid JavaScript identifier;
 - a name Temporal reserves for its SDK internals — anything starting with
   `__temporal_`, plus the exact query names `__stack_trace` and
-  `__enhanced_stack_trace`;
+  `__enhanced_stack_trace` — **also a `tsc` error** when the name is written
+  as a literal in the contract source;
 - an `input`, `output`, or error `data` that is not Standard Schema compatible;
 - duplicate activity names across the flat namespace that point at
-  **different** definitions (sharing one `defineActivity` result is allowed);
-- unknown keys or malformed duration strings in `activityOptions`.
+  **different** definitions (sharing one `defineActivity` result is allowed)
+  — **also a `tsc` error** when the two definitions are structurally
+  distinguishable;
+- unknown keys or malformed duration strings in `activityOptions` — a
+  malformed literal duration like `"5 minutos"` is **also a `tsc` error**; a
+  duration built from a computed `string` (read from config, etc.) has no
+  literal to inspect, so only the runtime check catches it.
 
 ```
 Contract validation failed: taskQueue cannot be empty
 ```
 
 Because this runs at import time, a malformed contract fails when the process
-starts rather than when a workflow first executes.
+starts rather than when a workflow first executes. The three checks called
+out above also run at `tsc` time, ahead of import, for whatever a literal in
+the contract source lets the type checker prove — the runtime check still
+runs unconditionally and remains authoritative.
 
 ## Next
 
