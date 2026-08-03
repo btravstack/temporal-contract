@@ -13,6 +13,7 @@ import type {
   CheckName,
   CollidingActivityNames,
   IsMsDuration,
+  ValidateContract,
   WorkflowActivityNameClashes,
 } from "./validate-contract.js";
 
@@ -317,5 +318,162 @@ describe("workflow vs global activity name clashes", () => {
   it("is inert when the contract declares no global activities", () => {
     type C = { taskQueue: "q"; workflows: { processOrder: { input: unknown; output: unknown } } };
     expectTypeOf<TypeEq<WorkflowActivityNameClashes<C>, never>>().toEqualTypeOf<true>();
+  });
+});
+
+describe("ValidateContract", () => {
+  type Act = { input: unknown; output: unknown };
+
+  it("maps a valid contract to itself, so the intersection is a no-op", () => {
+    type C = {
+      taskQueue: "orders";
+      workflows: { processOrder: { input: unknown; output: unknown } };
+    };
+    // Not merely assignable — identical. If validation altered a valid
+    // contract, `T & ValidateContract<T>` would reject correct code.
+    expectTypeOf<TypeEq<ValidateContract<C>, C>>().toEqualTypeOf<true>();
+  });
+
+  it("replaces a reserved workflow name with a message naming it", () => {
+    type C = {
+      taskQueue: "orders";
+      workflows: { __temporal_evil: { input: unknown; output: unknown } };
+    };
+    expectTypeOf<TypeEq<ValidateContract<C>, C>>().toEqualTypeOf<false>();
+    // The reserved-name error lands on the remapped KEY of `workflows`, not
+    // on a value — `ValidateWorkflows` uses `as CheckName<K, "workflow">` in
+    // its key-remapping position.
+    expectTypeOf<ValidateContract<C>["workflows"]>().toExtend<
+      Record<`workflow name "__temporal_evil" is reserved${string}`, unknown>
+    >();
+  });
+
+  it("replaces a reserved global activity name", () => {
+    type C = {
+      taskQueue: "orders";
+      workflows: { ok: { input: unknown; output: unknown } };
+      activities: { __temporal_evil: Act };
+    };
+    expectTypeOf<TypeEq<ValidateContract<C>, C>>().toEqualTypeOf<false>();
+    // Same shape as the workflow case, but on the top-level `activities` map
+    // and tagged "global activity" — `ValidateActivities` remaps keys with
+    // `as CheckName<K, TKind>`.
+    expectTypeOf<ValidateContract<C>["activities"]>().toExtend<
+      Record<`global activity name "__temporal_evil" is reserved${string}`, unknown>
+    >();
+  });
+
+  it("replaces a malformed startToCloseTimeout", () => {
+    type C = {
+      taskQueue: "orders";
+      workflows: { ok: { input: unknown; output: unknown } };
+      activities: {
+        charge: {
+          input: unknown;
+          output: unknown;
+          activityOptions: { startToCloseTimeout: "5 minutos" };
+        };
+      };
+    };
+    expectTypeOf<TypeEq<ValidateContract<C>, C>>().toEqualTypeOf<false>();
+    // Duration errors land on the VALUE, not the key — `startToCloseTimeout`
+    // itself is unaffected; only what it's bound to changes.
+    expectTypeOf<
+      ValidateContract<C>["activities"]["charge"]["activityOptions"]["startToCloseTimeout"]
+    >().toExtend<`Invalid duration "5 minutos": ${string}`>();
+  });
+
+  it("replaces a malformed retry interval", () => {
+    type C = {
+      taskQueue: "orders";
+      workflows: { ok: { input: unknown; output: unknown } };
+      activities: {
+        charge: {
+          input: unknown;
+          output: unknown;
+          activityOptions: { retry: { initialInterval: "one second" } };
+        };
+      };
+    };
+    expectTypeOf<TypeEq<ValidateContract<C>, C>>().toEqualTypeOf<false>();
+    expectTypeOf<
+      ValidateContract<C>["activities"]["charge"]["activityOptions"]["retry"]["initialInterval"]
+    >().toExtend<`Invalid duration "one second": ${string}`>();
+  });
+
+  it("leaves valid durations alone", () => {
+    type C = {
+      taskQueue: "orders";
+      workflows: { ok: { input: unknown; output: unknown } };
+      activities: {
+        charge: {
+          input: unknown;
+          output: unknown;
+          activityOptions: { startToCloseTimeout: "30s"; retry: { initialInterval: "1 minute" } };
+        };
+      };
+    };
+    expectTypeOf<TypeEq<ValidateContract<C>, C>>().toEqualTypeOf<true>();
+  });
+
+  it("flags a contract whose activity names collide", () => {
+    type ChargeA = { input: { amount: number }; output: { ok: boolean } };
+    type ChargeB = { input: { cents: number }; output: { ok: boolean } };
+    type C = {
+      taskQueue: "orders";
+      workflows: {
+        a: { input: unknown; output: unknown; activities: { charge: ChargeA } };
+        b: { input: unknown; output: unknown; activities: { charge: ChargeB } };
+      };
+    };
+    expectTypeOf<TypeEq<ValidateContract<C>, C>>().toEqualTypeOf<false>();
+    // Cross-cutting errors are reported on the whole `workflows` property,
+    // per the brief's design note — not on a key, not on a nested value.
+    expectTypeOf<
+      ValidateContract<C>["workflows"]
+    >().toExtend<`Contract error: activity "charge" is declared with different definitions${string}`>();
+  });
+
+  it("flags a workflow name shadowed by a global activity", () => {
+    type C = {
+      taskQueue: "orders";
+      workflows: { processOrder: { input: unknown; output: unknown } };
+      activities: { processOrder: Act };
+    };
+    expectTypeOf<TypeEq<ValidateContract<C>, C>>().toEqualTypeOf<false>();
+    // Same landing spot as the collision case — the whole `workflows`
+    // property becomes the message, naming the shared identifier.
+    expectTypeOf<
+      ValidateContract<C>["workflows"]
+    >().toExtend<`Contract error: "processOrder" is both a workflow and a global activity${string}`>();
+  });
+
+  it("does NOT flag a reserved-looking error name", () => {
+    // builder.ts:435-436 — error names never become handler names.
+    type C = {
+      taskQueue: "orders";
+      workflows: {
+        ok: {
+          input: unknown;
+          output: unknown;
+          errors: { __temporal_evil: { message: "boom" } };
+        };
+      };
+    };
+    expectTypeOf<TypeEq<ValidateContract<C>, C>>().toEqualTypeOf<true>();
+  });
+
+  it("does NOT flag a reserved-looking search attribute name", () => {
+    type C = {
+      taskQueue: "orders";
+      workflows: {
+        ok: {
+          input: unknown;
+          output: unknown;
+          searchAttributes: { __temporal_evil: { kind: "TEXT" } };
+        };
+      };
+    };
+    expectTypeOf<TypeEq<ValidateContract<C>, C>>().toEqualTypeOf<true>();
   });
 });

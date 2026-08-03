@@ -288,3 +288,102 @@ export type WorkflowActivityNameClashes<C extends ContractLike> = C extends {
 }
   ? Extract<keyof GlobalActivitiesOf<C>, keyof W>
   : never;
+
+/** Validate the two duration slots on an `activityOptions.retry` bag. */
+type ValidateRetry<R> = {
+  [K in keyof R]: K extends "initialInterval" | "maximumInterval" ? CheckDuration<R[K]> : R[K];
+};
+
+/**
+ * Validate an `activityOptions` bag: the four timeout slots
+ * (`builder.ts:470-475`) plus the two retry intervals
+ * (`builder.ts:632-633`).
+ */
+type ValidateActivityOptions<O> = {
+  [K in keyof O]: K extends
+    | "startToCloseTimeout"
+    | "scheduleToCloseTimeout"
+    | "scheduleToStartTimeout"
+    | "heartbeatTimeout"
+    ? CheckDuration<O[K]>
+    : K extends "retry"
+      ? ValidateRetry<O[K]>
+      : O[K];
+};
+
+/** Validate one activity definition — currently just its `activityOptions`. */
+type ValidateActivity<A> = {
+  [K in keyof A]: K extends "activityOptions" ? ValidateActivityOptions<A[K]> : A[K];
+};
+
+/**
+ * Validate an activities map: keys against the reserved-name rule, values
+ * against the activity rules. `TKind` distinguishes global activities from
+ * workflow-scoped ones so the error message names the right thing.
+ */
+type ValidateActivities<A, TKind extends string> = {
+  [K in keyof A as CheckName<K, TKind>]: ValidateActivity<A[K]>;
+};
+
+/**
+ * Validate a signal / query / update map: reserved names only. The schema
+ * slots are structural and already enforced by `ContractDefinition`.
+ */
+type ValidateHandlerMap<M, TKind extends string> = {
+  [K in keyof M as CheckName<K, TKind>]: M[K];
+};
+
+/**
+ * Validate a workflow definition. `errors` and `searchAttributes` are
+ * deliberately absent: `builder.ts:435-436` exempts both kinds from the
+ * reserved-name rule, and nothing else about them is type-checkable here.
+ */
+type ValidateWorkflow<W> = {
+  [K in keyof W]: K extends "activities"
+    ? ValidateActivities<W[K], "activity">
+    : K extends "signals"
+      ? ValidateHandlerMap<W[K], "signal">
+      : K extends "queries"
+        ? ValidateHandlerMap<W[K], "query">
+        : K extends "updates"
+          ? ValidateHandlerMap<W[K], "update">
+          : W[K];
+};
+
+/** Validate the workflows map: reserved names on keys, definitions on values. */
+type ValidateWorkflows<W> = {
+  [K in keyof W as CheckName<K, "workflow">]: ValidateWorkflow<W[K]>;
+};
+
+/**
+ * Cross-cutting checks that no single property owns. Both are reported on the
+ * `workflows` slot: a collision is a property of the whole map, and a message
+ * naming the offending activity beats a squiggle on an arbitrary one of the
+ * two definitions.
+ */
+type CrossCuttingError<T extends ContractLike> = [CollidingActivityNames<T>] extends [never]
+  ? [WorkflowActivityNameClashes<T>] extends [never]
+    ? never
+    : `Contract error: "${Extract<WorkflowActivityNameClashes<T>, string>}" is both a workflow and a global activity. Workflows and global activities share the root of the worker implementations map — rename one of them.`
+  : `Contract error: activity "${Extract<CollidingActivityNames<T>, string>}" is declared with different definitions in more than one scope. Activities share a single flat namespace at runtime — hoist the shared activity to the contract's global "activities" block, reference one shared definition from every scope, or rename one of them.`;
+
+/**
+ * Compile-time mirror of a subset of `validateContractDefinition`.
+ *
+ * A valid contract maps to a type identical to `T`, so `T & ValidateContract<T>`
+ * is a no-op and correct code is unaffected. An invalid one maps the offending
+ * property to a string literal whose text is the diagnostic, which surfaces as
+ * a "not assignable to" error with the guidance inline.
+ *
+ * The runtime checks in `builder.ts` remain authoritative — this layer is a
+ * strictly earlier, strictly narrower warning for typed callers.
+ */
+export type ValidateContract<T extends ContractLike> = {
+  [K in keyof T]: K extends "workflows"
+    ? [CrossCuttingError<T>] extends [never]
+      ? ValidateWorkflows<T[K]>
+      : CrossCuttingError<T>
+    : K extends "activities"
+      ? ValidateActivities<T[K], "global activity">
+      : T[K];
+};
