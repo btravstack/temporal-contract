@@ -12,6 +12,7 @@ import type {
   UndefinedInputSchema,
   UpdateDefinition,
 } from "./types.js";
+import type { ValidateContract } from "./validate-contract.js";
 
 // Exported builders first (classic functions for hoisting)
 
@@ -356,6 +357,18 @@ export function defineWorkflow<TWorkflow extends AnyWorkflowDefinition>(
  * });
  * ```
  */
+export function defineContract<TContract extends ContractDefinition>(
+  definition: ValidateContract<TContract>,
+): TContract;
+// Implementation signature only — not part of the public call surface (a
+// signature with a body never is, once a separate overload signature
+// exists above it). It exists purely so the body below type-checks:
+// `ValidateContract<TContract>` is a mapped/conditional type over
+// `TContract`, and `exactOptionalPropertyTypes` makes `return definition`
+// unprovable against the generic `TContract` return type (TS2375) even
+// though every concrete instantiation is sound. Typing this internal
+// signature identity-style (`TContract` in, `TContract` out) sidesteps
+// that without touching what callers see or what the body does.
 export function defineContract<TContract extends ContractDefinition>(
   definition: TContract,
 ): TContract {

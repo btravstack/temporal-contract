@@ -43,12 +43,30 @@ export type ErrorDefinition<TData extends AnySchema = AnySchema> = {
 
 /**
  * A Temporal duration: either a number of milliseconds or an `ms`-formatted
- * string (`"30 seconds"`, `"5m"`, …). Kept as `string | number` rather than
+ * string (`"30 seconds"`, `"5m"`, …). Kept as a hand-rolled union rather than
  * Temporal's template-literal `Duration` type so the contract package stays
  * free of `@temporalio/*` dependencies; the worker forwards values to
  * Temporal unchanged.
+ *
+ * The union is four members instead of plain `string | number` so that
+ * literal duration strings survive inference into `validate-contract.ts`'s
+ * compile-time `CheckDuration`, while every string the runtime accepts still
+ * type-checks:
+ *
+ * - `` `${number}${string}` `` — preserves an ordinary literal like `"30s"`
+ *   as itself instead of widening it to `string`.
+ * - `` `.${number}${string}` `` — same, for a leading-dot literal like
+ *   `".5s"`; the runtime regex accepts the leading dot (`builder.ts:547`),
+ *   and the member above alone would reject it.
+ * - `number` — a plain number of milliseconds.
+ * - `string & {}` — deliberate, not a mistake: it is what keeps a *computed*
+ *   string (e.g. a timeout read from config, which has no literal to
+ *   preserve) accepting. Without it, any non-literal `string` duration stops
+ *   compiling — a regression the runtime does not have. Do not "simplify"
+ *   this to `string`, which would silently widen every literal above back to
+ *   `string` and defeat the whole point of this union.
  */
-export type DurationValue = string | number;
+export type DurationValue = `${number}${string}` | `.${number}${string}` | number | (string & {});
 
 /**
  * Portable subset of Temporal's `RetryPolicy`, usable in contract-level
