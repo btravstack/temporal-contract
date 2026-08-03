@@ -343,14 +343,16 @@ describe("ValidateContract", () => {
       workflows: { __temporal_evil: { input: unknown; output: unknown } };
     };
     expectTypeOf<TypeEq<ValidateContract<C>, C>>().toEqualTypeOf<false>();
-    // The reserved-name error lands on the remapped KEY of `workflows`, not
-    // on a value — `ValidateWorkflows` uses `as CheckName<K, "workflow">` in
-    // its key-remapping position. Asserting `toExtend<Record<`…${string}`,
-    // unknown>>` here would be vacuous — a pattern index signature is
-    // satisfied by any object type, error message or not — so pin the
-    // remapped KEY SET itself instead.
+    // Fix round 2: the reserved-name error lands in the VALUE position at the
+    // (preserved) offending key, not on a remapped key. Remapping the key
+    // (the round-1 shape) makes the original key vanish from the mapped
+    // type, which surfaces as an inscrutable TS2353 "does not exist" error
+    // instead of the crafted message — see `ValidateWorkflows`'s doc comment.
+    // Both halves of the fix are asserted: the key survives unchanged (so
+    // the message is reachable at all), and the value at that key carries it.
+    expectTypeOf<keyof ValidateContract<C>["workflows"]>().toEqualTypeOf<"__temporal_evil">();
     expectTypeOf<
-      keyof ValidateContract<C>["workflows"]
+      ValidateContract<C>["workflows"]["__temporal_evil"]
     >().toExtend<`workflow name "__temporal_evil" is reserved${string}`>();
   });
 
@@ -361,13 +363,36 @@ describe("ValidateContract", () => {
       activities: { __temporal_evil: Act };
     };
     expectTypeOf<TypeEq<ValidateContract<C>, C>>().toEqualTypeOf<false>();
-    // Same shape as the workflow case, but on the top-level `activities` map
-    // and tagged "global activity" — `ValidateActivities` remaps keys with
-    // `as CheckName<K, TKind>`. Same vacuous-`Record`-target pitfall applies,
-    // so pin the remapped KEY SET, not a `Record<pattern, unknown>` shape.
+    // Same fix-round-2 shape as the workflow case, but on the top-level
+    // `activities` map and tagged "global activity". Key preserved, value
+    // carries the message.
+    expectTypeOf<keyof ValidateContract<C>["activities"]>().toEqualTypeOf<"__temporal_evil">();
     expectTypeOf<
-      keyof ValidateContract<C>["activities"]
+      ValidateContract<C>["activities"]["__temporal_evil"]
     >().toExtend<`global activity name "__temporal_evil" is reserved${string}`>();
+  });
+
+  it("replaces a reserved signal name's value with a message naming it, and preserves the key", () => {
+    // Third of the three ValidateContract map validators that route through
+    // the value-position fix (fix round 2): workflow-scoped `signals` goes
+    // through `ValidateHandlerMap`, same as `queries`/`updates`.
+    type C = {
+      taskQueue: "orders";
+      workflows: {
+        ok: {
+          input: unknown;
+          output: unknown;
+          signals: { __temporal_evil: { input: unknown } };
+        };
+      };
+    };
+    expectTypeOf<TypeEq<ValidateContract<C>, C>>().toEqualTypeOf<false>();
+    expectTypeOf<
+      keyof ValidateContract<C>["workflows"]["ok"]["signals"]
+    >().toEqualTypeOf<"__temporal_evil">();
+    expectTypeOf<
+      ValidateContract<C>["workflows"]["ok"]["signals"]["__temporal_evil"]
+    >().toExtend<`signal name "__temporal_evil" is reserved${string}`>();
   });
 
   it("replaces a malformed startToCloseTimeout", () => {

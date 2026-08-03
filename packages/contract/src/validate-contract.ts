@@ -333,17 +333,33 @@ type ValidateActivity<A> = {
  * Validate an activities map: keys against the reserved-name rule, values
  * against the activity rules. `TKind` distinguishes global activities from
  * workflow-scoped ones so the error message names the right thing.
+ *
+ * The reserved-name error is placed in the VALUE position, not remapped onto
+ * the key (fix round 2). Remapping the key via `as CheckName<K, TKind>` makes
+ * the original key vanish from the mapped type, so a reserved name surfaces
+ * as TS2353 ("object literal may only specify known properties... 'X' does
+ * not exist") — the carefully built message is never shown, and the user is
+ * told a property they wrote themselves "does not exist." Keeping the key and
+ * replacing the value with the message instead lands the message on the
+ * offending property as a "not assignable to" error, which is visible.
+ * `CheckName<K, TKind> extends K` asks "was this name accepted unchanged?" —
+ * true for a valid name (where `CheckName` returns `K` itself, so `K extends
+ * K` trivially holds) and false for a rejected one (where `CheckName` returns
+ * the message literal, which a distinct key literal does not extend).
  */
 type ValidateActivities<A, TKind extends string> = {
-  [K in keyof A as CheckName<K, TKind>]: ValidateActivity<A[K]>;
+  [K in keyof A]: CheckName<K, TKind> extends K ? ValidateActivity<A[K]> : CheckName<K, TKind>;
 };
 
 /**
  * Validate a signal / query / update map: reserved names only. The schema
  * slots are structural and already enforced by `ContractDefinition`.
+ *
+ * Value-position error, same reasoning as {@link ValidateActivities} (fix
+ * round 2).
  */
 type ValidateHandlerMap<M, TKind extends string> = {
-  [K in keyof M as CheckName<K, TKind>]: M[K];
+  [K in keyof M]: CheckName<K, TKind> extends K ? M[K] : CheckName<K, TKind>;
 };
 
 /**
@@ -363,9 +379,17 @@ type ValidateWorkflow<W> = {
           : W[K];
 };
 
-/** Validate the workflows map: reserved names on keys, definitions on values. */
+/**
+ * Validate the workflows map: reserved names checked, definitions validated.
+ *
+ * Value-position error, same reasoning as {@link ValidateActivities} (fix
+ * round 2) — the key is preserved so the message is visible instead of
+ * surfacing as an inscrutable TS2353 "does not exist" error.
+ */
 type ValidateWorkflows<W> = {
-  [K in keyof W as CheckName<K, "workflow">]: ValidateWorkflow<W[K]>;
+  [K in keyof W]: CheckName<K, "workflow"> extends K
+    ? ValidateWorkflow<W[K]>
+    : CheckName<K, "workflow">;
 };
 
 /**
