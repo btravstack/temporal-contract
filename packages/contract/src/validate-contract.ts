@@ -98,11 +98,24 @@ export type IsMsDuration<S extends string> = string extends S
  * intersection in `ValidateContract` is a no-op; an invalid one maps to a
  * string literal whose text is the diagnostic, which is what the user sees in
  * the "not assignable to" error.
+ *
+ * A non-literal `string` also passes through unchanged, same as `IsMsDuration`
+ * treats it (see that type's doc comment) — but the two checks are distinct
+ * for a reason. `ContractActivityOptions`'s duration slots are typed
+ * `DurationValue = string | number` (`types.ts:51, 84-89`), so a value built
+ * through the separate-`defineActivity` pattern (`docs/how-to/tune-activity-
+ * options.md:44-52`) widens to plain `string` during inference — there is no
+ * literal to preserve. Flagging that as an error would reject every real
+ * contract that sets a duration this way, which is a false positive far
+ * worse than the gap it would close: the runtime already validates the
+ * actual string at `defineContract` time, this layer just can't see it.
  */
 export type CheckDuration<V> = V extends string
-  ? IsMsDuration<V> extends true
+  ? string extends V
     ? V
-    : `Invalid duration "${V}": expected an ms-formatted string — a number followed by an optional unit ms/s/m/h/d/w/y or its long form, e.g. "30s", "5 minutes", "1.5h" — or a number of milliseconds`
+    : IsMsDuration<V> extends true
+      ? V
+      : `Invalid duration "${V}": expected an ms-formatted string — a number followed by an optional unit ms/s/m/h/d/w/y or its long form, e.g. "30s", "5 minutes", "1.5h" — or a number of milliseconds`
   : V;
 
 /**
