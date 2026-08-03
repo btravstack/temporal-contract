@@ -1265,6 +1265,12 @@ describe("Contract Builder — duration validation", () => {
           sendEmail: {
             input: z.object({}),
             output: z.void(),
+            // @ts-expect-error -- `CheckDuration` now rejects "quick" at compile
+            // time too, because `defineContract`'s `const` type parameter keeps
+            // this inline literal from widening to `string`. The runtime check
+            // is still the authoritative one and must keep throwing, so the
+            // assertion below stays exactly as it was — this directive only
+            // acknowledges that the same mistake is now caught twice.
             activityOptions: { retry: { initialInterval: "quick" } },
           },
         },

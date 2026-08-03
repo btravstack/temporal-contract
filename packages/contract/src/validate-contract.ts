@@ -90,11 +90,12 @@ export type IsMsDuration<S extends string> = string extends S
     : false;
 
 /**
- * Invariant type equality (not mere subtyping). Used below to recognize
- * `DurationValue`'s own two template-literal members — `` `${number}${string}` ``
- * and `` `.${number}${string}` `` — when they show up *unresolved*, as
- * opposed to a concrete literal like `"30s"` that merely matches one of the
- * patterns. `extends` alone can't tell those apart: `` "30s" extends
+ * Invariant type equality (not mere subtyping). Used below to recognize an
+ * ms-duration template-literal pattern — `` `${number}${string}` `` or
+ * `` `.${number}${string}` `` — when it shows up *unresolved* (as the
+ * pattern itself, e.g. because it's a `DurationValue` member evaluated
+ * generically, rather than one specific literal that happens to match it).
+ * `extends` alone can't tell those apart: `` "30s" extends
  * `${number}${string}` `` and `` `${number}${string}` extends
  * `${number}${string}` `` are both `true`. Checking both directions is what
  * pins it down to "exactly this type, not a subtype of it."
@@ -123,19 +124,27 @@ type IsExactly<A, B> =
  *   that way, a false positive far worse than the gap it closes: the
  *   runtime already validates the actual string at `defineContract` time,
  *   this layer just can't see it.
- * - `DurationValue`'s own two template-literal members, `` `${number}${string}` ``
- *   and `` `.${number}${string}` ``, when they appear *unresolved* rather
- *   than narrowed to a literal — e.g. `ValidateContract<ContractDefinition>`
- *   evaluated on the library's own unparameterized default types, where a
- *   duration slot's apparent type is the pattern itself, not any one
- *   duration string. `IsMsDuration`'s character-by-character parsing
- *   (`SplitNumber`, `TrimLeft`, …) needs a literal to walk; fed the opaque
- *   pattern type instead, `Lowercase` cannot resolve it to a matchable
- *   literal, `SplitNumber` falls through immediately, and the whole check
- *   resolves to `false` — a false positive on a type that denotes "every
- *   string of this shape," most of which are valid. `IsExactly` recognizes
- *   the two patterns by name and passes them through before `IsMsDuration`
- *   ever sees them.
+ * - `DurationValue`'s own template-literal member, `` `${number}${string}` ``
+ *   (`types.ts:51`), when it appears *unresolved* rather than narrowed to a
+ *   literal — e.g. `ValidateContract<ContractDefinition>` evaluated on the
+ *   library's own unparameterized default types, where a duration slot's
+ *   apparent type is the pattern itself, not any one duration string.
+ *   `IsMsDuration`'s character-by-character parsing (`SplitNumber`,
+ *   `TrimLeft`, …) needs a literal to walk; fed the opaque pattern type
+ *   instead, `Lowercase` cannot resolve it to a matchable literal,
+ *   `SplitNumber` falls through immediately, and the whole check resolves to
+ *   `false` — a false positive on a type that denotes "every string of this
+ *   shape," most of which are valid. `IsExactly` recognizes the pattern by
+ *   name and passes it through before `IsMsDuration` ever sees it. The
+ *   `` `.${number}${string}` `` branch right below it exists for the same
+ *   reason but currently has no live caller: `DurationValue` had a matching
+ *   member until round 1 of 5's mutation testing showed it redundant (one
+ *   template-literal member already preserves every literal, dot-prefixed or
+ *   not — see that type's doc comment) and removed it. The branch is kept
+ *   anyway, at no cost, so `CheckDuration` stays correct for the
+ *   leading-dot pattern specifically if it's ever fed one directly — by a
+ *   future `DurationValue` shape or any other caller — matching the
+ *   runtime's acceptance of a leading dot (`builder.ts:547`).
  */
 export type CheckDuration<V> = V extends string
   ? string extends V

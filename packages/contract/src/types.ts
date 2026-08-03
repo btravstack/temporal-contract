@@ -48,16 +48,26 @@ export type ErrorDefinition<TData extends AnySchema = AnySchema> = {
  * free of `@temporalio/*` dependencies; the worker forwards values to
  * Temporal unchanged.
  *
- * The union is four members instead of plain `string | number` so that
+ * The union is three members instead of plain `string | number` so that
  * literal duration strings survive inference into `validate-contract.ts`'s
  * compile-time `CheckDuration`, while every string the runtime accepts still
  * type-checks:
  *
- * - `` `${number}${string}` `` — preserves an ordinary literal like `"30s"`
- *   as itself instead of widening it to `string`.
- * - `` `.${number}${string}` `` — same, for a leading-dot literal like
- *   `".5s"`; the runtime regex accepts the leading dot (`builder.ts:547`),
- *   and the member above alone would reject it.
+ * - `` `${number}${string}` `` — preserves *every* literal duration string
+ *   as itself instead of widening it to `string`, including a leading-dot
+ *   literal like `".5s"` (the runtime regex accepts the leading dot,
+ *   `builder.ts:547`). One template-literal member anywhere in the union is
+ *   enough to enable literal inference for every string literal candidate —
+ *   a second, narrower template-literal member for the dot case specifically
+ *   is not needed for inference and was removed (mutation-tested: deleting
+ *   it, alone or together with `CheckDuration`'s corresponding
+ *   `` `.${number}${string}` `` branch, leaves the package green). What *is*
+ *   load-bearing is `CheckDuration`'s `` `.${number}${string}` `` branch
+ *   itself (`validate-contract.ts`) — removing only that branch, while
+ *   leaving this union as-is, breaks `validate-contract.spec.ts`'s literal-
+ *   preservation coverage for `".5s"`, because `IsMsDuration` cannot resolve
+ *   the abstract (unliteral) pattern the same way it can't resolve
+ *   `` `${number}${string}` `` itself — see `CheckDuration`'s doc comment.
  * - `number` — a plain number of milliseconds.
  * - `string & {}` — deliberate, not a mistake: it is what keeps a *computed*
  *   string (e.g. a timeout read from config, which has no literal to
@@ -66,7 +76,7 @@ export type ErrorDefinition<TData extends AnySchema = AnySchema> = {
  *   this to `string`, which would silently widen every literal above back to
  *   `string` and defeat the whole point of this union.
  */
-export type DurationValue = `${number}${string}` | `.${number}${string}` | number | (string & {});
+export type DurationValue = `${number}${string}` | number | (string & {});
 
 /**
  * Portable subset of Temporal's `RetryPolicy`, usable in contract-level
