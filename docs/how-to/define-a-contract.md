@@ -287,6 +287,32 @@ out above also run at `tsc` time, ahead of import, for whatever a literal in
 the contract source lets the type checker prove — the runtime check still
 runs unconditionally and remains authoritative.
 
+::: warning A contract assembled inside a generic helper won't compile
+
+```typescript
+function makeContract<W extends Record<string, AnyWorkflowDefinition>>(workflows: W) {
+  return defineContract({ taskQueue: "tq", workflows }); // TS2322
+}
+```
+
+TypeScript cannot check a generic argument against `defineContract`'s
+computed parameter type, so `tsc` reports the raw, unresolved conditional
+type instead of a readable diagnostic. The same happens for a generic global
+`activities` map and a generic workflow-scoped `activities` map — i.e.
+contract-factory and multi-tenant-builder helpers. The runtime is unaffected:
+it still accepts and validates a contract assembled this way.
+
+Make the whole contract the generic parameter instead, so the argument _is_
+the type parameter rather than an object literal containing one:
+
+```typescript
+function makeContract<T extends ContractDefinition>(contract: T) {
+  return defineContract(contract);
+}
+```
+
+:::
+
 ## Next
 
 - [Implement activities](/how-to/implement-activities)
