@@ -29,7 +29,7 @@ catalog:
   "@temporalio/testing": 1.21.1
   "@temporalio/worker": 1.21.1
   "@temporalio/workflow": 1.21.1
-  "@types/node": 26.1.1
+  "@types/node": 26.1.2
   "@unthrown/vitest": 5.0.0
   "@vitest/coverage-v8": 4.1.10
   arktype: 2.2.3
