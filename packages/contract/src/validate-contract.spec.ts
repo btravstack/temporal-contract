@@ -7,7 +7,10 @@
  * this file under the unit project.
  */
 import { describe, expectTypeOf, it } from "vitest";
+import { z } from "zod";
 
+import { defineActivity, defineContract, defineWorkflow } from "./builder.js";
+import type { ContractDefinition } from "./types.js";
 import type {
   CheckDuration,
   CheckName,
@@ -342,10 +345,13 @@ describe("ValidateContract", () => {
     expectTypeOf<TypeEq<ValidateContract<C>, C>>().toEqualTypeOf<false>();
     // The reserved-name error lands on the remapped KEY of `workflows`, not
     // on a value — `ValidateWorkflows` uses `as CheckName<K, "workflow">` in
-    // its key-remapping position.
-    expectTypeOf<ValidateContract<C>["workflows"]>().toExtend<
-      Record<`workflow name "__temporal_evil" is reserved${string}`, unknown>
-    >();
+    // its key-remapping position. Asserting `toExtend<Record<`…${string}`,
+    // unknown>>` here would be vacuous — a pattern index signature is
+    // satisfied by any object type, error message or not — so pin the
+    // remapped KEY SET itself instead.
+    expectTypeOf<
+      keyof ValidateContract<C>["workflows"]
+    >().toExtend<`workflow name "__temporal_evil" is reserved${string}`>();
   });
 
   it("replaces a reserved global activity name", () => {
@@ -357,10 +363,11 @@ describe("ValidateContract", () => {
     expectTypeOf<TypeEq<ValidateContract<C>, C>>().toEqualTypeOf<false>();
     // Same shape as the workflow case, but on the top-level `activities` map
     // and tagged "global activity" — `ValidateActivities` remaps keys with
-    // `as CheckName<K, TKind>`.
-    expectTypeOf<ValidateContract<C>["activities"]>().toExtend<
-      Record<`global activity name "__temporal_evil" is reserved${string}`, unknown>
-    >();
+    // `as CheckName<K, TKind>`. Same vacuous-`Record`-target pitfall applies,
+    // so pin the remapped KEY SET, not a `Record<pattern, unknown>` shape.
+    expectTypeOf<
+      keyof ValidateContract<C>["activities"]
+    >().toExtend<`global activity name "__temporal_evil" is reserved${string}`>();
   });
 
   it("replaces a malformed startToCloseTimeout", () => {
@@ -475,5 +482,50 @@ describe("ValidateContract", () => {
       };
     };
     expectTypeOf<TypeEq<ValidateContract<C>, C>>().toEqualTypeOf<true>();
+  });
+
+  it("is a no-op on a contract built through the real defineActivity/defineWorkflow/defineContract builders", () => {
+    // Fix round 1 regression test. Every other fixture in this describe
+    // block is a hand-written `type` alias, which preserves the literal
+    // `"30s"`-style duration string. The real builders don't: `defineActivity`
+    // infers `TActivity extends ActivityDefinition`, and
+    // `ContractActivityOptions`'s duration slots are typed
+    // `DurationValue = string | number` (types.ts:51, 84-89) — a union with no
+    // literal member — so inference widens `startToCloseTimeout` and
+    // `retry.initialInterval` to plain `string`. This is the separate-
+    // `defineActivity` pattern from docs/how-to/tune-activity-options.md:44-52
+    // (ship the timeout with the activity, not the workflow), and it is the
+    // fixture that actually exercises that widening: `CheckDuration<string>`
+    // must pass a non-literal `string` through unchanged, or every real
+    // contract that sets a duration this way fails to compile.
+    const charge = defineActivity({
+      input: z.object({ amount: z.number() }),
+      output: z.object({ ok: z.boolean() }),
+      activityOptions: {
+        startToCloseTimeout: "30 seconds",
+        retry: { maximumAttempts: 5, initialInterval: "1 second" },
+      },
+    });
+
+    const processOrder = defineWorkflow({
+      input: z.object({ orderId: z.string() }),
+      output: z.void(),
+      activities: { charge },
+    });
+
+    const contract = defineContract({
+      taskQueue: "orders",
+      workflows: { processOrder },
+    });
+
+    expectTypeOf<
+      TypeEq<ValidateContract<typeof contract>, typeof contract>
+    >().toEqualTypeOf<true>();
+  });
+
+  it("is a no-op on the unparameterized ContractDefinition type itself", () => {
+    expectTypeOf<
+      TypeEq<ValidateContract<ContractDefinition>, ContractDefinition>
+    >().toEqualTypeOf<true>();
   });
 });
