@@ -6,11 +6,11 @@
  * compile-time; we still wrap each one in `it(...)` so the type-checker visits
  * this file under the unit project.
  */
-import { describe, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 
 import { defineActivity, defineContract, defineWorkflow } from "./builder.js";
-import type { ContractDefinition } from "./types.js";
+import type { AnyWorkflowDefinition, ContractDefinition } from "./types.js";
 import type {
   CheckDuration,
   CheckName,
@@ -511,18 +511,19 @@ describe("ValidateContract", () => {
 
   it("is a no-op on a contract built through the real defineActivity/defineWorkflow/defineContract builders", () => {
     // Fix round 1 regression test. Every other fixture in this describe
-    // block is a hand-written `type` alias, which preserves the literal
-    // `"30s"`-style duration string. The real builders don't: `defineActivity`
-    // infers `TActivity extends ActivityDefinition`, and
-    // `ContractActivityOptions`'s duration slots are typed
-    // `DurationValue = string | number` (types.ts:51, 84-89) — a union with no
-    // literal member — so inference widens `startToCloseTimeout` and
-    // `retry.initialInterval` to plain `string`. This is the separate-
-    // `defineActivity` pattern from docs/how-to/tune-activity-options.md:44-52
-    // (ship the timeout with the activity, not the workflow), and it is the
-    // fixture that actually exercises that widening: `CheckDuration<string>`
-    // must pass a non-literal `string` through unchanged, or every real
-    // contract that sets a duration this way fails to compile.
+    // block is a hand-written `type` alias, which trivially preserves
+    // whatever literal was written. The real builders are the thing that
+    // actually exercises inference: this is the separate-`defineActivity`
+    // pattern from docs/how-to/tune-activity-options.md:44-52 (ship the
+    // timeout with the activity, not the workflow). Since Task 5,
+    // `DurationValue` (types.ts:51) is a four-member union whose template-
+    // literal members preserve a literal like `"30 seconds"` through this
+    // inference path rather than widening it to plain `string` — see the
+    // "preserves a real literal duration" test below for a direct
+    // assertion of that. This test instead guards the weaker, still-
+    // necessary property: whatever shape the real builders infer to
+    // (literal or, for a genuinely computed value, plain `string`),
+    // `ValidateContract` must treat a valid contract as a no-op.
     const charge = defineActivity({
       input: z.object({ amount: z.number() }),
       output: z.object({ ok: z.boolean() }),
@@ -552,5 +553,219 @@ describe("ValidateContract", () => {
     expectTypeOf<
       TypeEq<ValidateContract<ContractDefinition>, ContractDefinition>
     >().toEqualTypeOf<true>();
+  });
+});
+
+/**
+ * Task 5: `ValidateContract` wired into `defineContract` itself
+ * (`builder.ts:359-372`), rather than exercised as a standalone type. Every
+ * test in this block goes through the real, exported `defineContract` — not
+ * a hand-reimplementation of the wiring — because the defect this task
+ * guards against is specific to *how* the wiring is done: `definition:
+ * ValidateContract<TContract>` shows the diagnostic; the plan's rejected
+ * `definition: T & ValidateContract<TContract>` collapses it to `never`
+ * (`error TS2322: Type 'string' is not assignable to type 'never'`), which
+ * is invisible to a caller. A test written against `ValidateContract<T>`
+ * alone cannot tell the two wirings apart; a test written against
+ * `defineContract`'s own parameter type can.
+ */
+describe("defineContract wiring", () => {
+  const anySchema = z.object({});
+
+  /**
+   * `defineContract`'s actual, wired parameter type for a given `TContract`,
+   * extracted via a TypeScript instantiation expression
+   * (`defineContract<T>`) against the real export — not a local
+   * reimplementation of `ValidateContract<TContract>` that could silently
+   * drift from what `builder.ts` actually wires in.
+   */
+  type DefineContractParam<T extends ContractDefinition> = Parameters<typeof defineContract<T>>[0];
+
+  it("shows the reserved-name message — not `never` — through the actual wiring", () => {
+    type C = {
+      taskQueue: "orders";
+      workflows: { __temporal_evil: { input: typeof anySchema; output: typeof anySchema } };
+    };
+    type Wired = DefineContractParam<C>["workflows"]["__temporal_evil"];
+    // The rejected `T & ValidateContract<TContract>` wiring collapses this
+    // to `never`; this is the property that distinguishes the two wirings.
+    expectTypeOf<TypeEq<Wired, never>>().toEqualTypeOf<false>();
+    expectTypeOf<Wired>().toExtend<`workflow name "__temporal_evil" is reserved${string}`>();
+  });
+
+  it("shows the malformed-duration message — not `never` — through the actual wiring", () => {
+    type C = {
+      taskQueue: "orders";
+      workflows: { ok: { input: typeof anySchema; output: typeof anySchema } };
+      activities: {
+        charge: {
+          input: typeof anySchema;
+          output: typeof anySchema;
+          activityOptions: { startToCloseTimeout: "5 minutos" };
+        };
+      };
+    };
+    type Wired =
+      DefineContractParam<C>["activities"]["charge"]["activityOptions"]["startToCloseTimeout"];
+    expectTypeOf<TypeEq<Wired, never>>().toEqualTypeOf<false>();
+    expectTypeOf<Wired>().toExtend<`Invalid duration "5 minutos": ${string}`>();
+  });
+
+  it("rejects a reserved workflow name passed directly to defineContract", () => {
+    // The compile-time and runtime layers are both exercised here: the
+    // `@ts-expect-error` proves `tsc` catches it, and `.toThrow()` proves the
+    // authoritative runtime check (`validateContractDefinition`) still does
+    // too — this task changes nothing about the latter.
+    expect(() =>
+      defineContract({
+        taskQueue: "orders",
+        workflows: {
+          // @ts-expect-error — "__temporal_evil" is a reserved workflow name.
+          __temporal_evil: { input: anySchema, output: anySchema },
+        },
+      }),
+    ).toThrow(/is reserved by Temporal/);
+  });
+
+  it("rejects a workflow name shadowed by a global activity, passed directly to defineContract", () => {
+    expect(() =>
+      defineContract({
+        taskQueue: "orders",
+        // @ts-expect-error — "processOrder" is both a workflow and a global activity.
+        workflows: { processOrder: { input: anySchema, output: anySchema } },
+        activities: { processOrder: { input: anySchema, output: anySchema } },
+      }),
+    ).toThrow(/has the same name as a workflow/);
+  });
+
+  it("catches a malformed duration set through the separate-defineActivity pattern", () => {
+    // docs/how-to/tune-activity-options.md:44-52 — the timeout ships with the
+    // activity's own contract, not the workflow that calls it. Before Task 5
+    // narrowed `DurationValue` (types.ts:51), this typo widened to plain
+    // `string` on the way through `defineActivity` and was invisible here;
+    // it now survives as the literal `"5 minutos"` and gets caught.
+    // `defineActivity` itself has no compile-time duration check — only
+    // `defineContract` is wired to `ValidateContract` — so this call is
+    // unremarkable on its own; the malformed literal simply flows through.
+    const charge = defineActivity({
+      input: z.object({ amount: z.number() }),
+      output: z.object({ ok: z.boolean() }),
+      activityOptions: { startToCloseTimeout: "5 minutos" },
+    });
+
+    const processOrder = defineWorkflow({
+      input: z.object({ orderId: z.string() }),
+      output: z.void(),
+      activities: { charge },
+    });
+
+    expect(() =>
+      defineContract({
+        taskQueue: "orders",
+        // @ts-expect-error — "charge"'s startToCloseTimeout, "5 minutos", is
+        // not a valid ms-formatted duration.
+        workflows: { processOrder },
+      }),
+    ).toThrow(/invalid duration/);
+  });
+
+  it("preserves a real literal duration string through defineActivity + defineWorkflow + defineContract", () => {
+    // This is the test step 1 exists for: without the narrowed `DurationValue`
+    // union, `"30s"` widens to plain `string` on the way through
+    // `defineActivity`, and `typeof contract` would show `string`, not the
+    // literal — the no-op test above can't tell the difference, because
+    // `CheckDuration` is a no-op on plain `string` too.
+    const charge = defineActivity({
+      input: z.object({ amount: z.number() }),
+      output: z.object({ ok: z.boolean() }),
+      activityOptions: { startToCloseTimeout: "30s" },
+    });
+
+    const processOrder = defineWorkflow({
+      input: z.object({ orderId: z.string() }),
+      output: z.void(),
+      activities: { charge },
+    });
+
+    const contract = defineContract({
+      taskQueue: "orders",
+      workflows: { processOrder },
+    });
+
+    expectTypeOf<
+      (typeof contract)["workflows"]["processOrder"]["activities"]["charge"]["activityOptions"]["startToCloseTimeout"]
+    >().toEqualTypeOf<"30s">();
+  });
+
+  it("still compiles a computed (non-literal) string duration", () => {
+    // Guards the `string & {}` member of `DurationValue` (types.ts:51): a
+    // duration read from config has no literal to preserve, and rejecting it
+    // would be a regression the runtime does not have. The explicit `: string`
+    // annotation (rather than letting a literal infer) is what simulates that
+    // — e.g. a value actually read from `process.env` at runtime.
+    const configuredTimeout: string = "1 minute";
+
+    const charge = defineActivity({
+      input: z.object({ amount: z.number() }),
+      output: z.object({ ok: z.boolean() }),
+      activityOptions: { startToCloseTimeout: configuredTimeout },
+    });
+
+    const processOrder = defineWorkflow({
+      input: z.object({ orderId: z.string() }),
+      output: z.void(),
+      activities: { charge },
+    });
+
+    defineContract({
+      taskQueue: "orders",
+      workflows: { processOrder },
+    });
+  });
+
+  it('compiles a leading-dot duration literal like ".5s"', () => {
+    // Guards the `` `.${number}${string}` `` member of `DurationValue`
+    // (types.ts:51): the runtime regex accepts a leading dot (builder.ts:547).
+    const charge = defineActivity({
+      input: z.object({ amount: z.number() }),
+      output: z.object({ ok: z.boolean() }),
+      activityOptions: { startToCloseTimeout: ".5s" },
+    });
+
+    const processOrder = defineWorkflow({
+      input: z.object({ orderId: z.string() }),
+      output: z.void(),
+      activities: { charge },
+    });
+
+    defineContract({
+      taskQueue: "orders",
+      workflows: { processOrder },
+    });
+  });
+
+  it("compiles when the workflows map widens to Record<string, AnyWorkflowDefinition>", () => {
+    // Step 3 regression: before the `string extends keyof W` guard on
+    // `WorkflowActivityNameClashes`, a widened `workflows` map made every
+    // global activity name look like it clashed with every workflow name,
+    // because every string literal key extends `string`. The runtime
+    // accepts this contract unconditionally.
+    const workflows: Record<string, AnyWorkflowDefinition> = {
+      processOrder: defineWorkflow({
+        input: z.object({ orderId: z.string() }),
+        output: z.void(),
+      }),
+    };
+
+    defineContract({
+      taskQueue: "orders",
+      workflows,
+      activities: {
+        charge: defineActivity({
+          input: z.object({ amount: z.number() }),
+          output: z.object({ ok: z.boolean() }),
+        }),
+      },
+    });
   });
 });

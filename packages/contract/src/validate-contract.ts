@@ -90,32 +90,63 @@ export type IsMsDuration<S extends string> = string extends S
     : false;
 
 /**
+ * Invariant type equality (not mere subtyping). Used below to recognize
+ * `DurationValue`'s own two template-literal members — `` `${number}${string}` ``
+ * and `` `.${number}${string}` `` — when they show up *unresolved*, as
+ * opposed to a concrete literal like `"30s"` that merely matches one of the
+ * patterns. `extends` alone can't tell those apart: `` "30s" extends
+ * `${number}${string}` `` and `` `${number}${string}` extends
+ * `${number}${string}` `` are both `true`. Checking both directions is what
+ * pins it down to "exactly this type, not a subtype of it."
+ */
+type IsExactly<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+
+/**
  * Validate one duration slot, passing valid values through unchanged.
  *
  * Numbers and `undefined` pass through: the runtime accepts a non-negative
  * finite number of milliseconds, and every duration slot is optional. Only
- * string literals are checked. A valid value maps to itself so the
- * intersection in `ValidateContract` is a no-op; an invalid one maps to a
- * string literal whose text is the diagnostic, which is what the user sees in
- * the "not assignable to" error.
+ * string literals are checked. A valid value maps to itself so
+ * `ValidateContract<T>` is a no-op on a valid contract; an invalid one maps
+ * to a string literal whose text is the diagnostic, which is what the user
+ * sees in the "not assignable to" error.
  *
- * A non-literal `string` also passes through unchanged, same as `IsMsDuration`
- * treats it (see that type's doc comment) — but the two checks are distinct
- * for a reason. `ContractActivityOptions`'s duration slots are typed
- * `DurationValue = string | number` (`types.ts:51, 84-89`), so a value built
- * through the separate-`defineActivity` pattern (`docs/how-to/tune-activity-
- * options.md:44-52`) widens to plain `string` during inference — there is no
- * literal to preserve. Flagging that as an error would reject every real
- * contract that sets a duration this way, which is a false positive far
- * worse than the gap it would close: the runtime already validates the
- * actual string at `defineContract` time, this layer just can't see it.
+ * Three shapes pass through unchecked, all for the same underlying reason —
+ * there is nothing concrete here to run `IsMsDuration` against:
+ *
+ * - A non-literal `string` (the `string extends V` branch below). Even
+ *   though `types.ts:51`'s `DurationValue` union now preserves literals
+ *   through inference for the common case, a computed value (read from
+ *   config, etc.) still widens to plain `string` — see that type's doc
+ *   comment. Flagging it would reject every contract that sets a duration
+ *   that way, a false positive far worse than the gap it closes: the
+ *   runtime already validates the actual string at `defineContract` time,
+ *   this layer just can't see it.
+ * - `DurationValue`'s own two template-literal members, `` `${number}${string}` ``
+ *   and `` `.${number}${string}` ``, when they appear *unresolved* rather
+ *   than narrowed to a literal — e.g. `ValidateContract<ContractDefinition>`
+ *   evaluated on the library's own unparameterized default types, where a
+ *   duration slot's apparent type is the pattern itself, not any one
+ *   duration string. `IsMsDuration`'s character-by-character parsing
+ *   (`SplitNumber`, `TrimLeft`, …) needs a literal to walk; fed the opaque
+ *   pattern type instead, `Lowercase` cannot resolve it to a matchable
+ *   literal, `SplitNumber` falls through immediately, and the whole check
+ *   resolves to `false` — a false positive on a type that denotes "every
+ *   string of this shape," most of which are valid. `IsExactly` recognizes
+ *   the two patterns by name and passes them through before `IsMsDuration`
+ *   ever sees them.
  */
 export type CheckDuration<V> = V extends string
   ? string extends V
     ? V
-    : IsMsDuration<V> extends true
+    : IsExactly<V, `${number}${string}`> extends true
       ? V
-      : `Invalid duration "${V}": expected an ms-formatted string — a number followed by an optional unit ms/s/m/h/d/w/y or its long form, e.g. "30s", "5 minutes", "1.5h" — or a number of milliseconds`
+      : IsExactly<V, `.${number}${string}`> extends true
+        ? V
+        : IsMsDuration<V> extends true
+          ? V
+          : `Invalid duration "${V}": expected an ms-formatted string — a number followed by an optional unit ms/s/m/h/d/w/y or its long form, e.g. "30s", "5 minutes", "1.5h" — or a number of milliseconds`
   : V;
 
 /**
@@ -295,11 +326,27 @@ export type CollidingActivityNames<C extends ContractLike> = {
  * `builder.ts:779-787`: workflow implementations and global activity
  * implementations share the root of the worker's implementations map, so a
  * shared name is ambiguous. No escape hatch — this lifts exactly.
+ *
+ * Guarded against a widened key type on either side. `Extract<keyof
+ * GlobalActivitiesOf<C>, keyof W>` is unsound the moment `keyof W` (or
+ * `keyof GlobalActivitiesOf<C>`) widens to plain `string` — e.g. `workflows:
+ * Record<string, AnyWorkflowDefinition>` — because every string-literal key
+ * extends `string`, so `Extract` returns *all* global activity names instead
+ * of `never`. That is exactly the shape `defineContract` accepts today (a
+ * caller building the `workflows` map dynamically), so without the guard
+ * this type falsely flags every activity name as clashing the moment
+ * `ValidateContract` is wired into `defineContract`. `string extends keyof W`
+ * asks "did the key type widen all the way to `string`?" — true only for the
+ * widened case, never for a literal key union.
  */
 export type WorkflowActivityNameClashes<C extends ContractLike> = C extends {
   workflows: infer W;
 }
-  ? Extract<keyof GlobalActivitiesOf<C>, keyof W>
+  ? string extends keyof W
+    ? never
+    : string extends keyof GlobalActivitiesOf<C>
+      ? never
+      : Extract<keyof GlobalActivitiesOf<C>, keyof W>
   : never;
 
 /** Validate the two duration slots on an `activityOptions.retry` bag. */
@@ -407,10 +454,16 @@ type CrossCuttingError<T extends ContractLike> = [CollidingActivityNames<T>] ext
 /**
  * Compile-time mirror of a subset of `validateContractDefinition`.
  *
- * A valid contract maps to a type identical to `T`, so `T & ValidateContract<T>`
- * is a no-op and correct code is unaffected. An invalid one maps the offending
- * property to a string literal whose text is the diagnostic, which surfaces as
- * a "not assignable to" error with the guidance inline.
+ * A valid contract maps to a type identical to `T`, so `defineContract`
+ * wiring this in as `definition: ValidateContract<TContract>` is a no-op for
+ * correct code. An invalid one maps the offending property to a string
+ * literal whose text is the diagnostic, which surfaces as a "not assignable
+ * to" error with the guidance inline — as long as `ValidateContract<T>` is
+ * used *alone* at the call site, not intersected with `T`. `T &
+ * ValidateContract<T>` collapses the diagnostic literal against the
+ * original property type (e.g. `"5 minutos" & "Invalid duration …"`) to
+ * `never`, which hides the message behind an opaque "not assignable to
+ * `never`" error — do not wire it that way.
  *
  * The runtime checks in `builder.ts` remain authoritative — this layer is a
  * strictly earlier, strictly narrower warning for typed callers.
