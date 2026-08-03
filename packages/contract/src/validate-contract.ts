@@ -268,10 +268,16 @@ type DefinitionsFor<C extends ContractLike, N extends PropertyKey> =
  * 496-499`'s `assertIdentifier` requires every workflow name to match
  * `IDENTIFIER_PATTERN` (`/^[a-zA-Z_$][a-zA-Z0-9_$]*$/`), which a name
  * starting with a digit can never satisfy, so a workflow named `"0"` is
- * already rejected before name-collision checking runs. (The runtime uses a
- * `unique symbol` for `GLOBAL_OWNER`, `builder.ts:789-793`, specifically
- * because *workflow* names have no such restriction there — see that
- * comment. Only *activity* names route through `ScopesDeclaring`.)
+ * already rejected before name-collision checking runs. (The runtime's
+ * `GLOBAL_OWNER` still needs a `unique symbol` rather than a string
+ * sentinel like `"global"` (`builder.ts:817-821`) — but not because
+ * workflow names are unrestricted there. Workflow names go through the
+ * exact same `assertIdentifier` check as activity names (`builder.ts:885`,
+ * in the loop that runs before `validateNameCollisions` is called at
+ * `builder.ts:907`); the restriction is identical. The difference is that
+ * `"global"` is a legal identifier — unlike `"0"` — so a user can
+ * legitimately name a workflow `"global"`, and a string sentinel would
+ * misclassify that collision as belonging to the global scope.)
  *
  * Membership is tested with `N extends keyof …`, not `… extends Record<N,
  * unknown>`. The two are not equivalent for an optional activity key:
@@ -317,10 +323,17 @@ type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : 
  * collapse the same way, since `DefinitionsFor` tuple-wraps each scope's
  * contribution — see there).
  *
- * The `ScopesDeclaring` gate is checked first and short-circuits to `never`
- * before `DefinitionsFor` is evaluated at all when fewer than two scopes
- * declare the name — so there is no remaining case where a name is flagged
- * despite there being nothing to actually compare.
+ * There is no remaining case where a name is flagged despite there being
+ * nothing to actually compare — but not because the `ScopesDeclaring` gate
+ * short-circuits anything for a fewer-than-two-scopes name. The real reason
+ * is that a zero-scope `N` can never reach this mapped type at all:
+ * `AllActivityNames` and `ScopesDeclaring` test the exact same `keyof`
+ * membership per scope (`N extends keyof ActivitiesOf<W[K]>` and `N extends
+ * keyof GlobalActivitiesOf<C>`), so every `N` this type iterates over —
+ * drawn from `AllActivityNames<C>` — is by construction declared by at
+ * least one scope. That safety depends on the two types staying in
+ * lockstep: if `AllActivityNames` is ever widened independently of
+ * `ScopesDeclaring`, this invariant breaks silently.
  */
 export type CollidingActivityNames<C extends ContractLike> = {
   [N in AllActivityNames<C>]: IsUnion<ScopesDeclaring<C, N>> extends true
