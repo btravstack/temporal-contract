@@ -39,6 +39,38 @@ which is exactly what escaped the workflow before this change.
 as `Completed` rather than `Cancelled`. That hazard previously applied only
 to activities declaring an `errors` map; it now applies to every activity.
 
+**If you wrap an activity call in `cancellableScope`/`nonCancellableScope`,
+this is a source break, not just a behavior change.** Both scopes are generic
+over whatever `fn` returns, verbatim — they do not await it for you. Before
+this change, `() => context.activities.charge(input)` returned a plain
+`Promise<Output>`, so the scope's own `T` was `Output`. Now it returns an
+`AsyncResult<Output, E>`, and `AsyncResult` is deliberately not a full
+`PromiseLike` (no `.catch`/`.finally`), so `T` becomes the un-awaited
+`AsyncResult` itself — a type with no `isOk`/`isErr`/`.value`. Code like:
+
+```ts
+const scoped = await context.cancellableScope(() => context.activities.charge(input));
+if (scoped.isOk()) {
+  scoped.value.transactionId; // ❌ no longer compiles — scoped.value is an AsyncResult
+}
+```
+
+stops compiling. Await and narrow the activity call _inside_ the callback
+instead:
+
+```ts
+const scoped = await context.cancellableScope(async () => {
+  const charged = await context.activities.charge(input);
+  if (charged.isDefect()) {
+    throw charged.cause;
+  }
+  if (charged.isErr()) {
+    return { ok: false as const, error: charged.error };
+  }
+  return { ok: true as const, value: charged.value }; // now a plain value, not an AsyncResult
+});
+```
+
 `ActivityErrorsFor<TActivity>` — the error union used by
 `WorkflowInferActivity`'s `AsyncResult` — is now exported from
 `@temporal-contract/worker/workflow`, so consumers can name the error channel

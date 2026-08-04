@@ -12,7 +12,7 @@ same-contract and cross-contract calls look identical.
 `executeChildWorkflow` starts the child and waits for its result:
 
 ```typescript
-import { declareWorkflow } from "@temporal-contract/worker/workflow";
+import { declareWorkflow, propagateActivityFailure } from "@temporal-contract/worker/workflow";
 import { P } from "unthrown";
 
 import { orderContract } from "./contract.js";

@@ -60,12 +60,19 @@ The first argument to `implementation`.
 `Readonly<...>` map of every activity reachable from this workflow —
 workflow-scoped plus global — flattened to one namespace.
 
-Each returns a **plain value**, not a `Result`. Input is validated before the
-call, output after. A failure throws.
+Each returns an `AsyncResult<Output, ActivityErrorsFor<TActivity>>` — never a
+plain value, and never a call that throws through. That is uniform across
+every activity, declared `errors` map or not: `ActivityErrorsFor<TActivity>`
+is `ActivityError | ActivityCancelledError`, plus the activity's declared
+`ContractErrorUnion` when it has one. Input is validated before the call,
+output after. See [The result model](/explanation/the-result-model) and
+`propagateActivityFailure` below.
 
 The map's type is `WorkflowInferWorkflowContextActivities<TContract,
 TWorkflowName>` and a single entry's is `WorkflowInferActivity<TActivity>` —
 both exported for annotating helpers that take `context.activities`.
+`ActivityErrorsFor<TActivity>` — the error union in that `AsyncResult` — is
+exported too, for helpers generic over an activity's error type.
 
 #### `info`
 
@@ -230,18 +237,48 @@ Each `ValidationError` subclass carries a readonly `direction: "input" |
 "output"` field (the class names are unchanged; they remain
 `ApplicationFailure` subclasses discriminated by `failure.type`).
 
+#### `propagateActivityFailure(result)`
+
+```typescript
+function propagateActivityFailure<T, E>(result: AsyncResult<T, E>): Promise<T>;
+```
+
+Await an activity call and return its value, re-raising the original Temporal
+failure so **Temporal** decides the workflow's outcome — the explicit
+equivalent of the pre-8.0 "just let it throw" call site:
+
+```typescript
+import { propagateActivityFailure } from "@temporal-contract/worker/workflow";
+
+const { transactionId } = await propagateActivityFailure(
+  context.activities.chargeCard({ customerId, amount }),
+);
+```
+
+**Do not use unthrown's `.getOrThrow()` for this.** It throws the
+`ActivityError`/`ActivityCancelledError` wrapper — a `TaggedError`, not a
+`TemporalFailure` — which Temporal treats as a workflow-_task_ failure and
+retries indefinitely, stalling the workflow until its execution timeout
+instead of failing it. `propagateActivityFailure` re-raises the preserved
+original failure instead — see [The result
+model](/explanation/the-result-model).
+
 #### `rethrowCancellation(error): never`
 
 Re-raise a cancellation that surfaced on the modeled `Err(...)` channel.
 `WorkflowCancelledError` (from `cancellableScope`), `ChildWorkflowCancelledError`,
 and `ActivityCancelledError` are values — generic error handling that maps every
 `Err` to a fallback would **complete** the workflow as `Completed` instead of
-letting it end `Cancelled`. Pass the error to `rethrowCancellation` to re-raise
-the original `CancelledFailure`:
+letting it end `Cancelled`. Its parameter type accepts only a cancellation
+error — narrow to one first — and it never returns normally:
 
 ```typescript
+import { ActivityCancelledError } from "@temporal-contract/worker/workflow";
+
 if (result.isErr()) {
-  rethrowCancellation(result.error); // re-raises a cancellation; returns for anything else
+  if (result.error instanceof ActivityCancelledError) {
+    rethrowCancellation(result.error); // never returns — re-raises the cancellation
+  }
   return { status: "failed" };
 }
 ```

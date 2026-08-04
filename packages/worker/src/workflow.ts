@@ -822,23 +822,32 @@ export type WorkflowContext<
    *
    * implementation: async (context, args) => {
    *   const result = await context.cancellableScope(async () => {
-   *     // `fn`'s return value becomes the scope's `T` verbatim — an activity
-   *     // call's own AsyncResult (ActivityError | ActivityCancelledError,
-   *     // plus any declared contract errors) is independent of the scope's
-   *     // cancellation, so narrow it here, inside the callback.
+   *     // `fn`'s return value becomes the scope's `T` verbatim, so await and
+   *     // narrow the activity's own AsyncResult HERE, inside the callback.
+   *     // `AsyncResult` is deliberately not a full `PromiseLike` (no
+   *     // `.catch`/`.finally`), so returning an un-awaited activity call
+   *     // would make `T` the un-awaited `AsyncResult` itself — which has no
+   *     // `isOk`/`isErr`/`.value` (only the plain `Result` you get by
+   *     // awaiting does).
    *     const step = await context.activities.processStep(args);
+   *     if (step.isDefect()) {
+   *       throw step.cause; // an unmodeled bug — surfaces as the scope's own defect
+   *     }
    *     return step.isOk() ? { status: "ok" as const } : { status: "failed" as const };
    *   });
    *
+   *   if (result.isDefect()) {
+   *     throw result.cause; // a genuine bug thrown inside the scope, not a cancel
+   *   }
    *   if (result.isErr()) {
    *     // The scope itself was cancelled — perform cleanup that must not be
    *     // cancelled:
-   *     const released = await context.nonCancellableScope(() =>
-   *       context.activities.releaseResources(args),
-   *     );
-   *     if (released.isErr() || (released.isOk() && released.value.isErr())) {
-   *       // best-effort cleanup — log and continue regardless
-   *     }
+   *     await context.nonCancellableScope(async () => {
+   *       const released = await context.activities.releaseResources(args);
+   *       if (released.isErr()) {
+   *         // best-effort cleanup — log and continue regardless
+   *       }
+   *     });
    *     return { status: "cancelled" };
    *   }
    *

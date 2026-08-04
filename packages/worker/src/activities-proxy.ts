@@ -215,9 +215,9 @@ function makeResultShapedActivity(
  * is `undefined` and the rehydration branch below is a deliberate no-op:
  * `_internal_rehydrateContractError` returns `undefined` for an `undefined`
  * map (see `packages/contract/src/errors.spec.ts`'s "returns undefined when
- * no errors are declared" case), so classification falls straight through to
- * the `ActivityError` fallback. Do not reintroduce a guard around this call
- * for the errors-less case — it is already handled.
+ * no errors are declared or the failure has no type" case), so classification
+ * falls straight through to the `ActivityError` fallback. Do not reintroduce
+ * a guard around this call for the errors-less case — it is already handled.
  */
 async function classifyActivityError(
   activityName: string,

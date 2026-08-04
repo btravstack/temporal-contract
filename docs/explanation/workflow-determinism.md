@@ -111,8 +111,16 @@ const result = await context.cancellableScope(async () => {
 });
 
 if (result.isErr()) {
-  // best-effort cleanup — outcome intentionally not narrowed further here
-  await context.nonCancellableScope(() => context.activities.releaseResources(args));
+  await context.nonCancellableScope(async () => {
+    // Narrow inside here too — `releaseResources(...)`'s own AsyncResult,
+    // left un-awaited, would otherwise be silently discarded along with the
+    // scope's own Result. See "await is not an extractor" in
+    // /explanation/the-result-model.
+    const released = await context.activities.releaseResources(args);
+    if (released.isErr()) {
+      // best-effort cleanup — log and continue regardless
+    }
+  });
   return { status: "cancelled" };
 }
 ```
