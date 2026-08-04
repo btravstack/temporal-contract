@@ -110,6 +110,9 @@ const result = await context.cancellableScope(async () => {
   return step.isOk();
 });
 
+if (result.isDefect()) {
+  throw result.cause; // a genuine bug thrown inside the scope, not a cancel
+}
 if (result.isErr()) {
   // Capture nonCancellableScope's OWN AsyncResult too — a bare `await` here
   // would silently discard a defect thrown inside the cleanup callback. See

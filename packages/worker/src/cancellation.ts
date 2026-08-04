@@ -91,16 +91,17 @@ export function cancellableScope<T>(
  *
  * @example
  * ```ts
- * import { propagateActivityFailure } from "@temporal-contract/worker/workflow";
- *
  * // Capture the scope's OWN AsyncResult — a bare `await` would silently
  * // discard a defect thrown inside the callback, along with the activity's
  * // own un-awaited AsyncResult if `fn` returned it directly.
- * const released = await context.nonCancellableScope(() =>
- *   propagateActivityFailure(context.activities.releaseResources(...)),
- * );
+ * const released = await context.nonCancellableScope(async () => {
+ *   const result = await context.activities.releaseResources(...);
+ *   if (result.isErr()) {
+ *     // best-effort cleanup — log and continue regardless
+ *   }
+ * });
  * if (released.isDefect()) {
- *   throw released.cause;
+ *   throw released.cause; // a genuine bug in cleanup, not a cancel
  * }
  * ```
  */

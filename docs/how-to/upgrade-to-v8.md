@@ -714,12 +714,14 @@ if (scoped.isOk()) {
 ```
 
 Both scopes are generic over whatever `fn` returns, verbatim — they do not
-await it for you. Before this change `() => context.activities.charge(input)`
-returned a plain `Promise<Output>`, so the scope's own `T` was `Output`. Now
-it returns an `AsyncResult<Output, E>`, and `AsyncResult` is deliberately not
-a full `PromiseLike` (no `.catch`/`.finally`), so `T` becomes the un-awaited
-`AsyncResult` itself — a type with no `isOk`/`isErr`/`.value`. Await and
-narrow the activity call _inside_ the callback instead:
+await it for you. Before this change, for an activity with **no** declared
+`errors` map, `() => context.activities.charge(input)` returned a plain
+`Promise<Output>`, so the scope's own `T` was `Output` (an errors-declaring
+activity already returned an `AsyncResult` and already had this problem). Now
+every activity call returns an `AsyncResult<Output, E>`, and `AsyncResult` is
+deliberately not a full `PromiseLike` (no `.catch`/`.finally`), so `T` becomes
+the un-awaited `AsyncResult` itself — a type with no `isOk`/`isErr`/`.value`.
+Await and narrow the activity call _inside_ the callback instead:
 
 ```ts
 // ✅ narrow inside the callback
