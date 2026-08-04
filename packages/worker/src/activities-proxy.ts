@@ -27,6 +27,24 @@ import { makeAsyncResult } from "./internal.js";
 import type { ClientInferInput, ClientInferOutput } from "./types.js";
 
 /**
+ * The error channel for an activity call: declared contract errors when the
+ * activity declares an `errors` map, plus the two failures every activity can
+ * produce.
+ *
+ * - **With an `errors` map** — declared failures are rehydrated from the
+ *   `ApplicationFailure` wire shape into typed {@link ContractErrorUnion}
+ *   members (data re-validated against the declared schema).
+ * - **Always** — any other failure surfaces as {@link ActivityError} (with
+ *   Temporal's `ActivityFailure` wrapper unwrapped to its actionable cause)
+ *   or {@link ActivityCancelledError} (mirroring the child-workflow API).
+ */
+export type ActivityErrorsFor<TActivity extends ActivityDefinition> = TActivity extends {
+  errors: infer TErrors extends Record<string, ErrorDefinition>;
+}
+  ? ContractErrorUnion<TErrors> | ActivityError | ActivityCancelledError
+  : ActivityError | ActivityCancelledError;
+
+/**
  * Activity function signature from workflow execution perspective.
  *
  * Workflows call activities with the input schema's *input* type and receive
@@ -34,30 +52,15 @@ import type { ClientInferInput, ClientInferOutput } from "./types.js";
  * the input but transmits the original value (the activity worker parses it
  * on receive), and parses the activity's result on receive.
  *
- * The shape depends on whether the activity declares contract errors:
- *
- * - **No `errors` map** — plain `Promise<Output>`, matching Temporal's native
- *   behavior: a failure (retries exhausted, timeout, cancellation) throws and
- *   propagates unless caught / scoped.
- * - **With an `errors` map** — `AsyncResult<Output, declared union |
- *   ActivityError | ActivityCancelledError>`. Declared failures are
- *   rehydrated from the `ApplicationFailure` wire shape into typed
- *   {@link ContractErrorUnion} members (data re-validated against the
- *   declared schema); any other failure surfaces as
- *   {@link ActivityError} (with Temporal's `ActivityFailure` wrapper
- *   unwrapped to its actionable cause) or {@link ActivityCancelledError}
- *   (mirroring the child-workflow API).
+ * Every activity call returns an `AsyncResult` — the call convention no
+ * longer depends on whether the contract declared errors, only the error
+ * channel does. To let a failure escape and have Temporal decide the
+ * workflow's outcome, use `propagateActivityFailure` rather than
+ * unthrown's `.getOrThrow()`; see that function's documentation for why.
  */
-export type WorkflowInferActivity<TActivity extends ActivityDefinition> = TActivity extends {
-  errors: infer TErrors extends Record<string, ErrorDefinition>;
-}
-  ? (
-      args: ClientInferInput<TActivity>,
-    ) => AsyncResult<
-      ClientInferOutput<TActivity>,
-      ContractErrorUnion<TErrors> | ActivityError | ActivityCancelledError
-    >
-  : (args: ClientInferInput<TActivity>) => Promise<ClientInferOutput<TActivity>>;
+export type WorkflowInferActivity<TActivity extends ActivityDefinition> = (
+  args: ClientInferInput<TActivity>,
+) => AsyncResult<ClientInferOutput<TActivity>, ActivityErrorsFor<TActivity>>;
 
 /**
  * All global activities from a contract (workflow execution perspective).
@@ -102,9 +105,10 @@ export type WorkflowInferWorkflowContextActivities<
  *   its return and transmitted the original value — so a transforming
  *   output schema is applied exactly once, here.
  *
- * Activities that declare contract errors additionally get failure
- * classification: their wrapper returns an `AsyncResult` whose error channel
- * carries the rehydrated typed errors (see {@link WorkflowInferActivity}).
+ * Every wrapper returns an `AsyncResult` whose error channel carries failure
+ * classification — the rehydrated typed contract errors when the activity
+ * declares an `errors` map, plus the two failures every activity can produce
+ * (see {@link WorkflowInferActivity}).
  */
 export function createValidatedActivities<
   TContract extends ContractDefinition,
@@ -138,42 +142,14 @@ export function createValidatedActivities<
       );
     }
 
-    (validatedActivities as Record<string, unknown>)[activityName] = activityDef.errors
-      ? makeResultShapedActivity(activityName, activityDef, rawActivity)
-      : makeThrowingActivity(activityName, activityDef, rawActivity);
+    (validatedActivities as Record<string, unknown>)[activityName] = makeResultShapedActivity(
+      activityName,
+      activityDef,
+      rawActivity,
+    );
   }
 
   return validatedActivities;
-}
-
-/**
- * Validation-only wrapper for activities without declared errors — the
- * historical shape: validate input (send the original), invoke, parse
- * output, let failures throw through to Temporal's native handling.
- */
-function makeThrowingActivity(
-  activityName: string,
-  activityDef: ActivityDefinition,
-  rawActivity: (...args: unknown[]) => Promise<unknown>,
-) {
-  return async (input: unknown) => {
-    const inputResult = await activityDef.input["~standard"].validate(input);
-    if (inputResult.issues) {
-      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
-      throw new ActivityInputValidationError(activityName, inputResult.issues);
-    }
-
-    // Send the ORIGINAL input — the activity worker parses on receive.
-    const result = await rawActivity(input);
-
-    const outputResult = await activityDef.output["~standard"].validate(result);
-    if (outputResult.issues) {
-      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
-      throw new ActivityOutputValidationError(activityName, outputResult.issues);
-    }
-
-    return outputResult.value;
-  };
 }
 
 /**
