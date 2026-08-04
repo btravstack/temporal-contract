@@ -281,7 +281,7 @@ are exported for annotating stored handles.
 #### Required `parentClosePolicy`
 
 `TypedChildWorkflowOptions` — the `options` argument shared by both
-`startChildWorkflow` and `executeChildWorkflow` below — is Temporal's
+`startChildWorkflow` and `executeChildWorkflow` — is Temporal's
 `ChildWorkflowOptions` without `taskQueue` and `args`, plus a typed `args`,
 and with `parentClosePolicy` **required** rather than optional. Temporal's
 own field accepts `undefined` (via the deprecated
