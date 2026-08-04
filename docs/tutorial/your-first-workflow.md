@@ -108,6 +108,10 @@ const processOrder = defineWorkflow({
     orderId: z.string(),
     transactionId: z.string(),
   }),
+  // This workflow charges a card, so a retried start after a *completed*
+  // run must not charge it twice. `retry-if-failed` still allows a fresh
+  // start if the previous run ended before the charge went through.
+  idempotency: "retry-if-failed",
   // Activities declared here are reachable only from this workflow.
   activities: { chargeCard, sendReceipt },
 });
@@ -128,6 +132,10 @@ Three things to notice:
   Valibot and ArkType are equally valid.
 - `taskQueue` lives on the contract, so neither the worker nor the client has to
   repeat it.
+- `idempotency` is required on every workflow — it is what stops a retried
+  start from re-running a workflow that already finished. See [Define a
+  contract](/how-to/define-a-contract#declare-idempotency) for the three
+  modes and why the field exists.
 
 `defineContract` validates this structure the moment it runs. Misspell a key,
 pass something that isn't a schema, or give two activities the same name, and

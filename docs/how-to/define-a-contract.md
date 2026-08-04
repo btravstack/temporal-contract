@@ -21,6 +21,7 @@ const chargeCard = defineActivity({
 const processOrder = defineWorkflow({
   input: z.object({ orderId: z.string(), customerId: z.string() }),
   output: z.object({ status: z.enum(["completed", "failed"]) }),
+  idempotency: "retry-if-failed", // charges a card — see below
   activities: { chargeCard },
 });
 
@@ -34,6 +35,56 @@ Inlining everything into `defineContract` works, but named resources are
 reusable across workflows and contracts, give you precise hover and
 jump-to-definition, and keep the contract itself readable as a table of
 contents.
+
+## Declare idempotency
+
+`idempotency` is required on every workflow. It answers one question: **is it
+safe to start this workflow ID again after a previous run has closed?**
+
+Temporal's own default (`workflowIdReusePolicy: ALLOW_DUPLICATE`) says yes —
+to _any_ closed run, including one that completed successfully. For a
+workflow keyed `charge-${orderId}`, that means a client that retries a start
+after a network blip — not knowing the first start actually succeeded — kicks
+off a **second** charge under the same order ID. Nothing about that is a bug
+in Temporal; `ALLOW_DUPLICATE` is a reasonable default for workflows where
+re-running a completed one is harmless. It is just the wrong default for one
+that moved money.
+
+Three modes, each a named intent rather than Temporal's raw enum:
+
+| Mode                | Temporal policy               | Means                                                                                                                              |
+| ------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `"once-per-id"`     | `REJECT_DUPLICATE`            | This workflow ID may run exactly once, ever.                                                                                       |
+| `"retry-if-failed"` | `ALLOW_DUPLICATE_FAILED_ONLY` | Re-runnable only if the previous run reached a Closed state **other than Completed** — Failed, Cancelled, Terminated, or TimedOut. |
+| `"allow-duplicate"` | `ALLOW_DUPLICATE`             | Temporal's own default: re-runnable after any Closed state, including Completed.                                                   |
+
+```typescript
+const chargeOrder = defineWorkflow({
+  input: OrderSchema,
+  output: OrderResultSchema,
+  // A completed run already charged the customer — a retried start under
+  // the same order ID must not charge them again. `retry-if-failed` still
+  // lets a start be retried after a run that failed before any charge went
+  // through.
+  idempotency: "retry-if-failed",
+  activities: { chargeCard },
+});
+```
+
+**Why this lives on the contract, not the call.** Whether a workflow is safe
+to re-run is a property of the _operation_ — `chargeOrder` either double-charges
+on re-run or it does not, and that fact does not change depending on who is
+starting it or why. `workflowIdConflictPolicy` (still a per-call client
+option, untouched by this field) answers a different question — "what do I
+want if a run with this ID is already in flight?" — and that legitimately
+varies: a scheduler might want to attach to it, a user-facing retry button
+might want to fail fast. Splitting the two means the safety question gets
+asked once, on the contract, instead of re-litigated — or forgotten — at
+every call site.
+
+An explicit per-call `workflowIdReusePolicy` still overrides the contract's
+mode, for the rare case where a specific call site genuinely needs to depart
+from the contract's default.
 
 ## Scope activities globally or per workflow
 
@@ -146,6 +197,7 @@ const changeAddress = defineUpdate({
 const processOrder = defineWorkflow({
   input: OrderSchema,
   output: OrderResultSchema,
+  idempotency: "retry-if-failed",
   activities: { chargeCard },
   signals: { approve },
   queries: { getStatus },
@@ -198,6 +250,7 @@ import { defineSearchAttribute } from "@temporal-contract/contract";
 const processOrder = defineWorkflow({
   input: OrderSchema,
   output: OrderResultSchema,
+  idempotency: "retry-if-failed",
   searchAttributes: {
     customerId: defineSearchAttribute({ kind: "KEYWORD" }),
     orderTotal: defineSearchAttribute({ kind: "DOUBLE" }),

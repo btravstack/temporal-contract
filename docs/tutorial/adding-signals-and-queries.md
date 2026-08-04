@@ -79,6 +79,7 @@ const processOrder = defineWorkflow({
     orderId: z.string(),
     transactionId: z.string(),
   }),
+  idempotency: "retry-if-failed",
   activities: { chargeCard, sendReceipt },
   queries: { getStatus },
   signals: { approve },

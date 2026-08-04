@@ -88,6 +88,7 @@ const pollSubscription = defineWorkflow({
     lastChargeId: z.string().optional(),
   }),
   output: z.object({ cycles: z.number() }),
+  idempotency: "allow-duplicate",
 });
 ```
 

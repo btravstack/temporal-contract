@@ -15,6 +15,7 @@ import { z } from "zod";
 export const processOrder = defineWorkflow({
   input: OrderSchema,
   output: OrderResultSchema,
+  idempotency: "allow-duplicate",
   searchAttributes: {
     customerId: defineSearchAttribute({ kind: "KEYWORD" }),
     orderTotal: defineSearchAttribute({ kind: "DOUBLE" }),

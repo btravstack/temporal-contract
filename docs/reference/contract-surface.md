@@ -61,12 +61,25 @@ relaxes when the contract exists purely to serve activities.
 | ------------------ | ------------------------------------------- | -------- |
 | `input`            | `AnySchema`                                 | yes      |
 | `output`           | `AnySchema`                                 | yes      |
+| `idempotency`      | `IdempotencyMode`                           | yes      |
 | `activities`       | `Record<string, ActivityDefinition>`        | no       |
 | `signals`          | `Record<string, SignalDefinition>`          | no       |
 | `queries`          | `Record<string, QueryDefinition>`           | no       |
 | `updates`          | `Record<string, UpdateDefinition>`          | no       |
 | `searchAttributes` | `Record<string, SearchAttributeDefinition>` | no       |
 | `errors`           | `Record<string, ErrorDefinition>`           | no       |
+
+`idempotency` governs what happens when this workflow ID is started again
+after a previous run has **closed** — `"once-per-id"` (`REJECT_DUPLICATE`),
+`"retry-if-failed"` (`ALLOW_DUPLICATE_FAILED_ONLY` — re-runnable after any
+Closed state other than Completed: Failed, Cancelled, Terminated, or
+TimedOut), or `"allow-duplicate"` (`ALLOW_DUPLICATE`, Temporal's own
+default). The client applies it to every start of this workflow, and the
+worker applies it to every child-workflow start of it; an explicit per-call
+`workflowIdReusePolicy` overrides it. `workflowIdConflictPolicy` — what to do
+about a run that is already _open_ — stays a per-call client/worker option,
+untouched by this field. See [Define a
+contract](/how-to/define-a-contract#declare-idempotency).
 
 ### `defineActivity(definition)`
 
@@ -253,7 +266,7 @@ See the [errors reference](/reference/errors).
 `AnySchema`, `UndefinedInputSchema`, `ActivityDefinition`, `SignalDefinition`,
 `QueryDefinition`, `UpdateDefinition`, `WorkflowDefinition`,
 `AnyWorkflowDefinition`, `ContractDefinition`, `SearchAttributeDefinition`,
-`SearchAttributeKind`, `SearchAttributeKindToType`
+`SearchAttributeKind`, `SearchAttributeKindToType`, `IdempotencyMode`
 
 `UndefinedInputSchema` is the Standard Schema type materialized by
 `defineSignal` / `defineQuery` / `defineUpdate` when `input` is omitted —

@@ -51,6 +51,7 @@ const addItems = defineUpdate({
 const importCatalog = defineWorkflow({
   input: z.object({ catalogId: z.string() }),
   output: z.object({ imported: z.number() }),
+  idempotency: "allow-duplicate",
   activities: { listSkus, importSku },
   queries: { getProgress },
   signals: { cancelRequested },
