@@ -56,6 +56,11 @@ export const testContract = defineContract({
           output: z.object({
             valid: z.boolean(),
           }),
+          // Total bound shared by every worker; per-attempt bound still comes
+          // from the workflow-wide `activityOptions`.
+          activityOptions: {
+            retry: { maximumAttempts: 3 },
+          },
         }),
       },
     }),
@@ -136,6 +141,11 @@ export const testContract = defineContract({
         message: z.string(),
       }),
       output: z.object({}),
+      // Total bound shared by every worker; per-attempt bound still comes
+      // from each workflow's `activityOptions`.
+      activityOptions: {
+        retry: { maximumAttempts: 3 },
+      },
     }),
 
     // Activity that can fail
@@ -146,6 +156,11 @@ export const testContract = defineContract({
       output: z.object({
         success: z.boolean(),
       }),
+      // Total bound shared by every worker; per-attempt bound still comes
+      // from each workflow's `activityOptions`.
+      activityOptions: {
+        retry: { maximumAttempts: 3 },
+      },
     }),
   },
 });

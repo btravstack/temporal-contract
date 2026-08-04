@@ -230,8 +230,11 @@ export function buildRawActivitiesProxy(
 
   // Fast path: nothing customized → use the single default proxy directly.
   // (`createValidatedActivities` accesses by name, so the Proxy's get-trap
-  // suffices; we don't need an enumerable map.) The `?? {}` covers the
-  // degenerate no-activities + no-defaults case.
+  // suffices; we don't need an enumerable map.) The `?? {}` covers BOTH
+  // degenerate no-activities cases: no-activities + no-defaults (`defaultProxy`
+  // is never built because `defaultOptions` is falsy) and no-activities WITH
+  // defaults (`needsDefaultProxy`'s `.some` over an empty `allDefinitions` is
+  // `false`, so `defaultProxy` is never built even though `defaultOptions` is set).
   if (Object.keys(customizedFns).length === 0) {
     return defaultProxy ?? {};
   }

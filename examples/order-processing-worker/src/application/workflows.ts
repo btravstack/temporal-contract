@@ -403,6 +403,7 @@ export const processOrder = declareWorkflow({
   },
   activityOptions: {
     startToCloseTimeout: "1 minute",
+    retry: { maximumAttempts: 3 },
   },
   // Per-activity overrides: payment-related activities talk to a slower
   // gateway and are worth retrying more aggressively, so they get a longer
@@ -433,6 +434,7 @@ export const cleanupExpiredOrders = declareWorkflow({
   contract: orderProcessingContract,
   activityOptions: {
     startToCloseTimeout: "1 minute",
+    retry: { maximumAttempts: 3 },
   },
   implementation: async (context, { olderThanDays }) => {
     log.info(`Starting order cleanup (older than ${olderThanDays} days)`);

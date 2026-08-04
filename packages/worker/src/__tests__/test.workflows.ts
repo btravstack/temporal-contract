@@ -126,6 +126,9 @@ export const parentWorkflow = declareWorkflow({
       const childResult = await executeChildWorkflow(testContract, "childWorkflow", {
         workflowId: `child-${i}`,
         args: { id: i },
+        // Preserves the pre-8.0.0 default; this fixture is about child
+        // workflow fan-out, not parent-close behavior.
+        parentClosePolicy: "TERMINATE",
       });
 
       if (childResult.isOk()) {

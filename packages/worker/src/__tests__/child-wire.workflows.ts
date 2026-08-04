@@ -45,6 +45,9 @@ export const parentChild = declareWorkflow({
       const result = await context.executeChildWorkflow(childWireContract, "child", {
         workflowId: childWorkflowId,
         args: { label: args.label },
+        // Preserves the pre-8.0.0 default; this fixture is about wire
+        // format, not parent-close behavior.
+        parentClosePolicy: "TERMINATE",
       });
       if (result.isDefect()) return { status: describeDefect(result.cause) };
       if (result.isErr()) return { status: `err:${result.error._tag}` };
@@ -55,6 +58,9 @@ export const parentChild = declareWorkflow({
     const handleResult = await context.startChildWorkflow(childWireContract, "child", {
       workflowId: childWorkflowId,
       args: { label: args.label },
+      // Preserves the pre-8.0.0 default; this fixture is about wire format,
+      // not parent-close behavior.
+      parentClosePolicy: "TERMINATE",
     });
     if (handleResult.isDefect()) return { status: describeDefect(handleResult.cause) };
     if (handleResult.isErr()) return { status: `err:${handleResult.error._tag}` };
@@ -106,6 +112,9 @@ export const parentSignal = declareWorkflow({
     const handleResult = await context.startChildWorkflow(childWireContract, "signalful", {
       workflowId: requestedChildWorkflowId,
       args: {},
+      // Preserves the pre-8.0.0 default; this fixture is about signal
+      // delivery, not parent-close behavior.
+      parentClosePolicy: "TERMINATE",
     });
     if (handleResult.isDefect()) {
       return { status: describeDefect(handleResult.cause), sendError: null, noteText: null };
