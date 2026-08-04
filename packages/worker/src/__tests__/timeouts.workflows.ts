@@ -1,5 +1,4 @@
-import { propagateActivityFailure } from "../activity-failure.js";
-import { declareWorkflow } from "../workflow.js";
+import { declareWorkflow, propagateActivityFailure } from "../workflow.js";
 import { timeoutsContract } from "./timeouts.contract.js";
 
 export const reportsLayered = declareWorkflow({

@@ -1,5 +1,4 @@
-import { propagateActivityFailure } from "../activity-failure.js";
-import { declareWorkflow } from "../workflow.js";
+import { declareWorkflow, propagateActivityFailure } from "../workflow.js";
 import { ROUTED_ACTIVITY_QUEUE, routingContract } from "./routing.contract.js";
 
 /**
