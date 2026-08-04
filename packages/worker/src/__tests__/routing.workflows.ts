@@ -1,3 +1,4 @@
+import { propagateActivityFailure } from "../activity-failure.js";
 import { declareWorkflow } from "../workflow.js";
 import { ROUTED_ACTIVITY_QUEUE, routingContract } from "./routing.contract.js";
 
@@ -18,7 +19,11 @@ export const routedFlow = declareWorkflow({
     reportQueue: { taskQueue: ROUTED_ACTIVITY_QUEUE },
   },
   implementation: async (context) => {
-    const { handledBy } = await context.activities.reportQueue({});
+    // The spec only ever exercises the success path (the dedicated activity
+    // worker always resolves); a failure here would be an unmodeled routing
+    // bug, so let Temporal decide the workflow's fate rather than folding it
+    // into a returned status.
+    const { handledBy } = await propagateActivityFailure(context.activities.reportQueue({}));
     return { handledBy };
   },
 });
