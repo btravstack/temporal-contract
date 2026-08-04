@@ -49,6 +49,15 @@ const sibling = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 // `/worker/workflow` for its own broader needs — add the matching entry
 // here if and when a migrated spec's dependency chain actually needs it,
 // rather than pre-aliasing unused specifiers.
+//
+// `@temporal-contract/contract` is NOT in this list, so it resolves through
+// the plain workspace symlink to its BUILT `dist/*.mjs` — not source. This
+// tier therefore runs `client` source against `contract` dist, unlike every
+// other package pair here. A source edit to `packages/contract/src/**`
+// (e.g. probing `reusePolicyFor` for a dedup-suite discrimination check) is
+// invisible to `integration-inprocess` until `pnpm --filter
+// @temporal-contract/contract build` reruns — silently testing stale
+// behavior otherwise. Hit and documented in the idempotency task-3 report.
 const workspaceAliases = [
   { find: /^@temporal-contract\/client$/, replacement: sibling("../client/src/index.ts") },
   { find: /^@temporal-contract\/worker\/worker$/, replacement: sibling("./src/worker.ts") },
