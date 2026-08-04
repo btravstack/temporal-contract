@@ -34,7 +34,11 @@ import { ContractMisuseError } from "./errors.js";
 import { bindQueryHandler, bindSignalHandler, bindUpdateHandler } from "./handlers.js";
 
 const baseDefinition = (): AnyWorkflowDefinition =>
-  ({ input: z.object({}), output: z.object({}) }) as unknown as AnyWorkflowDefinition;
+  ({
+    input: z.object({}),
+    output: z.object({}),
+    idempotency: "allow-duplicate",
+  }) as unknown as AnyWorkflowDefinition;
 
 const withSignals = (signals: Record<string, SignalDefinition>): AnyWorkflowDefinition =>
   ({ ...baseDefinition(), signals }) as unknown as AnyWorkflowDefinition;

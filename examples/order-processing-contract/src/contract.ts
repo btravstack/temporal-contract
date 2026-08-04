@@ -165,9 +165,24 @@ const processOrder = defineWorkflow({
   output: OrderResultSchema,
   // A Completed run charged the customer — Temporal's default
   // (`allow-duplicate`) would let a retried start under the same order ID
-  // charge them again. `retry-if-failed` still lets a start be retried after
-  // a genuine failure (worker crash, infra blip) without giving up the
-  // dedup guarantee that matters: no second successful run per order.
+  // charge them again. `retry-if-failed` blocks that while still letting a
+  // start be retried after a run that ended Failed *before* any charge went
+  // through — chiefly `PaymentDeclined` (see `workflows.ts`), where the
+  // customer would otherwise have to be given a new order ID to try again.
+  //
+  // Caveat this example doesn't fully close: two post-charge paths in
+  // `workflows.ts` also end the run in a state `retry-if-failed` treats as
+  // re-runnable (`ALLOW_DUPLICATE_FAILED_ONLY` covers Cancelled/Terminated/
+  // TimedOut, not just Failed) — a failed compensating `refundPayment`
+  // deliberately fails the workflow with the charge unrefunded
+  // (`workflows.ts:287-298`), and real cancellation during/after inventory
+  // reservation ends the run Cancelled post-charge (`workflows.ts:262`). A
+  // retried start after either would re-enter `processPayment` and double-
+  // charge. `once-per-id` would close that gap entirely, at the cost of
+  // forcing a fresh workflow ID for every legitimate retry, including the
+  // common pre-charge `PaymentDeclined` case above — kept as `retry-if-
+  // failed` here because that trade favors the common case, not because the
+  // gap doesn't exist.
   idempotency: "retry-if-failed",
   activities: {
     processPayment,
