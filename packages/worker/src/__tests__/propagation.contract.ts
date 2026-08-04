@@ -2,10 +2,13 @@ import { defineActivity, defineContract, defineWorkflow } from "@temporal-contra
 import { z } from "zod";
 
 /**
- * Fails on every attempt and declares NO `errors` map — so today it takes the
- * `makeThrowingActivity` path and Temporal's original `ActivityFailure`
- * propagates out of the workflow. This is the activity whose behavior must be
- * identical after the uniform-`AsyncResult` change.
+ * Fails on every attempt and declares NO `errors` map. Before the
+ * uniform-`AsyncResult` change, this activity's workflow-side call took the
+ * (now-deleted) `makeThrowingActivity` path, and Temporal's original
+ * `ActivityFailure` propagated out of the workflow via a bare `await`. This
+ * is the activity whose observable behavior — now reached through
+ * `propagateActivityFailure`, or handled by narrowing `isErr()` — must stay
+ * IDENTICAL to that pre-change throwing behavior.
  *
  * `maximumAttempts: 2` bounds the run: enough to prove Temporal retried,
  * short enough that a regression cannot stall the suite.

@@ -68,7 +68,9 @@ implementation: async (context, order) => {
   }
 
   // Do other work while the child runs.
-  const shipment = await context.activities.createShipment({ orderId: order.orderId });
+  const shipment = await propagateActivityFailure(
+    context.activities.createShipment({ orderId: order.orderId }),
+  );
 
   // Then collect.
   const receipt = await started.value.result();

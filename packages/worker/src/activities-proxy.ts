@@ -153,7 +153,7 @@ export function createValidatedActivities<
 }
 
 /**
- * Result-shaped wrapper for activities that declare contract errors.
+ * Result-shaped wrapper for every activity — declared `errors` map or not.
  * Classification mirrors the child-workflow API (`classifyChildWorkflowError`):
  *
  * - cancellation → `Err(ActivityCancelledError)` (checked first, so a
@@ -210,7 +210,14 @@ function makeResultShapedActivity(
 
 /**
  * Map a failure thrown by a workflow-side activity call into the typed error
- * union of an errors-declaring activity.
+ * union of the activity — every activity now, not only ones that declare an
+ * `errors` map. When the activity declares no `errors`, `activityDef.errors`
+ * is `undefined` and the rehydration branch below is a deliberate no-op:
+ * `_internal_rehydrateContractError` returns `undefined` for an `undefined`
+ * map (see `packages/contract/src/errors.spec.ts`'s "returns undefined when
+ * no errors are declared" case), so classification falls straight through to
+ * the `ActivityError` fallback. Do not reintroduce a guard around this call
+ * for the errors-less case — it is already handled.
  */
 async function classifyActivityError(
   activityName: string,

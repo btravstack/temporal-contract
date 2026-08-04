@@ -20,9 +20,11 @@ _recomputed_.
 
 ```typescript
 implementation: async (context, order) => {
-  let total = 0;                                    // recomputed on replay
+  let total = 0;                                     // recomputed on replay
   const charge = await context.activities.chargeCard({ ... });  // from history
-  total += charge.amount;                           // recomputed identically
+  if (charge.isOk()) {
+    total += charge.value.amount;                    // recomputed identically
+  }
   // ...
 }
 ```
@@ -101,10 +103,16 @@ Temporal's `CancellationScope` and surface cancellation as
 `Err(WorkflowCancelledError)`:
 
 ```typescript
-const result = await context.cancellableScope(() => context.activities.processStep(args));
+const result = await context.cancellableScope(async () => {
+  // Narrow the activity's own AsyncResult here — it's independent of the
+  // scope's cancellation channel.
+  const step = await context.activities.processStep(args);
+  return step.isOk();
+});
 
 if (result.isErr()) {
-  await context.nonCancellableScope(() => context.activities.releaseResources(args)).getOrThrow();
+  // best-effort cleanup — outcome intentionally not narrowed further here
+  await context.nonCancellableScope(() => context.activities.releaseResources(args));
   return { status: "cancelled" };
 }
 ```
@@ -129,11 +137,12 @@ Temporal's versioning API handles this:
 
 ```typescript
 import { patched } from "@temporalio/workflow";
+import { propagateActivityFailure } from "@temporal-contract/worker/workflow";
 
 if (patched("add-fraud-check")) {
-  await context.activities.scoreRisk({ orderId });  // new path
+  await propagateActivityFailure(context.activities.scoreRisk({ orderId }));  // new path
 }
-await context.activities.chargeCard({ ... });        // both paths
+await propagateActivityFailure(context.activities.chargeCard({ ... }));       // both paths
 ```
 
 `patched()` returns `true` for new executions and for old ones that already

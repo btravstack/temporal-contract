@@ -187,9 +187,22 @@ async function run() {
   const cancelHandle = fetchedHandle.value;
 
   // Payload-less signal — `defineSignal()` in the contract, sent with no
-  // arguments.
-  await cancelHandle.signals.cancelRequested();
-  logger.info("🛑 Cancellation signal sent");
+  // arguments. Narrow the Result like every other client call in this file —
+  // a bare `await` would collapse the AsyncResult and silently drop a failed
+  // send.
+  const cancelSent = await cancelHandle.signals.cancelRequested();
+  cancelSent.match({
+    ok: () => logger.info("🛑 Cancellation signal sent"),
+    errCases: (matcher) =>
+      matcher
+        .with(P.tag(SIGNAL_VALIDATION_ERROR_TAG), (err) =>
+          logger.error({ error: err }, "❌ Signal payload rejected by the contract"),
+        )
+        .with(P.tag(WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG), (err) =>
+          logger.error({ error: err }, "❌ Workflow execution not found"),
+        ),
+    defect: (cause) => logger.error({ cause }, "❌ Unexpected failure sending signal"),
+  });
 
   const cancelOutcome = await cancelHandle.result();
   cancelOutcome.match({

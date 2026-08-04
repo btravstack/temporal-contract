@@ -123,14 +123,16 @@ Temporal as a _task_ failure and retried forever, whereas an
 
 ## Consume one in a workflow
 
-Declaring errors on an activity **changes its workflow-side call signature.**
+Every activity call returns an `AsyncResult<Output, ActivityError |
+ActivityCancelledError>` — declaring an `errors` map doesn't change that shape,
+it folds the declared, rehydrated errors into the same channel:
 
-| The activity declares | The workflow call returns                                                            |
-| --------------------- | ------------------------------------------------------------------------------------ |
-| no `errors` map       | `Promise<Output>` — Temporal's native behaviour; a failure throws                    |
-| an `errors` map       | `AsyncResult<Output, ContractErrorUnion \| ActivityError \| ActivityCancelledError>` |
+| The activity declares | The workflow call's error channel                               |
+| --------------------- | --------------------------------------------------------------- |
+| no `errors` map       | `ActivityError \| ActivityCancelledError`                       |
+| an `errors` map       | `ContractErrorUnion \| ActivityError \| ActivityCancelledError` |
 
-So an errors-declaring activity is awaited as a result, not a plain value:
+So every activity is awaited as a result, not a plain value:
 
 ```typescript
 import { CONTRACT_ERROR_TAG } from "@temporal-contract/contract";
@@ -177,9 +179,11 @@ the unwrapped actionable failure, with Temporal's `ActivityFailure` wrapper
 already seen through.
 
 ::: tip This is a deliberate trade
-Declaring errors buys typed, exhaustive handling but changes the call site from
-`await activity(...)` to a result fold. Declare errors on the activities whose
-failures the workflow actually branches on, and leave the rest throwing.
+Every activity call is already a `Result` — declaring errors doesn't add a
+result fold, it adds typed members to the one you already have. Declare errors
+on the activities whose failures the workflow actually branches on; for the
+rest, `propagateActivityFailure` keeps the call site to a single line instead
+of a fold. See [The result model](/explanation/the-result-model).
 :::
 
 ## Consume one on the client

@@ -746,7 +746,7 @@ Where the failure should escape and let Temporal fail the workflow, use the
 new `propagateActivityFailure` helper:
 
 ```ts
-import { propagateActivityFailure } from "@temporal-contract/worker";
+import { propagateActivityFailure } from "@temporal-contract/worker/workflow";
 
 await propagateActivityFailure(context.activities.charge(input));
 ```

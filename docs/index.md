@@ -92,7 +92,7 @@ export const activities = declareActivitiesHandler({
 ```
 
 ```typescript [3. Workflow]
-import { declareWorkflow } from "@temporal-contract/worker/workflow";
+import { declareWorkflow, propagateActivityFailure } from "@temporal-contract/worker/workflow";
 
 import { orderContract } from "./contract.js";
 
@@ -101,11 +101,15 @@ export const processOrder = declareWorkflow({
   contract: orderContract,
   activityOptions: { startToCloseTimeout: "1 minute" },
   implementation: async (context, order) => {
-    // `order` is typed from the contract. So is the return value.
-    const { transactionId } = await context.activities.chargeCard({
-      customerId: order.customerId,
-      amount: order.amount,
-    });
+    // `order` is typed from the contract. So is the return value. Every
+    // activity call returns an AsyncResult; `propagateActivityFailure` lets
+    // Temporal's retry policy decide the outcome.
+    const { transactionId } = await propagateActivityFailure(
+      context.activities.chargeCard({
+        customerId: order.customerId,
+        amount: order.amount,
+      }),
+    );
 
     return { orderId: order.orderId, transactionId };
   },

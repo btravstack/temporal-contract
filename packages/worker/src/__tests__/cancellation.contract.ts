@@ -10,14 +10,16 @@ import { z } from "zod";
  * re-listed per workflow (mirrors `globalTimeoutActivity` in
  * `activity-options.contract.ts`).
  *
- * The `errors` map — even empty — is what puts this activity's calls on the
- * `AsyncResult` path (`activities-proxy.ts`'s `makeResultShapedActivity`).
- * That is precisely the condition that creates the swallowed-cancellation
- * hazard under test: a cancelled in-flight call to an errors-declaring
- * activity resolves to `Err(ActivityCancelledError)` — a value on the SAME
- * modeled channel as an ordinary declared failure, and therefore
- * indistinguishable from one to a handler that maps every `Err` to a
- * generic fallback.
+ * Every activity call — this one included — is on the `AsyncResult` path
+ * (`activities-proxy.ts`'s `makeResultShapedActivity` wraps all of them, not
+ * just ones with a declared `errors` map). That uniform path is precisely
+ * the condition that creates the swallowed-cancellation hazard under test: a
+ * cancelled in-flight activity call resolves to `Err(ActivityCancelledError)`
+ * — a value on the SAME modeled channel as an ordinary declared failure, and
+ * therefore indistinguishable from one to a handler that maps every `Err` to
+ * a generic fallback. The empty `errors: {}` here is incidental (it only
+ * types the declared-error member of the union as `never`), not what puts
+ * the call on the `AsyncResult` path.
  */
 const slowActivity = defineActivity({
   input: z.object({ sleepMs: z.number() }),

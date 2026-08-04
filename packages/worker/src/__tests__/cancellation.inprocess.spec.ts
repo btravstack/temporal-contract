@@ -22,12 +22,12 @@ import { inprocessContract } from "./inprocess.contract.js";
  * (the old `cancellation.spec.ts`) could only assert that
  * `cancellableScope`/`nonCancellableScope` CALLED the mocked primitives; it
  * could never reproduce Temporal's actual cancellation propagation, nor the
- * swallowed-cancellation hazard this file exists to prove: an activity that
- * declares an `errors` map turns a cancellation into an `Err(...)` on the
- * SAME modeled channel as an ordinary declared failure, so a generic
- * "map every Err to a fallback" handler absorbs it — the workflow completes
- * `Completed` instead of `Cancelled`, silently overriding the cancel
- * request.
+ * swallowed-cancellation hazard this file exists to prove: every activity
+ * call turns a cancellation into an `Err(ActivityCancelledError)` on the
+ * SAME modeled channel as an ordinary declared failure — declared `errors`
+ * map or not — so a generic "map every Err to a fallback" handler absorbs
+ * it — the workflow completes `Completed` instead of `Cancelled`, silently
+ * overriding the cancel request.
  */
 /**
  * Bounds every workflow started below. A regression in the `context`

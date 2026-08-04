@@ -64,50 +64,76 @@ const client = await TypedClient.create({ client: temporalClient }).get();
 
 This is the table to internalize:
 
-| Boundary                                            | Shape                                                                                | Why                                           |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------- |
-| **Activity implementation** returns                 | `AsyncResult<Output, ApplicationFailure \| ContractError>`                           | You author the failure. Explicit is better    |
-| **Workflow calls an activity** (no declared errors) | `Promise<Output>` — throws on failure                                                | Temporal's retry policy is the handler        |
-| **Workflow calls an activity** (declared errors)    | `AsyncResult<Output, ContractErrorUnion \| ActivityError \| ActivityCancelledError>` | You declared these to branch on them          |
-| **Workflow calls a child workflow**                 | `AsyncResult<Output, ChildWorkflow*Error>`                                           | A peer operation; failure is usually a branch |
-| **Workflow cancellation scope**                     | `AsyncResult<T, WorkflowCancelledError>`                                             | Cancellation is an expected outcome           |
-| **Client calls a workflow**                         | `AsyncResult<Output, …>`                                                             | Crossing a process boundary                   |
+| Boundary                            | Shape                                                                                                    | Why                                                                                 |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| **Activity implementation** returns | `AsyncResult<Output, ApplicationFailure \| ContractError>`                                               | You author the failure. Explicit is better                                          |
+| **Workflow calls an activity**      | `AsyncResult<Output, ActivityError \| ActivityCancelledError>` — plus `ContractErrorUnion` when declared | Uniform: every call returns a Result, whether or not the contract declares `errors` |
+| **Workflow calls a child workflow** | `AsyncResult<Output, ChildWorkflow*Error>`                                                               | A peer operation; failure is usually a branch                                       |
+| **Workflow cancellation scope**     | `AsyncResult<T, WorkflowCancelledError>`                                                                 | Cancellation is an expected outcome                                                 |
+| **Client calls a workflow**         | `AsyncResult<Output, …>`                                                                                 | Crossing a process boundary                                                         |
 
-### Why activities unwrap by default
+### Every activity call returns a Result
 
-Inside a workflow, `await context.activities.chargeCard(...)` gives you a plain
-value. The `Result` is unwrapped for you.
-
-That is not an inconsistency — it reflects who handles the failure. When an
-activity fails, Temporal's retry policy takes over: it retries with backoff, and
-only after exhausting the policy does the failure reach your workflow. By then
-there is usually nothing sensible to do but let it propagate.
-
-Forcing every activity call into a result fold would add ceremony to code whose
-correct behaviour is almost always "let it throw":
+Inside a workflow, `await context.activities.chargeCard(...)` gives you an
+`AsyncResult` — never a plain value, and never a call that throws through.
+That is true whether or not the contract declares an `errors` map: an activity
+with no declared errors still folds into `Err(ActivityError |
+ActivityCancelledError)` on failure, on the same channel as one with a full
+declared error union. The call convention no longer depends on reading the
+contract to find out whether a given activity call throws or returns a
+`Result` — it's uniform.
 
 ```typescript
-// what you write
 const charge = await context.activities.chargeCard({ customerId, amount });
-const shipment = await context.activities.createShipment({ orderId });
-
-// what a uniform Result API would force
-const charge = await context.activities.chargeCard({ customerId, amount });
-if (charge.isErr()) return { status: "failed" };
-const shipment = await context.activities.createShipment({ orderId });
-if (shipment.isErr()) return { status: "failed" };
+if (charge.isErr()) {
+  // charge.error: ActivityError | ActivityCancelledError
+}
 ```
 
-### Why declaring errors changes that
+### Handle it, or let Temporal handle it
 
-Declare an `errors` map on an activity and the call site becomes an
-`AsyncResult`. That is the signal that you have failures the workflow is
-_meant_ to branch on — and the exhaustive matcher then makes sure you handle
-each one.
+Most activity failures still have one sensible response: let Temporal's retry
+policy exhaust, then fail the workflow. Narrowing every such call site would
+add ceremony to code whose correct behaviour is "let it throw" — so use
+`propagateActivityFailure` to re-raise the original failure and hand the
+outcome to Temporal, the same "let it throw" behaviour a bare `await` gave you
+before this call convention became uniform:
 
-It is an opt-in trade: ceremony in exchange for typed, exhaustive handling.
-Declare errors on the activities whose failures drive workflow decisions; leave
-the rest throwing.
+```typescript
+import { propagateActivityFailure } from "@temporal-contract/worker/workflow";
+
+const charge = await propagateActivityFailure(
+  context.activities.chargeCard({ customerId, amount }),
+);
+const shipment = await propagateActivityFailure(context.activities.createShipment({ orderId }));
+```
+
+**Do not use unthrown's `.getOrThrow()` for this.** It throws the
+`ActivityError`/`ActivityCancelledError` wrapper — a `TaggedError`, not a
+`TemporalFailure` — and Temporal treats a non-`TemporalFailure` thrown from
+workflow code as a workflow-_task_ failure, retrying it indefinitely rather
+than failing the execution. `propagateActivityFailure` re-raises the
+_preserved original_ Temporal failure instead, which is what actually fails
+the workflow.
+
+### Why declaring errors still matters
+
+Declaring an `errors` map doesn't change the call _shape_ anymore — it changes
+what's in the error _channel_. It folds the declared, rehydrated
+`ContractError`s into the union alongside `ActivityError` /
+`ActivityCancelledError`, and the exhaustive matcher then makes sure every
+fold handles each one:
+
+```typescript
+const charged = await context.activities.chargeCard({ customerId, amount });
+if (charged.isErr()) {
+  // charged.error: ContractErrorUnion<...> | ActivityError | ActivityCancelledError
+}
+```
+
+Declare errors on the activities whose failures should drive workflow
+decisions; for the rest, `propagateActivityFailure` keeps the call site to a
+single line.
 
 ### Why child workflows never unwrap
 
