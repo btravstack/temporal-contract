@@ -1,6 +1,11 @@
 import type { ActivityDefinition } from "@temporal-contract/contract";
 import { type AnyContractError, ContractError } from "@temporal-contract/contract/errors";
-import { ApplicationFailure, CancelledFailure } from "@temporalio/common";
+import {
+  ActivityFailure,
+  ApplicationFailure,
+  CancelledFailure,
+  RetryState,
+} from "@temporalio/common";
 import type { AsyncResult } from "unthrown";
 /**
  * Runtime coverage for `createValidatedActivities` — specifically the
@@ -167,6 +172,37 @@ describe("createValidatedActivities — activities with declared errors", () => 
     }
   });
 
+  it("preserves the original ActivityFailure wrapper as ActivityError.originalFailure, alongside the unwrapped cause", async () => {
+    // classifyActivityError unwraps Temporal's ActivityFailure to build
+    // `cause` (the failure below only throws a bare ApplicationFailure, never
+    // exercising that unwrap branch or the originalFailure argument at all —
+    // this test drives a REAL ActivityFailure wrapper through the raw
+    // activity so both are covered).
+    const inner = ApplicationFailure.create({ type: "GATEWAY_5XX", message: "boom" });
+    const wrapper = new ActivityFailure(
+      "activity failed",
+      "chargePayment",
+      "1",
+      RetryState.MAXIMUM_ATTEMPTS_REACHED,
+      undefined,
+      inner,
+    );
+    const activities = buildProxy(async () => {
+      throw wrapper;
+    });
+
+    const result = await activities["chargePayment"]!({ amount: 1 });
+    expect(result).toBeErrTagged("@temporal-contract/ActivityError");
+    if (result.isErr()) {
+      const error = result.error as InstanceType<typeof ActivityError>;
+      // cause stays the UNWRAPPED failure (documented, unchanged behavior).
+      expect(error.cause).toBe(inner);
+      // originalFailure is the wrapper Temporal actually threw, retained
+      // specifically so propagateActivityFailure can re-raise it faithfully.
+      expect(error.originalFailure).toBe(wrapper);
+    }
+  });
+
   it("surfaces a declared type with a mismatching payload as ActivityError (no wrong typed error)", async () => {
     const failure = ApplicationFailure.create({
       type: "PaymentDeclined",
@@ -189,6 +225,33 @@ describe("createValidatedActivities — activities with declared errors", () => 
     expect(result).toBeErrTagged("@temporal-contract/ActivityCancelledError");
     if (result.isErr()) {
       expect(result.error).toBeInstanceOf(ActivityCancelledError);
+    }
+  });
+
+  it("preserves the original ActivityFailure wrapper on ActivityCancelledError.cause when cancellation is wrapped", async () => {
+    // isCancellation() recognizes an ActivityFailure whose cause is a
+    // CancelledFailure — the shape a real cancelled activity actually throws
+    // (not the bare CancelledFailure the test above uses). Cancellation is
+    // detected BEFORE classifyActivityError's unwrap, so cause here should be
+    // the wrapper itself, not the inner CancelledFailure.
+    const cancelledFailure = new CancelledFailure("activity cancelled");
+    const wrapper = new ActivityFailure(
+      "activity failed",
+      "chargePayment",
+      "1",
+      RetryState.CANCEL_REQUESTED,
+      undefined,
+      cancelledFailure,
+    );
+    const activities = buildProxy(async () => {
+      throw wrapper;
+    });
+
+    const result = await activities["chargePayment"]!({ amount: 1 });
+    expect(result).toBeErrTagged("@temporal-contract/ActivityCancelledError");
+    if (result.isErr()) {
+      const error = result.error as InstanceType<typeof ActivityCancelledError>;
+      expect(error.cause).toBe(wrapper);
     }
   });
 
