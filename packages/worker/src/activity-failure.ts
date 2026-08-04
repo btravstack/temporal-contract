@@ -1,3 +1,4 @@
+import { ContractError } from "@temporal-contract/contract/errors";
 import type { AsyncResult } from "unthrown";
 
 import { ActivityCancelledError, ActivityError } from "./errors.js";
@@ -37,6 +38,25 @@ import { ActivityCancelledError, ActivityError } from "./errors.js";
  * detected *before* the unwrap, so its `cause` already holds the pre-unwrap
  * original failure.
  *
+ * A **declared** contract error (`ContractError`, from an activity's `errors`
+ * map) is also a `TaggedError`, not a `TemporalFailure` — the same stall risk
+ * as `ActivityError`/`ActivityCancelledError`. `classifyActivityError`
+ * rehydrates it straight from the `ApplicationFailure` Temporal actually put
+ * on the wire (there is no separate wrapper to unwrap first — see
+ * `_internal_rehydrateContractError`), so this helper re-raises
+ * `ContractError.cause`, the original `ApplicationFailure`.
+ *
+ * **Fidelity nuance, stated plainly:** for a declared error this means the
+ * client sees `WorkflowFailedError.cause` as a bare `ApplicationFailure`,
+ * never wrapped in Temporal's `ActivityFailure` — unlike the `ActivityError`
+ * path above, which preserves the `ActivityFailure` wrapper exactly.
+ * `ContractError` never had that wrapper to preserve in the first place
+ * (`ContractError.cause` is set directly from the unwrapped failure at
+ * construction), so there is nothing more original to reach for. This is a
+ * deliberate, accepted trade — a bare `ApplicationFailure` escaping is vastly
+ * better than a `TaggedError` stalling the workflow task forever — not an
+ * oversight.
+ *
  * A failure with nothing preserved at all rethrows the wrapper, so the error
  * identity is never lost.
  */
@@ -57,6 +77,10 @@ export async function propagateActivityFailure<T, E>(result: AsyncResult<T, E>):
   }
   if (error instanceof ActivityCancelledError) {
     // oxlint-disable-next-line unthrown/no-throw -- deliberate re-raise: `cause` already holds the pre-unwrap original failure for cancellation (see ActivityCancelledError's doc comment)
+    throw error.cause ?? error;
+  }
+  if (error instanceof ContractError) {
+    // oxlint-disable-next-line unthrown/no-throw -- deliberate re-raise: a declared contract error is a TaggedError, not a TemporalFailure — without this branch it would stall the workflow task instead of failing the execution (see doc comment's fidelity nuance)
     throw error.cause ?? error;
   }
   // oxlint-disable-next-line unthrown/no-throw -- deliberate re-raise: an unmodeled error/defect value is rethrown unchanged

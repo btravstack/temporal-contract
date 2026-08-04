@@ -1,3 +1,4 @@
+import { ContractError } from "@temporal-contract/contract/errors";
 import { ApplicationFailure, ActivityFailure, RetryState } from "@temporalio/common";
 import { ErrAsync, OkAsync } from "unthrown";
 import { describe, expect, it } from "vitest";
@@ -71,5 +72,38 @@ describe("propagateActivityFailure", () => {
   it("rethrows a non-ActivityError error value unchanged", async () => {
     const other = new Error("something else");
     await expect(propagateActivityFailure(ErrAsync(other))).rejects.toBe(other);
+  });
+
+  it("rethrows the ApplicationFailure cause for a declared ContractError, not the TaggedError wrapper", async () => {
+    // A declared contract error is ALSO a TaggedError, not a TemporalFailure
+    // — the exact stall this helper exists to prevent (Fix round 1, Important
+    // 1). classifyActivityError rehydrates it straight from the
+    // ApplicationFailure Temporal put on the wire, so `cause` is what must
+    // escape — not the ContractError wrapper itself.
+    const wireFailure = ApplicationFailure.create({
+      type: "PaymentDeclined",
+      message: "Card declined",
+      nonRetryable: true,
+      details: [{ reason: "insufficient_funds" }],
+    });
+    const contractError = new ContractError({
+      errorName: "PaymentDeclined",
+      data: { reason: "insufficient_funds" },
+      message: "Card declined",
+      cause: wireFailure,
+    });
+
+    expect(contractError).not.toBeInstanceOf(ApplicationFailure);
+    await expect(propagateActivityFailure(ErrAsync(contractError))).rejects.toBe(wireFailure);
+  });
+
+  it("rethrows a ContractError itself when no cause was set", async () => {
+    const contractError = new ContractError({
+      errorName: "PaymentDeclined",
+      data: undefined,
+      message: "Card declined",
+    });
+
+    await expect(propagateActivityFailure(ErrAsync(contractError))).rejects.toBe(contractError);
   });
 });
