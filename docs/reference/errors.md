@@ -263,8 +263,10 @@ points, with two different runtime consequences:
   here: a plain `Error` thrown from that point would be retried as a
   Workflow Task failure forever, leaving the execution silently `Running`;
   `ContractMisuseError` instead fails the execution with a clear message.
-- **Reaching an activity no options cover.** This check runs inside
-  `declareWorkflow` itself, at module top level, before Temporal ever
+- **Reaching an activity no options cover** — and, by the same mechanism,
+  naming a workflow the contract does not declare, or an
+  `activityOptionsByName` key that matches no declared activity. These checks
+  run inside `declareWorkflow` itself, at module top level, before Temporal ever
   invokes the workflow function. A throw at that point is a Workflow Task
   failure regardless of the error class — `nonRetryable` has no effect on a
   failure that never reaches a `FailWorkflowExecution` command — so it

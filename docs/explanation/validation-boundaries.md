@@ -182,7 +182,9 @@ throw at that point fails the execution terminally instead of hanging it in
 an infinite Workflow Task retry loop, the same way `throw
 context.errors.X(...)` does.
 
-An activity no options cover is different. That check runs inside
+An activity no options cover is different — as are an undeclared workflow name
+and an `activityOptionsByName` key matching no declared activity, which share
+the same mechanism. Those checks run inside
 `declareWorkflow` itself, at module top level, **before** Temporal ever
 invokes the workflow function. A throw there is a Workflow Task failure
 regardless of the error class — `nonRetryable` has no effect on a failure

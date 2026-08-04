@@ -100,10 +100,14 @@ merge) need both a per-attempt bound and a total bound, and every child
 workflow call needs an explicit `parentClosePolicy` — see
 [worker-surface.md](../../docs/reference/worker-surface.md)'s "Activity
 bounds" and "Required `parentClosePolicy`" sections for the exact rules,
-including the shallow-merge trap and the `maximumAttempts` edge cases. Both
-are enforced at declaration time; a violation stalls the workflow via
-workflow-task retry rather than failing it — see that reference for why that
-is deliberate.
+including the shallow-merge trap and the `maximumAttempts` edge cases.
+
+The two are enforced by different machinery, and the difference matters:
+`parentClosePolicy` is **type-only** — omitting it (or passing `undefined`) is
+a compile error, and there is no runtime check. The activity bounds are a
+**runtime** check inside `declareWorkflow`, which runs at module top level, so
+a violation stalls the workflow via workflow-task retry rather than failing it
+— see that reference for why that is deliberate.
 
 Workflow code is deterministic — see [workflow-determinism.md](./workflow-determinism.md) for the banned APIs and replacements.
 
