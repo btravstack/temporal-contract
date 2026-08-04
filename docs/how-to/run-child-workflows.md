@@ -20,11 +20,12 @@ import { orderContract } from "./contract.js";
 export const processOrder = declareWorkflow({
   workflowName: "processOrder",
   contract: orderContract,
-  activityOptions: { startToCloseTimeout: "1 minute" },
+  activityOptions: { startToCloseTimeout: "1 minute", retry: { maximumAttempts: 3 } },
   implementation: async (context, order) => {
     const payment = await context.executeChildWorkflow(orderContract, "collectPayment", {
       workflowId: `payment-${order.orderId}`,
       args: { customerId: order.customerId, amount: order.total },
+      parentClosePolicy: "TERMINATE",
     });
 
     return payment.match({
@@ -64,8 +65,12 @@ implementation: async (context, order) => {
   const started = await context.startChildWorkflow(orderContract, "sendReceipt", {
     workflowId: `receipt-${order.orderId}`,
     args: { customerId: order.customerId },
+    parentClosePolicy: "TERMINATE",
   });
 
+  if (started.isDefect()) {
+    throw started.cause;
+  }
   if (started.isErr()) {
     return { status: "failed", reason: started.error.message };
   }
@@ -100,8 +105,12 @@ implementation: async (context, order) => {
   const started = await context.startChildWorkflow(orderContract, "collectPayment", {
     workflowId: `payment-${order.orderId}`,
     args: { customerId: order.customerId, amount: order.total },
+    parentClosePolicy: "TERMINATE",
   });
 
+  if (started.isDefect()) {
+    throw started.cause;
+  }
   if (started.isErr()) {
     return { status: "failed", reason: started.error.message };
   }
@@ -134,6 +143,7 @@ implementation: async (context, order) => {
       context.startChildWorkflow(orderContract, "fulfilItem", {
         workflowId: `fulfil-${order.orderId}-${item.sku}`,
         args: { sku: item.sku, quantity: item.quantity },
+        parentClosePolicy: "TERMINATE",
       }),
     ),
   );
@@ -167,6 +177,7 @@ implementation: async (context, order) => {
     {
       workflowId: `notify-${order.orderId}`,
       args: { orderId: order.orderId, customerId: order.customerId },
+      parentClosePolicy: "TERMINATE",
     },
   );
 
@@ -188,8 +199,9 @@ await context.executeChildWorkflow(orderContract, "collectPayment", {
   workflowId: `payment-${order.orderId}`,
   args: { customerId: order.customerId, amount: order.total },
 
-  // What happens to the child if the parent closes (Temporal's default is TERMINATE).
-  parentClosePolicy: "REQUEST_CANCEL", // or "TERMINATE" | "ABANDON"
+  // Required — there is no default to inherit. What happens to the child if
+  // the parent closes: TERMINATE | REQUEST_CANCEL | ABANDON.
+  parentClosePolicy: "REQUEST_CANCEL",
 
   workflowExecutionTimeout: "1 hour",
   workflowRunTimeout: "10 minutes",
@@ -202,10 +214,14 @@ await context.executeChildWorkflow(orderContract, "collectPayment", {
 });
 ```
 
-`parentClosePolicy` is the one to think about: the default (`TERMINATE`) kills
-children when the parent closes. Choose `REQUEST_CANCEL` if a child needs to
-compensate first, or `ABANDON` for fire-and-forget work that should outlive its
-parent.
+`parentClosePolicy` is required — there is no default to inherit, so every
+call has to state what happens to the child when the parent closes:
+`TERMINATE` kills the child immediately (this reproduces the behavior every
+call site got by default before this was enforced), `REQUEST_CANCEL` if a
+child needs to compensate first, or `ABANDON` for fire-and-forget work that
+should outlive its parent. `declareWorkflow` rejects the call at TypeScript
+compile time if the field is omitted, and rejects an explicit `undefined` too
+— it will not silently fall through to Temporal's own `TERMINATE` default.
 
 ## Choose child workflows or activities
 

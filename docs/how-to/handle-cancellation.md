@@ -37,7 +37,7 @@ import { declareWorkflow } from "@temporal-contract/worker/workflow";
 export const processOrder = declareWorkflow({
   workflowName: "processOrder",
   contract: orderContract,
-  activityOptions: { startToCloseTimeout: "5 minutes" },
+  activityOptions: { startToCloseTimeout: "5 minutes", retry: { maximumAttempts: 3 } },
   implementation: async (context, order) => {
     const scoped = await context.cancellableScope(async () => {
       // Narrow the activity's own AsyncResult INSIDE the scope's callback.
@@ -232,6 +232,7 @@ activityOptionsByName: {
   exportLedger: {
     startToCloseTimeout: "1 hour",
     heartbeatTimeout: "30 seconds",
+    retry: { maximumAttempts: 3 },
   },
 }
 ```
@@ -270,17 +271,20 @@ Any "best effort, keep going" step needs this guard.
 
 ## Cancelling child workflows
 
-A child's fate follows `parentClosePolicy`:
+A child's fate follows `parentClosePolicy` — a required field on every child
+call, so this choice can't be made by accident:
 
 ```typescript
 await context.executeChildWorkflow(orderContract, "collectPayment", {
   workflowId: `payment-${order.orderId}`,
   args: { ... },
-  parentClosePolicy: "REQUEST_CANCEL", // opt in; Temporal's default is TERMINATE
+  parentClosePolicy: "REQUEST_CANCEL",
 });
 ```
 
-- `TERMINATE` — kill the child when the parent closes, no cleanup (Temporal's default)
+- `TERMINATE` — kill the child when the parent closes, no cleanup (Temporal's
+  own default when a raw `startChild`/`executeChild` call omits the field —
+  but `declareWorkflow` requires you to write it down rather than inherit it)
 - `REQUEST_CANCEL` — cancel the child so it can compensate and exit on its own terms
 - `ABANDON` — let it outlive the parent
 

@@ -74,7 +74,7 @@ import { declareWorkflow } from "@temporal-contract/worker/workflow";
 export const processOrder = declareWorkflow({
   workflowName: "processOrder",
   contract: myContract,
-  activityOptions: { startToCloseTimeout: "1 minute" },
+  activityOptions: { startToCloseTimeout: "1 minute", retry: { maximumAttempts: 3 } },
   implementation: async (context, args) => {
     // context.activities — typed, validated activities
     // context.info — WorkflowInfo
@@ -93,6 +93,17 @@ export const processOrder = declareWorkflow({
   },
 });
 ```
+
+Every reachable activity's MERGED options (`activityOptions` →
+`defineActivity({ activityOptions })` → `activityOptionsByName`, shallow
+merge) need both a per-attempt bound and a total bound, and every child
+workflow call needs an explicit `parentClosePolicy` — see "Activity bounds"
+and "Required `parentClosePolicy`" in
+[worker-surface.md](../../docs/reference/worker-surface.md) for the exact
+rules, including the shallow-merge trap and the `maximumAttempts` edge cases.
+Both are enforced at declaration time; a violation stalls the workflow via
+workflow-task retry rather than failing it — see that reference for why that
+is deliberate.
 
 Workflow code is deterministic — see [workflow-determinism.md](./workflow-determinism.md) for the banned APIs and replacements.
 

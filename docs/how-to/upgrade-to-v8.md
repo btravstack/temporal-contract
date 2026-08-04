@@ -471,15 +471,27 @@ so `.get()` gives the same throw-on-defect behavior with the original cause.
 ### Contract misuse fails the execution instead of hanging it
 
 Binding a signal/query/update handler for a name the contract does not
-declare, using an async-validating schema where Temporal requires synchronous
-validation, or reaching an activity no options cover used to throw a plain
-`Error` inside the workflow sandbox — which Temporal treats as a Workflow Task
-failure and retries **forever**, leaving the execution silently `Running`.
+declare, or using an async-validating schema where Temporal requires
+synchronous validation, used to throw a plain `Error` inside the workflow
+sandbox — which Temporal treats as a Workflow Task failure and retries
+**forever**, leaving the execution silently `Running`.
 
-8.0 introduces `ContractMisuseError` (a non-retryable `ApplicationFailure`)
-at all such sites: a contract-misuse bug now fails the execution terminally
-with a clear message. If you monitored for stuck executions caused by these
-bugs, they now surface as failed executions instead.
+8.0 introduces `ContractMisuseError` (a non-retryable `ApplicationFailure`) at
+these sites. `handleSignal`/`handleQuery`/`handleUpdate` are called from
+inside your `implementation`, during actual workflow execution, so the throw
+goes through the same path as `throw context.errors.X(...)`: it fails the
+execution terminally with a clear message. If you monitored for stuck
+executions caused by these bugs, they now surface as failed executions
+instead.
+
+**An unbounded activity is different — see
+[§14](#_14-activity-bounds-and-required-parentclosepolicy).** `declareWorkflow`
+also throws `ContractMisuseError` when a reachable activity's merged options
+lack a bound, but that check runs at module top level, before any workflow
+execution begins, so it does not go through the execution-fails-terminally
+path above. It stalls the workflow via workflow-task retry instead — the same
+way the plain `Error` it replaced always did. §14 has the full explanation of
+why that is correct, deliberate behavior rather than an oversight.
 
 ### Workflow-only workers
 
@@ -520,6 +532,7 @@ and parsed by the child on receive:
 const started = await context.startChildWorkflow(orderContract, "collectPayment", {
   workflowId: `payment-${order.orderId}`,
   args: { customerId: order.customerId, amount: order.total },
+  parentClosePolicy: "TERMINATE",
 });
 
 if (started.isOk()) {
@@ -935,6 +948,120 @@ worker-initiated child-workflow starts each have a dedicated integration
 suite that starts real executions and checks which ones the server actually
 accepts or rejects.
 
+## 14. Activity bounds and required `parentClosePolicy`
+
+Two more safety requirements are enforced instead of assumed. Both are
+detected at `declareWorkflow` declaration time (workflow-bundle load) —
+`parentClosePolicy` at compile time via TypeScript, activity bounds at
+runtime via a `ContractMisuseError`.
+
+### Every reachable activity needs a per-attempt bound and a total bound
+
+Previously, `declareWorkflow` only checked that _some_ options existed
+per-source; it never checked the **merged** result. That let three
+combinations through that had no effective timeout at all: a contract-level
+`defineActivity({ activityOptions })` with only a `retry` block, any truthy
+`activityOptions` on `declareWorkflow` (which skipped the check for every
+activity, including `{}`), and — regardless of source — a `retry.maximumAttempts`
+left at its default `Infinity`, which bounds nothing.
+
+8.0 checks the merge (`declareWorkflow`'s `activityOptions` → the contract's
+`defineActivity({ activityOptions })` → `activityOptionsByName`, shallow —
+a later layer's `retry` block replaces an earlier layer's entirely) for
+**every** reachable activity, unconditionally. A violation throws
+`ContractMisuseError` naming every offender and the rule each one broke:
+
+```
+declareWorkflow: every reachable activity needs a total bound, so a failing activity
+cannot retry forever. These do not:
+  - chargePayment: missing a total bound (set `scheduleToCloseTimeout`, or a finite positive `retry.maximumAttempts`)
+Options are merged from `declareWorkflow`'s `activityOptions`, the contract's
+`defineActivity({ activityOptions })`, and `activityOptionsByName`. That merge is
+shallow, so a later layer's `retry` replaces an earlier layer's entirely — check the
+merged result, not each layer.
+```
+
+**Fix:** give the merged result for the named activity/activities either
+`scheduleToCloseTimeout` (which satisfies both rules on its own) or both
+`startToCloseTimeout` **and** a finite positive `retry.maximumAttempts`:
+
+```diff
+  export const processOrder = declareWorkflow({
+    workflowName: "processOrder",
+    contract: orderContract,
+-   activityOptions: { startToCloseTimeout: "1 minute" },
++   activityOptions: { startToCloseTimeout: "1 minute", retry: { maximumAttempts: 3 } },
+    implementation: async (context, args) => { ... },
+  });
+```
+
+Watch the shallow-merge trap specifically: if a contract-level
+`defineActivity({ activityOptions: { retry: { initialInterval: "2s" } } })`
+wins the merge for an activity, it replaces the workflow-wide `retry` block
+**entirely**, silently dropping a `maximumAttempts` the workflow-wide default
+supplied. Both layers look bounded in isolation; only the merged result
+reveals the drop. Either add `maximumAttempts` to that contract-level `retry`
+block too, or give the activity `scheduleToCloseTimeout` directly.
+
+**What this changes at runtime — read this before assuming a violation fails
+loudly in production.** `declareWorkflow` runs at module top level, so the
+throw happens while the workflow bundle is being evaluated, before the SDK
+invokes the workflow function. That is a Workflow **Task** failure, and
+`nonRetryable` (which `ContractMisuseError` sets) has no effect there — it
+only matters on a `FailWorkflowExecution` command, which this path never
+emits. So a violation **stalls** the workflow via indefinite workflow-task
+retry; it does not fail the execution and does not fail fast. For a missing
+per-attempt bound, that is the same way the plain `TypeError` it replaces
+always did (`proxyActivities` itself throws when both `startToCloseTimeout`
+and `scheduleToCloseTimeout` are absent). For a missing total bound alone
+there was no prior `TypeError` — `proxyActivities` never checked
+`retry.maximumAttempts` — so the guard is actually _introducing_ a
+declaration-time stall where the old behavior was a workflow that ran
+normally while one activity quietly retried forever. Either way, this is
+deliberate: stalling lets a bad deploy be fixed and redeployed with in-flight
+executions resuming, where a terminal failure would permanently kill every
+in-flight execution — including a mid-payment one. The guard's value is at
+**declaration time in development and CI** — a unit test or a worker's own
+startup now catches a missing bound immediately — not as a production safety
+net.
+
+### `parentClosePolicy` is now required on every child workflow call
+
+`context.startChildWorkflow` / `context.executeChildWorkflow` previously let
+`parentClosePolicy` fall through to Temporal's own default (`TERMINATE`,
+kill the child when the parent closes) silently. 8.0 makes it a required
+field on `TypedChildWorkflowOptions`, and rejects an explicit `undefined` too
+— TypeScript, not a runtime check, catches this one:
+
+```
+Argument of type '{ workflowId: string; args: { ... }; }' is not assignable to parameter of type 'TypedChildWorkflowOptions<...>'.
+  Property 'parentClosePolicy' is missing in type '{ workflowId: string; args: { ... }; }' but required in
+  type '{ args: { ... }; parentClosePolicy: "REQUEST_CANCEL" | "TERMINATE" | "ABANDON"; }'.
+```
+
+(Abbreviated — the real message spells out `TypedChildWorkflowOptions`'s full
+generic instantiation for your contract and workflow name, which is long. The
+load-bearing line is the `Property 'parentClosePolicy' is missing` one.)
+
+**Fix:** add the field. `"TERMINATE"` reproduces the exact previous
+behavior — nothing about how the child actually behaves changes, only
+whether the choice is written down:
+
+```diff
+  const childResult = await context.executeChildWorkflow(orderContract, "collectPayment", {
+    workflowId: `payment-${order.orderId}`,
+    args: { customerId: order.customerId, amount: order.total },
++   parentClosePolicy: "TERMINATE",
+  });
+```
+
+Use this as a prompt to actually decide, per call site, rather than a
+mechanical fill-in: `REQUEST_CANCEL` if the child needs to compensate before
+exiting (e.g. release a hold, refund a partial charge), `ABANDON` for
+fire-and-forget work that should outlive its parent. Of this repo's own
+child call sites, most had silently inherited `TERMINATE` before this change
+— auditing each one is the point, not just making the compiler pass.
+
 ## Checklist
 
 - [ ] All four `@temporal-contract/*` packages on the same 8.0 version
@@ -991,6 +1118,13 @@ accepts or rejects.
       behavior change uses `"allow-duplicate"` everywhere, then revisits each
       workflow deliberately — remember plain-JS (non-type-checked) callers get
       no runtime error for an omitted field, only for a misspelled one
+- [ ] Every reachable activity's MERGED options (across `activityOptions` →
+      `defineActivity({ activityOptions })` → `activityOptionsByName`) carry a
+      per-attempt bound and a total bound — check the merge, not each layer,
+      since a later layer's `retry` block replaces an earlier layer's entirely
+- [ ] Every `context.startChildWorkflow` / `context.executeChildWorkflow` call
+      states `parentClosePolicy` explicitly; `"TERMINATE"` reproduces prior
+      behavior, but audit each site rather than filling it in mechanically
 - [ ] `pnpm typecheck` clean
 
 The exhaustive matcher does most of the work: once it compiles, the migration is
