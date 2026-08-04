@@ -252,12 +252,25 @@ message must not be able to kill the execution.
 
 Extends `ValidationError` (non-retryable `ApplicationFailure`), with an empty
 `issues` array — the misuse is structural, not a payload failure. Thrown when
-workflow-sandbox code misuses the contract surface: binding a
-signal/query/update handler for an undeclared name, using an async-validating
-schema where Temporal requires synchronous validation, or reaching an activity
-no options cover. Failing terminally is the point — a plain `Error` thrown
-from sandbox code would be retried as a Workflow Task failure forever, leaving
-the execution silently `Running`.
+workflow-sandbox code misuses the contract surface, at one of two different
+points, with two different runtime consequences:
+
+- **Binding a signal/query/update handler for an undeclared name, or using an
+  async-validating schema where Temporal requires synchronous validation.**
+  These are caught from inside the running `implementation` —
+  `handleSignal`/`handleQuery`/`handleUpdate` execute there, after Temporal
+  has already invoked the workflow function. Failing terminally is the point
+  here: a plain `Error` thrown from that point would be retried as a
+  Workflow Task failure forever, leaving the execution silently `Running`;
+  `ContractMisuseError` instead fails the execution with a clear message.
+- **Reaching an activity no options cover.** This check runs inside
+  `declareWorkflow` itself, at module top level, before Temporal ever
+  invokes the workflow function. A throw at that point is a Workflow Task
+  failure regardless of the error class — `nonRetryable` has no effect on a
+  failure that never reaches a `FailWorkflowExecution` command — so it
+  **stalls** the workflow via indefinite workflow-task retry, the same way
+  the plain `Error` it replaces always did. This is deliberate: see [Worker
+  surface → Activity bounds](/reference/worker-surface#activity-bounds).
 
 ### `ActivityDefinitionNotFoundError`
 

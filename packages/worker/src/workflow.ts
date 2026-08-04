@@ -272,9 +272,18 @@ export function declareWorkflow<
   // JavaScript callers and stale casts the type system can't see — without
   // it, a typo'd `workflowName` would crash later with an opaque
   // `Cannot read properties of undefined (reading 'activities')`. This runs
-  // at declaration time in the workflow bundle (sandbox code), so the error
-  // is a ContractMisuseError — a non-retryable ApplicationFailure — rather
-  // than a plain Error that Temporal would retry forever (D3).
+  // at declaration time in the workflow bundle (module top level, before
+  // Temporal ever invokes the workflow function), so throwing
+  // `ContractMisuseError` here does NOT avoid the D3 fate the way it does
+  // for a misuse caught from inside a running `implementation` (e.g. an
+  // undeclared handler name) — the SDK's outer activation handler turns any
+  // throw at this point into a Workflow Task failure regardless of the
+  // error class, so it still stalls via indefinite workflow-task retry,
+  // same as a plain `Error` would. The value of `ContractMisuseError` here
+  // is a named, greppable failure with the offending name and the
+  // contract's available workflows, not a bare property-access crash — not
+  // a different runtime outcome. See `activity-bounds.ts` for the fuller
+  // explanation of this same distinction.
   const definition = contract.workflows[workflowName] as
     | TContract["workflows"][TWorkflowName]
     | undefined;

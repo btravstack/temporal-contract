@@ -121,6 +121,10 @@ export const processOrder = declareWorkflow({
   contract: orderContract,
   activityOptions: {
     startToCloseTimeout: "1 minute",
+    // Cap retries so a persistently failing activity fails the workflow
+    // instead of retrying forever (Temporal's default policy is unlimited
+    // attempts) — carried over from step 1.
+    retry: { maximumAttempts: 3 },
   },
   implementation: async (context, order) => {
     // Workflow-local state. Safe to mutate — Temporal replays the whole

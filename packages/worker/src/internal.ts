@@ -153,9 +153,18 @@ export function buildRawActivitiesProxy(
     }
   }
   if (violations.length > 0) {
-    // ContractMisuseError (a non-retryable ApplicationFailure), not a plain
-    // Error: this runs inside the workflow sandbox, where a plain Error would
-    // be retried as a Workflow Task failure forever (D3).
+    // ContractMisuseError (a non-retryable ApplicationFailure) rather than a
+    // plain Error — but NOT because it changes the retry outcome here. This
+    // throws at module top level, before Temporal ever invokes the workflow
+    // function, so the SDK's outer activation handler turns it into a
+    // Workflow Task failure regardless of the error class: `nonRetryable`
+    // only has meaning on a `FailWorkflowExecution` command, and this path
+    // never emits one. It stalls via indefinite workflow-task retry exactly
+    // like the plain `TypeError` above (D3) — deliberately (see
+    // activity-bounds.ts). The value of `ContractMisuseError` here is a
+    // typed, named, greppable failure that lists every offending activity,
+    // not a bare "Cannot read properties of undefined" a few frames later —
+    // not a different runtime fate.
     // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: declaration-time fail-fast as a non-retryable ApplicationFailure (CLAUDE.md rule 2 exception)
     throw new ContractMisuseError(formatUnboundedActivitiesMessage(violations));
   }

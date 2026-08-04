@@ -282,19 +282,35 @@ export class ContractErrorDataValidationError extends ValidationError {
 }
 
 /**
- * Error thrown when workflow-sandbox code misuses the contract surface —
- * binding a signal/query/update handler for a name the contract doesn't
- * declare, using an async-validating schema where Temporal requires
- * synchronous validation, or reaching an activity that no options cover.
+ * Error thrown when workflow-sandbox code misuses the contract surface, at
+ * one of two different points with two different runtime consequences:
  *
- * Extends {@link ValidationError} for the same load-bearing reason as its
- * siblings: a plain `Error` thrown from *workflow* code is classified by the
- * TypeScript SDK as a Workflow Task failure and retried indefinitely,
- * leaving the execution silently `Running` forever. Contract misuse is a
- * deterministic programming bug — it never becomes valid on replay — so it
- * must fail the Workflow Execution terminally as a non-retryable
- * `ApplicationFailure` with a clear message, not hang in an infinite
- * Workflow Task retry loop.
+ * - Binding a signal/query/update handler for a name the contract doesn't
+ *   declare, or using an async-validating schema where Temporal requires
+ *   synchronous validation. These throw from *inside* the running
+ *   `implementation` — `handleSignal`/`handleQuery`/`handleUpdate` execute
+ *   there, after Temporal has already invoked the workflow function — so
+ *   the throw is classified as a normal workflow failure and fails the
+ *   Workflow Execution terminally with a clear message, the same way
+ *   `throw context.errors.X(...)` does. A plain `Error` at that point would
+ *   instead be classified as a Workflow Task failure and retried
+ *   indefinitely, leaving the execution silently `Running` forever — this
+ *   is the case `ValidationError`'s siblings all guard against, and it's
+ *   genuinely true here.
+ * - Reaching an activity that no options cover (see `buildRawActivitiesProxy`
+ *   in `internal.ts`). This one is different: it throws at module top
+ *   level, inside `declareWorkflow` itself, *before* Temporal ever invokes
+ *   the workflow function. A throw there is a Workflow Task failure
+ *   regardless of the error class — `nonRetryable` never reaches a
+ *   `FailWorkflowExecution` command from this path — so it stalls the
+ *   workflow via indefinite workflow-task retry exactly like the plain
+ *   `TypeError` it replaces. That is deliberate (see `activity-bounds.ts`);
+ *   the value here is a typed, named, greppable failure, not a different
+ *   retry outcome.
+ *
+ * Extends {@link ValidationError} for family consistency with its siblings
+ * (a schema-validation failure at the wire boundary), even though the
+ * second case above doesn't share their retry-outcome rationale.
  *
  * Carries no schema `issues` (the misuse is structural, not a payload
  * validation failure), so the `issues` array is always empty.
