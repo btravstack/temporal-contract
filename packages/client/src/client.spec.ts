@@ -2797,3 +2797,131 @@ describe("ContractClient — search attribute VALUE validation (runtime)", () =>
     expect(mockWorkflow.start).not.toHaveBeenCalled();
   });
 });
+
+describe("contract-declared idempotency", () => {
+  // `onceWorkflow` declares "once-per-id" so its default policy
+  // (REJECT_DUPLICATE) is distinguishable from Temporal's own default
+  // (ALLOW_DUPLICATE) — a test asserting the wrong/no policy would still
+  // pass against the default, so the mode is chosen deliberately.
+  // `plainWorkflow` declares no `idempotency` at all, standing in for the
+  // migration-era contracts this change must stay inert for.
+  const idempotencyContract = defineContract({
+    taskQueue: "idempotency-queue",
+    workflows: {
+      onceWorkflow: {
+        input: z.object({ id: z.string() }),
+        output: z.object({ ok: z.boolean() }),
+        idempotency: "once-per-id",
+        signals: {
+          ping: { input: z.tuple([]) },
+        },
+      },
+      plainWorkflow: {
+        input: z.object({ id: z.string() }),
+        output: z.object({ ok: z.boolean() }),
+      },
+    },
+  });
+
+  let idempotencyClient: ContractClient<typeof idempotencyContract>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const rawClient = { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client;
+    idempotencyClient = await bindContract(idempotencyContract, rawClient);
+  });
+
+  it("applies the contract's mode as workflowIdReusePolicy on startWorkflow", async () => {
+    mockWorkflow.start.mockResolvedValue({ workflowId: "id-1" });
+
+    await idempotencyClient.startWorkflow("onceWorkflow", {
+      workflowId: "id-1",
+      args: { id: "a" },
+    });
+
+    expect(mockWorkflow.start).toHaveBeenCalledWith("onceWorkflow", {
+      workflowId: "id-1",
+      taskQueue: "idempotency-queue",
+      workflowIdReusePolicy: "REJECT_DUPLICATE",
+      args: [{ id: "a" }],
+    });
+  });
+
+  it("applies it on signalWithStart", async () => {
+    mockWorkflow.signalWithStart.mockResolvedValue({
+      workflowId: "id-2",
+      signaledRunId: "run-1",
+    });
+
+    await idempotencyClient.signalWithStart("onceWorkflow", {
+      workflowId: "id-2",
+      args: { id: "a" },
+      signalName: "ping",
+      signalArgs: [],
+    });
+
+    expect(mockWorkflow.signalWithStart).toHaveBeenCalledWith("onceWorkflow", {
+      workflowId: "id-2",
+      taskQueue: "idempotency-queue",
+      workflowIdReusePolicy: "REJECT_DUPLICATE",
+      args: [{ id: "a" }],
+      signal: "ping",
+      // `signalArgs: []` is the whole args tuple, wrapped once more as the
+      // single positional argument Temporal's wire format expects — matches
+      // the existing (unrelated to this task) `[[50]]` wrapping behavior
+      // exercised elsewhere in this file for a one-arg signal.
+      signalArgs: [[]],
+    });
+  });
+
+  it("applies it on executeWorkflow", async () => {
+    mockWorkflow.execute.mockResolvedValue({ ok: true });
+
+    await idempotencyClient.executeWorkflow("onceWorkflow", {
+      workflowId: "id-3",
+      args: { id: "a" },
+    });
+
+    expect(mockWorkflow.execute).toHaveBeenCalledWith("onceWorkflow", {
+      workflowId: "id-3",
+      taskQueue: "idempotency-queue",
+      workflowIdReusePolicy: "REJECT_DUPLICATE",
+      args: [{ id: "a" }],
+    });
+  });
+
+  it("lets an explicit per-call workflowIdReusePolicy override the contract", async () => {
+    // This is the test that catches a contract-after-spread mistake: the
+    // three "applies" tests above only prove the field is set to SOMETHING,
+    // not that a caller can still win.
+    mockWorkflow.start.mockResolvedValue({ workflowId: "id-4" });
+
+    await idempotencyClient.startWorkflow("onceWorkflow", {
+      workflowId: "id-4",
+      args: { id: "a" },
+      workflowIdReusePolicy: "ALLOW_DUPLICATE",
+    });
+
+    expect(mockWorkflow.start).toHaveBeenCalledWith("onceWorkflow", {
+      workflowId: "id-4",
+      taskQueue: "idempotency-queue",
+      workflowIdReusePolicy: "ALLOW_DUPLICATE",
+      args: [{ id: "a" }],
+    });
+  });
+
+  it("sends no policy when the contract declares none", async () => {
+    // During migration `idempotency` is optional. A contract without it
+    // must behave exactly as before — no `workflowIdReusePolicy` key at all
+    // (not even `undefined`, which differs under exactOptionalPropertyTypes).
+    mockWorkflow.start.mockResolvedValue({ workflowId: "id-5" });
+
+    await idempotencyClient.startWorkflow("plainWorkflow", {
+      workflowId: "id-5",
+      args: { id: "a" },
+    });
+
+    const passed = mockWorkflow.start.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(passed).not.toHaveProperty("workflowIdReusePolicy");
+  });
+});
