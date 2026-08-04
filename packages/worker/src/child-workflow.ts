@@ -10,6 +10,7 @@ import type {
   SignalDefinition,
 } from "@temporal-contract/contract";
 import { summarizeIssues } from "@temporal-contract/contract";
+import { _internal_reusePolicyFor } from "@temporal-contract/contract/internal";
 import {
   type ChildWorkflowHandle,
   type ChildWorkflowOptions,
@@ -283,6 +284,9 @@ export function createStartChildWorkflow<
       // the child workflow on receive (D1).
       const { args: childArgs, ...temporalOptions } = options;
       const handle = await startChild(childWorkflowName, {
+        ...(childDefinition.idempotency
+          ? { workflowIdReusePolicy: _internal_reusePolicyFor(childDefinition.idempotency) }
+          : {}),
         ...temporalOptions,
         taskQueue,
         args: [childArgs],
@@ -332,6 +336,9 @@ export function createExecuteChildWorkflow<
       // the child workflow on receive (D1).
       const { args: childArgs, ...temporalOptions } = options;
       const result = await executeChild(childWorkflowName, {
+        ...(childDefinition.idempotency
+          ? { workflowIdReusePolicy: _internal_reusePolicyFor(childDefinition.idempotency) }
+          : {}),
         ...temporalOptions,
         taskQueue,
         args: [childArgs],
