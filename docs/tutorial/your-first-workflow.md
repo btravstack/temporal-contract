@@ -108,9 +108,17 @@ const processOrder = defineWorkflow({
     orderId: z.string(),
     transactionId: z.string(),
   }),
-  // This workflow charges a card, so a retried start after a *completed*
-  // run must not charge it twice. `retry-if-failed` still allows a fresh
-  // start if the previous run ended before the charge went through.
+  // This workflow charges a card, so `retry-if-failed` blocks a second
+  // *successful* run per order — Temporal's default (`allow-duplicate`)
+  // would not. It does not guarantee no second charge: the mode permits a
+  // retried start after ANY non-Completed close (Failed, Cancelled,
+  // Terminated, or TimedOut), not only one where the charge never happened.
+  // `sendReceipt` runs after `chargeCard` below, so exhausting its own
+  // retries fails the run *after* the card was already charged, and a
+  // retried start under the same order ID would re-enter `chargeCard`.
+  // `once-per-id` would close that gap at the cost of a fresh order ID for
+  // every retry — kept as `retry-if-failed` here to keep this first
+  // tutorial's failure story to one activity (see Step 7).
   idempotency: "retry-if-failed",
   // Activities declared here are reachable only from this workflow.
   activities: { chargeCard, sendReceipt },

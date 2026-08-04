@@ -59,6 +59,12 @@ const sendEmail = defineActivity({
 const processOrder = defineWorkflow({
   input: z.object({ orderId: z.string() }),
   output: z.object({ status: z.string() }),
+  // Required on every workflow — picks the workflowIdReusePolicy for a
+  // retried start under the same workflow ID. `once-per-id` is the strict
+  // default when a workflow's side effects aren't already known to be safe
+  // to repeat; see "Declare idempotency" in define-a-contract.md for the
+  // other two modes (`retry-if-failed`, `allow-duplicate`) and how to choose.
+  idempotency: "once-per-id",
   activities: { validateInventory },
   signals: {
     cancel: defineSignal({ input: z.object({ reason: z.string() }) }),
@@ -103,7 +109,10 @@ Any Standard Schema compatible library works:
 ## Contract Structure
 
 - `taskQueue` — Temporal task queue name
-- `workflows` — named workflow definitions with input/output schemas
+- `workflows` — named workflow definitions with input/output schemas and a
+  required `idempotency` mode (`once-per-id` | `retry-if-failed` |
+  `allow-duplicate`) that sets the `workflowIdReusePolicy` used by the client
+  (and, for child workflows, the worker) when starting under that workflow's ID
 - `activities` — global activities shared across all workflows
 - Each workflow can have:
   - `activities` — workflow-local activity definitions (merged flat with global activities at the worker level)

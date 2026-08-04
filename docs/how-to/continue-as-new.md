@@ -88,6 +88,16 @@ const pollSubscription = defineWorkflow({
     lastChargeId: z.string().optional(),
   }),
   output: z.object({ cycles: z.number() }),
+  // `continueAsNew` keeps the SAME workflow ID for the whole polling chain
+  // — `workflowIdReusePolicy` only gates a start against a previous run that
+  // has already CLOSED, so it never fires between one cycle's continuation
+  // and the next. This mode instead governs an external start under this
+  // subscription's ID after the whole chain eventually ends (cancellation,
+  // or the subscription itself closing) — e.g. a customer resubscribing —
+  // which is the expected, harmless case here, so `allow-duplicate` is
+  // fine. It does NOT guard against double-charging a cycle: that's
+  // `chargeSubscription`'s job (an idempotency key derived from
+  // `lastChargeId`/`cycle`), independent of this field.
   idempotency: "allow-duplicate",
 });
 ```

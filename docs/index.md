@@ -56,9 +56,9 @@ const processOrder = defineWorkflow({
     amount: z.number().positive(),
   }),
   output: z.object({ orderId: z.string(), transactionId: z.string() }),
-  // A completed run charged the customer — retry-if-failed stops a retried
-  // start from charging them again, while still allowing a fresh start after
-  // a run that failed before the charge went through.
+  // Payment already moved money on success — block a second successful
+  // run per order. A start is still retryable after a genuinely failed
+  // attempt (e.g. a declined payment, where no charge went through).
   idempotency: "retry-if-failed",
   activities: { chargeCard },
 });

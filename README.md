@@ -52,6 +52,10 @@ const chargeCard = defineActivity({
 const processOrder = defineWorkflow({
   input: z.object({ orderId: z.string(), customerId: z.string(), amount: z.number().positive() }),
   output: z.object({ orderId: z.string(), transactionId: z.string() }),
+  // Payment already moved money on success — block a second successful
+  // run per order. A start is still retryable after a genuinely failed
+  // attempt (e.g. a declined payment, where no charge went through).
+  idempotency: "retry-if-failed",
   activities: { chargeCard },
 });
 

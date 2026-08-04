@@ -230,9 +230,15 @@ export type WorkflowDefinition<
   readonly output: TOutput;
   /**
    * Whether this workflow is safe to re-run under a workflow ID that has
-   * already been used. Applied by the client to every start of this
-   * workflow, and by the worker to every child-workflow start of it; an
-   * explicit per-call `workflowIdReusePolicy` still wins.
+   * already been used. Applied by the client to every `startWorkflow` /
+   * `executeWorkflow` / `signalWithStart`, and by the worker to every
+   * `context.startChildWorkflow` / `context.executeChildWorkflow` of this
+   * workflow; an explicit per-call `workflowIdReusePolicy` still wins.
+   *
+   * NOT applied to `schedule.create` — the schedule action type has no
+   * `workflowIdReusePolicy` field, so a schedule action pinning a fixed
+   * `workflowId` gets Temporal's own default (`ALLOW_DUPLICATE`) regardless
+   * of this mode.
    *
    * Required so the question is asked once per workflow rather than
    * silently inheriting Temporal's `ALLOW_DUPLICATE`.

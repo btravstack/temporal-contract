@@ -49,10 +49,10 @@ const parent = defineWorkflow({
     // this to `workflowIdReusePolicy`, not just "something went wrong".
     secondRejectedAsAlreadyStarted: z.boolean(),
   }),
-  // Each test starts `parent` under a fresh, unique workflow ID (see the
-  // spec file), so `parent` itself is never re-run under a reused ID — its
-  // own idempotency mode is not under test here. `"allow-duplicate"` is
-  // Temporal's own default, chosen so it stays inert.
+  // Each test starts `parent` under a fresh, `nextTaskQueueId`-derived
+  // workflow ID (see the spec file), so `parent` itself is never re-run
+  // under a reused ID — its own idempotency mode is not under test here.
+  // `"allow-duplicate"` is Temporal's own default, chosen so it stays inert.
   idempotency: "allow-duplicate",
 });
 

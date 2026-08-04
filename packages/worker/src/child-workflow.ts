@@ -35,8 +35,10 @@ import type { ClientInferInput, ClientInferOutput, SignalDefOf } from "./types.j
 
 /**
  * Options for starting a child workflow. `taskQueue` and `args` come from
- * the contract; everything else is forwarded to Temporal's
- * `startChild` / `executeChild`.
+ * the contract, which also supplies a default `workflowIdReusePolicy`
+ * derived from the target workflow's declared `idempotency` mode; everything
+ * else — including an explicit `workflowIdReusePolicy` here, which overrides
+ * that default — is forwarded to Temporal's `startChild` / `executeChild`.
  */
 export type TypedChildWorkflowOptions<
   TChildContract extends ContractDefinition,
