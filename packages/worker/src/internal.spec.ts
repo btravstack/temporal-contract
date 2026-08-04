@@ -1,20 +1,24 @@
 import type { ActivityDefinition } from "@temporal-contract/contract";
 /**
  * Runtime coverage for the two `ContractMisuseError` fail-fast paths in
- * `buildRawActivitiesProxy` (see `internal.ts:97-217` for the merge-precedence
+ * `buildRawActivitiesProxy` (see `internal.ts:82-245` for the merge-precedence
  * design these guard). Both throws are reachable without a Temporal
  * workflow environment or an SDK mock:
  *
- * - The "activityOptions omitted" throw (`internal.ts:139`) fires *before*
- *   the first `proxyActivities` call — it never touches `@temporalio/workflow`.
- * - The "unknown activityOptionsByName key" throw (`internal.ts:165`) fires
- *   *after* `proxyActivities(defaultOptions)`, but `proxyActivities` itself
- *   only validates the options object and returns a `Proxy` — it doesn't
- *   require a workflow activator until one of its synthesized functions is
- *   actually invoked, which this test never does. Real, valid
- *   `ActivityOptions` (a `startToCloseTimeout`) are passed so the real SDK's
- *   own `validateActivityOptions` doesn't reject the call — the old spec's
- *   `{}` defaults needed a mock only to dodge that validation.
+ * - The per-attempt/total bound guard (`internal.ts:140-161`) fires *before*
+ *   any `proxyActivities` call — it never touches `@temporalio/workflow`. The
+ *   "buildRawActivitiesProxy — bound enforcement" describe block below is
+ *   the primary coverage for this path; see `activity-bounds.spec.ts` for the
+ *   pure per-attempt/total rule table it builds on.
+ * - The "unknown activityOptionsByName key" throw (`internal.ts:190-197`)
+ *   fires *after* `proxyActivities(defaultOptions)`, but `proxyActivities`
+ *   itself only validates the options object and returns a `Proxy` — it
+ *   doesn't require a workflow activator until one of its synthesized
+ *   functions is actually invoked, which this test never does. Real, valid
+ *   `ActivityOptions` (a `startToCloseTimeout` plus a bounded `retry`) are
+ *   passed so the real SDK's own `validateActivityOptions` doesn't reject the
+ *   call *and* the merge clears the bound guard above before this throw is
+ *   reached.
  */
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -26,7 +30,11 @@ const activityDef = (): ActivityDefinition =>
   ({ input: z.object({}), output: z.object({}) }) as unknown as ActivityDefinition;
 
 describe("buildRawActivitiesProxy — declaration-time misuse", () => {
-  it("throws ContractMisuseError when activityOptions is omitted and an activity has no options of its own", () => {
+  it("throws ContractMisuseError when an activity has no options anywhere, via the bound guard", () => {
+    // This used to exercise a dedicated "activityOptions omitted" check; that
+    // check was deleted. It still throws — now via the unconditional
+    // per-attempt/total bound guard, since an activity with no options
+    // anywhere merges to `{}`, which satisfies neither bound.
     const definitions: Record<string, ActivityDefinition> = {
       uncovered: activityDef(),
     };

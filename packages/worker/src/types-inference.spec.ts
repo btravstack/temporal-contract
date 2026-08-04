@@ -197,6 +197,8 @@ describe("TypedChildWorkflowHandle storage", () => {
       const started = await context.startChildWorkflow(inferenceContract, "otherWorkflow", {
         workflowId: "child-1",
         args: { batchId: "B-1" },
+        // Pure type-level exercise; TERMINATE is the pre-8.0.0 default.
+        parentClosePolicy: "TERMINATE",
       });
       if (started.isOk()) {
         stored = started.value;

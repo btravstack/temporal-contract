@@ -55,6 +55,9 @@ export const parent = declareWorkflow({
       const options = {
         workflowId: args.childWorkflowId,
         args: { shouldFail: false },
+        // This fixture is about workflowIdReusePolicy, not parent-close
+        // behavior; TERMINATE preserves the pre-8.0.0 default.
+        parentClosePolicy: "TERMINATE" as const,
         ...(overridePolicy ? { workflowIdReusePolicy: overridePolicy } : {}),
       };
 

@@ -14,7 +14,7 @@ const charge = defineActivity({
     },
   },
   // Contract-level defaults — `declareWorkflow` omits `activityOptions`.
-  activityOptions: { startToCloseTimeout: "10 seconds" },
+  activityOptions: { startToCloseTimeout: "10 seconds", retry: { maximumAttempts: 3 } },
 });
 
 const placeOrder = defineWorkflow({

@@ -10,7 +10,7 @@ export const ROUTED_ACTIVITY_QUEUE = "routing-activity-q";
 const reportQueue = defineActivity({
   input: z.object({}),
   output: z.object({ handledBy: z.string() }),
-  activityOptions: { startToCloseTimeout: "10 seconds" },
+  activityOptions: { startToCloseTimeout: "10 seconds", retry: { maximumAttempts: 3 } },
 });
 
 const routedFlow = defineWorkflow({

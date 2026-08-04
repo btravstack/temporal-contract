@@ -19,7 +19,7 @@ const charge = defineActivity({
   errors: {
     AlreadyCharged: { nonRetryable: true },
   },
-  activityOptions: { startToCloseTimeout: "10 seconds" },
+  activityOptions: { startToCloseTimeout: "10 seconds", retry: { maximumAttempts: 3 } },
 });
 
 const quote = defineWorkflow({

@@ -722,13 +722,15 @@ export type WorkflowContext<
    * // Same contract child workflow
    * const childResult = await context.startChildWorkflow(myContract, 'processPayment', {
    *   workflowId: 'payment-123',
-   *   args: { amount: 100 }
+   *   args: { amount: 100 },
+   *   parentClosePolicy: 'TERMINATE'
    * });
    *
    * // Cross-contract child workflow (from another worker)
    * const otherResult = await context.startChildWorkflow(otherContract, 'sendNotification', {
    *   workflowId: 'notification-123',
-   *   args: { message: 'Hello' }
+   *   args: { message: 'Hello' },
+   *   parentClosePolicy: 'TERMINATE'
    * });
    *
    * await childResult.match({
@@ -781,13 +783,15 @@ export type WorkflowContext<
    * // Same contract child workflow
    * const result = await context.executeChildWorkflow(myContract, 'processPayment', {
    *   workflowId: 'payment-123',
-   *   args: { amount: 100 }
+   *   args: { amount: 100 },
+   *   parentClosePolicy: 'TERMINATE'
    * });
    *
    * // Cross-contract child workflow (from another worker)
    * const otherResult = await context.executeChildWorkflow(otherContract, 'sendNotification', {
    *   workflowId: 'notification-123',
-   *   args: { message: 'Hello' }
+   *   args: { message: 'Hello' },
+   *   parentClosePolicy: 'TERMINATE'
    * });
    *
    * await result.match({
