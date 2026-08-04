@@ -700,6 +700,44 @@ workflow instead of cancelling it. Re-raise with the new
 [Handle cancellation](/how-to/handle-cancellation) and [The result
 model](/explanation/the-result-model).
 
+### `cancellableScope`/`nonCancellableScope` wrapping an activity call: source break, not just behavior
+
+If a scope's callback returns an activity call directly, this stops
+compiling — not just behaves differently:
+
+```ts
+// ❌ no longer compiles
+const scoped = await context.cancellableScope(() => context.activities.charge(input));
+if (scoped.isOk()) {
+  scoped.value.transactionId; // scoped.value is now an AsyncResult, not Output
+}
+```
+
+Both scopes are generic over whatever `fn` returns, verbatim — they do not
+await it for you. Before this change `() => context.activities.charge(input)`
+returned a plain `Promise<Output>`, so the scope's own `T` was `Output`. Now
+it returns an `AsyncResult<Output, E>`, and `AsyncResult` is deliberately not
+a full `PromiseLike` (no `.catch`/`.finally`), so `T` becomes the un-awaited
+`AsyncResult` itself — a type with no `isOk`/`isErr`/`.value`. Await and
+narrow the activity call _inside_ the callback instead:
+
+```ts
+// ✅ narrow inside the callback
+const scoped = await context.cancellableScope(async () => {
+  const charged = await context.activities.charge(input);
+  if (charged.isDefect()) {
+    throw charged.cause;
+  }
+  if (charged.isErr()) {
+    return { ok: false as const, error: charged.error };
+  }
+  return { ok: true as const, value: charged.value };
+});
+```
+
+See [Handle cancellation](/how-to/handle-cancellation) for the full pattern,
+including cleanup in a `nonCancellableScope`.
+
 ### Typed errors carry a wire marker — mind the deploy order
 
 A contract error now crosses the wire with a provenance marker in

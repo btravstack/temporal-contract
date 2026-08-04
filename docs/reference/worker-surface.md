@@ -273,7 +273,7 @@ letting it end `Cancelled`. Its parameter type accepts only a cancellation
 error — narrow to one first — and it never returns normally:
 
 ```typescript
-import { ActivityCancelledError } from "@temporal-contract/worker/workflow";
+import { ActivityCancelledError, rethrowCancellation } from "@temporal-contract/worker/workflow";
 
 if (result.isErr()) {
   if (result.error instanceof ActivityCancelledError) {

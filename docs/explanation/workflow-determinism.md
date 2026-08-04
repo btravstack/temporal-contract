@@ -111,16 +111,20 @@ const result = await context.cancellableScope(async () => {
 });
 
 if (result.isErr()) {
-  await context.nonCancellableScope(async () => {
+  // Capture nonCancellableScope's OWN AsyncResult too — a bare `await` here
+  // would silently discard a defect thrown inside the cleanup callback. See
+  // "await is not an extractor" in /explanation/the-result-model.
+  const released = await context.nonCancellableScope(async () => {
     // Narrow inside here too — `releaseResources(...)`'s own AsyncResult,
-    // left un-awaited, would otherwise be silently discarded along with the
-    // scope's own Result. See "await is not an extractor" in
-    // /explanation/the-result-model.
-    const released = await context.activities.releaseResources(args);
-    if (released.isErr()) {
+    // left un-awaited, would otherwise be silently discarded a second time.
+    const step = await context.activities.releaseResources(args);
+    if (step.isErr()) {
       // best-effort cleanup — log and continue regardless
     }
   });
+  if (released.isDefect()) {
+    throw released.cause; // a genuine bug in cleanup, not a cancel
+  }
   return { status: "cancelled" };
 }
 ```
