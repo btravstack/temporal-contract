@@ -114,6 +114,11 @@ export default withMermaid(
     // this exclusion VitePress builds and publishes them like any other
     // page, and `deploy-docs.yml` (triggered on `push` to `main` with
     // `paths: ["docs/**"]`) would ship them to the public site.
+    //
+    // The directory is currently absent — the guard is kept deliberately,
+    // because that workflow writes its specs and plans back to this path and
+    // the exclusion must already exist when it does. Deleting it as "dead
+    // config" would silently publish the next batch.
     srcExclude: ["superpowers/**"],
 
     // `@btravstack/theme` re-exports VitePress's default theme, which imports

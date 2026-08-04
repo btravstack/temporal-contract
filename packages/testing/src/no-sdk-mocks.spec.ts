@@ -26,8 +26,13 @@ function workspaceRelative(absolutePath: string): string {
  *
  * This list may only ever shrink. Adding to it requires the same scrutiny as
  * disabling a lint rule: the default answer is "move the test to the
- * `inprocess` tier" — see
- * docs/superpowers/specs/2026-08-01-mock-free-test-architecture-design.md
+ * `inprocess` tier".
+ *
+ * The governing rule is **assert effects, never call shapes** — a test that
+ * checks which SDK method was called with which arguments proves the code
+ * still calls that method, not that Temporal does the right thing with it.
+ * Mocking the SDK makes that failure mode invisible, which is why the
+ * allowlist is a ratchet rather than a policy.
  */
 const ALLOWLIST: Record<string, string> = {
   // Asserts the Vitest fixture plumbing itself, which must be observable
