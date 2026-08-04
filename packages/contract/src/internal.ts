@@ -22,6 +22,16 @@ export {
 } from "./errors-impl.js";
 
 /**
+ * Mode→policy mapping for `idempotency` — re-exported under the
+ * `_internal_` prefix used throughout this subpath. Not part of the public
+ * API: contract authors only ever set `idempotency` on `defineWorkflow`; the
+ * client and worker are the ones that translate it to Temporal's
+ * `workflowIdReusePolicy` via this function, so it lives here rather than on
+ * `.` alongside the public `IdempotencyMode` type.
+ */
+export { reusePolicyFor as _internal_reusePolicyFor } from "./idempotency.js";
+
+/**
  * Wrap an async function returning `Promise<Result<T, E>>` in an
  * `AsyncResult<T, E>`, catching synchronous throws and rejected promises and
  * routing them through unthrown's `defect` channel — so an *unanticipated*

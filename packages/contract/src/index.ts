@@ -12,6 +12,8 @@ export { formatIssue, summarizeIssues } from "./format.js";
 
 export { CONTRACT_ERROR_TAG, TECHNICAL_ERROR_TAG } from "./error-tags.js";
 
+export type { IdempotencyMode } from "./idempotency.js";
+
 export type {
   AnySchema,
   UndefinedInputSchema,
