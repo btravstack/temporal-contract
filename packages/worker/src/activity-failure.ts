@@ -39,23 +39,35 @@ import { ActivityCancelledError, ActivityError } from "./errors.js";
  * original failure.
  *
  * A **declared** contract error (`ContractError`, from an activity's `errors`
- * map) is also a `TaggedError`, not a `TemporalFailure` — the same stall risk
- * as `ActivityError`/`ActivityCancelledError`. `classifyActivityError`
- * rehydrates it straight from the `ApplicationFailure` Temporal actually put
- * on the wire (there is no separate wrapper to unwrap first — see
- * `_internal_rehydrateContractError`), so this helper re-raises
- * `ContractError.cause`, the original `ApplicationFailure`.
+ * map) is also a `TaggedError`, not a `TemporalFailure` — but, unlike
+ * `ActivityError`/`ActivityCancelledError`, rethrowing it bare does NOT
+ * stall the workflow: `declareWorkflow`'s own top-level catch (`workflow.ts`)
+ * recognizes `error instanceof ContractError` by name and converts it via
+ * `contractErrorToApplicationFailure` before Temporal ever sees it. What that
+ * fallback conversion produces, though, is *wrong* here: it looks the error
+ * name up on the *workflow's* declared `errors` map — not the *activity's*,
+ * which is what this `ContractError` was actually rehydrated against. When
+ * the name isn't also declared on the workflow (the common case, since the
+ * error is declared on the activity), the workflow still fails terminally,
+ * but with a misleading `ContractErrorDataValidationError: Error "X" is not
+ * declared on workflow "…"` instead of the activity's real, typed failure.
+ * This branch exists to fix that *misclassification*, not to prevent a
+ * stall: it re-raises `ContractError.cause`, the original `ApplicationFailure`
+ * Temporal actually put on the wire, so the workflow fails with the real
+ * failure instead of a confusing wrong-map error message.
  *
  * **Fidelity nuance, stated plainly:** for a declared error this means the
  * client sees `WorkflowFailedError.cause` as a bare `ApplicationFailure`,
  * never wrapped in Temporal's `ActivityFailure` — unlike the `ActivityError`
- * path above, which preserves the `ActivityFailure` wrapper exactly.
- * `ContractError` never had that wrapper to preserve in the first place
- * (`ContractError.cause` is set directly from the unwrapped failure at
- * construction), so there is nothing more original to reach for. This is a
- * deliberate, accepted trade — a bare `ApplicationFailure` escaping is vastly
- * better than a `TaggedError` stalling the workflow task forever — not an
- * oversight.
+ * path above, which preserves the `ActivityFailure` wrapper exactly. This is
+ * a deliberate *asymmetry*, not an inevitability: `classifyActivityError`
+ * still holds the original wrapper (its `error` parameter — the same value
+ * it hands `ActivityError` as `originalFailure`) at the point it builds a
+ * `ContractError`, but `_internal_rehydrateContractError` is only handed the
+ * already-unwrapped failure, so the wrapper is never threaded through the
+ * rehydration path. A parallel `originalFailure`-style retention on
+ * `ContractError` would close this gap; that was deliberately left out of
+ * this task's scope.
  *
  * A failure with nothing preserved at all rethrows the wrapper, so the error
  * identity is never lost.
@@ -80,7 +92,7 @@ export async function propagateActivityFailure<T, E>(result: AsyncResult<T, E>):
     throw error.cause ?? error;
   }
   if (error instanceof ContractError) {
-    // oxlint-disable-next-line unthrown/no-throw -- deliberate re-raise: a declared contract error is a TaggedError, not a TemporalFailure — without this branch it would stall the workflow task instead of failing the execution (see doc comment's fidelity nuance)
+    // oxlint-disable-next-line unthrown/no-throw -- deliberate re-raise: re-raise the original ApplicationFailure so the workflow fails with the activity's real declared error, not declareWorkflow's misleading "not declared on workflow" fallback (see doc comment)
     throw error.cause ?? error;
   }
   // oxlint-disable-next-line unthrown/no-throw -- deliberate re-raise: an unmodeled error/defect value is rethrown unchanged
