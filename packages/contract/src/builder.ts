@@ -278,9 +278,9 @@ export function defineSearchAttribute<TKind extends SearchAttributeKind>(
  *   // attempt (e.g. a declined payment, where no charge went through).
  *   idempotency: 'retry-if-failed',
  *   activities: {
- *     validatePayment: defineActivity({
- *       input: z.object({ orderId: z.string() }),
- *       output: z.object({ valid: z.boolean() }),
+ *     chargePayment: defineActivity({
+ *       input: z.object({ orderId: z.string(), amount: z.number() }),
+ *       output: z.object({ transactionId: z.string() }),
  *     }),
  *   },
  *   signals: {

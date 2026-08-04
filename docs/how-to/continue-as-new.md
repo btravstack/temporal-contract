@@ -88,10 +88,13 @@ const pollSubscription = defineWorkflow({
     lastChargeId: z.string().optional(),
   }),
   output: z.object({ cycles: z.number() }),
-  // `continueAsNew` keeps the SAME workflow ID for the whole polling chain
-  // — `workflowIdReusePolicy` only gates a start against a previous run that
-  // has already CLOSED, so it never fires between one cycle's continuation
-  // and the next. This mode instead governs an external start under this
+  // `continueAsNew` keeps the SAME workflow ID for the whole polling chain,
+  // and this mode never fires between one cycle and the next — not because
+  // the previous run is still open (at the moment of a continuation it is
+  // Closed, with status `CONTINUED_AS_NEW`), but because a continuation is
+  // not a start request: the continue-as-new command carries no
+  // `workflowIdReusePolicy` field at all, so the server never consults one.
+  // This mode instead governs an external start under this
   // subscription's ID after the whole chain eventually ends (cancellation,
   // or the subscription itself closing) — e.g. a customer resubscribing —
   // which is the expected, harmless case here, so `allow-duplicate` is
