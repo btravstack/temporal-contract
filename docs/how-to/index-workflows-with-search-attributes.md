@@ -15,13 +15,11 @@ import { z } from "zod";
 export const processOrder = defineWorkflow({
   input: OrderSchema,
   output: OrderResultSchema,
-  // Search attributes are this doc's topic, not idempotency — but a real
-  // order-processing workflow that charges a customer should not default to
-  // `allow-duplicate` (Temporal's own default, unconditionally re-runnable
-  // after any Closed run, including Completed). See "Declare idempotency" in
-  // define-a-contract.md; the order-processing example uses
-  // `retry-if-failed` for exactly this workflow shape.
-  idempotency: "allow-duplicate",
+  // Search attributes are this doc's topic, but `idempotency` is required on
+  // every workflow. `retry-if-failed` is the right mode for this shape — an
+  // order that charged a customer must not be re-runnable after a Completed
+  // run. See "Declare idempotency" in define-a-contract.md.
+  idempotency: "retry-if-failed",
   searchAttributes: {
     customerId: defineSearchAttribute({ kind: "KEYWORD" }),
     orderTotal: defineSearchAttribute({ kind: "DOUBLE" }),
