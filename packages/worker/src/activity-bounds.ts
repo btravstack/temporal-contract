@@ -85,17 +85,20 @@ export function formatUnboundedActivitiesMessage(violations: readonly BoundViola
     }
   }
 
-  // Build introduction based on what's actually missing
+  // Build the introduction from what is actually missing. The causal clause
+  // must match: "cannot retry forever" is the reason for the TOTAL bound, and
+  // saying it when only the per-attempt bound is absent asserts the very
+  // confusion this module exists to dispel — a retry-only options bag already
+  // bounds the sequence; what it lacks is a cap on one hung attempt.
   const boundsPhrase =
     allMissingBounds.size === 2
-      ? "a per-attempt bound and a total bound"
+      ? "a per-attempt bound and a total bound, so one attempt cannot hang and a failing activity cannot retry forever"
       : allMissingBounds.has("per-attempt")
-        ? "a per-attempt bound"
-        : "a total bound";
+        ? "a per-attempt bound, so a single attempt cannot hang indefinitely"
+        : "a total bound, so a failing activity cannot retry forever";
 
   return (
-    `declareWorkflow: every reachable activity needs ${boundsPhrase}, ` +
-    `so a failing activity cannot retry forever. These do not:\n${lines.join("\n")}\n` +
+    `declareWorkflow: every reachable activity needs ${boundsPhrase}. These do not:\n${lines.join("\n")}\n` +
     `Options are merged from \`declareWorkflow\`'s \`activityOptions\`, the contract's ` +
     `\`defineActivity({ activityOptions })\`, and \`activityOptionsByName\`. That merge is ` +
     `shallow, so a later layer's \`retry\` replaces an earlier layer's entirely — check the ` +

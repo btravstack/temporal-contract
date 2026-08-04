@@ -49,6 +49,13 @@ import { declareWorkflow } from "@temporal-contract/worker/workflow";
 export const processOrder = declareWorkflow({
   workflowName: "processOrder",
   contract: orderProcessingContract,
+  // Both bounds are required in the merged result: a per-attempt bound and a
+  // total bound. `startToCloseTimeout` alone caps one attempt, not the retry
+  // sequence, which defaults to unlimited.
+  activityOptions: {
+    startToCloseTimeout: "1 minute",
+    retry: { maximumAttempts: 3 },
+  },
   implementation: async (context, order) => {
     // ... implementation
   },

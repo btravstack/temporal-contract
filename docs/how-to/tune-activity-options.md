@@ -139,7 +139,7 @@ retry: {
   initialInterval: "1 second",   // delay before the first retry
   backoffCoefficient: 2,          // 1s, 2s, 4s, 8s...
   maximumInterval: "100 seconds", // cap on the delay
-  maximumAttempts: 5,             // 0 = unlimited
+  maximumAttempts: 5,             // must be a positive integer
   nonRetryableErrorTypes: ["CARD_DECLINED", "INVALID_ADDRESS"],
 }
 ```
