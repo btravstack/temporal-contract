@@ -105,6 +105,14 @@ export {
 // re-raises the original CancelledFailure so the execution ends `Cancelled`.
 export { rethrowCancellation } from "./errors.js";
 
+// Activity-failure re-raise helper: the workflow-side equivalent of "let it
+// fail" for an errors-declaring activity's `AsyncResult`. Re-raises the
+// original Temporal failure (not the `ActivityError`/`ActivityCancelledError`
+// wrapper, which isn't a `TemporalFailure`) so Temporal classifies the
+// workflow outcome exactly as it would have if the activity call still threw
+// directly.
+export { propagateActivityFailure } from "./activity-failure.js";
+
 // Literal-typed `_tag` constants for this package's tagged errors, so
 // consumers can `P.tag(ACTIVITY_ERROR_TAG)` without hand-writing the
 // namespaced strings (mirrors the contract package's error-tags module).

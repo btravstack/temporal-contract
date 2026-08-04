@@ -268,5 +268,11 @@ async function classifyActivityError(
     activityName,
     `Activity "${activityName}" failed: ${innerMessage}`,
     inner,
+    // Retain the value exactly as caught (pre-unwrap) as `originalFailure`,
+    // alongside the unwrapped `cause` above. `propagateActivityFailure`
+    // re-raises `originalFailure` so Temporal classifies the workflow
+    // outcome exactly as it would if this activity call still threw
+    // directly — see the field's doc comment on `ActivityError`.
+    error,
   );
 }

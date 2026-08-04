@@ -318,15 +318,25 @@ export class ContractMisuseError extends ValidationError {
  *
  * Only activities that declare an `errors` map surface this — activities
  * without declared errors keep Temporal's native throwing behavior.
+ *
+ * `originalFailure` is a second, separate retention: the value exactly as it
+ * was caught, *before* `classifyActivityError` unwrapped it into `cause`
+ * (typically Temporal's `ActivityFailure` wrapper). `cause`'s unwrapping is
+ * documented, caller-facing behavior and stays as-is — `originalFailure`
+ * exists purely so {@link propagateActivityFailure} can re-raise the exact
+ * failure Temporal originally produced, without changing what `cause` means.
+ * Unset when there is no separate wrapper to retain (e.g. the input/output
+ * validation branches, where `cause` is already the terminal failure).
  */
 export class ActivityError extends TaggedError(ACTIVITY_ERROR_TAG, {
   name: "ActivityError",
 })<{
   activityName: string;
   cause?: unknown;
+  originalFailure?: unknown;
 }> {
-  constructor(activityName: string, message: string, cause?: unknown) {
-    super({ activityName, cause });
+  constructor(activityName: string, message: string, cause?: unknown, originalFailure?: unknown) {
+    super({ activityName, cause, originalFailure });
     this.message = message;
   }
 }
@@ -346,6 +356,11 @@ export class ActivityError extends TaggedError(ACTIVITY_ERROR_TAG, {
  * workflow complete as `Completed` instead of `Cancelled`. When the workflow
  * should honor the cancellation request, re-raise it with
  * {@link rethrowCancellation}.
+ *
+ * Unlike {@link ActivityError}, `cause` here is already the value exactly as
+ * caught (`classifyActivityError` checks cancellation *before* unwrapping
+ * `ActivityFailure`) — so there is no separate `originalFailure` to retain;
+ * {@link propagateActivityFailure} re-raises `cause` directly.
  */
 export class ActivityCancelledError extends TaggedError(ACTIVITY_CANCELLED_ERROR_TAG, {
   name: "ActivityCancelledError",
