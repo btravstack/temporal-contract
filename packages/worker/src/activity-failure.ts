@@ -82,14 +82,29 @@ import {
  *
  * **Not just activity calls.** The same non-`TemporalFailure`-stall hazard
  * applies to `context.executeChildWorkflow` / `context.startChildWorkflow`
- * (`ChildWorkflowError`, `ChildWorkflowCancelledError` — both `TaggedError`s
- * carrying the unwrapped failure as `cause`, mirroring `ActivityError`) and
- * to `context.cancellableScope` / `context.nonCancellableScope`
+ * (`ChildWorkflowError`, `ChildWorkflowCancelledError`) and to
+ * `context.cancellableScope` / `context.nonCancellableScope`
  * (`WorkflowCancelledError`, whose `cause` holds the original
  * `CancelledFailure`). This helper accepts any of those too — `E` is
  * intentionally unconstrained so a bare `throw error` at the bottom doesn't
  * quietly stall the workflow for a union this module didn't anticipate.
- * `ChildWorkflowNotFoundError` is the one exception with no `cause` to
+ *
+ * `ChildWorkflowCancelledError` mirrors `ActivityCancelledError`: every
+ * construction site (`classifyChildWorkflowError`) supplies `cause` as the
+ * pre-unwrap cancellation failure Temporal produced, so it is always safe to
+ * re-raise. `ChildWorkflowError`, however, does NOT uniformly mirror
+ * `ActivityError`: `classifyChildWorkflowError`'s own construction sites do
+ * set `cause` to the unwrapped actionable failure, but three OTHER
+ * construction sites in `child-workflow.ts` — input validation, output
+ * validation, and signal-input validation — build a `ChildWorkflowError`
+ * with no `cause` at all, because those failures are detected locally
+ * (a schema mismatch) before any Temporal call happens, so there is no
+ * Temporal-observed failure to carry. Re-raising the bare `TaggedError` in
+ * that case would reproduce the exact stall this helper exists to prevent,
+ * so when `cause` is absent this helper converts it to a `ContractMisuseError`
+ * instead — the same treatment `ChildWorkflowNotFoundError` gets below.
+ *
+ * `ChildWorkflowNotFoundError` is the other case with no `cause` to
  * rethrow: it fires *before* any Temporal call, when the target contract
  * doesn't declare the child workflow name at all — a deterministic
  * programmer bug, not a Temporal-observed failure. It is converted to a
@@ -122,9 +137,17 @@ export async function propagateActivityFailure<T, E>(result: AsyncResult<T, E>):
     // oxlint-disable-next-line unthrown/no-throw -- deliberate re-raise: re-raise the original ApplicationFailure so the workflow fails with the activity's real declared error, not declareWorkflow's misleading "not declared on workflow" fallback (see doc comment)
     throw error.cause ?? error;
   }
-  if (error instanceof ChildWorkflowError || error instanceof ChildWorkflowCancelledError) {
-    // oxlint-disable-next-line unthrown/no-throw -- deliberate re-raise: mirrors ActivityError/ActivityCancelledError — `cause` is the unwrapped actionable (or pre-unwrap cancellation) failure Temporal originally produced
+  if (error instanceof ChildWorkflowCancelledError) {
+    // oxlint-disable-next-line unthrown/no-throw -- deliberate re-raise: mirrors ActivityCancelledError — `cause` is the pre-unwrap cancellation failure Temporal originally produced
     throw error.cause ?? error;
+  }
+  if (error instanceof ChildWorkflowError) {
+    if (error.cause !== undefined) {
+      // oxlint-disable-next-line unthrown/no-throw -- deliberate re-raise: mirrors ActivityError — `cause` is the unwrapped actionable failure Temporal originally produced
+      throw error.cause;
+    }
+    // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: the input/output/signal-input validation sites in child-workflow.ts construct ChildWorkflowError with no cause at all (a deterministic contract-misuse bug, not a Temporal-observed failure), so there is no pre-existing TemporalFailure to re-raise (CLAUDE.md rule 2 exception)
+    throw new ContractMisuseError(error.message);
   }
   if (error instanceof WorkflowCancelledError) {
     // oxlint-disable-next-line unthrown/no-throw -- deliberate re-raise: `cause` holds the original CancelledFailure the scope observed (see cancellableScope/nonCancellableScope)

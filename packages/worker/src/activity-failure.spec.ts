@@ -127,10 +127,22 @@ describe("propagateActivityFailure", () => {
     await expect(propagateActivityFailure(ErrAsync(childError))).rejects.toBe(cause);
   });
 
-  it("rethrows a child workflow error's wrapper when no cause was preserved", async () => {
+  it("converts a causeless child workflow error to a terminal ContractMisuseError, not a bare TaggedError rethrow", async () => {
+    // The three child-workflow.ts sites that construct ChildWorkflowError
+    // without a cause (input/output/signal-input validation) fire BEFORE any
+    // Temporal call — there is no pre-existing TemporalFailure to re-raise.
+    // Rethrowing the bare TaggedError would stall the workflow exactly like
+    // ChildWorkflowNotFoundError would; it must convert to a terminal
+    // ApplicationFailure instead (see activity-failure.ts's doc comment).
     const childError = new ChildWorkflowError("processPayment", "Child workflow failed");
 
-    await expect(propagateActivityFailure(ErrAsync(childError))).rejects.toBe(childError);
+    await expect(propagateActivityFailure(ErrAsync(childError))).rejects.toThrow(
+      ContractMisuseError,
+    );
+    await expect(propagateActivityFailure(ErrAsync(childError))).rejects.toMatchObject({
+      message: childError.message,
+      nonRetryable: true,
+    });
   });
 
   it("rethrows the preserved cause for a cancelled child workflow", async () => {

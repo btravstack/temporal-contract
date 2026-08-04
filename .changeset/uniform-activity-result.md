@@ -95,8 +95,12 @@ existing consumers — see [the reference docs](/reference/errors#activityerror)
 
 `propagateActivityFailure` also accepts the `AsyncResult` returned by
 `context.executeChildWorkflow` / `context.startChildWorkflow` and by
-`context.cancellableScope` / `context.nonCancellableScope`: it re-raises
-`ChildWorkflowError` / `ChildWorkflowCancelledError` / `WorkflowCancelledError`
-the same way it re-raises activity failures, so passing one of those through
-it no longer stalls the workflow the way a bare `throw` of that `TaggedError`
-would.
+`context.cancellableScope` / `context.nonCancellableScope`. It re-raises
+`ChildWorkflowCancelledError` / `WorkflowCancelledError` the same way it
+re-raises a cancelled activity — their `cause` always holds the original
+Temporal failure. `ChildWorkflowError` re-raises `cause` too when one is
+present (a failed child execution), but three of its construction sites
+(child input/output/signal-input validation) carry no `cause` at all; for
+those, this helper converts to a terminal `ContractMisuseError` instead of
+re-raising the bare `TaggedError`, so passing one of those through it does
+not stall the workflow the way a bare `throw` of that `TaggedError` would.
