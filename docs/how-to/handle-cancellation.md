@@ -39,52 +39,72 @@ export const processOrder = declareWorkflow({
   contract: orderContract,
   activityOptions: { startToCloseTimeout: "5 minutes" },
   implementation: async (context, order) => {
-    const charged = await context.cancellableScope(() =>
+    const scoped = await context.cancellableScope(() =>
       context.activities.chargeCard({ customerId: order.customerId, amount: order.total }),
     );
 
     // Narrow positively: an `AsyncResult` has three channels (Ok/Err/Defect),
-    // so `charged.value` only compiles after `isOk()`.
-    if (charged.isOk()) {
-      return { status: "completed" as const, transactionId: charged.value.transactionId };
+    // so `scoped.value` only compiles after `isOk()`.
+    if (scoped.isDefect()) {
+      throw scoped.cause; // a genuine bug thrown inside the scope, not a cancel
     }
-    if (charged.isDefect()) {
-      throw charged.cause; // a genuine bug thrown inside the scope, not a cancel
+    if (scoped.isErr()) {
+      // Err(WorkflowCancelledError): the scope itself was cancelled mid-charge
+      // — nothing to compensate.
+      return { status: "cancelled" as const };
     }
 
-    // Err(WorkflowCancelledError): cancelled mid-charge — nothing to compensate.
-    return { status: "cancelled" as const };
+    // `cancellableScope` is generic over whatever `fn` returns, so it does
+    // NOT unwrap the activity's own `AsyncResult` for you: `scoped.value` here
+    // is `chargeCard`'s Result, still needing its own narrow.
+    const charged = scoped.value;
+    if (charged.isErr()) {
+      // ActivityError, ActivityCancelledError, or a declared contract error.
+      return handleChargeFailure(charged.error);
+    }
+
+    return { status: "completed" as const, transactionId: charged.value.transactionId };
   },
 });
 ```
 
-The `Err` channel of a scope is exactly one type: `WorkflowCancelledError`.
-Anything _else_ thrown inside the scope is an unmodeled failure and rides the
-defect channel — so a genuine bug is never mistaken for a cancellation.
+The `Err` channel of the scope itself is exactly one type:
+`WorkflowCancelledError`, raised when the workflow (or an ancestor scope) is
+cancelled while `fn` is in flight. Anything _else_ thrown directly inside the
+scope (not returned as a `Result`) is an unmodeled failure and rides the
+defect channel — so a genuine bug is never mistaken for a cancellation. The
+activity call's _own_ cancellation — the in-flight call itself getting
+cancelled — is a separate, independent thing: it surfaces inside `charged`,
+not `scoped`, as one more member of `chargeCard`'s own error union.
 
-### Activities that declare their own errors
+### Every activity call carries this hazard
 
-When an activity declares an `errors` map, cancelling it no longer throws
-through — it surfaces as `Err(ActivityCancelledError)`, one more member of that
-activity's error union. Generic handling that folds _every_ `Err` to a fallback
-value will therefore let the workflow **complete** instead of cancelling:
+Cancelling an in-flight activity call surfaces as `Err(ActivityCancelledError)`
+— one more member of that activity's error union, whether or not the contract
+declares any `errors` at all. Generic handling that folds _every_ `Err` to a
+fallback value will therefore let the workflow **complete** instead of
+cancelling:
 
 ```typescript
-import { rethrowCancellation } from "@temporal-contract/worker/workflow";
+import { ActivityCancelledError, rethrowCancellation } from "@temporal-contract/worker/workflow";
 
 const charged = await context.activities.chargeCard({ ... });
-if (!charged.isOk()) {
-  if (charged.isDefect()) throw charged.cause;
-  // Re-raise a cancellation instead of swallowing it into the fallback path.
-  // For any other declared error, handle it as usual below.
-  rethrowCancellation(charged.error);
+if (charged.isErr()) {
+  if (charged.error instanceof ActivityCancelledError) {
+    // Re-raise the cancellation instead of folding it into the fallback path.
+    rethrowCancellation(charged.error);
+  }
+  // Any other failure (ActivityError, or a declared contract error): handle
+  // it as usual.
   return handleChargeFailure(charged.error);
 }
 ```
 
-`rethrowCancellation` throws the underlying `CancelledFailure` when the error is
-a cancellation and is a no-op otherwise, so the workflow ends **Cancelled** the
-way the operator's `cancel()` intended.
+`rethrowCancellation` throws the underlying `CancelledFailure`, so the workflow
+ends **Cancelled** the way the operator's `cancel()` intended. It only accepts
+a cancellation error (`ActivityCancelledError`,
+`ChildWorkflowCancelledError`, or `WorkflowCancelledError`) — narrow to one of
+those first, as above, rather than passing the whole error union.
 
 ## Clean up without being interrupted
 
@@ -92,28 +112,37 @@ Once a workflow is cancelled, further activity calls are cancelled too. Cleanup
 must run in a `nonCancellableScope`:
 
 ```typescript
+import { propagateActivityFailure } from "@temporal-contract/worker/workflow";
+
 implementation: async (context, order) => {
   let transactionId: string | undefined;
 
   const shipped = await context.cancellableScope(async () => {
-    const charge = await context.activities.chargeCard({
-      customerId: order.customerId,
-      amount: order.total,
-    });
+    // Await and narrow the activity's own AsyncResult INSIDE the scope's
+    // callback — `propagateActivityFailure` lets a genuine (non-cancellation)
+    // charge failure ride the defect channel via the scope's own throw
+    // handling, same as it would have without the scope.
+    const charge = await propagateActivityFailure(
+      context.activities.chargeCard({ customerId: order.customerId, amount: order.total }),
+    );
     transactionId = charge.transactionId;
 
-    return context.activities.createShipment({ orderId: order.orderId });
+    return propagateActivityFailure(context.activities.createShipment({ orderId: order.orderId }));
   });
 
+  if (shipped.isDefect()) {
+    throw shipped.cause; // a genuine bug — or a propagated non-cancellation failure
+  }
   if (shipped.isErr()) {
     // Cancelled after the charge but before shipping — refund.
     // Without the non-cancellable scope this refund would itself be cancelled.
     if (transactionId !== undefined) {
-      // Unwrap: a refund that silently failed is worse than a loud failure,
-      // and a bare `await` would discard both the Err and any defect.
-      await context
-        .nonCancellableScope(() => context.activities.refundPayment({ transactionId }))
-        .getOrThrow();
+      const refunded = await context.nonCancellableScope(() =>
+        propagateActivityFailure(context.activities.refundPayment({ transactionId })),
+      );
+      if (refunded.isDefect()) {
+        throw refunded.cause; // a refund that silently failed is worse than a loud failure
+      }
     }
     return { status: "cancelled" as const };
   }
@@ -185,27 +214,31 @@ activityOptionsByName: {
 
 ## Do not swallow cancellation
 
-A bare `catch` around an activity call will absorb the cancellation and leave
+An activity call never throws — it resolves to an `AsyncResult`, which is a
+success-only thenable (see [The result model](/explanation/the-result-model)).
+A `try/catch` around one does nothing: there is nothing for the `catch` block
+to catch.
+Generic handling that folds _every_ `Err` — including `ActivityCancelledError`
+— into "log and continue" is what actually absorbs the cancellation and leaves
 the workflow running after a cancel request:
 
 ```typescript
-// ❌ swallows cancellation
-try {
-  await context.activities.sendNotification({ ... });
-} catch (error) {
+// ❌ swallows cancellation — ActivityCancelledError falls into the same
+// generic branch as an ordinary notification failure
+const sent = await context.activities.sendNotification({ ... });
+if (sent.isErr()) {
   log.warn("notification failed, continuing");
 }
 
-// ✅ re-throws it
-import { isCancellation } from "@temporalio/workflow";
+// ✅ re-raises it
+import { ActivityCancelledError, rethrowCancellation } from "@temporal-contract/worker/workflow";
 
-try {
-  await context.activities.sendNotification({ ... });
-} catch (error) {
-  if (isCancellation(error)) {
-    throw error;
+const sent = await context.activities.sendNotification({ ... });
+if (sent.isErr()) {
+  if (sent.error instanceof ActivityCancelledError) {
+    rethrowCancellation(sent.error);
   }
-  log.warn(`notification failed, continuing: ${error}`);
+  log.warn(`notification failed, continuing: ${sent.error.message}`);
 }
 ```
 

@@ -10,7 +10,7 @@ Shared contract package — domain schemas plus the workflow, activity, signal, 
 
 ### [order-processing-worker](./order-processing-worker)
 
-Worker with Clean Architecture; activities return `AsyncResult` from unthrown, the workflow handles signals/queries via `context.defineSignal`/`defineQuery`, and a schedule-driven cleanup workflow shows the activity-less workflow shape
+Worker with Clean Architecture; activities return `AsyncResult` from unthrown, the workflow handles signals/queries via `context.handleSignal`/`handleQuery`, and a schedule-driven cleanup workflow shows the activity-less workflow shape
 
 ### [order-processing-client](./order-processing-client)
 

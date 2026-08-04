@@ -110,7 +110,7 @@ Edit `src/workflows.ts`. The workflow now holds mutable state, registers three
 handlers, and waits for approval before charging:
 
 ```typescript
-import { declareWorkflow } from "@temporal-contract/worker/workflow";
+import { declareWorkflow, propagateActivityFailure } from "@temporal-contract/worker/workflow";
 import { condition } from "@temporalio/workflow";
 
 import { orderContract } from "./contract.js";
@@ -146,15 +146,16 @@ export const processOrder = declareWorkflow({
 
     state = "charging";
 
-    const { transactionId } = await context.activities.chargeCard({
-      customerId: order.customerId,
-      amount,
-    });
+    const { transactionId } = await propagateActivityFailure(
+      context.activities.chargeCard({
+        customerId: order.customerId,
+        amount,
+      }),
+    );
 
-    await context.activities.sendReceipt({
-      customerId: order.customerId,
-      transactionId,
-    });
+    await propagateActivityFailure(
+      context.activities.sendReceipt({ customerId: order.customerId, transactionId }),
+    );
 
     state = "done";
 

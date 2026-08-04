@@ -221,7 +221,7 @@ The workflow orchestrates. It must be deterministic — no `Date.now()`, no
 Create `src/workflows.ts`:
 
 ```typescript
-import { declareWorkflow } from "@temporal-contract/worker/workflow";
+import { declareWorkflow, propagateActivityFailure } from "@temporal-contract/worker/workflow";
 
 import { orderContract } from "./contract.js";
 
@@ -236,15 +236,16 @@ export const processOrder = declareWorkflow({
     retry: { maximumAttempts: 3 },
   },
   implementation: async (context, order) => {
-    const { transactionId } = await context.activities.chargeCard({
-      customerId: order.customerId,
-      amount: order.amount,
-    });
+    const { transactionId } = await propagateActivityFailure(
+      context.activities.chargeCard({
+        customerId: order.customerId,
+        amount: order.amount,
+      }),
+    );
 
-    await context.activities.sendReceipt({
-      customerId: order.customerId,
-      transactionId,
-    });
+    await propagateActivityFailure(
+      context.activities.sendReceipt({ customerId: order.customerId, transactionId }),
+    );
 
     return { orderId: order.orderId, transactionId };
   },
@@ -255,15 +256,16 @@ export const processOrder = declareWorkflow({
 without you writing that type. So is the return value — change the returned
 object and TypeScript will tell you it no longer satisfies the contract.
 
-Notice that `context.activities.chargeCard(...)` returns a **plain value**, not
-a `Result`. Inside a workflow the framework unwraps the activity's `Result` for
-you: success gives you the value, failure throws, and Temporal's retry policy
-handles the rest. That asymmetry is deliberate and explained in
-[The result model](/explanation/the-result-model).
+Notice that `context.activities.chargeCard(...)` returns an **`AsyncResult`**,
+not a plain value — every activity call does, whether or not the contract
+declares any `errors`. `propagateActivityFailure` unwraps the success value
+and re-raises the original failure on the way out, so Temporal's retry policy
+still handles it — the same "let it throw" behavior as before, made explicit
+at the call site. See [The result model](/explanation/the-result-model).
 
-(An activity that declares contract errors is the exception — it returns an
-`AsyncResult` so the workflow can branch on the declared failures. See
-[Model domain errors](/how-to/model-domain-errors).)
+(When the workflow itself should branch on a failure instead of letting
+Temporal decide, narrow the `AsyncResult` with `isErr()` instead of
+propagating it. See [Model domain errors](/how-to/model-domain-errors).)
 
 ## Step 5 — Run a worker
 
@@ -425,7 +427,8 @@ boundary the data crosses.
 
 - [Adding signals and queries](/tutorial/adding-signals-and-queries) picks up
   this exact project and makes the workflow interactive while it runs.
-- [The result model](/explanation/the-result-model) explains why activities
-  return `AsyncResult` but read as plain values inside a workflow.
+- [The result model](/explanation/the-result-model) explains why every
+  activity call returns an `AsyncResult`, and when to narrow it instead of
+  propagating it.
 - [Model domain errors](/how-to/model-domain-errors) replaces the generic
   `WorkflowFailedError` above with typed, schema-validated failures.

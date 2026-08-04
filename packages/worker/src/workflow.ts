@@ -106,11 +106,11 @@ export {
 export { rethrowCancellation } from "./errors.js";
 
 // Activity-failure re-raise helper: the workflow-side equivalent of "let it
-// fail" for an errors-declaring activity's `AsyncResult`. Re-raises the
-// original Temporal failure (not the `ActivityError`/`ActivityCancelledError`
-// wrapper, which isn't a `TemporalFailure`) so Temporal classifies the
-// workflow outcome exactly as it would have if the activity call still threw
-// directly.
+// fail" for any activity call's `AsyncResult` — declared `errors` map or not.
+// Re-raises the original Temporal failure (not the
+// `ActivityError`/`ActivityCancelledError` wrapper, which isn't a
+// `TemporalFailure`) so Temporal classifies the workflow outcome exactly as
+// it would have if the activity call still threw directly.
 export { propagateActivityFailure } from "./activity-failure.js";
 
 // Literal-typed `_tag` constants for this package's tagged errors, so
@@ -144,8 +144,12 @@ export type {
 } from "./handlers.js";
 
 // Public activity-inference types: the workflow-side shape of a single
-// activity and of the full `context.activities` map.
+// activity and of the full `context.activities` map, plus the error union
+// (`ActivityErrorsFor`) that `WorkflowInferActivity` uses for its `AsyncResult`
+// error channel — exported so consumers can name it directly, e.g. to write a
+// helper generic over an activity's error type.
 export type {
+  ActivityErrorsFor,
   WorkflowInferActivity,
   WorkflowInferWorkflowContextActivities,
 } from "./activities-proxy.js";
@@ -193,11 +197,16 @@ export type { TypedContinueAsNewOptions } from "./internal.js";
  *     // context.activities: typed activities (workflow + global)
  *     // context.info: WorkflowInfo
  *
+ *     // Every activity call returns an AsyncResult — narrow it or use
+ *     // `propagateActivityFailure` to let Temporal decide the outcome.
  *     const inventory = await context.activities.validateInventory({
  *       orderId: args.orderId,
  *     });
+ *     if (inventory.isErr()) {
+ *       return { orderId: args.orderId, status: 'out_of_stock' };
+ *     }
  *
- *     if (!inventory.available) {
+ *     if (!inventory.value.available) {
  *       return { orderId: args.orderId, status: 'out_of_stock' };
  *     }
  *
@@ -205,11 +214,14 @@ export type { TypedContinueAsNewOptions } from "./internal.js";
  *       customerId: args.customerId,
  *       amount: 100,
  *     });
+ *     if (payment.isErr()) {
+ *       return { orderId: args.orderId, status: 'failed' };
+ *     }
  *
  *     return {
  *       orderId: args.orderId,
- *       status: payment.success ? 'success' : 'failed',
- *       transactionId: payment.transactionId,
+ *       status: payment.value.success ? 'success' : 'failed',
+ *       transactionId: payment.value.transactionId,
  *     };
  *   },
  * });
@@ -810,18 +822,27 @@ export type WorkflowContext<
    *
    * implementation: async (context, args) => {
    *   const result = await context.cancellableScope(async () => {
-   *     return context.activities.processStep(args);
+   *     // `fn`'s return value becomes the scope's `T` verbatim — an activity
+   *     // call's own AsyncResult (ActivityError | ActivityCancelledError,
+   *     // plus any declared contract errors) is independent of the scope's
+   *     // cancellation, so narrow it here, inside the callback.
+   *     const step = await context.activities.processStep(args);
+   *     return step.isOk() ? { status: "ok" as const } : { status: "failed" as const };
    *   });
    *
-   *   if (result.isErr() && result.error instanceof WorkflowCancelledError) {
-   *     // workflow was cancelled — perform cleanup that must not be cancelled:
-   *     await context.nonCancellableScope(async () => {
-   *       await context.activities.releaseResources(args);
-   *     });
+   *   if (result.isErr()) {
+   *     // The scope itself was cancelled — perform cleanup that must not be
+   *     // cancelled:
+   *     const released = await context.nonCancellableScope(() =>
+   *       context.activities.releaseResources(args),
+   *     );
+   *     if (released.isErr() || (released.isOk() && released.value.isErr())) {
+   *       // best-effort cleanup — log and continue regardless
+   *     }
    *     return { status: "cancelled" };
    *   }
    *
-   *   return { status: "ok" };
+   *   return result.value;
    * }
    * ```
    */

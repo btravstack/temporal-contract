@@ -689,14 +689,16 @@ result.match({
 });
 ```
 
-### Cancellation can be swallowed by declared-error activities
+### Cancellation can be swallowed by any activity call
 
-When an activity declares an `errors` map, cancelling it surfaces as
-`Err(ActivityCancelledError)` — a value a generic "map every `Err` to a
-fallback" handler will absorb, completing the workflow instead of cancelling
-it. Re-raise with the new `rethrowCancellation(error)` from
-`@temporal-contract/worker/workflow`. See
-[Handle cancellation](/how-to/handle-cancellation).
+Every activity call now returns an `AsyncResult` — declared `errors` map or
+not — so cancelling an in-flight call surfaces as `Err(ActivityCancelledError)`
+on every activity, not only ones that declare errors. That is a value a
+generic "map every `Err` to a fallback" handler will absorb, completing the
+workflow instead of cancelling it. Re-raise with the new
+`rethrowCancellation(error)` from `@temporal-contract/worker/workflow`. See
+[Handle cancellation](/how-to/handle-cancellation) and [The result
+model](/explanation/the-result-model).
 
 ### Typed errors carry a wire marker — mind the deploy order
 

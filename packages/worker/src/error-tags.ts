@@ -17,10 +17,10 @@
  * are discriminated by `failure.type`, not `_tag`, and have no constant here.
  */
 
-/** `_tag` of `ActivityError` — an errors-declaring activity failed for an undeclared reason. */
+/** `_tag` of `ActivityError` — an activity call failed for a reason other than a declared contract error. */
 export const ACTIVITY_ERROR_TAG = "@temporal-contract/ActivityError";
 
-/** `_tag` of `ActivityCancelledError` — a call to an errors-declaring activity was cancelled. */
+/** `_tag` of `ActivityCancelledError` — a call to an activity was cancelled. */
 export const ACTIVITY_CANCELLED_ERROR_TAG = "@temporal-contract/ActivityCancelledError";
 
 /** `_tag` of `ActivityDefinitionNotFoundError` — an implementation was supplied for an undeclared activity. */

@@ -274,26 +274,31 @@ An activity name has no definition on the contract.
 
 `_tag: "@temporal-contract/ActivityError"` · channel: `err`
 
-An errors-declaring activity failed for a reason **other** than one of its
-declared errors — retries exhausted, a timeout, an undeclared
-`ApplicationFailure` type, or a boundary validation failure.
+Any activity call failed for a reason **other** than one of its declared
+errors — retries exhausted, a timeout, an undeclared `ApplicationFailure`
+type, or a boundary validation failure. This is every activity's fallback:
+one with no `errors` map has no declared-error members to fall through, so
+every non-cancellation failure lands here.
 
 | Property       | Type                                 |
 | -------------- | ------------------------------------ |
 | `activityName` | `string`                             |
 | `cause`        | the **unwrapped** actionable failure |
 
-::: warning Only for errors-declaring activities
-An activity without an `errors` map keeps Temporal's native throwing behaviour
-and never produces this.
-:::
-
 ### `ActivityCancelledError`
 
 `_tag: "@temporal-contract/ActivityCancelledError"` · channel: `err`
 
-A call to an errors-declaring activity was cancelled. A sibling of
-`ActivityError`, not a subclass, so call sites discriminate on the tag.
+A call to an activity was cancelled — declared `errors` map or not. A sibling
+of `ActivityError`, not a subclass, so call sites discriminate on the tag.
+
+::: warning Swallowing this changes the workflow outcome
+Cancellation rides this modeled `Err(...)` channel, so generic handling that
+folds every `Err` to a fallback value absorbs it — the workflow completes
+`Completed` instead of `Cancelled`. Re-raise it with `rethrowCancellation`
+when the workflow should honor the request. See [Handle
+cancellation](/how-to/handle-cancellation).
+:::
 
 | Property       | Type      |
 | -------------- | --------- |
@@ -368,7 +373,7 @@ the defect channel instead.
 | Operation                                  | `err` channel                                                                     |
 | ------------------------------------------ | --------------------------------------------------------------------------------- |
 | `TypedWorker.create` / `TypedWorker.run`   | `never`                                                                           |
-| activity call, no declared errors          | n/a — `Promise<Output>`, throws on failure                                        |
+| activity call, no declared errors          | `ActivityError \| ActivityCancelledError`                                         |
 | activity call, declared errors             | `ContractErrorUnion \| ActivityError \| ActivityCancelledError`                   |
 | `startChildWorkflow`                       | `ChildWorkflowError \| ChildWorkflowCancelledError \| ChildWorkflowNotFoundError` |
 | `executeChildWorkflow`                     | same                                                                              |

@@ -316,8 +316,9 @@ export class ContractMisuseError extends ValidationError {
  * failure (Temporal's `ActivityFailure` wrapper is seen through), so callers
  * can branch on the failure category in one step.
  *
- * Only activities that declare an `errors` map surface this — activities
- * without declared errors keep Temporal's native throwing behavior.
+ * Every activity call surfaces this — the workflow-side call convention no
+ * longer depends on whether the contract declares an `errors` map; only the
+ * error channel's declared-error members do.
  *
  * `originalFailure` is a second, separate retention: the value exactly as it
  * was caught, *before* `classifyActivityError` unwrapped it into `cause`
@@ -342,8 +343,9 @@ export class ActivityError extends TaggedError(ACTIVITY_ERROR_TAG, {
 }
 
 /**
- * Discriminated variant surfaced when a call to an errors-declaring activity
- * was cancelled (the workflow itself, or an enclosing cancellation scope).
+ * Discriminated variant surfaced when a call to an activity was cancelled
+ * (the workflow itself, or an enclosing cancellation scope) — every activity
+ * call rides this branch now, not only ones that declare an `errors` map.
  * Detected via `@temporalio/workflow`'s `isCancellation(...)`.
  *
  * A sibling of {@link ActivityError} rather than a subclass, for the same

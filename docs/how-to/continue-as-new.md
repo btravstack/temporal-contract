@@ -10,7 +10,7 @@ arguments and an empty history.
 ## The basic pattern
 
 ```typescript
-import { declareWorkflow } from "@temporal-contract/worker/workflow";
+import { declareWorkflow, propagateActivityFailure } from "@temporal-contract/worker/workflow";
 import { sleep } from "@temporalio/workflow";
 
 export const pollSubscription = declareWorkflow({
@@ -19,7 +19,9 @@ export const pollSubscription = declareWorkflow({
   activityOptions: { startToCloseTimeout: "1 minute" },
   implementation: async (context, args) => {
     for (let i = 0; i < 100; i += 1) {
-      await context.activities.chargeSubscription({ subscriptionId: args.subscriptionId });
+      await propagateActivityFailure(
+        context.activities.chargeSubscription({ subscriptionId: args.subscriptionId }),
+      );
       await sleep("30 days");
     }
 
@@ -51,12 +53,12 @@ implementation: async (context, args) => {
   let cursor = args.cursor;
 
   while (true) {
-    const batch = await context.activities.fetchBatch({ cursor });
+    const batch = await propagateActivityFailure(context.activities.fetchBatch({ cursor }));
     if (batch.items.length === 0) {
       return { processed };
     }
 
-    await context.activities.processBatch({ items: batch.items });
+    await propagateActivityFailure(context.activities.processBatch({ items: batch.items }));
     processed += batch.items.length;
     cursor = batch.nextCursor; // advance, so the next fetch makes progress
 

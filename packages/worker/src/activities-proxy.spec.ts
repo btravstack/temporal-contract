@@ -8,11 +8,11 @@ import {
 } from "@temporalio/common";
 import type { AsyncResult } from "unthrown";
 /**
- * Runtime coverage for `createValidatedActivities` — specifically the
- * Result-shaped wrapper that activities with a declared `errors` map get on
- * the workflow side: rehydration of declared `ApplicationFailure`s into
- * typed `ContractError`s, cancellation discrimination, and the
- * `ActivityError` fallback for everything else.
+ * Runtime coverage for `createValidatedActivities` — the Result-shaped
+ * wrapper every activity gets on the workflow side, declared `errors` map or
+ * not: rehydration of declared `ApplicationFailure`s into typed
+ * `ContractError`s (when the activity declares errors), cancellation
+ * discrimination, and the `ActivityError` fallback for everything else.
  */
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
