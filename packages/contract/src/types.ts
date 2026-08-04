@@ -1,5 +1,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
+import type { IdempotencyMode } from "./idempotency.js";
+
 /**
  * Base types for validation schemas
  * Any schema that implements the Standard Schema specification
@@ -226,6 +228,16 @@ export type WorkflowDefinition<
 > = {
   readonly input: TInput;
   readonly output: TOutput;
+  /**
+   * Whether this workflow is safe to re-run under a workflow ID that has
+   * already been used. Applied by the client to every start of this
+   * workflow; an explicit per-call `workflowIdReusePolicy` still wins.
+   *
+   * Optional during migration — becomes required, so that the question is
+   * asked once per workflow rather than silently inheriting Temporal's
+   * `ALLOW_DUPLICATE`.
+   */
+  readonly idempotency?: IdempotencyMode;
   readonly activities?: TActivities;
   readonly signals?: TSignals;
   readonly queries?: TQueries;

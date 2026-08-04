@@ -752,6 +752,15 @@ function validateWorkflowDefinition(context: string, definition: unknown): void 
   }
   assertSchema(context, "input", definition["input"]);
   assertSchema(context, "output", definition["output"]);
+  const idempotency = definition["idempotency"];
+  if (
+    idempotency !== undefined &&
+    idempotency !== "once-per-id" &&
+    idempotency !== "retry-if-failed" &&
+    idempotency !== "allow-duplicate"
+  ) {
+    fail(`${context}: idempotency must be "once-per-id", "retry-if-failed", or "allow-duplicate"`);
+  }
   validateDefinitionMap(
     context,
     "activities",
