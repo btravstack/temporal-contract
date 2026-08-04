@@ -6,8 +6,8 @@ import {
   ACTIVITY_CANCELLED_ERROR_TAG,
   ACTIVITY_ERROR_TAG,
   declareWorkflow,
+  propagateActivityFailure,
   rethrowCancellation,
-  WORKFLOW_CANCELLED_ERROR_TAG,
 } from "@temporal-contract/worker/workflow";
 import { condition, log } from "@temporalio/workflow";
 import { P } from "unthrown";
@@ -165,11 +165,32 @@ export const processOrder = declareWorkflow({
               status = "failed";
               log.error(`Payment declined for order ${order.orderId}: ${failure.data.reason}`);
 
-              await activities.sendNotification({
-                customerId: order.customerId,
-                subject: "Order Failed",
-                message: `We're sorry, but your order ${order.orderId} could not be processed. Your payment was declined (${failure.data.reason}).`,
-              });
+              // Best-effort notification: the declined-payment outcome below
+              // is what matters, so an undeclared notification failure only
+              // gets a warning — it must not swallow (or block) the rethrow.
+              // Real cancellation is the exception: it must still propagate.
+              await activities
+                .sendNotification({
+                  customerId: order.customerId,
+                  subject: "Order Failed",
+                  message: `We're sorry, but your order ${order.orderId} could not be processed. Your payment was declined (${failure.data.reason}).`,
+                })
+                .match({
+                  ok: () => undefined,
+                  errCases: (matcher) =>
+                    matcher
+                      .with(P.tag(ACTIVITY_CANCELLED_ERROR_TAG), (cancelled) =>
+                        rethrowCancellation(cancelled),
+                      )
+                      .with(P.tag(ACTIVITY_ERROR_TAG), (notifyFailure) => {
+                        log.warn(
+                          `Failed to notify customer of declined payment: ${notifyFailure.message}`,
+                        );
+                      }),
+                  defect: (cause) => {
+                    log.warn(`Failed to notify customer of declined payment: ${cause}`);
+                  },
+                });
 
               // Rethrow as this workflow's own declared contract error: the
               // execution fails with `ApplicationFailure(type: "PaymentDeclined")`
@@ -217,22 +238,67 @@ export const processOrder = declareWorkflow({
     // ------------------------------------------------------------------
     status = "reserving_inventory";
     log.info("Reserving inventory");
-    const inventoryResult = await activities.reserveInventory(order.items);
 
-    if (!inventoryResult.reserved) {
+    // `reserveInventory` declares no contract errors, but every activity call
+    // now returns an `AsyncResult`, so a technical failure (retries
+    // exhausted, timeout) still needs a decision. Fold it into the same
+    // "not reserved" business outcome handled below — the rollback (refund +
+    // notify) should run regardless of *why* inventory couldn't be reserved.
+    // Real cancellation is the exception: it must still propagate.
+    const inventoryOutcome = await activities.reserveInventory(order.items).match({
+      ok: (reservation) => reservation,
+      errCases: (matcher) =>
+        matcher
+          .with(P.tag(ACTIVITY_CANCELLED_ERROR_TAG), (cancelled) => rethrowCancellation(cancelled))
+          .with(P.tag(ACTIVITY_ERROR_TAG), (failure) => {
+            log.error(`Inventory reservation activity failed: ${failure.message}`);
+            return { reserved: false as const };
+          }),
+      // Unmodeled failure (a bug, not an anticipated outcome) — rethrow at
+      // the edge so Temporal surfaces the Workflow Task failure.
+      defect: (cause) => {
+        // oxlint-disable-next-line unthrown/no-throw -- defect-cause rethrow at the edge: an unmodeled failure must surface as a Workflow Task failure
+        throw cause;
+      },
+    });
+
+    if (!inventoryOutcome.reserved) {
       status = "failed";
       log.error("Inventory reservation failed");
 
-      // Rollback: Refund payment
+      // Rollback: refund the payment. Unlike the notifications in this
+      // workflow, a failed refund is NOT worth a warning-and-continue: the
+      // customer would be charged for an order that both failed and was
+      // never refunded. That is exactly the case where Temporal should fail
+      // the workflow loudly (visible, alertable) instead of completing it
+      // with a routine "failed" order status.
       log.info("Rolling back: refunding payment");
-      await activities.refundPayment(payment.transactionId);
+      await propagateActivityFailure(activities.refundPayment(payment.transactionId));
       log.info(`Payment refunded: ${payment.transactionId}`);
 
-      await activities.sendNotification({
-        customerId: order.customerId,
-        subject: "Order Failed",
-        message: `We're sorry, but your order ${order.orderId} could not be processed. One or more items are out of stock. Any charges have been refunded.`,
-      });
+      // Best-effort notification — see the PaymentDeclined branch above for
+      // the same reasoning: don't let an undeclared notification failure
+      // block the "failed" order result, but do honor real cancellation.
+      await activities
+        .sendNotification({
+          customerId: order.customerId,
+          subject: "Order Failed",
+          message: `We're sorry, but your order ${order.orderId} could not be processed. One or more items are out of stock. Any charges have been refunded.`,
+        })
+        .match({
+          ok: () => undefined,
+          errCases: (matcher) =>
+            matcher
+              .with(P.tag(ACTIVITY_CANCELLED_ERROR_TAG), (cancelled) =>
+                rethrowCancellation(cancelled),
+              )
+              .with(P.tag(ACTIVITY_ERROR_TAG), (failure) => {
+                log.warn(`Failed to notify customer of out-of-stock order: ${failure.message}`);
+              }),
+          defect: (cause) => {
+            log.warn(`Failed to notify customer of out-of-stock order: ${cause}`);
+          },
+        });
 
       return {
         orderId: order.orderId,
@@ -242,43 +308,50 @@ export const processOrder = declareWorkflow({
       };
     }
 
-    log.info(`Inventory reserved: ${inventoryResult.reservationId}`);
+    log.info(`Inventory reserved: ${inventoryOutcome.reservationId}`);
 
     // ------------------------------------------------------------------
     // Step 4: create shipment
     // ------------------------------------------------------------------
     status = "creating_shipment";
     log.info("Creating shipment");
-    const shippingResult = await activities.createShipment({
-      orderId: order.orderId,
-      customerId: order.customerId,
-    });
+
+    // No rollback path exists for a failed shipment creation (unlike
+    // inventory reservation above) — that is a genuine "let Temporal fail
+    // the workflow" case, not a business outcome this example models.
+    const shippingResult = await propagateActivityFailure(
+      activities.createShipment({
+        orderId: order.orderId,
+        customerId: order.customerId,
+      }),
+    );
 
     log.info(`Shipment created: ${shippingResult.trackingNumber}`);
 
-    // Step 5: Send success notification (non-critical). `sendNotification`
-    // declares no errors, so it is a throwing Promise — `cancellableScope`
-    // folds it into the Result discipline instead of a `try/catch`:
-    // cancellation surfaces as `Err(WorkflowCancelledError)`, anything else
-    // it throws is a defect.
-    await context
-      .cancellableScope(() =>
-        activities.sendNotification({
-          customerId: order.customerId,
-          subject: "Order Confirmed",
-          message: `Your order ${order.orderId} has been confirmed and will be shipped. Tracking: ${shippingResult.trackingNumber}`,
-        }),
-      )
+    // Step 5: Send success notification (non-critical). Every activity call
+    // now returns an `AsyncResult` — including cancellation, via
+    // `ActivityCancelledError` — so narrowing the call's own result is enough
+    // and no longer needs a wrapping `cancellableScope` just to observe it.
+    await activities
+      .sendNotification({
+        customerId: order.customerId,
+        subject: "Order Confirmed",
+        message: `Your order ${order.orderId} has been confirmed and will be shipped. Tracking: ${shippingResult.trackingNumber}`,
+      })
       .match({
         ok: () => undefined,
         // Cancellation must propagate — absorbing it here would complete the
         // workflow after a cancel request instead of ending it `Cancelled`.
         errCases: (matcher) =>
-          matcher.with(P.tag(WORKFLOW_CANCELLED_ERROR_TAG), (cancelled) =>
-            rethrowCancellation(cancelled),
-          ),
-        // Non-critical: the order is already shipped, so even an unmodeled
-        // notification failure is only worth a warning.
+          matcher
+            .with(P.tag(ACTIVITY_CANCELLED_ERROR_TAG), (cancelled) =>
+              rethrowCancellation(cancelled),
+            )
+            // Non-critical: the order is already shipped, so even an
+            // undeclared notification failure is only worth a warning.
+            .with(P.tag(ACTIVITY_ERROR_TAG), (failure) => {
+              log.warn(`Failed to send confirmation notification: ${failure.message}`);
+            }),
         defect: (cause) => {
           log.warn(`Failed to send confirmation notification: ${cause}`);
         },
@@ -331,7 +404,13 @@ export const cleanupExpiredOrders = declareWorkflow({
   implementation: async (context, { olderThanDays }) => {
     log.info(`Starting order cleanup (older than ${olderThanDays} days)`);
 
-    const { purgedCount } = await context.activities.purgeExpiredOrders({ olderThanDays });
+    // A scheduled cleanup job with no recovery path: a failed purge should
+    // fail loudly (visible in the Temporal UI, the schedule runs again next
+    // time) rather than being silently swallowed into a fake "0 purged"
+    // success.
+    const { purgedCount } = await propagateActivityFailure(
+      context.activities.purgeExpiredOrders({ olderThanDays }),
+    );
 
     log.info(`Order cleanup finished: purged ${purgedCount} orders`);
     return { purgedCount };
