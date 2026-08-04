@@ -88,6 +88,7 @@ Workflow errors are **thrown**, not returned:
 const processOrder = defineWorkflow({
   input: OrderSchema,
   output: OrderResultSchema,
+  idempotency: "retry-if-failed", // charges a card
   errors: {
     EmptyOrder: {
       data: z.object({ orderId: z.string() }),

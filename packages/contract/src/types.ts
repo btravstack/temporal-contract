@@ -231,7 +231,8 @@ export type WorkflowDefinition<
   /**
    * Whether this workflow is safe to re-run under a workflow ID that has
    * already been used. Applied by the client to every start of this
-   * workflow; an explicit per-call `workflowIdReusePolicy` still wins.
+   * workflow, and by the worker to every child-workflow start of it; an
+   * explicit per-call `workflowIdReusePolicy` still wins.
    *
    * Required so the question is asked once per workflow rather than
    * silently inheriting Temporal's `ALLOW_DUPLICATE`.

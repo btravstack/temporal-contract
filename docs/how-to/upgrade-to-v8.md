@@ -870,6 +870,71 @@ contract-error wire round-trip) so a test fails exactly where production does.
 - `@temporalio/*` peer ranges tightened to `^1.16.0` (the real floor for the
   Schedule API and the search-attribute imports).
 
+## 13. Workflows must declare `idempotency`
+
+Every `defineWorkflow` now takes a required `idempotency` field. This is a
+breaking change every consumer hits — there is no default to inherit.
+
+Temporal's `workflowIdReusePolicy` defaults to `ALLOW_DUPLICATE`, which
+permits starting a new run under a workflow ID whose previous run reached
+**any** Closed state — including Completed. For a workflow keyed
+`charge-${orderId}`, a client that retries a start after, say, a network
+timeout — not knowing the first attempt actually went through — starts a
+**second** charge under the same order ID. `idempotency` makes the answer to
+"is this safe?" part of the workflow's own definition instead of something
+every call site has to get right on its own:
+
+```typescript
+defineWorkflow({
+  input,
+  output,
+  idempotency: "retry-if-failed", // re-runnable only if the last attempt didn't succeed
+});
+```
+
+| Mode                | Temporal policy               | Meaning                                                                                                                            |
+| ------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `"once-per-id"`     | `REJECT_DUPLICATE`            | This workflow ID may run exactly once, ever.                                                                                       |
+| `"retry-if-failed"` | `ALLOW_DUPLICATE_FAILED_ONLY` | Re-runnable only if the previous run reached a Closed state **other than Completed** — Failed, Cancelled, Terminated, or TimedOut. |
+| `"allow-duplicate"` | `ALLOW_DUPLICATE`             | Temporal's previous default — unconditionally re-runnable after any Closed run.                                                    |
+
+The client applies the mode to every `startWorkflow` / `executeWorkflow` /
+`signalWithStart`, and the worker applies it to every
+`context.startChildWorkflow` / `context.executeChildWorkflow` of that
+workflow. An explicit per-call `workflowIdReusePolicy` still overrides the
+contract's mode, for the rare call site that genuinely needs to depart from
+it. `workflowIdConflictPolicy` — what to do about a run that is already
+_open_, as opposed to closed — is untouched: it stays a per-call option,
+because that answer legitimately differs by caller, while the reuse question
+does not.
+
+**If you want zero behavior change, use `"allow-duplicate"` everywhere** —
+that is exactly Temporal's pre-8.0 default, reproduced faithfully. The field
+is required specifically so that choice is made once, deliberately, per
+workflow, rather than inherited silently; treat a sweep of
+`idempotency: "allow-duplicate"` as a placeholder to revisit workflow by
+workflow, not as the final answer.
+
+::: warning TypeScript enforces the field; a plain JavaScript caller does not get an error
+Omitting `idempotency` is a compile error under TypeScript — `WorkflowDefinition`
+requires it. At runtime, though, `defineContract`'s validator deliberately
+still accepts a definition with `idempotency` **missing** (as opposed to
+present-but-misspelled, which still throws) — this is what keeps an
+already-compiled artifact, or a contract assembled outside the type system,
+from failing validation. A plain-JS caller who skips the field gets no error
+at all: the client and worker simply send no `workflowIdReusePolicy`, so
+Temporal's own `ALLOW_DUPLICATE` default applies silently, identical to 7.x
+behavior. If your callers aren't type-checked, audit them directly — do not
+rely on this validator to catch the omission for you.
+:::
+
+Both paths are proven against a real Temporal server, not just asserted about
+the options object built: client-initiated starts (all three modes, both
+directions of `retry-if-failed`, and the per-call override) and
+worker-initiated child-workflow starts each have a dedicated integration
+suite that starts real executions and checks which ones the server actually
+accepts or rejects.
+
 ## Checklist
 
 - [ ] All four `@temporal-contract/*` packages on the same 8.0 version
@@ -922,6 +987,10 @@ contract-error wire round-trip) so a test fails exactly where production does.
       registered — a data-less contract error from a 7.x worker carries no wire
       marker and degrades to a generic failure until the workers are cut over
 - [ ] `@temporalio/*` resolve to `^1.16.0`; no CJS `require` of these packages
+- [ ] Every `defineWorkflow` declares `idempotency`; a migration wanting zero
+      behavior change uses `"allow-duplicate"` everywhere, then revisits each
+      workflow deliberately — remember plain-JS (non-type-checked) callers get
+      no runtime error for an omitted field, only for a misspelled one
 - [ ] `pnpm typecheck` clean
 
 The exhaustive matcher does most of the work: once it compiles, the migration is
