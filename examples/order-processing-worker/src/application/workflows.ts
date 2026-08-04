@@ -187,6 +187,10 @@ export const processOrder = declareWorkflow({
                           `Failed to notify customer of declined payment: ${notifyFailure.message}`,
                         );
                       }),
+                  // A defect here is still just a failed email — the
+                  // PaymentDeclined outcome about to be rethrown below is
+                  // already authoritative and must not be blocked by a
+                  // notification bug.
                   defect: (cause) => {
                     log.warn(`Failed to notify customer of declined payment: ${cause}`);
                   },
@@ -243,16 +247,22 @@ export const processOrder = declareWorkflow({
     // now returns an `AsyncResult`, so a technical failure (retries
     // exhausted, timeout) still needs a decision. Fold it into the same
     // "not reserved" business outcome handled below — the rollback (refund +
-    // notify) should run regardless of *why* inventory couldn't be reserved.
-    // Real cancellation is the exception: it must still propagate.
+    // notify) should run regardless of *why* inventory couldn't be reserved —
+    // but carry `unavailable` through so the returned order result still
+    // tells the truth about *which* outcome happened (see the `errorCode`
+    // selection below): a technical fault must never be reported to the
+    // client as a business "out of stock" decline, mirroring how
+    // `processPayment` above keeps `PAYMENT_UNAVAILABLE` distinct from
+    // `PaymentDeclined`. Real cancellation is the exception: it must still
+    // propagate.
     const inventoryOutcome = await activities.reserveInventory(order.items).match({
-      ok: (reservation) => reservation,
+      ok: (reservation) => ({ ...reservation, unavailable: false as const }),
       errCases: (matcher) =>
         matcher
           .with(P.tag(ACTIVITY_CANCELLED_ERROR_TAG), (cancelled) => rethrowCancellation(cancelled))
           .with(P.tag(ACTIVITY_ERROR_TAG), (failure) => {
             log.error(`Inventory reservation activity failed: ${failure.message}`);
-            return { reserved: false as const };
+            return { reserved: false as const, unavailable: true as const };
           }),
       // Unmodeled failure (a bug, not an anticipated outcome) — rethrow at
       // the edge so Temporal surfaces the Workflow Task failure.
@@ -264,14 +274,26 @@ export const processOrder = declareWorkflow({
 
     if (!inventoryOutcome.reserved) {
       status = "failed";
-      log.error("Inventory reservation failed");
+      // `unavailable` is only `true` on the technical-failure arm above — a
+      // business decline (no stock) reports the activity's own `Ok` value,
+      // which carries `unavailable: false`.
+      const inventoryUnavailable = inventoryOutcome.unavailable === true;
+      log.error(
+        inventoryUnavailable
+          ? "Inventory reservation activity failed"
+          : "Inventory reservation failed",
+      );
 
       // Rollback: refund the payment. Unlike the notifications in this
       // workflow, a failed refund is NOT worth a warning-and-continue: the
       // customer would be charged for an order that both failed and was
       // never refunded. That is exactly the case where Temporal should fail
       // the workflow loudly (visible, alertable) instead of completing it
-      // with a routine "failed" order status.
+      // with a routine "failed" order status. `propagateActivityFailure`
+      // restores the exact pre-uniform-`AsyncResult` behavior: before every
+      // activity call returned a `Result`, an unhandled `refundPayment`
+      // failure threw and failed this workflow outright — this is that same
+      // outcome, made explicit instead of accidental.
       log.info("Rolling back: refunding payment");
       await propagateActivityFailure(activities.refundPayment(payment.transactionId));
       log.info(`Payment refunded: ${payment.transactionId}`);
@@ -279,11 +301,15 @@ export const processOrder = declareWorkflow({
       // Best-effort notification — see the PaymentDeclined branch above for
       // the same reasoning: don't let an undeclared notification failure
       // block the "failed" order result, but do honor real cancellation.
+      const rollbackMessage = inventoryUnavailable
+        ? `We're sorry, but your order ${order.orderId} could not be processed. Our inventory service is temporarily unavailable. Any charges have been refunded.`
+        : `We're sorry, but your order ${order.orderId} could not be processed. One or more items are out of stock. Any charges have been refunded.`;
+
       await activities
         .sendNotification({
           customerId: order.customerId,
           subject: "Order Failed",
-          message: `We're sorry, but your order ${order.orderId} could not be processed. One or more items are out of stock. Any charges have been refunded.`,
+          message: rollbackMessage,
         })
         .match({
           ok: () => undefined,
@@ -295,6 +321,9 @@ export const processOrder = declareWorkflow({
               .with(P.tag(ACTIVITY_ERROR_TAG), (failure) => {
                 log.warn(`Failed to notify customer of out-of-stock order: ${failure.message}`);
               }),
+          // A defect here is still just a failed email — the order outcome
+          // above (and about to be returned below) is already authoritative
+          // and must not be blocked by a notification bug.
           defect: (cause) => {
             log.warn(`Failed to notify customer of out-of-stock order: ${cause}`);
           },
@@ -303,8 +332,10 @@ export const processOrder = declareWorkflow({
       return {
         orderId: order.orderId,
         status: "failed" as const,
-        failureReason: "One or more items are out of stock",
-        errorCode: "OUT_OF_STOCK",
+        failureReason: inventoryUnavailable
+          ? "Inventory could not be reserved"
+          : "One or more items are out of stock",
+        errorCode: inventoryUnavailable ? "INVENTORY_UNAVAILABLE" : "OUT_OF_STOCK",
       };
     }
 
@@ -352,6 +383,8 @@ export const processOrder = declareWorkflow({
             .with(P.tag(ACTIVITY_ERROR_TAG), (failure) => {
               log.warn(`Failed to send confirmation notification: ${failure.message}`);
             }),
+        // A defect here is still just a failed email — the order already
+        // completed successfully above, and that outcome is authoritative.
         defect: (cause) => {
           log.warn(`Failed to send confirmation notification: ${cause}`);
         },
