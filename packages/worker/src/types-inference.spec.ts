@@ -29,7 +29,7 @@ import {
   type EmptyContext,
   type GlobalActivityImplementationFor,
 } from "./activity.js";
-import type { TypedChildWorkflowHandle } from "./child-workflow.js";
+import type { TypedChildWorkflowHandle, TypedChildWorkflowOptions } from "./child-workflow.js";
 import type {
   ClientInferInput,
   ClientInferOutput,
@@ -275,5 +275,35 @@ describe("continueAsNew typing", () => {
     };
     void roll;
     expect(typeof roll).toBe("function");
+  });
+});
+
+describe("TypedChildWorkflowOptions requires an explicit parentClosePolicy", () => {
+  type ChildOptions = TypedChildWorkflowOptions<typeof inferenceContract, "otherWorkflow">;
+
+  it("accepts each of the three real policies", () => {
+    const terminate: ChildOptions["parentClosePolicy"] = "TERMINATE";
+    const abandon: ChildOptions["parentClosePolicy"] = "ABANDON";
+    const requestCancel: ChildOptions["parentClosePolicy"] = "REQUEST_CANCEL";
+    expect([terminate, abandon, requestCancel]).toHaveLength(3);
+  });
+
+  it("rejects omission", () => {
+    // @ts-expect-error parentClosePolicy is required
+    const options: ChildOptions = { workflowId: "child-1", args: { batchId: "B-1" } };
+    expect(options).toBeDefined();
+  });
+
+  it("rejects an explicit undefined", () => {
+    // This is the test that fails if `Exclude<..., undefined>` is dropped: the
+    // SDK's ParentClosePolicy union CONTAINS undefined, so a bare required
+    // field would accept this and the component would be a silent no-op.
+    const options: ChildOptions = {
+      workflowId: "child-1",
+      args: { batchId: "B-1" },
+      // @ts-expect-error parentClosePolicy may not be undefined
+      parentClosePolicy: undefined,
+    };
+    expect(options).toBeDefined();
   });
 });
