@@ -27,8 +27,6 @@ import { TaggedError } from "unthrown";
 import { CONTRACT_ERROR_TAG, TECHNICAL_ERROR_TAG } from "./error-tags.js";
 import type { AnySchema, ErrorDefinition, InferErrorData, InferErrorDataInput } from "./types.js";
 
-export { CONTRACT_ERROR_TAG, TECHNICAL_ERROR_TAG } from "./error-tags.js";
-
 /**
  * Error for technical/runtime failures that cannot be prevented by
  * TypeScript — connection failures, missing runtime capabilities, worker
