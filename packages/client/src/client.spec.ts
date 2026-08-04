@@ -2819,6 +2819,9 @@ describe("contract-declared idempotency", () => {
       plainWorkflow: {
         input: z.object({ id: z.string() }),
         output: z.object({ ok: z.boolean() }),
+        signals: {
+          ping: { input: z.tuple([]) },
+        },
       },
     },
   });
@@ -2890,10 +2893,13 @@ describe("contract-declared idempotency", () => {
     });
   });
 
-  it("lets an explicit per-call workflowIdReusePolicy override the contract", async () => {
+  it("lets an explicit per-call workflowIdReusePolicy override the contract on startWorkflow", async () => {
     // This is the test that catches a contract-after-spread mistake: the
     // three "applies" tests above only prove the field is set to SOMETHING,
-    // not that a caller can still win.
+    // not that a caller can still win. One instance of this test per start
+    // path — precedence is expressed independently at each call site's own
+    // spread, so a mistake at one site is invisible to the other two's
+    // tests (see the fix-round-1 note in the report for why this matters).
     mockWorkflow.start.mockResolvedValue({ workflowId: "id-4" });
 
     await idempotencyClient.startWorkflow("onceWorkflow", {
@@ -2910,7 +2916,48 @@ describe("contract-declared idempotency", () => {
     });
   });
 
-  it("sends no policy when the contract declares none", async () => {
+  it("lets an explicit per-call workflowIdReusePolicy override the contract on signalWithStart", async () => {
+    mockWorkflow.signalWithStart.mockResolvedValue({
+      workflowId: "id-4b",
+      signaledRunId: "run-4b",
+    });
+
+    await idempotencyClient.signalWithStart("onceWorkflow", {
+      workflowId: "id-4b",
+      args: { id: "a" },
+      signalName: "ping",
+      signalArgs: [],
+      workflowIdReusePolicy: "ALLOW_DUPLICATE",
+    });
+
+    expect(mockWorkflow.signalWithStart).toHaveBeenCalledWith("onceWorkflow", {
+      workflowId: "id-4b",
+      taskQueue: "idempotency-queue",
+      workflowIdReusePolicy: "ALLOW_DUPLICATE",
+      args: [{ id: "a" }],
+      signal: "ping",
+      signalArgs: [[]],
+    });
+  });
+
+  it("lets an explicit per-call workflowIdReusePolicy override the contract on executeWorkflow", async () => {
+    mockWorkflow.execute.mockResolvedValue({ ok: true });
+
+    await idempotencyClient.executeWorkflow("onceWorkflow", {
+      workflowId: "id-4c",
+      args: { id: "a" },
+      workflowIdReusePolicy: "ALLOW_DUPLICATE",
+    });
+
+    expect(mockWorkflow.execute).toHaveBeenCalledWith("onceWorkflow", {
+      workflowId: "id-4c",
+      taskQueue: "idempotency-queue",
+      workflowIdReusePolicy: "ALLOW_DUPLICATE",
+      args: [{ id: "a" }],
+    });
+  });
+
+  it("sends no policy when the contract declares none, on startWorkflow", async () => {
     // During migration `idempotency` is optional. A contract without it
     // must behave exactly as before — no `workflowIdReusePolicy` key at all
     // (not even `undefined`, which differs under exactOptionalPropertyTypes).
@@ -2922,6 +2969,35 @@ describe("contract-declared idempotency", () => {
     });
 
     const passed = mockWorkflow.start.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(passed).not.toHaveProperty("workflowIdReusePolicy");
+  });
+
+  it("sends no policy when the contract declares none, on signalWithStart", async () => {
+    mockWorkflow.signalWithStart.mockResolvedValue({
+      workflowId: "id-5b",
+      signaledRunId: "run-5b",
+    });
+
+    await idempotencyClient.signalWithStart("plainWorkflow", {
+      workflowId: "id-5b",
+      args: { id: "a" },
+      signalName: "ping",
+      signalArgs: [],
+    });
+
+    const passed = mockWorkflow.signalWithStart.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(passed).not.toHaveProperty("workflowIdReusePolicy");
+  });
+
+  it("sends no policy when the contract declares none, on executeWorkflow", async () => {
+    mockWorkflow.execute.mockResolvedValue({ ok: true });
+
+    await idempotencyClient.executeWorkflow("plainWorkflow", {
+      workflowId: "id-5c",
+      args: { id: "a" },
+    });
+
+    const passed = mockWorkflow.execute.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(passed).not.toHaveProperty("workflowIdReusePolicy");
   });
 });
