@@ -51,19 +51,21 @@ const buildProxy = (raw: (...args: unknown[]) => Promise<unknown>) =>
   ) as unknown as Record<string, (input: unknown) => AsyncResult<unknown, ProxyError>>;
 
 describe("createValidatedActivities — activities without declared errors", () => {
-  it("keeps the historical throwing Promise shape", async () => {
+  it("is Result-shaped too — no more special throwing shape for undeclared errors", async () => {
     const activities = createValidatedActivities(
       { chargePayment: async () => ({ transactionId: "tx" }) },
       { chargePayment: plainDefinition },
       undefined,
-    ) as unknown as Record<string, (input: unknown) => Promise<unknown>>;
+    ) as unknown as Record<string, (input: unknown) => AsyncResult<unknown, ActivityError>>;
 
-    await expect(activities["chargePayment"]!({ amount: 1 })).resolves.toEqual({
-      transactionId: "tx",
-    });
-    await expect(activities["chargePayment"]!({ amount: "bad" })).rejects.toThrow(
-      /input validation failed/,
-    );
+    const okResult = await activities["chargePayment"]!({ amount: 1 });
+    expect(okResult).toBeOkWith({ transactionId: "tx" });
+
+    const errResult = await activities["chargePayment"]!({ amount: "bad" });
+    expect(errResult).toBeErrTagged("@temporal-contract/ActivityError");
+    if (errResult.isErr()) {
+      expect(errResult.error.message).toContain("input validation failed");
+    }
   });
 });
 
@@ -85,7 +87,7 @@ describe("createValidatedActivities — wire format (validate on send, parse on 
     },
   } as unknown as ActivityDefinition;
 
-  it("throwing shape: sends the ORIGINAL input over the wire and parses the output once", async () => {
+  it("no declared errors: sends the ORIGINAL input over the wire and parses the output once", async () => {
     const seen: unknown[] = [];
     const activities = createValidatedActivities(
       {
@@ -96,7 +98,7 @@ describe("createValidatedActivities — wire format (validate on send, parse on 
       },
       { transformer: transformDefinition },
       undefined,
-    ) as unknown as Record<string, (input: unknown) => Promise<unknown>>;
+    ) as unknown as Record<string, (input: unknown) => AsyncResult<unknown, ActivityError>>;
 
     const result = await activities["transformer"]!({ text: "hi" });
 
@@ -104,10 +106,10 @@ describe("createValidatedActivities — wire format (validate on send, parse on 
     // parsed `{ text: "hi!" }` — the activity worker parses on receive.
     expect(seen).toEqual([{ text: "hi" }]);
     // The activity's wire value (pre-transform) is parsed exactly once here.
-    expect(result).toEqual({ n: 42 });
+    expect(result).toBeOkWith({ n: 42 });
   });
 
-  it("Result shape: sends the ORIGINAL input over the wire and parses the output once", async () => {
+  it("declared errors: sends the ORIGINAL input over the wire and parses the output once", async () => {
     const seen: unknown[] = [];
     const activities = createValidatedActivities(
       {
