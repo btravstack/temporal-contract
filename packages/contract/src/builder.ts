@@ -273,7 +273,9 @@ export function defineSearchAttribute<TKind extends SearchAttributeKind>(
  * export const processOrder = defineWorkflow({
  *   input: z.object({ orderId: z.string() }),
  *   output: z.object({ success: z.boolean() }),
- *   // Payment already moved money — don't let a retried start charge again.
+ *   // Payment already moved money on success — block a second successful
+ *   // run per order. A start is still retryable after a genuinely failed
+ *   // attempt (e.g. a declined payment, where no charge went through).
  *   idempotency: 'retry-if-failed',
  *   activities: {
  *     validatePayment: defineActivity({
@@ -348,7 +350,9 @@ export function defineWorkflow<TWorkflow extends AnyWorkflowDefinition>(
  * const processOrder = defineWorkflow({
  *   input: z.object({ orderId: z.string() }),
  *   output: z.object({ success: z.boolean() }),
- *   // Payment already moved money — don't let a retried start charge again.
+ *   // Payment already moved money on success — block a second successful
+ *   // run per order. A start is still retryable after a genuinely failed
+ *   // attempt (e.g. a declined payment, where no charge went through).
  *   idempotency: 'retry-if-failed',
  *   activities: { chargePayment },
  * });
@@ -758,6 +762,16 @@ function validateWorkflowDefinition(context: string, definition: unknown): void 
   assertSchema(context, "input", definition["input"]);
   assertSchema(context, "output", definition["output"]);
   const idempotency = definition["idempotency"];
+  // `idempotency` is required at the *type* level (`WorkflowDefinition`,
+  // types.ts), but this runtime check deliberately still accepts `undefined`
+  // here — tightening it to reject a missing field would be "finishing the
+  // flip" for real, and it's load-bearing: it's what lets a definition reach
+  // the client/worker without `idempotency` at runtime despite the type
+  // requiring it (e.g. a contract assembled outside the type system, or an
+  // older compiled artifact) without failing contract validation. The
+  // client's/worker's own `definition.idempotency ? {...} : {}` guards stay
+  // defensive for exactly that case, and the `plainWorkflow` fixture in
+  // client.spec.ts exists to prove it.
   if (
     idempotency !== undefined &&
     idempotency !== "once-per-id" &&
