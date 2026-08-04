@@ -10,6 +10,16 @@ without returned a `Promise` that threw. The call site gave no indication
 which applied, and the throwing path contradicted the library's own
 "activities never throw" convention.
 
+**The dangerous part: a bare, discarded `await` compiles identically before
+and after this change, and now silently swallows the failure.** Before,
+`await context.activities.charge(input);` on its own line still threw on
+failure (for an activity with no declared `errors` map) or, at worst, left an
+unused `AsyncResult` you'd likely notice. Now every call returns
+`AsyncResult`, so that exact line type-checks, discards the outcome, and lets
+the workflow continue as if the call succeeded — nothing here is a type
+error. Audit every activity call site: narrow the result or pass it through
+`propagateActivityFailure` (below). Don't rely on the compiler to find these.
+
 **Migrating.** Where the workflow should handle the failure, narrow it:
 
 ```ts
@@ -76,3 +86,17 @@ const scoped = await context.cancellableScope(async () => {
 `@temporal-contract/worker/workflow`, so consumers can name the error channel
 directly (for example, to write a helper generic over an activity's error
 type) instead of only the call signature.
+
+`ActivityError` also grows a new `originalFailure` field: the failure exactly
+as caught, before `cause`'s unwrap (typically Temporal's `ActivityFailure`
+wrapper). It exists so `propagateActivityFailure` can re-raise the exact
+failure Temporal originally produced without changing what `cause` means for
+existing consumers — see [the reference docs](/reference/errors#activityerror).
+
+`propagateActivityFailure` also accepts the `AsyncResult` returned by
+`context.executeChildWorkflow` / `context.startChildWorkflow` and by
+`context.cancellableScope` / `context.nonCancellableScope`: it re-raises
+`ChildWorkflowError` / `ChildWorkflowCancelledError` / `WorkflowCancelledError`
+the same way it re-raises activity failures, so passing one of those through
+it no longer stalls the workflow the way a bare `throw` of that `TaggedError`
+would.

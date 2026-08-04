@@ -83,7 +83,13 @@ export const processOrder = declareWorkflow({
     // context.cancellableScope / context.nonCancellableScope — see below
 
     const inventory = await context.activities.validateInventory({ orderId: args.orderId });
-    return { status: inventory.available ? "confirmed" : "rejected" };
+    if (inventory.isDefect()) {
+      throw inventory.cause;
+    }
+    if (inventory.isErr()) {
+      return { status: "rejected" };
+    }
+    return { status: inventory.value.available ? "confirmed" : "rejected" };
   },
 });
 ```
@@ -92,13 +98,24 @@ Workflow code is deterministic — see [workflow-determinism.md](./workflow-dete
 
 Typed-error semantics inside the workflow context:
 
-- Activities **without** a declared `errors` map keep the throwing
-  `Promise<Output>` shape above.
+- **Every** activity call returns `AsyncResult` — declared `errors` map or
+  not. There is no throwing `Promise<Output>` shape anymore; narrow the
+  result with `isOk()`/`isErr()`, or use `propagateActivityFailure` to let
+  the failure escape and have Temporal decide the workflow's outcome. A bare
+  `await context.activities.x(...)` compiles either way — it's easy to
+  discard the `AsyncResult` by accident and silently swallow a failure.
+  **Never** use unthrown's `.getOrThrow()` here: it throws the
+  `ActivityError`/`ActivityCancelledError` wrapper, which is a `TaggedError`
+  and not a `TemporalFailure` — Temporal retries that as a workflow-_task_
+  failure indefinitely instead of failing the workflow.
 - Activities **with** a declared `errors` map return
   `AsyncResult<Output, ContractError union | ActivityError | ActivityCancelledError>`
   (mirroring the child-workflow API): declared failures rehydrate into typed
   `ContractError`s, anything else is `Err(ActivityError)` with the unwrapped
-  cause, cancellation is `Err(ActivityCancelledError)`.
+  cause, cancellation is `Err(ActivityCancelledError)`. Activities
+  **without** a declared `errors` map return
+  `AsyncResult<Output, ActivityError | ActivityCancelledError>` — same
+  shape, minus the declared-error members.
 - `context.errors` holds typed constructors for the workflow's own declared
   errors; `throw context.errors.X(data)` fails the execution as an
   `ApplicationFailure` the typed client rehydrates. Never throw a bare
@@ -149,16 +166,35 @@ Workflows opt into cancellation control via `context.cancellableScope` / `contex
 
 ```typescript
 implementation: async (context, args) => {
+  // `fn`'s return value becomes the scope's `T` verbatim, so await and
+  // narrow the activity's own AsyncResult HERE, inside the callback —
+  // returning it un-awaited would make `T` the AsyncResult itself, which
+  // has no `isOk`/`isErr`/`.value`.
   const result = await context.cancellableScope(async () => {
-    return context.activities.processStep(args);
+    const step = await context.activities.processStep(args);
+    if (step.isDefect()) {
+      throw step.cause;
+    }
+    return step.isOk();
   });
 
+  if (result.isDefect()) {
+    throw result.cause; // a genuine bug thrown inside the scope, not a cancel
+  }
   if (result.isErr()) {
     // Workflow was cancelled. Cleanup that must not be cancelled itself
-    // goes inside `nonCancellableScope`.
-    await context.nonCancellableScope(async () => {
-      await context.activities.releaseResources(args);
+    // goes inside `nonCancellableScope`. Capture ITS OWN AsyncResult too —
+    // a bare `await` would silently discard both a defect thrown during
+    // cleanup and the un-awaited activity result.
+    const released = await context.nonCancellableScope(async () => {
+      const step = await context.activities.releaseResources(args);
+      if (step.isErr()) {
+        // best-effort cleanup — log and continue regardless
+      }
     });
+    if (released.isDefect()) {
+      throw released.cause; // a genuine bug in cleanup, not a cancel
+    }
     return { status: "cancelled" };
   }
 

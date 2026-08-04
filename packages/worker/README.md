@@ -37,7 +37,7 @@ export const activities = declareActivitiesHandler({
 
 ```typescript
 // workflows.ts
-import { declareWorkflow } from "@temporal-contract/worker/workflow";
+import { declareWorkflow, propagateActivityFailure } from "@temporal-contract/worker/workflow";
 
 import { myContract } from "./contract.js";
 
@@ -46,8 +46,10 @@ export const processOrder = declareWorkflow({
   contract: myContract,
   activityOptions: { startToCloseTimeout: "1 minute" },
   implementation: async ({ activities }, input) => {
-    // Activities return plain values (Result is unwrapped internally)
-    await activities.sendEmail({ to: "user@example.com", body: "Done!" });
+    // Every activity call returns an AsyncResult — narrow it, or use
+    // `propagateActivityFailure` to let Temporal decide the workflow's fate.
+    // A bare `await` here compiles but silently discards a failed call.
+    await propagateActivityFailure(activities.sendEmail({ to: "user@example.com", body: "Done!" }));
     return { success: true };
   },
 });
@@ -197,8 +199,13 @@ export const extractLayout = declareWorkflow({
     // Activities not listed here fall through to the default queue/options.
   },
   implementation: async ({ activities }, input) => {
-    // Each call still validates input/output against the contract.
-    const layout = await activities.extractLayoutChunk({ docId: input.docId });
+    // Each call still validates input/output against the contract, and
+    // still returns an AsyncResult — propagate it to let a failure fail
+    // the workflow instead of returning an AsyncResult where `{ layout }`
+    // expects the unwrapped value.
+    const layout = await propagateActivityFailure(
+      activities.extractLayoutChunk({ docId: input.docId }),
+    );
     return { layout };
   },
 });

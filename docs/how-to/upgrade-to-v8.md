@@ -689,6 +689,58 @@ result.match({
 });
 ```
 
+### Every activity call now returns `AsyncResult` — and a bare `await` still compiles
+
+Before 8.0, the call convention depended on whether the contract declared an
+`errors` map: activities with declared errors returned `AsyncResult`, those
+without returned a plain `Promise<Output>` that threw. In 8.0, every activity
+call — declared errors or not — returns `AsyncResult<Output, E>`, and the
+throwing wrapper is gone.
+
+::: danger This is the branch's most dangerous hazard, and the compiler will not catch it
+`await context.activities.sendEmail(input);` compiles **identically** before
+and after this change. Before 8.0, an un-awaited-for-its-result activity call
+still threw on failure, so the workflow failed. After 8.0, that same line
+discards the `AsyncResult` — the failure is silently swallowed and the
+workflow proceeds as if the call succeeded. TypeScript gives no warning:
+`AsyncResult` is a valid, `await`-able value either way, so nothing is
+type-incorrect about writing this. The `cancellableScope` break covered below
+_does_ fail to compile; this one does not, which is exactly what makes it
+easy to miss during migration.
+:::
+
+Audit every activity call site and choose one of two shapes:
+
+```ts
+// Narrow it — the workflow branches on the outcome itself.
+const result = await context.activities.sendEmail(input);
+if (result.isErr()) {
+  /* ... */
+}
+
+// Or propagate it — let a failure escape and have Temporal decide the
+// workflow's fate, matching the pre-8.0 "just let it throw" behavior.
+import { propagateActivityFailure } from "@temporal-contract/worker/workflow";
+
+await propagateActivityFailure(context.activities.sendEmail(input));
+```
+
+**Do not reach for unthrown's `.getOrThrow()` instead of `propagateActivityFailure`.**
+`.getOrThrow()` throws the `ActivityError`/`ActivityCancelledError` wrapper
+itself — a `TaggedError`, not a `TemporalFailure`. Temporal treats a thrown
+non-`TemporalFailure` as a workflow-_task_ failure and retries it
+indefinitely, so the workflow never fails — it stalls until its execution
+timeout instead. `propagateActivityFailure` re-raises the preserved original
+failure instead, which is exactly what would have escaped the workflow
+before this change. See [The result model](/explanation/the-result-model).
+
+A bare `await` that discards the result is easy to introduce by habit,
+especially copying a pre-8.0 call site that never needed narrowing. Grep for
+`await context.activities.` / `await activities.` (or your local alias) and
+confirm each hit either narrows the result or passes it through
+`propagateActivityFailure` — an un-narrowed, un-propagated `AsyncResult` sitting
+in an expression statement is the tell.
+
 ### Cancellation can be swallowed by any activity call
 
 Every activity call now returns an `AsyncResult` — declared `errors` map or
@@ -855,8 +907,13 @@ contract-error wire round-trip) so a test fails exactly where production does.
 - [ ] `result()` / update / query matchers handle the new modeled errors
       (`WorkflowCancelledError` / `Terminated` / `Timeout`, `UpdateFailedError`,
       `UpdateRejectedError`, `QueryFailedError`)
-- [ ] Cancellation isn't swallowed by a declared-error activity —
-      `rethrowCancellation` where a generic `Err` fallback would complete the run
+- [ ] Every `await context.activities.x(...)` (declared-error or not) either
+      narrows the `AsyncResult` or is wrapped in `propagateActivityFailure` —
+      a bare, discarded `await` compiles identically before and after 8.0 but
+      now silently swallows the failure
+- [ ] Cancellation isn't swallowed by **any** activity call (declared-error
+      or not) — `rethrowCancellation` where a generic `Err` fallback would
+      complete the run
 - [ ] Shared activities implemented once (same reference or hoisted global)
 - [ ] `createContractTest({ contract, ... })` and `runActivity(def, { ... })`
       use the option bag; `testcontainers` installed only where `createContractTest` runs

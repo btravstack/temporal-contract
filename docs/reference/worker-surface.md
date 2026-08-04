@@ -263,6 +263,16 @@ instead of failing it. `propagateActivityFailure` re-raises the preserved
 original failure instead — see [The result
 model](/explanation/the-result-model).
 
+`E` is intentionally unconstrained, so this also accepts the `AsyncResult`
+returned by `context.executeChildWorkflow` / `context.startChildWorkflow`
+(`ChildWorkflowError`, `ChildWorkflowCancelledError`) and by
+`context.cancellableScope` / `context.nonCancellableScope`
+(`WorkflowCancelledError`) — each re-raises its preserved `cause` the same
+way. `ChildWorkflowNotFoundError` (no Temporal call ever happened — the
+target contract doesn't declare the child workflow name) is converted to a
+`ContractMisuseError` instead, since there is no prior Temporal failure to
+re-raise.
+
 #### `rethrowCancellation(error): never`
 
 Re-raise a cancellation that surfaced on the modeled `Err(...)` channel.
