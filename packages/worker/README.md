@@ -44,7 +44,7 @@ import { myContract } from "./contract.js";
 export const processOrder = declareWorkflow({
   workflowName: "processOrder",
   contract: myContract,
-  activityOptions: { startToCloseTimeout: "1 minute" },
+  activityOptions: { startToCloseTimeout: "1 minute", retry: { maximumAttempts: 3 } },
   implementation: async ({ activities }, input) => {
     // Every activity call returns an AsyncResult — narrow it, or use
     // `propagateActivityFailure` to let Temporal decide the workflow's fate.
@@ -113,12 +113,15 @@ import { P } from "unthrown";
 export const parentWorkflow = declareWorkflow({
   workflowName: "parentWorkflow",
   contract: myContract,
-  activityOptions: { startToCloseTimeout: "1 minute" },
+  activityOptions: { startToCloseTimeout: "1 minute", retry: { maximumAttempts: 3 } },
   implementation: async (context, input) => {
     // Execute child workflow from same contract and wait for result
     const childResult = await context.executeChildWorkflow(myContract, "processPayment", {
       workflowId: `payment-${input.orderId}`,
       args: { amount: input.totalAmount },
+      // Required — no default to inherit. TERMINATE reproduces the
+      // pre-8.0 inherited behavior.
+      parentClosePolicy: "TERMINATE",
     });
 
     childResult.match({
@@ -140,6 +143,7 @@ export const parentWorkflow = declareWorkflow({
       {
         workflowId: `notification-${input.orderId}`,
         args: { message: "Order received" },
+        parentClosePolicy: "TERMINATE",
       },
     );
 
@@ -147,6 +151,7 @@ export const parentWorkflow = declareWorkflow({
     const handleResult = await context.startChildWorkflow(myContract, "sendEmail", {
       workflowId: `email-${input.orderId}`,
       args: { to: "user@example.com", body: "Order received" },
+      parentClosePolicy: "TERMINATE",
     });
 
     handleResult.match({
@@ -187,9 +192,12 @@ which would bypass the Zod input/output validation:
 export const extractLayout = declareWorkflow({
   workflowName: "extractLayout",
   contract: myContract,
-  activityOptions: { startToCloseTimeout: "10 minutes" }, // default for all
+  // Both bounds live here, so a taskQueue-only override below still inherits
+  // a total bound — see "Activity bounds" in the worker-surface reference.
+  activityOptions: { startToCloseTimeout: "10 minutes", retry: { maximumAttempts: 3 } },
   activityOptionsByName: {
-    // LLM activity → dedicated, concurrency-capped queue.
+    // LLM activity → dedicated, concurrency-capped queue. Still inherits the
+    // default's bounds — only `taskQueue` is overridden here.
     extractLayoutChunk: { taskQueue: "gemini-pro" },
     // Slow payment gateway → longer timeout + aggressive retry.
     chargePayment: {

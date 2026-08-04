@@ -30,12 +30,13 @@ function declareWorkflow<TContract, TWorkflowName>(
 | `activityOptions`       | `ActivityOptions`                       | conditional |
 | `activityOptionsByName` | `Record<ActivityName, ActivityOptions>` | no          |
 
-`activityOptions` may be omitted only if every reachable activity is covered by
-a contract-level `defineActivity({ activityOptions })` or an
-`activityOptionsByName` entry. Otherwise `declareWorkflow` throws at declaration
-time, listing the uncovered activities. An unknown `workflowName` also fails at
-declaration time (a `ContractMisuseError`), listing the contract's available
-workflow names.
+`activityOptions` may be omitted only if every reachable activity's bounds
+(see "Activity bounds" below) are fully covered by a contract-level
+`defineActivity({ activityOptions })` or an `activityOptionsByName` entry.
+Otherwise `declareWorkflow` throws at declaration time, naming the uncovered
+activities and the rule each one breaks. An unknown `workflowName` also fails
+at declaration time (a `ContractMisuseError`), listing the contract's
+available workflow names.
 
 `DeclareWorkflowOptions<TContract, TWorkflowName>` and
 `WorkflowImplementation<TContract, TWorkflowName>` — the option-bag and the
@@ -50,6 +51,110 @@ but transmitted the caller's original value, so a transforming schema applies
 exactly once. The return value is validated before completion and transmitted
 as-is; the client parses it on receive. See
 [Validation boundaries](/explanation/validation-boundaries).
+
+### Activity bounds
+
+Every activity reachable from a workflow (workflow-local + global) must end
+up, in its **merged** options, with both of these:
+
+- **A per-attempt bound** — `startToCloseTimeout` or `scheduleToCloseTimeout`,
+  present. Caps how long a single attempt may run.
+- **A total bound** — `scheduleToCloseTimeout`, or `retry.maximumAttempts` as
+  a finite positive integer. Caps how long the whole retry sequence may run.
+
+`scheduleToCloseTimeout` alone satisfies both. The two are independent:
+`startToCloseTimeout` caps one attempt and says nothing about the sequence,
+and `RetryPolicy.maximumAttempts` defaults to `Infinity`, so an activity with
+only a per-attempt bound retries a non-transient failure roughly every 100
+seconds — forever.
+
+**The merge, and why it's checked on the result, not each layer.** Options
+come from three layers, shallow-merged in this order (later wins):
+
+1. `declareWorkflow`'s own `activityOptions` (the workflow-wide default)
+2. the activity's contract-level `defineActivity({ activityOptions })`
+3. `activityOptionsByName` (the per-workflow, per-activity override)
+
+The merge is **shallow** — a later layer's `retry` block replaces an earlier
+layer's **entirely**, not field-by-field, matching Temporal's own
+single-options-per-`proxyActivities`-call semantics. So a workflow-wide
+`retry: { maximumAttempts: 3 }` and a contract-level
+`retry: { initialInterval: "2s" }` each look bounded in isolation, but if the
+contract-level one wins the merge, the resulting options have no
+`maximumAttempts` at all — the total bound silently disappears. The guard
+therefore checks the **merged** result for every reachable activity, not each
+source independently; a per-source check cannot see this class of defect.
+
+**`maximumAttempts` edge cases.** The rule is stated positively: a value counts
+as a bound only when it is a finite positive integer.
+
+- `Infinity` is **not** a bound — Temporal deletes the field when it is set to
+  `Infinity` precisely because that value already _is_ the default, so
+  writing it down changes nothing.
+- `0`, negative values, and non-integers are **not** bounds either — but this
+  guard doesn't reject them itself; it treats them as "no bound stated" and
+  lets Temporal's own validation (`compileRetryPolicy`) surface its
+  `ValueError` for the genuinely invalid value.
+
+**What a violation looks like.** Every violation across every reachable
+activity is collected and reported in a single `ContractMisuseError`, naming
+each offending activity and which rule(s) it broke:
+
+```
+declareWorkflow: every reachable activity needs a total bound, so a failing activity
+cannot retry forever. These do not:
+  - chargePayment: missing a total bound (set `scheduleToCloseTimeout`, or a finite positive `retry.maximumAttempts`)
+Options are merged from `declareWorkflow`'s `activityOptions`, the contract's
+`defineActivity({ activityOptions })`, and `activityOptionsByName`. That merge is
+shallow, so a later layer's `retry` replaces an earlier layer's entirely — check the
+merged result, not each layer.
+```
+
+(The introductory phrase names only the bound(s) actually missing across all
+offenders — a `chargePayment`-only violation like this one says "needs a
+total bound"; a mix of per-attempt and total violations says "needs a
+per-attempt bound and a total bound".)
+
+**What this guard actually buys you, and what it does not.** Read this
+carefully — it corrects an easy, plausible-sounding misconception.
+
+`declareWorkflow` runs at module top level, so this check runs — and any
+violation throws — while the **workflow bundle** is being evaluated, before
+the Temporal SDK ever invokes the workflow function. A throw at that point is
+caught by the worker's outer activation handler, which produces a Workflow
+**Task** failure unconditionally. `ContractMisuseError` is a non-retryable
+`ApplicationFailure`, but `nonRetryable` only has meaning on a
+`FailWorkflowExecution` command — and this code path never emits one. So at
+runtime, a violation does **not** fail the workflow cleanly, and it does not
+fail fast. It **stalls** the workflow: Temporal retries the workflow task
+indefinitely.
+
+For a missing **per-attempt** bound, that is exactly what happened before
+this guard existed too: `proxyActivities` itself throws a plain `TypeError`
+at proxy construction when both `startToCloseTimeout` and
+`scheduleToCloseTimeout` are absent, and that `TypeError` produces the
+identical stall — this guard exists to give that failure a name and a list of
+offenders before it happens, not to change what happens next. For a missing
+**total** bound alone, there was no prior `TypeError` at all —
+`proxyActivities` never checked `retry.maximumAttempts` — so the pre-guard
+behavior was a workflow that starts and runs normally while one activity
+retries a non-transient failure forever, roughly every 100 seconds, inside an
+execution that looks healthy. The guard turns that silent, open-ended retry
+loop into the same loud (if stalling) declaration-time signal as the
+per-attempt case.
+
+This is deliberate, not a shortcoming to be fixed later. Temporal retries
+workflow tasks precisely so a bug can be fixed and redeployed with in-flight
+executions resuming; making a misconfiguration terminal would permanently
+fail every in-flight workflow on a bad deploy — including one mid-payment —
+destroying exactly the work that stalling preserves.
+
+The guard's real value is **at declaration time, in development and CI**: it
+turns a missing bound into an immediate, readable error the first time the
+workflow module loads — in a unit test, in a bundling step, in a worker
+starting up — rather than a silently-`Running` execution discovered only in
+production. It is not a production runtime safety net, and nothing in this
+codebase should be read as claiming otherwise.
 
 ### `WorkflowContext`
 
@@ -185,7 +290,16 @@ Starts and waits.
 ```
 
 `TypedChildWorkflowOptions` is Temporal's `ChildWorkflowOptions` without
-`taskQueue` and `args`, plus a typed `args`.
+`taskQueue` and `args`, plus a typed `args` — and with `parentClosePolicy`
+**required** rather than optional. Temporal's own field accepts `undefined`
+(via the deprecated `PARENT_CLOSE_POLICY_UNSPECIFIED` union member), so this
+type `Exclude`s `undefined` explicitly; without that, a "required" field that
+still accepts `undefined` would require nothing. `"TERMINATE"` remains
+available and reproduces Temporal's own default (kill the child when the
+parent closes) — it simply has to be written down at the call site rather
+than inherited silently. Choose `"REQUEST_CANCEL"` if the child needs to
+compensate before exiting, or `"ABANDON"` for fire-and-forget work that
+should outlive its parent.
 
 #### `cancellableScope(fn)` / `nonCancellableScope(fn)`
 
