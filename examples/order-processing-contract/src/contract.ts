@@ -163,6 +163,12 @@ const getOrderStatus = defineQuery({ output: OrderStatusReportSchema });
 const processOrder = defineWorkflow({
   input: OrderSchema,
   output: OrderResultSchema,
+  // A Completed run charged the customer — Temporal's default
+  // (`allow-duplicate`) would let a retried start under the same order ID
+  // charge them again. `retry-if-failed` still lets a start be retried after
+  // a genuine failure (worker crash, infra blip) without giving up the
+  // dedup guarantee that matters: no second successful run per order.
+  idempotency: "retry-if-failed",
   activities: {
     processPayment,
     reserveInventory,
@@ -191,6 +197,11 @@ const processOrder = defineWorkflow({
 const cleanupExpiredOrders = defineWorkflow({
   input: CleanupOrdersInputSchema,
   output: CleanupOrdersResultSchema,
+  // Recurring maintenance workflow driven by a Temporal Schedule — every
+  // cycle is meant to run again under its schedule-derived ID, which is
+  // exactly Temporal's default reuse behavior. Not money-moving, so there's
+  // no dedup guarantee to protect here.
+  idempotency: "allow-duplicate",
 });
 
 // ============================================================================

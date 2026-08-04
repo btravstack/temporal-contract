@@ -238,20 +238,29 @@ describe("contract-declared idempotency", () => {
   // `onceChild` declares "once-per-id" so its default policy
   // (REJECT_DUPLICATE) is distinguishable from Temporal's own default
   // (ALLOW_DUPLICATE) — see `client.spec.ts`'s identical rationale.
-  // `plainChild` declares no `idempotency` at all, standing in for
-  // contracts that haven't adopted the field yet.
+  const onceChild = defineWorkflow({
+    input: z.object({ id: z.string() }),
+    output: z.object({ ok: z.boolean() }),
+    idempotency: "once-per-id",
+  });
+
+  // Simulates a definition that reaches the worker without `idempotency` at
+  // runtime despite the field now being required at the type level (e.g. a
+  // contract assembled dynamically outside the type system, or an older
+  // compiled artifact) — the `as unknown as typeof onceChild` cast is the
+  // point, not a mistake. The defensive `definition.idempotency ? {
+  // workflowIdReusePolicy: … } : {}` guard in `child-workflow.ts` must stay
+  // inert for exactly this case.
+  const plainChild = {
+    input: z.object({ id: z.string() }),
+    output: z.object({ ok: z.boolean() }),
+  } as unknown as typeof onceChild;
+
   const idempotencyContract = defineContract({
     taskQueue: "child-idempotency-queue",
     workflows: {
-      onceChild: defineWorkflow({
-        input: z.object({ id: z.string() }),
-        output: z.object({ ok: z.boolean() }),
-        idempotency: "once-per-id",
-      }),
-      plainChild: defineWorkflow({
-        input: z.object({ id: z.string() }),
-        output: z.object({ ok: z.boolean() }),
-      }),
+      onceChild,
+      plainChild,
     },
   });
 

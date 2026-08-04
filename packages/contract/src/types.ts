@@ -233,11 +233,10 @@ export type WorkflowDefinition<
    * already been used. Applied by the client to every start of this
    * workflow; an explicit per-call `workflowIdReusePolicy` still wins.
    *
-   * Optional during migration — becomes required, so that the question is
-   * asked once per workflow rather than silently inheriting Temporal's
-   * `ALLOW_DUPLICATE`.
+   * Required so the question is asked once per workflow rather than
+   * silently inheriting Temporal's `ALLOW_DUPLICATE`.
    */
-  readonly idempotency?: IdempotencyMode;
+  readonly idempotency: IdempotencyMode;
   readonly activities?: TActivities;
   readonly signals?: TSignals;
   readonly queries?: TQueries;

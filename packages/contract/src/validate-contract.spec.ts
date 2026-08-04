@@ -593,6 +593,7 @@ describe("ValidateContract", () => {
     const processOrder = defineWorkflow({
       input: z.object({ orderId: z.string() }),
       output: z.void(),
+      idempotency: "allow-duplicate",
       activities: { charge },
     });
 
@@ -642,7 +643,13 @@ describe("defineContract wiring", () => {
   it("shows the reserved-name message — not `never` — through the actual wiring", () => {
     type C = {
       taskQueue: "orders";
-      workflows: { __temporal_evil: { input: typeof anySchema; output: typeof anySchema } };
+      workflows: {
+        __temporal_evil: {
+          input: typeof anySchema;
+          output: typeof anySchema;
+          idempotency: "allow-duplicate";
+        };
+      };
     };
     type Wired = DefineContractParam<C>["workflows"]["__temporal_evil"];
     // The rejected `T & ValidateContract<TContract>` wiring collapses this
@@ -654,7 +661,9 @@ describe("defineContract wiring", () => {
   it("shows the malformed-duration message — not `never` — through the actual wiring", () => {
     type C = {
       taskQueue: "orders";
-      workflows: { ok: { input: typeof anySchema; output: typeof anySchema } };
+      workflows: {
+        ok: { input: typeof anySchema; output: typeof anySchema; idempotency: "allow-duplicate" };
+      };
       activities: {
         charge: {
           input: typeof anySchema;
@@ -679,7 +688,7 @@ describe("defineContract wiring", () => {
         taskQueue: "orders",
         workflows: {
           // @ts-expect-error — "__temporal_evil" is a reserved workflow name.
-          __temporal_evil: { input: anySchema, output: anySchema },
+          __temporal_evil: { input: anySchema, output: anySchema, idempotency: "allow-duplicate" },
         },
       }),
     ).toThrow(/is reserved by Temporal/);
@@ -690,7 +699,9 @@ describe("defineContract wiring", () => {
       defineContract({
         taskQueue: "orders",
         // @ts-expect-error — "processOrder" is both a workflow and a global activity.
-        workflows: { processOrder: { input: anySchema, output: anySchema } },
+        workflows: {
+          processOrder: { input: anySchema, output: anySchema, idempotency: "allow-duplicate" },
+        },
         activities: { processOrder: { input: anySchema, output: anySchema } },
       }),
     ).toThrow(/has the same name as a workflow/);
@@ -714,6 +725,7 @@ describe("defineContract wiring", () => {
     const processOrder = defineWorkflow({
       input: z.object({ orderId: z.string() }),
       output: z.void(),
+      idempotency: "allow-duplicate",
       activities: { charge },
     });
 
@@ -742,6 +754,7 @@ describe("defineContract wiring", () => {
     const processOrder = defineWorkflow({
       input: z.object({ orderId: z.string() }),
       output: z.void(),
+      idempotency: "allow-duplicate",
       activities: { charge },
     });
 
@@ -772,6 +785,7 @@ describe("defineContract wiring", () => {
     const processOrder = defineWorkflow({
       input: z.object({ orderId: z.string() }),
       output: z.void(),
+      idempotency: "allow-duplicate",
       activities: { charge },
     });
 
@@ -806,6 +820,7 @@ describe("defineContract wiring", () => {
     const processOrder = defineWorkflow({
       input: z.object({ orderId: z.string() }),
       output: z.void(),
+      idempotency: "allow-duplicate",
       activities: { charge },
     });
 
@@ -829,6 +844,7 @@ describe("defineContract wiring", () => {
       processOrder: defineWorkflow({
         input: z.object({ orderId: z.string() }),
         output: z.void(),
+        idempotency: "allow-duplicate",
       }),
     };
 

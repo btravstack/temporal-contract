@@ -21,6 +21,7 @@ export const continueAsNewContract = defineContract({
     accumulate: defineWorkflow({
       input: z.object({ cursor: z.number(), total: z.number(), smuggle: z.boolean().optional() }),
       output: z.object({ total: z.number() }),
+      idempotency: "allow-duplicate",
     }),
 
     /**
@@ -31,6 +32,7 @@ export const continueAsNewContract = defineContract({
     invalidContinuation: defineWorkflow({
       input: z.object({ n: z.number() }),
       output: z.object({}),
+      idempotency: "allow-duplicate",
     }),
 
     /**
@@ -41,6 +43,7 @@ export const continueAsNewContract = defineContract({
     transformOnce: defineWorkflow({
       input: z.object({ text: z.string().transform((s) => `${s}!`), hops: z.number() }),
       output: z.object({ text: z.string() }),
+      idempotency: "allow-duplicate",
     }),
 
     /**
@@ -56,6 +59,7 @@ export const continueAsNewContract = defineContract({
         otherTaskQueue: z.string(),
       }),
       output: z.object({}),
+      idempotency: "allow-duplicate",
     }),
 
     /**
@@ -71,6 +75,7 @@ export const continueAsNewContract = defineContract({
         workflows: z.union([z.record(z.string(), z.unknown()), z.null()]),
       }),
       output: z.object({ status: z.string(), hop: z.number() }),
+      idempotency: "allow-duplicate",
     }),
   },
 });
@@ -82,6 +87,7 @@ export const otherContract = defineContract({
     archive: defineWorkflow({
       input: z.object({ batchId: z.string() }),
       output: z.object({ batchId: z.string() }),
+      idempotency: "allow-duplicate",
     }),
   },
 });

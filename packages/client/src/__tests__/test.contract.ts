@@ -23,6 +23,7 @@ export const testContract = defineContract({
       output: z.object({
         result: z.string(),
       }),
+      idempotency: "allow-duplicate",
     }),
 
     // Workflow with signals, queries, and updates
@@ -33,6 +34,7 @@ export const testContract = defineContract({
       output: z.object({
         finalValue: z.number(),
       }),
+      idempotency: "allow-duplicate",
       signals: {
         increment: defineSignal({
           input: z.object({
@@ -74,6 +76,7 @@ export const testContract = defineContract({
         // receive-side parse doubles it.
         doubled: z.number().transform((n) => n * 2),
       }),
+      idempotency: "allow-duplicate",
     }),
 
     // Workflow with activities
@@ -84,6 +87,7 @@ export const testContract = defineContract({
       output: z.object({
         result: z.string(),
       }),
+      idempotency: "allow-duplicate",
       activities: {
         processMessage: defineActivity({
           input: z.object({

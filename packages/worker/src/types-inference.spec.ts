@@ -98,6 +98,7 @@ const logDef = defineActivity({
 const orderWorkflowDef = defineWorkflow({
   input: z.object({ id: z.string() }),
   output: z.object({ status: z.string() }),
+  idempotency: "allow-duplicate",
   activities: { validateOrder: validateOrderDef },
   signals: {
     cancel: defineSignal({ input: z.object({ reason: z.string() }) }),
@@ -107,6 +108,7 @@ const orderWorkflowDef = defineWorkflow({
 const otherWorkflowDef = defineWorkflow({
   input: z.object({ batchId: z.string() }),
   output: z.object({ archived: z.boolean() }),
+  idempotency: "allow-duplicate",
 });
 
 const inferenceContract = defineContract({

@@ -191,6 +191,7 @@ describe("TypedClient", () => {
       testWorkflow: {
         input: z.object({ name: z.string(), value: z.number() }),
         output: z.object({ result: z.string() }),
+        idempotency: "allow-duplicate",
         queries: {
           getStatus: {
             input: z.tuple([]),
@@ -212,6 +213,7 @@ describe("TypedClient", () => {
       simpleWorkflow: {
         input: z.object({ message: z.string() }),
         output: z.string(),
+        idempotency: "allow-duplicate",
       },
     },
   });
@@ -290,6 +292,7 @@ describe("TypedClient", () => {
         otherWorkflow: defineWorkflow({
           input: z.object({ id: z.string() }),
           output: z.object({ ok: z.boolean() }),
+          idempotency: "allow-duplicate",
         }),
       },
     });
@@ -401,6 +404,7 @@ describe("TypedClient", () => {
       expect(mockWorkflow.start).toHaveBeenCalledWith("testWorkflow", {
         workflowId: "test-123",
         taskQueue: "test-queue",
+        workflowIdReusePolicy: "ALLOW_DUPLICATE",
         args: [{ name: "hello", value: 42 }],
       });
     });
@@ -450,6 +454,7 @@ describe("TypedClient", () => {
       expect(mockWorkflow.execute).toHaveBeenCalledWith("testWorkflow", {
         workflowId: "test-123",
         taskQueue: "test-queue",
+        workflowIdReusePolicy: "ALLOW_DUPLICATE",
         args: [{ name: "hello", value: 42 }],
       });
     });
@@ -529,6 +534,7 @@ describe("TypedClient", () => {
       expect(mockWorkflow.signalWithStart).toHaveBeenCalledWith("testWorkflow", {
         workflowId: "test-123",
         taskQueue: "test-queue",
+        workflowIdReusePolicy: "ALLOW_DUPLICATE",
         args: [{ name: "hello", value: 42 }],
         signal: "updateProgress",
         signalArgs: [[50]],
@@ -1021,6 +1027,7 @@ describe("TypedClient", () => {
         processOrder: defineWorkflow({
           input: z.object({ orderId: z.string() }),
           output: z.object({ status: z.string() }),
+          idempotency: "allow-duplicate",
           signals: {
             cancel: { input: z.tuple([z.object({ reason: z.string() })]) },
           },
@@ -1035,6 +1042,7 @@ describe("TypedClient", () => {
         plain: defineWorkflow({
           input: z.object({ id: z.string() }),
           output: z.object({}),
+          idempotency: "allow-duplicate",
         }),
       },
     });
@@ -1594,6 +1602,7 @@ describe("TypedClient — wire format (validate on send, parse on receive)", () 
         // Asymmetric transform: input type is `string`, parsed type is `number`.
         input: z.string().transform((s) => s.length),
         output: z.number().transform((n) => n * 2),
+        idempotency: "allow-duplicate",
         signals: {
           ping: { input: z.string().transform((s) => s.length) },
         },
@@ -1633,6 +1642,7 @@ describe("TypedClient — wire format (validate on send, parse on receive)", () 
     expect(mockWorkflow.start).toHaveBeenCalledWith("transformer", {
       workflowId: "wf-1",
       taskQueue: "wire-q",
+      workflowIdReusePolicy: "ALLOW_DUPLICATE",
       args: ["hello"], // original string — not 5 (the parsed length)
     });
   });
@@ -1664,6 +1674,7 @@ describe("TypedClient — wire format (validate on send, parse on receive)", () 
     expect(mockWorkflow.execute).toHaveBeenCalledWith("transformer", {
       workflowId: "wf-2",
       taskQueue: "wire-q",
+      workflowIdReusePolicy: "ALLOW_DUPLICATE",
       args: ["hello"],
     });
     expect(result).toBeOk();
@@ -1689,6 +1700,7 @@ describe("TypedClient — wire format (validate on send, parse on receive)", () 
     expect(mockWorkflow.signalWithStart).toHaveBeenCalledWith("transformer", {
       workflowId: "wf-3",
       taskQueue: "wire-q",
+      workflowIdReusePolicy: "ALLOW_DUPLICATE",
       args: ["hello"],
       signal: "ping",
       signalArgs: ["hey"], // original string — not 3
@@ -1783,6 +1795,7 @@ describe("TypedClient — workflow contract errors", () => {
       processOrder: defineWorkflow({
         input: z.object({ orderId: z.string() }),
         output: z.object({ status: z.string() }),
+        idempotency: "allow-duplicate",
         errors: {
           EmptyOrder: {
             data: z.object({ orderId: z.string() }),
@@ -1913,6 +1926,7 @@ describe("TypedClient — interceptors", () => {
       testWorkflow: defineWorkflow({
         input: z.object({ name: z.string(), value: z.number() }),
         output: z.object({ result: z.string() }),
+        idempotency: "allow-duplicate",
         queries: {
           getStatus: { input: z.tuple([]), output: z.string() },
         },
@@ -2086,6 +2100,7 @@ describe("ContractClient — handle identifiers and validation-error identity", 
       identityWorkflow: defineWorkflow({
         input: z.object({ id: z.string() }),
         output: z.object({ ok: z.boolean() }),
+        idempotency: "allow-duplicate",
       }),
     },
   });
@@ -2210,6 +2225,7 @@ describe("ContractClient — startUpdate", () => {
       updatable: defineWorkflow({
         input: z.object({ id: z.string() }),
         output: z.object({ ok: z.boolean() }),
+        idempotency: "allow-duplicate",
         updates: {
           adjust: {
             input: z.object({ delta: z.number() }),
@@ -2324,6 +2340,7 @@ describe("ContractClient — update/query operational errors", () => {
       opWorkflow: defineWorkflow({
         input: z.object({ id: z.string() }),
         output: z.object({ ok: z.boolean() }),
+        idempotency: "allow-duplicate",
         queries: {
           peek: { input: z.tuple([]), output: z.string() },
         },
@@ -2493,6 +2510,7 @@ describe("ContractClient — raw escape hatch and accessors", () => {
       plain: defineWorkflow({
         input: z.object({ id: z.string() }),
         output: z.object({}),
+        idempotency: "allow-duplicate",
       }),
     },
   });
@@ -2555,6 +2573,7 @@ describe("ContractClient — omittable input-less payloads (runtime)", () => {
       omittable: defineWorkflow({
         input: z.object({ id: z.string() }),
         output: z.object({ ok: z.boolean() }),
+        idempotency: "allow-duplicate",
         signals: {
           stop: defineSignal(),
         },
@@ -2655,6 +2674,7 @@ describe("ContractClient — omittable input-less payloads (runtime)", () => {
     expect(mockWorkflow.signalWithStart).toHaveBeenCalledWith("omittable", {
       workflowId: "wf-omit",
       taskQueue: "omit-q",
+      workflowIdReusePolicy: "ALLOW_DUPLICATE",
       args: [{ id: "a" }],
       signal: "stop",
       signalArgs: [],
@@ -2669,6 +2689,7 @@ describe("ContractClient — search attribute VALUE validation (runtime)", () =>
       kinds: defineWorkflow({
         input: z.object({ id: z.string() }),
         output: z.object({}),
+        idempotency: "allow-duplicate",
         searchAttributes: {
           priority: defineSearchAttribute({ kind: "INT" }),
           placedAt: defineSearchAttribute({ kind: "DATETIME" }),
@@ -2803,26 +2824,37 @@ describe("contract-declared idempotency", () => {
   // (REJECT_DUPLICATE) is distinguishable from Temporal's own default
   // (ALLOW_DUPLICATE) — a test asserting the wrong/no policy would still
   // pass against the default, so the mode is chosen deliberately.
-  // `plainWorkflow` declares no `idempotency` at all, standing in for the
-  // migration-era contracts this change must stay inert for.
+  const onceWorkflow = defineWorkflow({
+    input: z.object({ id: z.string() }),
+    output: z.object({ ok: z.boolean() }),
+    idempotency: "once-per-id",
+    signals: {
+      ping: { input: z.tuple([]) },
+    },
+  });
+
+  // Simulates a definition that reaches the client without `idempotency` at
+  // runtime despite the field now being required at the type level (e.g. a
+  // contract assembled dynamically outside the type system, or an older
+  // compiled artifact) — the `as unknown as typeof onceWorkflow` cast is the
+  // point, not a mistake; it keeps every other generic (notably the `ping`
+  // signal's literal name and tuple schema) intact so the calls below stay
+  // precisely typed. `client.ts`'s `definition.idempotency ? {
+  // workflowIdReusePolicy: … } : {}` guard must stay defensive for exactly
+  // this case.
+  const plainWorkflow = {
+    input: z.object({ id: z.string() }),
+    output: z.object({ ok: z.boolean() }),
+    signals: {
+      ping: { input: z.tuple([]) },
+    },
+  } as unknown as typeof onceWorkflow;
+
   const idempotencyContract = defineContract({
     taskQueue: "idempotency-queue",
     workflows: {
-      onceWorkflow: {
-        input: z.object({ id: z.string() }),
-        output: z.object({ ok: z.boolean() }),
-        idempotency: "once-per-id",
-        signals: {
-          ping: { input: z.tuple([]) },
-        },
-      },
-      plainWorkflow: {
-        input: z.object({ id: z.string() }),
-        output: z.object({ ok: z.boolean() }),
-        signals: {
-          ping: { input: z.tuple([]) },
-        },
-      },
+      onceWorkflow,
+      plainWorkflow,
     },
   });
 
@@ -2958,9 +2990,10 @@ describe("contract-declared idempotency", () => {
   });
 
   it("sends no policy when the contract declares none, on startWorkflow", async () => {
-    // During migration `idempotency` is optional. A contract without it
-    // must behave exactly as before — no `workflowIdReusePolicy` key at all
-    // (not even `undefined`, which differs under exactOptionalPropertyTypes).
+    // `plainWorkflow` is missing `idempotency` at runtime (see its
+    // definition above) — no `workflowIdReusePolicy` key at all should be
+    // sent (not even `undefined`, which differs under
+    // exactOptionalPropertyTypes).
     mockWorkflow.start.mockResolvedValue({ workflowId: "id-5" });
 
     await idempotencyClient.startWorkflow("plainWorkflow", {

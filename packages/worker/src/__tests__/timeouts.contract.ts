@@ -30,6 +30,7 @@ const reportsLayered = defineWorkflow({
     scheduleToCloseMs: z.number(),
     heartbeatMs: z.number(),
   }),
+  idempotency: "allow-duplicate",
   activities: { reportsTimeouts },
 });
 
