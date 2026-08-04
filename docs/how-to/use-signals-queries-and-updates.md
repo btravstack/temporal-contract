@@ -95,7 +95,7 @@ import { condition } from "@temporalio/workflow";
 export const importCatalog = declareWorkflow({
   workflowName: "importCatalog",
   contract: catalogContract,
-  activityOptions: { startToCloseTimeout: "5 minutes" },
+  activityOptions: { startToCloseTimeout: "5 minutes", retry: { maximumAttempts: 3 } },
   implementation: async (context, args) => {
     let completed = 0;
     let pending = await propagateActivityFailure(

@@ -72,6 +72,7 @@ export const processOrder = declareWorkflow({
   contract: orderContract,
   activityOptions: {
     startToCloseTimeout: "1 minute", // default for everything
+    retry: { maximumAttempts: 3 }, // so an activity relying on the default alone still has a total bound
   },
   activityOptionsByName: {
     chargeCard: {
@@ -163,12 +164,47 @@ errors: {
 Prefer the contract declaration: it puts retry semantics next to the error's
 definition, where every caller can see them.
 
-## Omitting `activityOptions`
+## Every reachable activity needs both bounds
 
-`activityOptions` is optional _if_ every reachable activity is covered by a
-contract-level `activityOptions` or an `activityOptionsByName` entry. If some
-activity has neither, `declareWorkflow` throws at declaration time and names
-the uncovered activities — a startup failure rather than a runtime one.
+`activityOptions` on `declareWorkflow` is optional in isolation, but every
+activity reachable from the workflow — workflow-scoped and global alike —
+must end up, in its **merged** options, with both:
+
+- a per-attempt bound (`startToCloseTimeout` or `scheduleToCloseTimeout`)
+- a total bound (`scheduleToCloseTimeout`, or a finite positive
+  `retry.maximumAttempts`)
+
+`scheduleToCloseTimeout` alone satisfies both. This is checked on the merge
+of all three layers from "The merge order" above, not on any one layer in
+isolation — because the merge is shallow, a workflow-wide `retry` block can
+be silently replaced by a contract-level or per-name `retry` block that
+omits `maximumAttempts`, even though both looked bounded on their own.
+
+If any reachable activity's merged options miss a bound, `declareWorkflow`
+throws `ContractMisuseError` at declaration time, naming every offender and
+which rule it broke:
+
+```
+declareWorkflow: every reachable activity needs a total bound, so a failing activity
+cannot retry forever. These do not:
+  - sendReceipt: missing a total bound (set `scheduleToCloseTimeout`, or a finite positive `retry.maximumAttempts`)
+Options are merged from `declareWorkflow`'s `activityOptions`, the contract's
+`defineActivity({ activityOptions })`, and `activityOptionsByName`. That merge is
+shallow, so a later layer's `retry` replaces an earlier layer's entirely — check the
+merged result, not each layer.
+```
+
+This check runs while the workflow bundle is being evaluated, before
+Temporal ever invokes the workflow function — so it does **not** fail the
+execution. It stalls the workflow via indefinite workflow-task retry, the
+same way the plain `TypeError` this check replaces always did for a missing
+per-attempt bound. That is deliberate: it lets a bad deploy be fixed and
+redeployed with in-flight executions resuming, rather than terminally
+failing every in-flight execution on a bad deploy. See
+[Worker surface → Activity bounds](/reference/worker-surface#activity-bounds)
+for the full explanation, including the `maximumAttempts` edge cases. The
+value here is at declaration time, in development and CI — not as a
+production runtime safety net.
 
 ## Next
 

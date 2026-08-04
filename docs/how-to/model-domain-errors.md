@@ -103,7 +103,7 @@ const processOrder = defineWorkflow({
 export const processOrder = declareWorkflow({
   workflowName: "processOrder",
   contract: orderContract,
-  activityOptions: { startToCloseTimeout: "1 minute" },
+  activityOptions: { startToCloseTimeout: "1 minute", retry: { maximumAttempts: 3 } },
   implementation: async (context, order) => {
     if (order.items.length === 0) {
       throw context.errors.EmptyOrder({ orderId: order.orderId });

@@ -78,7 +78,7 @@ const paymentService = nexus.service("PaymentService", {
 export const processOrder = declareWorkflow({
   workflowName: "processOrder",
   contract: orderContract,
-  activityOptions: { startToCloseTimeout: "1 minute" },
+  activityOptions: { startToCloseTimeout: "1 minute", retry: { maximumAttempts: 3 } },
   implementation: async (context, order) => {
     // Contract-typed for everything local...
     const reserved = await propagateActivityFailure(

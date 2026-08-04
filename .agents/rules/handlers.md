@@ -97,11 +97,11 @@ export const processOrder = declareWorkflow({
 Every reachable activity's MERGED options (`activityOptions` →
 `defineActivity({ activityOptions })` → `activityOptionsByName`, shallow
 merge) need both a per-attempt bound and a total bound, and every child
-workflow call needs an explicit `parentClosePolicy` — see "Activity bounds"
-and "Required `parentClosePolicy`" in
-[worker-surface.md](../../docs/reference/worker-surface.md) for the exact
-rules, including the shallow-merge trap and the `maximumAttempts` edge cases.
-Both are enforced at declaration time; a violation stalls the workflow via
+workflow call needs an explicit `parentClosePolicy` — see
+[worker-surface.md](../../docs/reference/worker-surface.md)'s "Activity
+bounds" and "Required `parentClosePolicy`" sections for the exact rules,
+including the shallow-merge trap and the `maximumAttempts` edge cases. Both
+are enforced at declaration time; a violation stalls the workflow via
 workflow-task retry rather than failing it — see that reference for why that
 is deliberate.
 

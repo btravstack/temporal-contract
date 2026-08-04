@@ -278,6 +278,22 @@ The payload is validated before sending — an invalid payload fails early as
 structured field. `TypedChildWorkflowHandle` and `TypedChildWorkflowOptions`
 are exported for annotating stored handles.
 
+#### Required `parentClosePolicy`
+
+`TypedChildWorkflowOptions` — the `options` argument shared by both
+`startChildWorkflow` and `executeChildWorkflow` below — is Temporal's
+`ChildWorkflowOptions` without `taskQueue` and `args`, plus a typed `args`,
+and with `parentClosePolicy` **required** rather than optional. Temporal's
+own field accepts `undefined` (via the deprecated
+`PARENT_CLOSE_POLICY_UNSPECIFIED` union member), so this type `Exclude`s
+`undefined` explicitly; without that, a "required" field that still accepts
+`undefined` would require nothing. `"TERMINATE"` remains available and
+reproduces Temporal's own default (kill the child when the parent closes) —
+it simply has to be written down at the call site rather than inherited
+silently. Choose `"REQUEST_CANCEL"` if the child needs to compensate before
+exiting, or `"ABANDON"` for fire-and-forget work that should outlive its
+parent.
+
 #### `executeChildWorkflow(contract, workflowName, options)`
 
 Starts and waits.
@@ -288,18 +304,6 @@ Starts and waits.
      ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError
    >
 ```
-
-`TypedChildWorkflowOptions` is Temporal's `ChildWorkflowOptions` without
-`taskQueue` and `args`, plus a typed `args` — and with `parentClosePolicy`
-**required** rather than optional. Temporal's own field accepts `undefined`
-(via the deprecated `PARENT_CLOSE_POLICY_UNSPECIFIED` union member), so this
-type `Exclude`s `undefined` explicitly; without that, a "required" field that
-still accepts `undefined` would require nothing. `"TERMINATE"` remains
-available and reproduces Temporal's own default (kill the child when the
-parent closes) — it simply has to be written down at the call site rather
-than inherited silently. Choose `"REQUEST_CANCEL"` if the child needs to
-compensate before exiting, or `"ABANDON"` for fire-and-forget work that
-should outlive its parent.
 
 #### `cancellableScope(fn)` / `nonCancellableScope(fn)`
 

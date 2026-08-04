@@ -16,7 +16,7 @@ import { sleep } from "@temporalio/workflow";
 export const pollSubscription = declareWorkflow({
   workflowName: "pollSubscription",
   contract: billingContract,
-  activityOptions: { startToCloseTimeout: "1 minute" },
+  activityOptions: { startToCloseTimeout: "1 minute", retry: { maximumAttempts: 3 } },
   implementation: async (context, args) => {
     for (let i = 0; i < 100; i += 1) {
       await propagateActivityFailure(

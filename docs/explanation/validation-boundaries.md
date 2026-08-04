@@ -170,12 +170,27 @@ schema-library dependency):
 Because this runs at import time, a malformed contract fails when the process
 starts rather than when a workflow first executes.
 
-Inside the workflow sandbox, contract misuse — binding a handler for an
-undeclared signal/query/update, an async-validating query schema, an activity
-no options cover — throws `ContractMisuseError`, a non-retryable
-`ApplicationFailure`. It fails the execution terminally instead of hanging it
-in an infinite Workflow Task retry loop, which is what a plain `Error` thrown
-from sandbox code would cause.
+Inside the workflow sandbox, contract misuse throws `ContractMisuseError`, a
+non-retryable `ApplicationFailure` — but what that buys depends on **when**
+the throw happens, not just what class it is.
+
+Binding a handler for an undeclared signal/query/update, or using an
+async-validating query/update-input schema, is caught from inside the
+running `implementation` — `handleSignal`/`handleQuery`/`handleUpdate`
+execute there, after Temporal has already invoked the workflow function. A
+throw at that point fails the execution terminally instead of hanging it in
+an infinite Workflow Task retry loop, the same way `throw
+context.errors.X(...)` does.
+
+An activity no options cover is different. That check runs inside
+`declareWorkflow` itself, at module top level, **before** Temporal ever
+invokes the workflow function. A throw there is a Workflow Task failure
+regardless of the error class — `nonRetryable` has no effect on a failure
+that never reaches a `FailWorkflowExecution` command — so it stalls the
+workflow via indefinite workflow-task retry rather than failing the
+execution. See [Worker surface → Activity
+bounds](/reference/worker-surface#activity-bounds) for the full explanation
+of why that is deliberate.
 
 ## Where middleware and interceptors sit
 
