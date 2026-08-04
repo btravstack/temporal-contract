@@ -704,11 +704,16 @@ export type WorkflowContext<
    * Start a child workflow and return a typed handle with AsyncResult pattern
    *
    * The `contract` argument is always required — it identifies the task
-   * queue and workflow definition the child runs against:
+   * queue and workflow definition the child runs against, and supplies the
+   * `workflowIdReusePolicy` from the target workflow's declared `idempotency`
+   * mode:
    * - Same-contract child: pass this worker's own contract and one of its
    *   workflow names.
    * - Cross-contract child: pass another worker's contract to invoke a
    *   workflow it serves (the child's task queue comes from that contract).
+   *
+   * An explicit `workflowIdReusePolicy` in `options` overrides the
+   * contract's mode for this call only.
    *
    * @example
    * ```ts
@@ -758,11 +763,16 @@ export type WorkflowContext<
    * Execute a child workflow (start and wait for result) with AsyncResult pattern
    *
    * The `contract` argument is always required — it identifies the task
-   * queue and workflow definition the child runs against:
+   * queue and workflow definition the child runs against, and supplies the
+   * `workflowIdReusePolicy` from the target workflow's declared `idempotency`
+   * mode:
    * - Same-contract child: pass this worker's own contract and one of its
    *   workflow names.
    * - Cross-contract child: pass another worker's contract to invoke a
    *   workflow it serves (the child's task queue comes from that contract).
+   *
+   * An explicit `workflowIdReusePolicy` in `options` overrides the
+   * contract's mode for this call only.
    *
    * @example
    * ```ts

@@ -62,10 +62,10 @@ Three modes, each a named intent rather than Temporal's raw enum:
 const chargeOrder = defineWorkflow({
   input: OrderSchema,
   output: OrderResultSchema,
-  // A completed run already charged the customer — a retried start under
-  // the same order ID must not charge them again. `retry-if-failed` still
-  // lets a start be retried after a run that failed before any charge went
-  // through.
+  // A completed run already charged the customer — block a second
+  // successful run under the same order ID. A start is still retryable
+  // after a genuinely failed attempt (e.g. a declined payment, where no
+  // charge went through).
   idempotency: "retry-if-failed",
   activities: { chargeCard },
 });

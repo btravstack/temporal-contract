@@ -216,10 +216,15 @@ const processOrder = defineWorkflow({
 const cleanupExpiredOrders = defineWorkflow({
   input: CleanupOrdersInputSchema,
   output: CleanupOrdersResultSchema,
-  // Recurring maintenance workflow driven by a Temporal Schedule — every
-  // cycle is meant to run again under its schedule-derived ID, which is
-  // exactly Temporal's default reuse behavior. Not money-moving, so there's
-  // no dedup guarantee to protect here.
+  // Recurring maintenance workflow driven by a Temporal Schedule. This
+  // declaration is inert here regardless of which mode is picked:
+  // `schedule.create`'s action type has no `workflowIdReusePolicy` field, so
+  // every scheduled run gets Temporal's own default (`ALLOW_DUPLICATE`) no
+  // matter what `idempotency` says (see "Schedule workflows" in the docs).
+  // `allow-duplicate` is chosen anyway to document the intent for any path
+  // that *does* apply it — a direct `client.startWorkflow` under this
+  // workflow's type, for instance — and because purging expired orders
+  // twice is harmless.
   idempotency: "allow-duplicate",
 });
 

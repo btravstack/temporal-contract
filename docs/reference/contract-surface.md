@@ -74,12 +74,17 @@ after a previous run has **closed** — `"once-per-id"` (`REJECT_DUPLICATE`),
 `"retry-if-failed"` (`ALLOW_DUPLICATE_FAILED_ONLY` — re-runnable after any
 Closed state other than Completed: Failed, Cancelled, Terminated, or
 TimedOut), or `"allow-duplicate"` (`ALLOW_DUPLICATE`, Temporal's own
-default). The client applies it to every start of this workflow, and the
-worker applies it to every child-workflow start of it; an explicit per-call
-`workflowIdReusePolicy` overrides it. `workflowIdConflictPolicy` — what to do
-about a run that is already _open_ — stays a per-call client/worker option,
-untouched by this field. See [Define a
-contract](/how-to/define-a-contract#declare-idempotency).
+default). The client applies it to every `startWorkflow` / `executeWorkflow` /
+`signalWithStart`, and the worker applies it to every
+`context.startChildWorkflow` / `context.executeChildWorkflow` of that
+workflow; an explicit per-call `workflowIdReusePolicy` overrides it. It is
+**not** applied to `schedule.create` — the schedule action type has no
+`workflowIdReusePolicy` field, so a schedule action pinning a fixed
+`workflowId` gets Temporal's own default (`ALLOW_DUPLICATE`) regardless of
+this mode; see [Schedule workflows](/how-to/schedule-workflows) for the
+implications. `workflowIdConflictPolicy` — what to do about a run that is
+already _open_ — stays a per-call client/worker option, untouched by this
+field. See [Define a contract](/how-to/define-a-contract#declare-idempotency).
 
 ### `defineActivity(definition)`
 

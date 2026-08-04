@@ -896,7 +896,7 @@ defineWorkflow({
 | ------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `"once-per-id"`     | `REJECT_DUPLICATE`            | This workflow ID may run exactly once, ever.                                                                                       |
 | `"retry-if-failed"` | `ALLOW_DUPLICATE_FAILED_ONLY` | Re-runnable only if the previous run reached a Closed state **other than Completed** — Failed, Cancelled, Terminated, or TimedOut. |
-| `"allow-duplicate"` | `ALLOW_DUPLICATE`             | Temporal's previous default — unconditionally re-runnable after any Closed run.                                                    |
+| `"allow-duplicate"` | `ALLOW_DUPLICATE`             | Temporal's own default — unconditionally re-runnable after any Closed run.                                                         |
 
 The client applies the mode to every `startWorkflow` / `executeWorkflow` /
 `signalWithStart`, and the worker applies it to every

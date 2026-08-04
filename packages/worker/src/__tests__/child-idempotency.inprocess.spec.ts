@@ -1,6 +1,10 @@
 import { testRig } from "@temporal-contract/testing/test-rig";
 import { it } from "@temporal-contract/testing/time-skipping";
-import { bundleFor, fixturePath } from "@temporal-contract/testing/workflow-bundle";
+import {
+  bundleFor,
+  fixturePath,
+  nextTaskQueueId,
+} from "@temporal-contract/testing/workflow-bundle";
 import { describe, expect } from "vitest";
 
 import { childIdempotencyContract } from "./child-idempotency.contract.js";
@@ -42,6 +46,16 @@ import { childIdempotencyContract } from "./child-idempotency.contract.js";
  * `child-idempotency.workflows.ts`'s doc comment for why that's equivalent
  * to (and simpler than) two separate top-level starts for proving
  * `workflowIdReusePolicy`.
+ *
+ * Both the parent's own workflow ID and the child workflow ID it's given are
+ * derived from `nextTaskQueueId`, not string literals — exactly as
+ * `idempotency.inprocess.spec.ts` does, and for the same reason:
+ * `workflowIdReusePolicy` keys on namespace + workflow ID, and this
+ * fixture's `testEnv` is worker-scoped (one environment per Vitest worker
+ * process, not per file or per test). A literal child ID would make the
+ * FIRST child start in a re-run (watch mode, `--retry`, CI re-runs) collide
+ * with a prior run's already-Closed child under `onceChild`'s `once-per-id`
+ * mode and get rejected before the test's own logic is exercised.
  */
 const WORKFLOW_EXECUTION_TIMEOUT = "30 seconds";
 
@@ -52,12 +66,14 @@ describe("contract-declared idempotency — child-workflow boundary, real server
     const contract = childIdempotencyContract;
     const bundle = await bundleFor(fixturePath(import.meta.url, "child-idempotency.workflows"));
     const { worker, client } = await testRig(testEnv, { contract, bundle });
+    const parentId = nextTaskQueueId("child-idempotency-start-once");
+    const childId = nextTaskQueueId("child-idempotency-start-once-child");
 
     const result = await worker.raw.runUntil(async () => {
       const handle = await client
         .startWorkflow("parent", {
-          workflowId: "child-idempotency-start-once",
-          args: { mode: "start", childWorkflowId: "child-idempotency-start-once-child" },
+          workflowId: parentId,
+          args: { mode: "start", childWorkflowId: childId },
           workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
         })
         .getOrThrow();
@@ -85,12 +101,14 @@ describe("contract-declared idempotency — child-workflow boundary, real server
     const contract = childIdempotencyContract;
     const bundle = await bundleFor(fixturePath(import.meta.url, "child-idempotency.workflows"));
     const { worker, client } = await testRig(testEnv, { contract, bundle });
+    const parentId = nextTaskQueueId("child-idempotency-execute-once");
+    const childId = nextTaskQueueId("child-idempotency-execute-once-child");
 
     const result = await worker.raw.runUntil(async () => {
       const handle = await client
         .startWorkflow("parent", {
-          workflowId: "child-idempotency-execute-once",
-          args: { mode: "execute", childWorkflowId: "child-idempotency-execute-once-child" },
+          workflowId: parentId,
+          args: { mode: "execute", childWorkflowId: childId },
           workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
         })
         .getOrThrow();
@@ -109,14 +127,16 @@ describe("contract-declared idempotency — child-workflow boundary, real server
     const contract = childIdempotencyContract;
     const bundle = await bundleFor(fixturePath(import.meta.url, "child-idempotency.workflows"));
     const { worker, client } = await testRig(testEnv, { contract, bundle });
+    const parentId = nextTaskQueueId("child-idempotency-start-override");
+    const childId = nextTaskQueueId("child-idempotency-start-override-child");
 
     const result = await worker.raw.runUntil(async () => {
       const handle = await client
         .startWorkflow("parent", {
-          workflowId: "child-idempotency-start-override",
+          workflowId: parentId,
           args: {
             mode: "start",
-            childWorkflowId: "child-idempotency-start-override-child",
+            childWorkflowId: childId,
             overridePolicy: "ALLOW_DUPLICATE",
           },
           workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
@@ -141,14 +161,16 @@ describe("contract-declared idempotency — child-workflow boundary, real server
     const contract = childIdempotencyContract;
     const bundle = await bundleFor(fixturePath(import.meta.url, "child-idempotency.workflows"));
     const { worker, client } = await testRig(testEnv, { contract, bundle });
+    const parentId = nextTaskQueueId("child-idempotency-execute-override");
+    const childId = nextTaskQueueId("child-idempotency-execute-override-child");
 
     const result = await worker.raw.runUntil(async () => {
       const handle = await client
         .startWorkflow("parent", {
-          workflowId: "child-idempotency-execute-override",
+          workflowId: parentId,
           args: {
             mode: "execute",
-            childWorkflowId: "child-idempotency-execute-override-child",
+            childWorkflowId: childId,
             overridePolicy: "ALLOW_DUPLICATE",
           },
           workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
