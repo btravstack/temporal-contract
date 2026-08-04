@@ -167,11 +167,12 @@ const processOrder = defineWorkflow({
   // (`allow-duplicate`) would let a retried start under the same order ID
   // charge them again. `retry-if-failed` blocks that while still letting a
   // start be retried after a run that ended Failed *before* any charge went
-  // through — chiefly `PaymentDeclined` (see `workflows.ts`), where the
+  // through — chiefly `PaymentDeclined` (see this contract's implementation,
+  // `order-processing-worker/src/application/workflows.ts`), where the
   // customer would otherwise have to be given a new order ID to try again.
   //
   // Caveat this example doesn't fully close: several post-charge paths in
-  // `workflows.ts` also end the run in a state `retry-if-failed` treats as
+  // that file also end the run in a state `retry-if-failed` treats as
   // re-runnable (`ALLOW_DUPLICATE_FAILED_ONLY` covers Cancelled/Terminated/
   // TimedOut, not just Failed) — including a failed compensating
   // `refundPayment` that deliberately fails the workflow with the charge

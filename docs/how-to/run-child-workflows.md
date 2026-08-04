@@ -195,7 +195,9 @@ await context.executeChildWorkflow(orderContract, "collectPayment", {
   workflowRunTimeout: "10 minutes",
   retry: { maximumAttempts: 3 },
 
-  // Reuse behaviour when the id already exists.
+  // Reuse behaviour when the id already exists. The child's contract already
+  // supplies this from its `idempotency` mode — set it here only to override
+  // that default for this one call.
   workflowIdReusePolicy: "ALLOW_DUPLICATE_FAILED_ONLY",
 });
 ```
