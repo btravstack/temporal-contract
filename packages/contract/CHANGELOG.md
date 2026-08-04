@@ -1,5 +1,144 @@
 # @temporal-contract/contract
 
+## 8.0.0-beta.5
+
+### Major Changes
+
+- e4f5b0b: `defineContract` now validates contracts at compile time, in addition to runtime — nothing is removed, and every runtime check still throws exactly as before. The compile-time layer is a strictly narrower, strictly more permissive mirror of it: it only catches what it can prove without ambiguity, and a compile error surfaces as a "not assignable" diagnostic on the offending property.
+
+  Caught at compile time:
+
+  - **Reserved Temporal names.** A workflow, activity, global activity, signal, query, or update named `__temporal_*`, `__stack_trace`, or `__enhanced_stack_trace` now fails to type-check. Error names and search-attribute names are unaffected, matching the runtime, which exempts them deliberately.
+  - **Malformed `ms` durations.** The four `activityOptions` timeout slots (`startToCloseTimeout`, `scheduleToCloseTimeout`, `scheduleToStartTimeout`, `heartbeatTimeout`) and the two retry intervals (`retry.initialInterval`, `retry.maximumInterval`) are checked against the `ms` grammar, both when written inline in `defineContract` and when set via a separate `defineActivity`.
+  - **Flat-namespace activity collisions.** One activity name bound to structurally different definitions across scopes, and a workflow name shadowed by a global activity, both now fail to type-check. Sharing one `defineActivity` result across scopes still compiles, as before — only genuinely conflicting definitions are flagged.
+
+  A duration whose value is a computed `string` rather than a literal (read from config, built dynamically, etc.) cannot be checked at compile time — there is no literal to inspect. The runtime still validates it at `defineContract` time, exactly as it always has.
+
+  **Breaking:** `defineContract`'s type parameter is now `const`. This preserves literal types through inference and infers array properties as `readonly` tuples instead of mutable arrays. It also makes the returned contract's own properties `readonly` (`c.taskQueue = "x"` and `c.workflows = …`, which compiled before, are now errors) and infers string properties as literals rather than `string` (`(typeof c)["taskQueue"]` was `string`, is now e.g. `"orders"`). Code that assigns a contract literal to a variable typed for mutation, mutates a contract's top-level properties, or relies on a widened `string` type for `taskQueue` or similar fields may need adjustment.
+
+  **Breaking:** `DurationValue` changed from `string | number` to `` `${number}${string}` | number | (string & {}) ``. Every value the runtime accepts still type-checks, including computed `string`s — but code that reads the type directly (e.g. `Extract<DurationValue, string>`) may see a different shape than before.
+
+  **Known limitation:** a contract assembled inside a generic helper (a contract-factory or multi-tenant-builder pattern, with a generic `workflows` map or a generic `activities` map) now fails to type-check, reported as an unreadable "not assignable" error on a raw conditional type. TypeScript cannot check a generic argument against `defineContract`'s computed parameter type. The runtime still accepts and validates these contracts exactly as before. Workaround — make the whole contract generic instead of a piece of it:
+
+  ```typescript
+  function makeContract<const T extends ContractDefinition>(contract: T): T {
+    return defineContract(contract as never) as T;
+  }
+  ```
+
+  The cast is what opts this helper out of the _compile-time_ checks — unavoidable, since checking through a generic is the thing that cannot work. `defineContract`'s runtime validation still runs and still throws, so these contracts remain fully checked, just at call time rather than at `tsc` time. The `const T` and explicit `: T` are load-bearing: without them the helper returns bare `ContractDefinition` and every workflow and activity name is silently erased to `string`.
+
+- b5f8ea0: Workflows must now declare an `idempotency` mode. The client applies it to every `startWorkflow` / `executeWorkflow` / `signalWithStart`, and the worker applies it to every `context.startChildWorkflow` / `context.executeChildWorkflow` of that workflow. It is **not** applied to `schedule.create` — `ScheduleOptionsStartWorkflowAction` has no `workflowIdReusePolicy` field, so a schedule action pinning a fixed `workflowId` gets Temporal's own default (`ALLOW_DUPLICATE`) regardless of the contract's declared mode.
+
+  Temporal's `workflowIdReusePolicy` defaults to `ALLOW_DUPLICATE`, which permits
+  starting a new run when a previous run with the same workflow ID has **closed —
+  including completing successfully**. For a workflow keyed `charge-${orderId}`, a
+  retried start after a successful charge starts a second charge.
+
+  Declare the intent once, on the contract:
+
+  ```ts
+  defineWorkflow({
+    input,
+    output,
+    idempotency: "retry-if-failed", // re-runnable only if the previous run didn't succeed
+  });
+  ```
+
+  | Mode                | Temporal policy               | Meaning                                                                                                                           |
+  | ------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+  | `"once-per-id"`     | `REJECT_DUPLICATE`            | this workflow ID may run exactly once, ever                                                                                       |
+  | `"retry-if-failed"` | `ALLOW_DUPLICATE_FAILED_ONLY` | re-runnable only if the previous run reached a Closed state **other than Completed** — Failed, Cancelled, Terminated, or TimedOut |
+  | `"allow-duplicate"` | `ALLOW_DUPLICATE`             | Temporal's own default — unconditionally re-runnable after any Closed run                                                         |
+
+  **Breaking:** the field is required. Existing workflows keep their exact current
+  behavior with `"allow-duplicate"` — but the field is required precisely so the
+  question gets asked once per workflow rather than inherited silently. (Temporal's
+  own default is still `ALLOW_DUPLICATE`, and still governs `schedule.create`
+  starts unconditionally — what changed is temporal-contract's effective
+  behavior on the paths it does control.)
+
+  `workflowIdConflictPolicy` is unchanged and remains a per-call option: whether
+  re-running is safe is a property of the operation, while what to do about a run
+  already in flight is a property of the call. An explicit per-call
+  `workflowIdReusePolicy` still overrides the contract's mode.
+
+- 2ddfac3: Family-consistency audit: `TypedWorker.create` replaces `createWorker`, and `OkAsync`/`ErrAsync` become the canonical pre-lifted constructors.
+
+  **Breaking (worker).** The free `createWorker` function is removed in favour of a static factory on a new `TypedWorker` class — the worker-side sibling of `TypedClient.create` and the org's shared `Typed*.create()` shape (matching amqp-contract's `TypedAmqpClient.create` / `TypedAmqpWorker.create`):
+
+  - `TypedWorker.create(options)` takes the same `CreateWorkerOptions` and returns `AsyncResult<TypedWorker, never>` — bundling/connection failures stay technical defects with a `TechnicalError` cause; unwrap with `.get()`.
+  - `worker.run()` returns `AsyncResult<void, never>`: a worker that fails while running surfaces as a `TechnicalError`-caused defect and the underlying promise never rejects (safe to hold across a test without unhandled-rejection guards). `await worker.run().get()` rethrows at the edge.
+  - `worker.shutdown()` delegates to the raw worker; everything else Temporal's runtime owns (`runUntil`, `getState`, …) lives on the `worker.raw` escape hatch.
+
+  Migration: `createWorker(opts).get()` → `TypedWorker.create(opts).get()`, `await worker.run()` → `await worker.run().get()`, `worker.runUntil(...)`/`worker.getState()` → `worker.raw.runUntil(...)`/`worker.raw.getState()`.
+
+  **Breaking (testing).** `createContractTest`'s `worker` fixture now exposes the `TypedWorker` (the raw Temporal `Worker` is at `worker.raw`).
+
+  **Docs/idiom sweep (all packages).** Pre-lifted async results are now built with `OkAsync(value)` / `ErrAsync(error)` (canonical since unthrown 4.1) instead of `Ok(value).toAsync()` / `Err(error).toAsync()` throughout the docs, examples, and TSDoc; `.toAsync()` remains for lifting an existing sync `Result`.
+
+- 6d77137: v8 audit remediation — a second full-surface pass hardening robustness, the unthrown integration, developer experience, and btravstack-family consistency before 8.0 stabilises.
+
+  **All packages.**
+
+  - ESM-only everywhere: `@temporal-contract/client` and `@temporal-contract/worker` drop their CJS output and legacy `main`/`module`/`types` fields; all four packages verify with `attw --profile esm-only`.
+  - `@temporalio/*` peer ranges tightened from `^1` to `^1.16.0` — the real floor for the Schedule API and the top-level `@temporalio/common` search-attribute imports.
+  - Error tags are exported as literal-typed constants (`CONTRACT_ERROR_TAG`, `ACTIVITY_ERROR_TAG`, `WORKFLOW_FAILED_ERROR_TAG`, …) so consumers match with `P.tag(CONST)` instead of hand-written strings; the classes consume the constants so tag and constant cannot drift.
+
+  **`@temporal-contract/contract`:**
+
+  - Type-helper renames to the family-standard `Infer*` prefix: `SignalNamesOf`/`QueryNamesOf`/`UpdateNamesOf`/`DeclaredErrorsOf` → `InferSignalNames`/`InferQueryNames`/`InferUpdateNames`/`InferDeclaredErrors`.
+  - `defineActivity`'s `defaultOptions` key is renamed `activityOptions` (merge precedence unchanged), and its type `ActivityDefaultOptions` → `ContractActivityOptions` — the new name keeps the contract-level, portable subset distinct from Temporal's own `ActivityOptions`, which is what the worker-side `activityOptionsByName` overrides take.
+  - Duration strings are validated against the `ms` grammar at `defineContract` time — `"5 minutos"`, `""`, and negative durations now fail at definition, naming the offending path, instead of at the worker.
+  - Temporal-reserved names are rejected at `defineContract`: the `__temporal_` prefix and the exact `__stack_trace` / `__enhanced_stack_trace` query names.
+  - Activity-only contracts are allowed — `workflows` may be `{}` when at least one global activity is declared (dedicated activity-pool task queues).
+  - The typed-error wire encoding carries a provenance marker (`details[1] = { $tc: 1 }`). Data-less declared errors now require the marker to rehydrate, closing a false positive where any `ApplicationFailure` sharing a declared error's `type` string was surfaced as the typed domain error. A degrade-to-generic rehydration miss fires the new `onRehydrationMiss` diagnostic hook instead of failing silently.
+  - The `/result-async` subpath is removed; the `_internal_*` helpers move behind a dedicated `@temporal-contract/contract/internal` subpath (not a public API).
+
+  **`@temporal-contract/worker`:**
+
+  - A shared activity referenced from several contract scopes must be implemented once at the global level or with the same function reference; two different implementations for one flattened name now throw at declaration time (previously the last one silently clobbered the rest).
+  - The in-workflow handler binders are renamed to the `handle*` convention: `context.defineSignal`/`defineQuery`/`defineUpdate` → `context.handleSignal`/`handleQuery`/`handleUpdate` (no collision with the contract-authoring `define*` helpers or Temporal's own functions).
+  - Previously-internal types are now exported so implementations can be factored out of the `declareWorkflow`/`declareActivitiesHandler` calls: `WorkflowContext`, `DeclareWorkflowOptions`, `WorkflowImplementation`, the child-workflow handle types, the signal/query/update handler-implementation types, `WorkflowInferActivity`, `DeclareActivitiesHandlerOptions`, `TypedContinueAsNewOptions`, plus the new `ActivityImplementationFor` / `GlobalActivityImplementationFor` helpers.
+  - `qualifyFailure(errorType, options)` requires an `expected` discriminator (an error class, an array of classes, a predicate, or the explicit literal `"any"`). Causes matching `expected` are wrapped into the modeled `ApplicationFailure`; everything else — a `TypeError` from a bug, say — rides the **defect** channel instead of being mislabelled a business error. A matched inner `ApplicationFailure` with `nonRetryable: true` is inherited by default.
+  - New `rethrowCancellation(error)` helper. Cancelling an activity call surfaces as `Err(ActivityCancelledError)`; generic error handling that folds every `Err` to a fallback would complete the workflow instead of cancelling it. The cancellation error classes' JSDoc documents the hazard and the helper. (See the separate uniform-activity-result changeset in this same release: this hazard now applies to every activity call, not only ones declaring an `errors` map.)
+  - Async query/update schemas are rejected at bind time (`ContractMisuseError`) rather than on the first live request.
+  - `context.continueAsNew` can no longer have its validated `workflowType`/`taskQueue` overridden through the options bag.
+  - `ChildWorkflowError` carries a structured `workflowName`; the input/output `ValidationError` subclasses carry a `readonly direction: "input" | "output"`.
+  - `TypedWorker.create` verifies workflow registration by default — a contract workflow missing from the `workflowsPath` bundle, or an export whose name differs from its `workflowName`, fails creation with a contract-aware message. Opt out with `verifyWorkflowRegistration: false`.
+
+  **`@temporal-contract/client`:**
+
+  - Workflow outcomes are first-class typed errors on `executeWorkflow`/`handle.result()`: `WorkflowCancelledError`, `WorkflowTerminatedError`, `WorkflowTimeoutError` (each retaining the original `TemporalFailure` as `cause`) — no more `err.cause instanceof CancelledFailure` digging the matcher can't see.
+  - Update and query operational failures are modeled instead of leaking as defects: `UpdateFailedError`, `UpdateRejectedError`, `QueryFailedError` (the last covering Temporal's `QueryNotRegisteredError`).
+  - `P`-composable tag bundles (`WORKFLOW_START_ERROR_TAGS`, `WORKFLOW_OUTCOME_ERROR_TAGS`, `WORKFLOW_RESULT_ERROR_TAGS`) and a `tagPatterns(tags)` helper collapse the recurring multi-tag `match` arms.
+  - `handle.raw` exposes the underlying `@temporalio/client` `WorkflowHandle`.
+  - `ContractClient` and `TypedScheduleClient` are no longer constructible directly (use `typedClient.for(...)` / the schedule accessor); `ContractClient` exposes readonly `contract` and `taskQueue` getters.
+  - Client interceptors may patch only `input`/`signalInput`, never identity fields such as `workflowName`.
+  - `TypedScheduleHandle.update()` validates the updated action's `args` against the contract when its `workflowType` is a declared workflow. Invalid `DATETIME` search-attribute values (`new Date(NaN)`) are rejected.
+  - Internals: the imperative `assertNoDefect` thunks are replaced with `AsyncResult` combinator chains, so defects flow through channels without manual re-wrapping.
+
+  **`@temporal-contract/testing`:**
+
+  - The factories move to the family option-bag convention: `createContractTest({ contract, workflowsPath, ... })` and `runActivity(definition, { implementation, input, env? })`.
+  - New `runActivityHandler(definition, { ... })` routes through the real `declareActivitiesHandler` wrapping — input parse, output validation, contract-error wire conversion, and rehydration — so a test exercises what production does, not just the raw implementation.
+  - `@unthrown/vitest` is wired in; the package's assertions use `toBeOk`/`toBeErrTagged`/`toBeDefect`.
+  - `testcontainers` is now an optional peer dependency, required only for `createContractTest`; the Docker-free `/time-skipping` and `/activity` entries no longer pull it in.
+
+### Patch Changes
+
+- 196fc12: Bump `unthrown` to `5.1.0` in the workspace catalog.
+
+  No consumer-visible change: the peer range stays `^5.0.0`, which already
+  admitted `5.1.0`, so nothing about the installed graph changes for anyone
+  depending on these packages. Only the repo's own dev dependency moves.
+
+  `5.1.0`'s public export surface is identical to `5.0.0`'s — 32 top-level
+  exports, none added, none removed (compared by extracting the declarations from
+  both packages' `dist/index.d.mts`). Verified against the full suite: typecheck
+  12/12, unit 9/9, the in-process tier on a real time-skipping server (14 files /
+  71 tests), and the testing package's own 52.
+
 ## 8.0.0-beta.4
 
 ### Major Changes
