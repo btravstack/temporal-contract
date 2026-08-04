@@ -894,6 +894,40 @@ describe("Contract Builder", () => {
       ).toThrow("Contract validation failed");
     });
 
+    it("should throw when workflow idempotency is an invalid string", () => {
+      expect(() =>
+        defineContract({
+          taskQueue: "test",
+          workflows: {
+            test: {
+              input: z.object({}),
+              output: z.object({}),
+              // @ts-expect-error - Testing validation with an invalid idempotency literal
+              idempotency: "sometimes",
+            },
+          },
+        }),
+      ).toThrow(
+        'Contract validation failed: workflow "test": idempotency must be "once-per-id", "retry-if-failed", or "allow-duplicate"',
+      );
+    });
+
+    it("should throw when workflow idempotency is not a string", () => {
+      expect(() =>
+        defineContract({
+          taskQueue: "test",
+          workflows: {
+            test: {
+              input: z.object({}),
+              output: z.object({}),
+              // @ts-expect-error - Testing validation with a non-string idempotency
+              idempotency: 42,
+            },
+          },
+        }),
+      ).toThrow("Contract validation failed");
+    });
+
     it("should throw when activity is missing input", () => {
       expect(() =>
         defineContract({
