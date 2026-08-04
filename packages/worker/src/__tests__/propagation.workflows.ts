@@ -1,47 +1,51 @@
 import { ActivityFailure } from "@temporalio/workflow";
 
+import { propagateActivityFailure } from "../activity-failure.js";
+import { ActivityError } from "../errors.js";
 import { declareWorkflow } from "../workflow.js";
 import { propagationContract } from "./propagation.contract.js";
 
 /**
- * Awaits the activity without catching. Today `alwaysFailsNoErrors` has no
- * declared errors, so this is a plain `Promise` that throws Temporal's
- * `ActivityFailure`, and Temporal fails the workflow.
- *
- * After the uniform-`AsyncResult` change this body becomes
- * `await propagateActivityFailure(context.activities.alwaysFailsNoErrors({}))`
- * and the observable outcome must be IDENTICAL.
+ * Lets the failure escape via `propagateActivityFailure`, the post-change
+ * equivalent of the bare `await` this fixture used before. The
+ * characterization spec asserts the workflow still FAILS and that Temporal
+ * still retried the activity to its configured maximum.
  */
 export const propagatesFailure = declareWorkflow({
   workflowName: "propagatesFailure",
   contract: propagationContract,
   implementation: async (context) => {
-    await context.activities.alwaysFailsNoErrors({});
+    await propagateActivityFailure(context.activities.alwaysFailsNoErrors({}));
     return { reached: true };
   },
 });
 
 /**
- * Catches the failure so the workflow COMPLETES. Uses try/catch because today
- * the call throws; after the change this becomes an `isErr()` narrow.
+ * Catches the failure by narrowing, so the workflow COMPLETES. Uses
+ * `isErr()`/`isDefect()` because the call now returns an `AsyncResult`; before
+ * the uniform-`AsyncResult` change this was a bare try/catch.
  */
 export const handlesFailure = declareWorkflow({
   workflowName: "handlesFailure",
   contract: propagationContract,
   implementation: async (context) => {
-    try {
-      await context.activities.alwaysFailsNoErrors({});
+    const result = await context.activities.alwaysFailsNoErrors({});
+
+    if (result.isOk()) {
       return { outcome: "unexpected-success" };
-    } catch (error) {
-      // Fold the caught error's identity into the returned status rather
-      // than a bare `catch { return { outcome: "handled" } }`: a bare catch
-      // swallows ANYTHING (an input-validation failure at the proxy
-      // boundary, a proxy-construction error), so a regression that never
-      // even dispatched the activity would still report "handled". Naming
-      // `ActivityFailure` — Temporal's own wrapper for the call under test —
-      // pins WHAT was caught, not just that something was.
-      const errorName = error instanceof ActivityFailure ? error.name : "unknown";
-      return { outcome: `handled:${errorName}` };
     }
+
+    // Fold the caught error's identity into the returned status rather than
+    // a bare "handled": a bare success-path swallows ANYTHING (an
+    // input-validation failure at the proxy boundary, a proxy-construction
+    // error), so a regression that never even dispatched the activity would
+    // still report "handled". Naming `ActivityFailure` — Temporal's own
+    // wrapper for the call under test, retained pre-unwrap as
+    // `ActivityError.originalFailure` — pins WHAT was caught, not just that
+    // something was.
+    const error: unknown = result.isErr() ? result.error : result.cause;
+    const originalFailure = error instanceof ActivityError ? error.originalFailure : undefined;
+    const errorName = originalFailure instanceof ActivityFailure ? originalFailure.name : "unknown";
+    return { outcome: `handled:${errorName}` };
   },
 });
