@@ -15,6 +15,7 @@ import {
   type ChildWorkflowHandle,
   type ChildWorkflowOptions,
   executeChild,
+  type ParentClosePolicy,
   startChild,
   type Workflow,
 } from "@temporalio/workflow";
@@ -39,12 +40,22 @@ import type { ClientInferInput, ClientInferOutput, SignalDefOf } from "./types.j
  * derived from the target workflow's declared `idempotency` mode; everything
  * else — including an explicit `workflowIdReusePolicy` here, which overrides
  * that default — is forwarded to Temporal's `startChild` / `executeChild`.
+ *
+ * `parentClosePolicy` is **required**. Temporal's default is `TERMINATE`: when
+ * the parent closes, the child is killed — mid-payment included. That default
+ * is fine when chosen and dangerous when inherited, so it must be stated.
+ * `TERMINATE` remains available; it simply has to be written down.
+ *
+ * The `Exclude` is load-bearing. The SDK's `ParentClosePolicy` union contains
+ * `undefined` (via the deprecated `PARENT_CLOSE_POLICY_UNSPECIFIED` member), so
+ * a bare required field would still accept `undefined` and require nothing.
  */
 export type TypedChildWorkflowOptions<
   TChildContract extends ContractDefinition,
   TChildWorkflowName extends keyof TChildContract["workflows"] & string,
-> = Omit<ChildWorkflowOptions, "taskQueue" | "args"> & {
+> = Omit<ChildWorkflowOptions, "taskQueue" | "args" | "parentClosePolicy"> & {
   args: ClientInferInput<TChildContract["workflows"][TChildWorkflowName]>;
+  parentClosePolicy: Exclude<ParentClosePolicy, undefined>;
 };
 
 /**
