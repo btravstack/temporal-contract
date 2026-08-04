@@ -29,6 +29,7 @@ const flaky = defineActivity({
 const runsFlaky = defineWorkflow({
   input: z.object({ mode: z.enum(["terminal", "retryable"]) }),
   output: z.object({ outcome: z.string(), attempts: z.number() }),
+  idempotency: "allow-duplicate",
   activities: { flaky },
 });
 

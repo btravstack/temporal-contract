@@ -39,6 +39,7 @@ const alwaysFailsWithErrors = defineActivity({
 const propagatesFailure = defineWorkflow({
   input: z.object({}),
   output: z.object({ reached: z.boolean() }),
+  idempotency: "allow-duplicate",
   activities: { alwaysFailsNoErrors },
 });
 
@@ -46,6 +47,7 @@ const propagatesFailure = defineWorkflow({
 const handlesFailure = defineWorkflow({
   input: z.object({}),
   output: z.object({ outcome: z.string() }),
+  idempotency: "allow-duplicate",
   activities: { alwaysFailsNoErrors },
 });
 

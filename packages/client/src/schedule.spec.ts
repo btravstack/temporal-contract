@@ -93,6 +93,7 @@ describe("TypedClient.schedule", () => {
       processOrder: {
         input: z.object({ orderId: z.string() }),
         output: z.object({ status: z.string() }),
+        idempotency: "allow-duplicate",
       },
     },
   });
@@ -167,6 +168,7 @@ describe("TypedClient.schedule", () => {
           transformer: defineWorkflow({
             input: z.string().transform((s) => s.length),
             output: z.number(),
+            idempotency: "allow-duplicate",
           }),
         },
       });
@@ -320,6 +322,7 @@ describe("TypedClient.schedule", () => {
         processOrder: defineWorkflow({
           input: z.object({ orderId: z.string() }),
           output: z.object({ status: z.string() }),
+          idempotency: "allow-duplicate",
           searchAttributes: {
             customerId: defineSearchAttribute({ kind: "KEYWORD" }),
             priority: defineSearchAttribute({ kind: "INT" }),

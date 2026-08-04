@@ -227,6 +227,7 @@ export function defineUpdate(
  * defineWorkflow({
  *   input: z.object({ orderId: z.string() }),
  *   output: z.object({ status: z.string() }),
+ *   idempotency: 'allow-duplicate',
  *   searchAttributes: {
  *     customerId: defineSearchAttribute({ kind: 'KEYWORD' }),
  *     priority: defineSearchAttribute({ kind: 'INT' }),
@@ -272,6 +273,8 @@ export function defineSearchAttribute<TKind extends SearchAttributeKind>(
  * export const processOrder = defineWorkflow({
  *   input: z.object({ orderId: z.string() }),
  *   output: z.object({ success: z.boolean() }),
+ *   // Payment already moved money — don't let a retried start charge again.
+ *   idempotency: 'retry-if-failed',
  *   activities: {
  *     validatePayment: defineActivity({
  *       input: z.object({ orderId: z.string() }),
@@ -345,6 +348,8 @@ export function defineWorkflow<TWorkflow extends AnyWorkflowDefinition>(
  * const processOrder = defineWorkflow({
  *   input: z.object({ orderId: z.string() }),
  *   output: z.object({ success: z.boolean() }),
+ *   // Payment already moved money — don't let a retried start charge again.
+ *   idempotency: 'retry-if-failed',
  *   activities: { chargePayment },
  * });
  *

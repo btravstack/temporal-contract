@@ -27,6 +27,7 @@ const contract = defineContract({
     processOrder: {
       input: z.object({}),
       output: z.object({}),
+      idempotency: "allow-duplicate",
       activities: {
         chargePayment: {
           input: z.object({ amount: z.number() }),
@@ -102,7 +103,7 @@ describe("declareActivitiesHandler — contract errors", () => {
     const transformingContract = defineContract({
       taskQueue: "test-queue",
       workflows: {
-        noop: { input: z.object({}), output: z.object({}) },
+        noop: { input: z.object({}), output: z.object({}), idempotency: "allow-duplicate" },
       },
       activities: {
         flaky: {

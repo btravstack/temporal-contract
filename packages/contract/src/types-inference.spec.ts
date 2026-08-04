@@ -35,10 +35,12 @@ const contract = defineContract({
     processOrder: {
       input: z.object({ orderId: z.string() }),
       output: z.object({ success: z.boolean() }),
+      idempotency: "allow-duplicate",
     },
     sendNotification: {
       input: z.object({ userId: z.string() }),
       output: z.void(),
+      idempotency: "allow-duplicate",
     },
   },
   activities: {
@@ -71,6 +73,7 @@ describe("contract inference utilities", () => {
         wf: {
           input: z.object({}),
           output: z.object({}),
+          idempotency: "allow-duplicate",
         },
       },
     });
@@ -119,6 +122,7 @@ describe("WorkflowDefinition generic preservation (audit fix #2)", () => {
     const wf = defineWorkflow({
       input: z.object({ a: z.string() }),
       output: z.string(),
+      idempotency: "allow-duplicate",
     });
 
     // Before the fix, these were widened to `AnySchema`/`StandardSchemaV1`
@@ -134,6 +138,7 @@ describe("WorkflowDefinition generic preservation (audit fix #2)", () => {
         p: defineWorkflow({
           input: z.object({ a: z.string() }),
           output: z.string(),
+          idempotency: "allow-duplicate",
         }),
       },
     });
@@ -150,6 +155,7 @@ describe("Signal/query/update name helpers (audit fix #3)", () => {
       hasSignal: defineWorkflow({
         input: z.object({}),
         output: z.object({}),
+        idempotency: "allow-duplicate",
         signals: {
           cancel: defineSignal({ input: z.object({ reason: z.string() }) }),
         },
@@ -163,6 +169,7 @@ describe("Signal/query/update name helpers (audit fix #3)", () => {
       bare: defineWorkflow({
         input: z.object({}),
         output: z.object({}),
+        idempotency: "allow-duplicate",
       }),
     },
   });
@@ -191,6 +198,7 @@ describe("Signal/query/update name helpers (audit fix #3)", () => {
     const wfA = defineWorkflow({
       input: z.object({}),
       output: z.object({}),
+      idempotency: "allow-duplicate",
       signals: {
         cancel: defineSignal({ input: z.object({ reason: z.string() }) }),
       },
@@ -198,6 +206,7 @@ describe("Signal/query/update name helpers (audit fix #3)", () => {
     const wfB = defineWorkflow({
       input: z.object({}),
       output: z.object({}),
+      idempotency: "allow-duplicate",
       signals: {
         pause: defineSignal({ input: z.object({}) }),
       },
@@ -215,6 +224,7 @@ describe("Signal/query/update name helpers (audit fix #3)", () => {
     const wfA = defineWorkflow({
       input: z.object({}),
       output: z.object({}),
+      idempotency: "allow-duplicate",
       queries: {
         getStatus: defineQuery({ input: z.object({}), output: z.string() }),
       },
@@ -225,6 +235,7 @@ describe("Signal/query/update name helpers (audit fix #3)", () => {
     const wfB = defineWorkflow({
       input: z.object({}),
       output: z.object({}),
+      idempotency: "allow-duplicate",
       queries: {
         getCount: defineQuery({ input: z.object({}), output: z.number() }),
       },
@@ -243,6 +254,7 @@ describe("Signal/query/update name helpers (audit fix #3)", () => {
     const wf = defineWorkflow({
       input: z.object({}),
       output: z.object({}),
+      idempotency: "allow-duplicate",
       queries: {
         getStatus: defineQuery({ input: z.object({}), output: z.string() }),
       },
@@ -254,6 +266,7 @@ describe("Signal/query/update name helpers (audit fix #3)", () => {
     const wf = defineWorkflow({
       input: z.object({}),
       output: z.object({}),
+      idempotency: "allow-duplicate",
       updates: {
         bump: defineUpdate({ input: z.object({}), output: z.number() }),
       },
@@ -291,6 +304,7 @@ describe("input-less signal/query/update definitions", () => {
     const wf = defineWorkflow({
       input: z.object({}),
       output: z.object({}),
+      idempotency: "allow-duplicate",
       signals: { shutdown: defineSignal() },
       queries: { getStatus: defineQuery({ output: z.string() }) },
       updates: { bump: defineUpdate({ output: z.number() }) },

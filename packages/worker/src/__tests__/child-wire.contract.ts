@@ -43,12 +43,14 @@ export const childWireContract = defineContract({
     entryTransform: defineWorkflow({
       input: z.object({ text: z.string().transform((s) => `${s}!`) }),
       output: z.object({ text: z.string(), n: z.number().transform((n) => n * 2) }),
+      idempotency: "allow-duplicate",
     }),
 
     /** Deliberately returns a value the output schema rejects. */
     entryInvalidOutput: defineWorkflow({
       input: z.object({}),
       output: z.object({ n: z.number() }),
+      idempotency: "allow-duplicate",
     }),
 
     /**
@@ -60,6 +62,7 @@ export const childWireContract = defineContract({
     child: defineWorkflow({
       input: z.object({ label: z.string().transform((s) => `${s}!`) }),
       output: z.object({ label: z.string(), n: z.number().transform((n) => n * 2) }),
+      idempotency: "allow-duplicate",
     }),
 
     /**
@@ -78,6 +81,7 @@ export const childWireContract = defineContract({
         firstExecutionRunId: z.string().optional(),
         childWorkflowId: z.string().optional(),
       }),
+      idempotency: "allow-duplicate",
     }),
 
     /**
@@ -89,6 +93,7 @@ export const childWireContract = defineContract({
     signalful: defineWorkflow({
       input: z.object({}),
       output: z.object({ noteText: z.string().nullable() }),
+      idempotency: "allow-duplicate",
       signals: {
         note: defineSignal({ input: z.object({ text: z.string().transform((s) => `${s}!`) }) }),
         finish: defineSignal(),
@@ -113,6 +118,7 @@ export const childWireContract = defineContract({
         noteText: z.string().nullable(),
         childWorkflowId: z.string().optional(),
       }),
+      idempotency: "allow-duplicate",
     }),
   },
 });

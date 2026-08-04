@@ -9,7 +9,11 @@ import { bundleFor, fixturePath, nextTaskQueueId, withTaskQueue } from "./workfl
 const contract = defineContract({
   taskQueue: "original-queue",
   workflows: {
-    noop: defineWorkflow({ input: z.object({}), output: z.object({}) }),
+    noop: defineWorkflow({
+      input: z.object({}),
+      output: z.object({}),
+      idempotency: "allow-duplicate",
+    }),
   },
 });
 
