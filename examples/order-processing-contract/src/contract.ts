@@ -170,19 +170,23 @@ const processOrder = defineWorkflow({
   // through — chiefly `PaymentDeclined` (see `workflows.ts`), where the
   // customer would otherwise have to be given a new order ID to try again.
   //
-  // Caveat this example doesn't fully close: two post-charge paths in
+  // Caveat this example doesn't fully close: several post-charge paths in
   // `workflows.ts` also end the run in a state `retry-if-failed` treats as
   // re-runnable (`ALLOW_DUPLICATE_FAILED_ONLY` covers Cancelled/Terminated/
-  // TimedOut, not just Failed) — a failed compensating `refundPayment`
-  // deliberately fails the workflow with the charge unrefunded
-  // (`workflows.ts:287-298`), and real cancellation during/after inventory
-  // reservation ends the run Cancelled post-charge (`workflows.ts:262`). A
-  // retried start after either would re-enter `processPayment` and double-
-  // charge. `once-per-id` would close that gap entirely, at the cost of
-  // forcing a fresh workflow ID for every legitimate retry, including the
-  // common pre-charge `PaymentDeclined` case above — kept as `retry-if-
-  // failed` here because that trade favors the common case, not because the
-  // gap doesn't exist.
+  // TimedOut, not just Failed) — including a failed compensating
+  // `refundPayment` that deliberately fails the workflow with the charge
+  // unrefunded (`workflows.ts:287-298`), real cancellation during/after
+  // inventory reservation ending the run Cancelled post-charge
+  // (`workflows.ts:262`), and a `createShipment` failure, which has no
+  // rollback path and is left to fail the workflow outright
+  // (`workflows.ts:350-358`). A retried start after any of these would
+  // re-enter `processPayment` and double-charge — this list is illustrative,
+  // not exhaustive; any future terminal failure after payment has the same
+  // shape unless it's explicitly compensated. `once-per-id` would close the
+  // gap entirely, at the cost of forcing a fresh workflow ID for every
+  // legitimate retry, including the common pre-charge `PaymentDeclined` case
+  // above — kept as `retry-if-failed` here because that trade favors the
+  // common case, not because the gap doesn't exist.
   idempotency: "retry-if-failed",
   activities: {
     processPayment,
