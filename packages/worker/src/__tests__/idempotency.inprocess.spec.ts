@@ -23,10 +23,16 @@ describe("contract-declared idempotency deduplicates on the real server", () => 
   // server and assert on the identity of what actually happened.
 
   it("once-per-id rejects a second start after a successful run", async ({ testEnv }) => {
-    const contract = withTaskQueue(idempotencyContract, nextTaskQueueId("idempotency-once"));
+    const id = nextTaskQueueId("idempotency-once");
+    const contract = withTaskQueue(idempotencyContract, id);
     const bundle = await bundleFor(fixturePath(import.meta.url, "idempotency.workflows"));
     const { worker, client } = await testRig(testEnv, { contract, bundle });
-    const workflowId = "once-success";
+    // Derived from the same per-test counter as the task queue, not a string
+    // literal: `workflowIdReusePolicy` keys on namespace + workflow ID (not
+    // task queue), and this fixture's `testEnv` is worker-scoped — one
+    // namespace for the whole file — so a literal would only be safe by
+    // accident of no test ever re-running.
+    const workflowId = id;
 
     await worker.raw.runUntil(async () => {
       const first = await client.executeWorkflow("onceWorkflow", {
@@ -49,11 +55,41 @@ describe("contract-declared idempotency deduplicates on the real server", () => 
     });
   });
 
-  it("retry-if-failed rejects a second start after a successful run", async ({ testEnv }) => {
-    const contract = withTaskQueue(idempotencyContract, nextTaskQueueId("idempotency-retry-ok"));
+  it("once-per-id also rejects a second start after a failed run", async ({ testEnv }) => {
+    const id = nextTaskQueueId("idempotency-once-fail");
+    const contract = withTaskQueue(idempotencyContract, id);
     const bundle = await bundleFor(fixturePath(import.meta.url, "idempotency.workflows"));
     const { worker, client } = await testRig(testEnv, { contract, bundle });
-    const workflowId = "retry-success";
+    const workflowId = id;
+
+    await worker.raw.runUntil(async () => {
+      const first = await client.executeWorkflow("onceWorkflow", {
+        workflowId,
+        args: { shouldFail: true },
+        workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
+      });
+      expect(first).toBeErrTagged(WORKFLOW_FAILED_ERROR_TAG);
+
+      // This is what actually pins once-per-id to REJECT_DUPLICATE rather
+      // than ALLOW_DUPLICATE_FAILED_ONLY: the two policies agree on
+      // rejecting after success (the previous test), and only diverge after
+      // a failure. Without this test, silently downgrading once-per-id to
+      // ALLOW_DUPLICATE_FAILED_ONLY leaves every test in this file green.
+      const second = await client.executeWorkflow("onceWorkflow", {
+        workflowId,
+        args: { shouldFail: false },
+        workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
+      });
+      expect(second).toBeErrTagged(WORKFLOW_ALREADY_STARTED_ERROR_TAG);
+    });
+  });
+
+  it("retry-if-failed rejects a second start after a successful run", async ({ testEnv }) => {
+    const id = nextTaskQueueId("idempotency-retry-ok");
+    const contract = withTaskQueue(idempotencyContract, id);
+    const bundle = await bundleFor(fixturePath(import.meta.url, "idempotency.workflows"));
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
+    const workflowId = id;
 
     await worker.raw.runUntil(async () => {
       const first = await client.executeWorkflow("retryWorkflow", {
@@ -74,10 +110,11 @@ describe("contract-declared idempotency deduplicates on the real server", () => 
   });
 
   it("retry-if-failed allows a second start after a failed run", async ({ testEnv }) => {
-    const contract = withTaskQueue(idempotencyContract, nextTaskQueueId("idempotency-retry-fail"));
+    const id = nextTaskQueueId("idempotency-retry-fail");
+    const contract = withTaskQueue(idempotencyContract, id);
     const bundle = await bundleFor(fixturePath(import.meta.url, "idempotency.workflows"));
     const { worker, client } = await testRig(testEnv, { contract, bundle });
-    const workflowId = "retry-failed-then-retried";
+    const workflowId = id;
 
     await worker.raw.runUntil(async () => {
       const first = await client.executeWorkflow("retryWorkflow", {
@@ -103,10 +140,11 @@ describe("contract-declared idempotency deduplicates on the real server", () => 
   });
 
   it("allow-duplicate allows a second start after a successful run", async ({ testEnv }) => {
-    const contract = withTaskQueue(idempotencyContract, nextTaskQueueId("idempotency-allow"));
+    const id = nextTaskQueueId("idempotency-allow");
+    const contract = withTaskQueue(idempotencyContract, id);
     const bundle = await bundleFor(fixturePath(import.meta.url, "idempotency.workflows"));
     const { worker, client } = await testRig(testEnv, { contract, bundle });
-    const workflowId = "allow-success";
+    const workflowId = id;
 
     await worker.raw.runUntil(async () => {
       const first = await client.executeWorkflow("allowWorkflow", {
@@ -128,10 +166,11 @@ describe("contract-declared idempotency deduplicates on the real server", () => 
   it("an explicit per-call ALLOW_DUPLICATE overrides a once-per-id contract", async ({
     testEnv,
   }) => {
-    const contract = withTaskQueue(idempotencyContract, nextTaskQueueId("idempotency-override"));
+    const id = nextTaskQueueId("idempotency-override");
+    const contract = withTaskQueue(idempotencyContract, id);
     const bundle = await bundleFor(fixturePath(import.meta.url, "idempotency.workflows"));
     const { worker, client } = await testRig(testEnv, { contract, bundle });
-    const workflowId = "once-overridden";
+    const workflowId = id;
 
     await worker.raw.runUntil(async () => {
       const first = await client.executeWorkflow("onceWorkflow", {
