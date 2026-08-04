@@ -16,6 +16,11 @@ import { isCancellation, makeContinueAsNewFunc, proxyActivities } from "@tempora
 import type { ActivityOptions, ContinueAsNewOptions } from "@temporalio/workflow";
 
 import {
+  type BoundViolation,
+  formatUnboundedActivitiesMessage,
+  missingBounds,
+} from "./activity-bounds.js";
+import {
   ChildWorkflowCancelledError,
   ChildWorkflowError,
   ContractMisuseError,
@@ -115,41 +120,64 @@ export function buildRawActivitiesProxy(
     ...workflowActivities,
   };
 
-  // `activityOptions` is optional on `declareWorkflow` — an activity covered
-  // by contract-level `activityOptions` (or an explicit override) doesn't need
-  // the workflow-wide default. It is still required as soon as any reachable
-  // activity has no per-activity options of its own; fail at declaration time
-  // with the offending names rather than letting Temporal's generic
-  // "missing timeout" error surface without context.
-  if (!defaultOptions) {
-    const uncovered = Object.entries(allDefinitions)
-      .filter(([name, definition]) => {
-        const contractDefaults = definition.activityOptions;
-        const override = overrides?.[name];
-        const hasContractDefaults = contractDefaults && Object.keys(contractDefaults).length > 0;
-        const hasOverride = override && Object.keys(override).length > 0;
-        return !hasContractDefaults && !hasOverride;
-      })
-      .map(([name]) => name);
-    if (uncovered.length > 0) {
-      // ContractMisuseError (a non-retryable ApplicationFailure), not a plain
-      // Error: this runs inside the workflow sandbox, where a plain Error
-      // would be retried as a Workflow Task failure forever (D3).
-      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: declaration-time fail-fast as a non-retryable ApplicationFailure (CLAUDE.md rule 2 exception)
-      throw new ContractMisuseError(
-        `declareWorkflow: \`activityOptions\` was omitted but the following activities declare ` +
-          `no contract-level \`activityOptions\` and have no \`activityOptionsByName\` entry: ` +
-          `${uncovered.join(", ")}. Provide \`activityOptions\` or per-activity options.`,
-      );
+  // Every reachable activity must carry BOTH bounds in its MERGED options: a
+  // per-attempt bound and a total bound. See `activity-bounds.ts` for why the
+  // two are independent.
+  //
+  // Checked on the MERGE, not per source. The layers shallow-merge, so a
+  // contract-level `retry: { initialInterval: "2s" }` replaces a workflow-wide
+  // `retry: { maximumAttempts: 3 }` wholesale and silently drops the bound —
+  // both layers look bounded in isolation.
+  //
+  // Checked UNCONDITIONALLY. The previous version ran only when
+  // `defaultOptions` was absent, so any truthy `activityOptions` on
+  // `declareWorkflow` skipped it for every activity.
+  //
+  // This must run BEFORE the `proxyActivities` calls below. Temporal validates
+  // options at proxy CONSTRUCTION (`@temporalio/workflow` `lib/workflow.js:496-502`)
+  // and throws a plain `TypeError`, which inside the sandbox is retried as a
+  // Workflow Task failure forever (D3): the workflow hangs rather than failing.
+  const violations: BoundViolation[] = [];
+  for (const [name, definition] of Object.entries(allDefinitions)) {
+    // Must mirror the merge at the bottom of this function EXACTLY, including
+    // its shallowness — a deep merge here would report bounds the running
+    // workflow will not actually have.
+    const merged: ActivityOptions = {
+      ...defaultOptions,
+      ...(definition.activityOptions as ActivityOptions | undefined),
+      ...overrides?.[name],
+    };
+    const missing = missingBounds(merged);
+    if (missing.length > 0) {
+      violations.push({ name, missing });
     }
   }
+  if (violations.length > 0) {
+    // ContractMisuseError (a non-retryable ApplicationFailure), not a plain
+    // Error: this runs inside the workflow sandbox, where a plain Error would
+    // be retried as a Workflow Task failure forever (D3).
+    // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: declaration-time fail-fast as a non-retryable ApplicationFailure (CLAUDE.md rule 2 exception)
+    throw new ContractMisuseError(formatUnboundedActivitiesMessage(violations));
+  }
 
-  // When every activity carries its own options (`defaultOptions` omitted),
-  // no workflow-wide default proxy exists — the get-trap below then serves
-  // only the per-activity proxies.
-  const defaultProxy = defaultOptions
-    ? proxyActivities<Record<string, ActivityFn>>(defaultOptions)
-    : undefined;
+  // Build the workflow-wide proxy only if some activity actually relies on it.
+  // When every activity carries its own options, `defaultOptions` is never
+  // the effective options for anything, and the loop above never validated
+  // it — constructing a proxy from an unbounded default would throw
+  // Temporal's plain `TypeError` (→ workflow-task stall) for options no
+  // activity would ever have used. The same reasoning covers the
+  // no-activities case.
+  const needsDefaultProxy = Object.entries(allDefinitions).some(([name, definition]) => {
+    const contractDefaults = definition.activityOptions;
+    const override = overrides?.[name];
+    const hasContractDefaults = contractDefaults && Object.keys(contractDefaults).length > 0;
+    const hasOverride = override && Object.keys(override).length > 0;
+    return !hasContractDefaults && !hasOverride;
+  });
+  const defaultProxy =
+    defaultOptions && needsDefaultProxy
+      ? proxyActivities<Record<string, ActivityFn>>(defaultOptions)
+      : undefined;
 
   // Validate every override key corresponds to a declared activity.
   // Without this, a typo at runtime (or a stale options bag from a renamed
