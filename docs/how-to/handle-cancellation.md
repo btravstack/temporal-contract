@@ -39,12 +39,31 @@ export const processOrder = declareWorkflow({
   contract: orderContract,
   activityOptions: { startToCloseTimeout: "5 minutes" },
   implementation: async (context, order) => {
-    const scoped = await context.cancellableScope(() =>
-      context.activities.chargeCard({ customerId: order.customerId, amount: order.total }),
-    );
+    const scoped = await context.cancellableScope(async () => {
+      // Narrow the activity's own AsyncResult INSIDE the scope's callback.
+      // `cancellableScope` is generic over whatever `fn` returns — `T` becomes
+      // whatever type `fn` resolves to, verbatim. `AsyncResult` is
+      // deliberately NOT a full `PromiseLike` (no `.catch`/`.finally`), so
+      // returning `context.activities.chargeCard(...)` un-awaited would make
+      // `T` the un-awaited `AsyncResult` itself — a type with no `isOk`/
+      // `isErr`/`.value` (those live only on the plain `Result` you get by
+      // awaiting). Await it here, and hand the scope a plain, narrowable
+      // value instead.
+      const charged = await context.activities.chargeCard({
+        customerId: order.customerId,
+        amount: order.total,
+      });
+      if (charged.isDefect()) {
+        throw charged.cause; // an unmodeled bug — surfaces as the scope's own defect
+      }
+      if (charged.isErr()) {
+        // ActivityError, ActivityCancelledError, or a declared contract error.
+        return { ok: false as const, error: charged.error };
+      }
+      return { ok: true as const, transactionId: charged.value.transactionId };
+    });
 
-    // Narrow positively: an `AsyncResult` has three channels (Ok/Err/Defect),
-    // so `scoped.value` only compiles after `isOk()`.
+    // Narrow positively: an `AsyncResult` has three channels (Ok/Err/Defect).
     if (scoped.isDefect()) {
       throw scoped.cause; // a genuine bug thrown inside the scope, not a cancel
     }
@@ -54,16 +73,11 @@ export const processOrder = declareWorkflow({
       return { status: "cancelled" as const };
     }
 
-    // `cancellableScope` is generic over whatever `fn` returns, so it does
-    // NOT unwrap the activity's own `AsyncResult` for you: `scoped.value` here
-    // is `chargeCard`'s Result, still needing its own narrow.
-    const charged = scoped.value;
-    if (charged.isErr()) {
-      // ActivityError, ActivityCancelledError, or a declared contract error.
-      return handleChargeFailure(charged.error);
+    if (!scoped.value.ok) {
+      return handleChargeFailure(scoped.value.error);
     }
 
-    return { status: "completed" as const, transactionId: charged.value.transactionId };
+    return { status: "completed" as const, transactionId: scoped.value.transactionId };
   },
 });
 ```
@@ -75,7 +89,8 @@ scope (not returned as a `Result`) is an unmodeled failure and rides the
 defect channel — so a genuine bug is never mistaken for a cancellation. The
 activity call's _own_ cancellation — the in-flight call itself getting
 cancelled — is a separate, independent thing: it surfaces inside `charged`,
-not `scoped`, as one more member of `chargeCard`'s own error union.
+folded into the small `{ ok, ... }` envelope the callback returns, not as a
+member of `scoped`'s own error union.
 
 ### Every activity call carries this hazard
 
