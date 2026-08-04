@@ -841,13 +841,18 @@ export type WorkflowContext<
    *   }
    *   if (result.isErr()) {
    *     // The scope itself was cancelled — perform cleanup that must not be
-   *     // cancelled:
-   *     await context.nonCancellableScope(async () => {
-   *       const released = await context.activities.releaseResources(args);
-   *       if (released.isErr()) {
+   *     // cancelled. Capture nonCancellableScope's OWN AsyncResult too — a
+   *     // bare `await` here would silently discard a defect thrown inside
+   *     // the cleanup callback.
+   *     const released = await context.nonCancellableScope(async () => {
+   *       const step = await context.activities.releaseResources(args);
+   *       if (step.isErr()) {
    *         // best-effort cleanup — log and continue regardless
    *       }
    *     });
+   *     if (released.isDefect()) {
+   *       throw released.cause; // a genuine bug in cleanup, not a cancel
+   *     }
    *     return { status: "cancelled" };
    *   }
    *

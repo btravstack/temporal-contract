@@ -32,9 +32,14 @@ import { makeAsyncResult } from "./internal.js";
  * @example
  * ```ts
  * import { P } from "unthrown";
+ * import { propagateActivityFailure } from "@temporal-contract/worker/workflow";
  *
+ * // `fn`'s return value becomes the scope's `T` verbatim — an un-awaited
+ * // `context.activities.processStep(...)` would make `T` the AsyncResult
+ * // itself (it has no `isOk`/`isErr`/`.value`), not the activity's output.
+ * // `propagateActivityFailure` awaits it and hands the scope a plain value.
  * const result = await context.cancellableScope(async () => {
- *   return await context.activities.processStep(...);
+ *   return await propagateActivityFailure(context.activities.processStep(...));
  * });
  *
  * result.match({
@@ -44,7 +49,8 @@ import { makeAsyncResult } from "./internal.js";
  *       // error instanceof WorkflowCancelledError — graceful exit
  *     }),
  *   defect: (cause) => {
- *     // a non-cancellation failure thrown inside the scope (a bug)
+ *     // a non-cancellation failure thrown inside the scope (a bug) — or,
+ *     // via propagateActivityFailure, a non-cancellation activity failure
  *   },
  * });
  * ```
@@ -85,9 +91,17 @@ export function cancellableScope<T>(
  *
  * @example
  * ```ts
- * await context.nonCancellableScope(async () => {
- *   await context.activities.releaseResources(...);
- * });
+ * import { propagateActivityFailure } from "@temporal-contract/worker/workflow";
+ *
+ * // Capture the scope's OWN AsyncResult — a bare `await` would silently
+ * // discard a defect thrown inside the callback, along with the activity's
+ * // own un-awaited AsyncResult if `fn` returned it directly.
+ * const released = await context.nonCancellableScope(() =>
+ *   propagateActivityFailure(context.activities.releaseResources(...)),
+ * );
+ * if (released.isDefect()) {
+ *   throw released.cause;
+ * }
  * ```
  */
 export function nonCancellableScope<T>(

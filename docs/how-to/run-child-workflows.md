@@ -45,10 +45,13 @@ export const processOrder = declareWorkflow({
 });
 ```
 
-**Child workflows return a `Result`; activities do not.** That asymmetry is
-deliberate — a child workflow is a peer operation whose failure is usually a
-branch in your logic, whereas an activity failure is normally something
-Temporal's retry policy should handle. See
+Both activity and child-workflow calls return an `AsyncResult` — the
+uniformity is deliberate. What differs is the usual _response_: a child
+workflow is a peer operation whose failure is usually a branch in your logic
+(narrow it, as above), whereas an activity failure is normally something
+Temporal's retry policy should already have handled by the time it reaches
+the workflow (propagate it with `propagateActivityFailure`, unless the
+workflow itself needs to branch on it too). See
 [The result model](/explanation/the-result-model).
 
 ## Start without waiting

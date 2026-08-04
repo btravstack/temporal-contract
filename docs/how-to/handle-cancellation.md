@@ -152,8 +152,14 @@ implementation: async (context, order) => {
     // Cancelled after the charge but before shipping — refund.
     // Without the non-cancellable scope this refund would itself be cancelled.
     if (transactionId !== undefined) {
+      // Capture into a const: `transactionId` is a `let` reassigned inside
+      // an earlier closure, so TypeScript cannot carry the `!== undefined`
+      // narrowing across into this new arrow function.
+      const chargedTransactionId = transactionId;
       const refunded = await context.nonCancellableScope(() =>
-        propagateActivityFailure(context.activities.refundPayment({ transactionId })),
+        propagateActivityFailure(
+          context.activities.refundPayment({ transactionId: chargedTransactionId }),
+        ),
       );
       if (refunded.isDefect()) {
         throw refunded.cause; // a refund that silently failed is worse than a loud failure
@@ -209,7 +215,10 @@ processOrder: {
         }
         return ApplicationFailure.create({
           type: "EXPORT_FAILED",
-          cause: error instanceof Error ? error : undefined,
+          // `exactOptionalPropertyTypes` rejects an explicit `cause: undefined`
+          // (the field's type is `Error`, not `Error | undefined`) — spread it
+          // in only when there is one.
+          ...(error instanceof Error ? { cause: error } : {}),
         });
       },
     ),
