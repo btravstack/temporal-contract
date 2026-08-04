@@ -10,13 +10,22 @@
   "changesets": [
     "adopt-lefthook-oxfmt",
     "adopt-unthrown-v5-beta",
+    "bump-unthrown-5-1-0",
     "bump-unthrown-beta-5",
     "bump-unthrown-beta-6",
     "bump-unthrown-beta-7",
     "bump-unthrown-v5-stable",
+    "compile-time-contract-validation",
+    "contract-idempotency",
     "contract-types-node",
     "enable-all-unthrown-oxlint-rules",
+    "family-consistency-typed-worker",
+    "safe-default-option-shapes",
     "technical-errors-to-defect",
+    "testing-test-rig-export",
+    "testing-workflow-bundle-export",
+    "uniform-activity-result",
+    "v8-audit-remediation",
     "v8-review-remediation"
   ]
 }
