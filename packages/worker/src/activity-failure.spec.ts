@@ -75,11 +75,15 @@ describe("propagateActivityFailure", () => {
   });
 
   it("rethrows the ApplicationFailure cause for a declared ContractError, not the TaggedError wrapper", async () => {
-    // A declared contract error is ALSO a TaggedError, not a TemporalFailure
-    // — the exact stall this helper exists to prevent (Fix round 1, Important
-    // 1). classifyActivityError rehydrates it straight from the
-    // ApplicationFailure Temporal put on the wire, so `cause` is what must
-    // escape — not the ContractError wrapper itself.
+    // A declared contract error is ALSO a TaggedError, not a TemporalFailure.
+    // Rethrown bare it wouldn't stall (declareWorkflow's own catch converts
+    // any ContractError it sees), but it WOULD misclassify: that catch looks
+    // the error name up on the workflow's declared errors, not the
+    // activity's, so the common case (name declared only on the activity)
+    // produces a misleading "not declared on workflow" failure instead of
+    // the activity's real error (Fix round 2, Important — see
+    // activity-failure.ts's doc comment). `cause` is the original
+    // ApplicationFailure, which is what must escape instead.
     const wireFailure = ApplicationFailure.create({
       type: "PaymentDeclined",
       message: "Card declined",
