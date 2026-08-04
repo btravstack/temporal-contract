@@ -7,6 +7,7 @@ import {
   withTaskQueue,
 } from "@temporal-contract/testing/workflow-bundle";
 import { Context } from "@temporalio/activity";
+import { ActivityFailure } from "@temporalio/common";
 import { OkAsync } from "unthrown";
 import { describe, expect } from "vitest";
 
@@ -75,15 +76,44 @@ describe("activity failure propagation — characterization", () => {
           args: {},
           workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
         });
-        return result.isErr() ? "failed" : "completed";
+
+        // `isErr()` alone does NOT discriminate this test's regression: a
+        // workflow-TASK retry loop (what a rethrown non-`TemporalFailure`
+        // produces — see `retry.workflows.ts`'s doc comment) runs out the
+        // `workflowExecutionTimeout` above, and the resulting
+        // `WorkflowTimeoutError` is ALSO an `Err`. So `isErr()` is true in
+        // both the correct world and the regression world; only the error's
+        // identity (`WorkflowFailedError` vs. `WorkflowTimeoutError`) tells
+        // them apart. Folding a `defect` into its own branch (rather than
+        // lumping it into "completed") is the same house style as
+        // `retry.workflows.ts`.
+        if (result.isDefect()) return `defect:${String(result.cause)}`;
+        if (!result.isErr()) return "completed";
+
+        const error = result.error;
+        // Not every member of `WorkflowResultErrorsOf` carries `cause`
+        // (`WorkflowValidationError` doesn't), so narrow with `in` rather
+        // than assuming the property exists on the whole union.
+        const cause = "cause" in error ? error.cause : undefined;
+        // Pin WHAT propagated, not just that something did: Temporal's own
+        // `ActivityFailure` wrapper, whose inner cause carries the
+        // activity's original message. If a regression re-wrapped this into
+        // e.g. a bare `ApplicationFailure`, this string changes.
+        const innerCause = cause instanceof ActivityFailure ? cause.cause : undefined;
+        const innerMessage = innerCause instanceof Error ? innerCause.message : String(innerCause);
+        return `failed:${error.name}:${cause instanceof Error ? cause.constructor.name : String(cause)}:${innerMessage}`;
       })(),
     );
 
-    // The workflow must FAIL — not complete, and not spin in task retries
-    // until the execution timeout. And Temporal must have retried the
-    // activity to its configured maximum, proving the retry policy reached
-    // the server rather than being short-circuited client-side.
-    expect(outcome).toBe("failed");
+    // The workflow must FAIL with Temporal's own `WorkflowFailedError`
+    // wrapping the original `ActivityFailure` (whose cause message is the
+    // activity's own thrown message) — not complete, not surface a defect,
+    // and specifically not a `WorkflowTimeoutError`, which is what a
+    // workflow-TASK retry loop spinning out the execution timeout would
+    // produce. And Temporal must have retried the activity to its
+    // configured maximum, proving the retry policy reached the server
+    // rather than being short-circuited client-side.
+    expect(outcome).toBe("failed:WorkflowFailedError:ActivityFailure:activity exploded");
     expect(attempts).toEqual([1, 2]);
   });
 
@@ -92,8 +122,16 @@ describe("activity failure propagation — characterization", () => {
     const bundle = await bundleFor(fixturePath(import.meta.url, "propagation.workflows"));
 
     // Same flat-namespace constraint, and same sync-throw-typechecks-as-never
-    // reasoning, as the previous test.
+    // reasoning, as the previous test. Also tracks `attempts` via Temporal's
+    // own `Context.current().info.attempt`, same as the previous test: a
+    // bare `catch { return { outcome: "handled" } }` in the workflow (now
+    // fixed to fold the caught error's identity — see
+    // `propagation.workflows.ts`) would still go green if a regression never
+    // dispatched the activity at all. Asserting the server-reported attempt
+    // numbers proves the activity actually ran to its configured maximum.
+    const attempts: number[] = [];
     const alwaysFailsNoErrors = (): never => {
+      attempts.push(Context.current().info.attempt);
       // oxlint-disable-next-line unthrown/no-throw -- the activity under test must fail
       throw new Error("activity exploded");
     };
@@ -118,6 +156,9 @@ describe("activity failure propagation — characterization", () => {
         .getOrThrow(),
     );
 
-    expect(result).toEqual({ outcome: "handled" });
+    // `handled:ActivityFailure` pins WHAT the workflow's `catch` observed,
+    // not just that it caught something.
+    expect(result).toEqual({ outcome: "handled:ActivityFailure" });
+    expect(attempts).toEqual([1, 2]);
   });
 });
