@@ -1,7 +1,7 @@
 import type { ActivityDefinition } from "@temporal-contract/contract";
 /**
  * Runtime coverage for the two `ContractMisuseError` fail-fast paths in
- * `buildRawActivitiesProxy` (see `internal.ts:82-245` for the merge-precedence
+ * `buildRawActivitiesProxy` (see `internal.ts:82-248` for the merge-precedence
  * design these guard). Both throws are reachable without a Temporal
  * workflow environment or an SDK mock:
  *
