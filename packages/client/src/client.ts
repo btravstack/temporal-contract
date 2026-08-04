@@ -11,6 +11,7 @@ import type {
   UpdateDefinition,
 } from "@temporal-contract/contract";
 import { TechnicalError, type ContractErrorUnion } from "@temporal-contract/contract/errors";
+import { _internal_reusePolicyFor } from "@temporal-contract/contract/internal";
 import { type Client, type WorkflowHandle, type WorkflowUpdateHandle } from "@temporalio/client";
 import type {
   GetWorkflowHandleOptions,
@@ -854,6 +855,9 @@ export class ContractClient<TContract extends ContractDefinition> {
         // travels as empty args, not `[undefined]`.
         fromPromise(
           this.client.workflow.start(workflowName, {
+            ...(definition.idempotency
+              ? { workflowIdReusePolicy: _internal_reusePolicyFor(definition.idempotency) }
+              : {}),
             ...temporalOptions,
             taskQueue: this.contract.taskQueue,
             args: currentInput === undefined ? [] : [currentInput],
@@ -1001,6 +1005,9 @@ export class ContractClient<TContract extends ContractDefinition> {
         .flatMap(({ definition, typedSearchAttributes }) =>
           fromPromise(
             this.client.workflow.signalWithStart(workflowName, {
+              ...(definition.idempotency
+                ? { workflowIdReusePolicy: _internal_reusePolicyFor(definition.idempotency) }
+                : {}),
               ...temporalOptions,
               taskQueue: this.contract.taskQueue,
               args: currentInput === undefined ? [] : [currentInput],
@@ -1117,6 +1124,9 @@ export class ContractClient<TContract extends ContractDefinition> {
         // the worker on receive — D1).
         fromPromise(
           this.client.workflow.execute(workflowName, {
+            ...(definition.idempotency
+              ? { workflowIdReusePolicy: _internal_reusePolicyFor(definition.idempotency) }
+              : {}),
             ...temporalOptions,
             taskQueue: this.contract.taskQueue,
             args: currentInput === undefined ? [] : [currentInput],
