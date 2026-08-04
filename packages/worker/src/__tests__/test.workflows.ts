@@ -1,7 +1,6 @@
 import { sleep } from "@temporalio/workflow";
 
-import { propagateActivityFailure } from "../activity-failure.js";
-import { declareWorkflow } from "../workflow.js";
+import { declareWorkflow, propagateActivityFailure } from "../workflow.js";
 import { testContract } from "./test.contract.js";
 
 export const simpleWorkflow = declareWorkflow({

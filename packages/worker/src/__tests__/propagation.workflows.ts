@@ -1,8 +1,7 @@
 import { ActivityFailure } from "@temporalio/workflow";
 
-import { propagateActivityFailure } from "../activity-failure.js";
 import { ActivityError } from "../errors.js";
-import { declareWorkflow } from "../workflow.js";
+import { declareWorkflow, propagateActivityFailure } from "../workflow.js";
 import { propagationContract } from "./propagation.contract.js";
 
 /**

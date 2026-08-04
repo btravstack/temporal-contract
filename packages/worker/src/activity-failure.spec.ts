@@ -4,7 +4,15 @@ import { ErrAsync, OkAsync } from "unthrown";
 import { describe, expect, it } from "vitest";
 
 import { propagateActivityFailure } from "./activity-failure.js";
-import { ActivityCancelledError, ActivityError } from "./errors.js";
+import {
+  ActivityCancelledError,
+  ActivityError,
+  ChildWorkflowCancelledError,
+  ChildWorkflowError,
+  ChildWorkflowNotFoundError,
+  ContractMisuseError,
+  WorkflowCancelledError,
+} from "./errors.js";
 
 describe("propagateActivityFailure", () => {
   it("returns the value on Ok", async () => {
@@ -109,5 +117,76 @@ describe("propagateActivityFailure", () => {
     });
 
     await expect(propagateActivityFailure(ErrAsync(contractError))).rejects.toBe(contractError);
+  });
+
+  it("rethrows the preserved cause for a failed child workflow", async () => {
+    // Mirrors ActivityError: `cause` is the unwrapped actionable failure.
+    const cause = ApplicationFailure.create({ message: "child failed", type: "Boom" });
+    const childError = new ChildWorkflowError("processPayment", "Child workflow failed", cause);
+
+    await expect(propagateActivityFailure(ErrAsync(childError))).rejects.toBe(cause);
+  });
+
+  it("rethrows a child workflow error's wrapper when no cause was preserved", async () => {
+    const childError = new ChildWorkflowError("processPayment", "Child workflow failed");
+
+    await expect(propagateActivityFailure(ErrAsync(childError))).rejects.toBe(childError);
+  });
+
+  it("rethrows the preserved cause for a cancelled child workflow", async () => {
+    const cancelledFailure = ApplicationFailure.create({ message: "cancelled", type: "Cancelled" });
+    const cancelled = new ChildWorkflowCancelledError("processPayment", cancelledFailure);
+
+    await expect(propagateActivityFailure(ErrAsync(cancelled))).rejects.toBe(cancelledFailure);
+  });
+
+  it("rethrows the preserved cause for a cancelled cancellation scope", async () => {
+    // WorkflowCancelledError from context.cancellableScope/nonCancellableScope
+    // — mirrors ActivityCancelledError's cause handling.
+    const cancelledFailure = ApplicationFailure.create({ message: "cancelled", type: "Cancelled" });
+    const cancelled = new WorkflowCancelledError(cancelledFailure);
+
+    await expect(propagateActivityFailure(ErrAsync(cancelled))).rejects.toBe(cancelledFailure);
+  });
+
+  it("rethrows a cancelled scope's wrapper when no cause was preserved", async () => {
+    const cancelled = new WorkflowCancelledError();
+
+    await expect(propagateActivityFailure(ErrAsync(cancelled))).rejects.toBe(cancelled);
+  });
+
+  it("converts a not-found child workflow to a terminal ContractMisuseError, not a bare TaggedError rethrow", async () => {
+    // ChildWorkflowNotFoundError fires before any Temporal call (the child
+    // workflow name isn't declared on the target contract) — there is no
+    // pre-existing TemporalFailure to re-raise. Rethrowing it bare would
+    // stall the workflow (TaggedError, not TemporalFailure); it must be
+    // converted to a terminal ApplicationFailure instead.
+    const notFound = new ChildWorkflowNotFoundError("processPayment", ["processOrder"]);
+
+    await expect(propagateActivityFailure(ErrAsync(notFound))).rejects.toThrow(ContractMisuseError);
+    await expect(propagateActivityFailure(ErrAsync(notFound))).rejects.toMatchObject({
+      message: notFound.message,
+      nonRetryable: true,
+    });
+  });
+
+  // Item 8: the defect channel has no dedicated coverage above — every case
+  // drives ErrAsync/OkAsync. Prove this test discriminates by temporarily
+  // deleting the `: settled.cause` fallback in activity-failure.ts (hardcode
+  // `settled.error`) and observing ONLY this test fail; the eight Err-based
+  // tests above stay green because none of them exercise the Defect branch.
+  it("classifies a defect's cause through the same chain as an Err — not settled.error", async () => {
+    const cause = ApplicationFailure.create({ message: "boom", type: "Boom" });
+    const activityError = new ActivityError("charge", 'Activity "charge" failed: boom', cause);
+
+    // A genuine defect: something inside the AsyncResult pipeline THREW
+    // `activityError` rather than returning `Err(activityError)`. A defect
+    // has no public constructor — a throw inside a combinator is the only
+    // way to mint one (see unthrown's `defectOf` test helper).
+    const defect = OkAsync(0).map<never>(() => {
+      throw activityError;
+    });
+
+    await expect(propagateActivityFailure(defect)).rejects.toBe(cause);
   });
 });

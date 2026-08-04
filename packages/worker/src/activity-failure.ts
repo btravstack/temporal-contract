@@ -1,7 +1,15 @@
 import { ContractError } from "@temporal-contract/contract/errors";
 import type { AsyncResult } from "unthrown";
 
-import { ActivityCancelledError, ActivityError } from "./errors.js";
+import {
+  ActivityCancelledError,
+  ActivityError,
+  ChildWorkflowCancelledError,
+  ChildWorkflowError,
+  ChildWorkflowNotFoundError,
+  ContractMisuseError,
+  WorkflowCancelledError,
+} from "./errors.js";
 
 /**
  * Await an activity call and return its value, re-raising the failure so
@@ -71,6 +79,22 @@ import { ActivityCancelledError, ActivityError } from "./errors.js";
  *
  * A failure with nothing preserved at all rethrows the wrapper, so the error
  * identity is never lost.
+ *
+ * **Not just activity calls.** The same non-`TemporalFailure`-stall hazard
+ * applies to `context.executeChildWorkflow` / `context.startChildWorkflow`
+ * (`ChildWorkflowError`, `ChildWorkflowCancelledError` — both `TaggedError`s
+ * carrying the unwrapped failure as `cause`, mirroring `ActivityError`) and
+ * to `context.cancellableScope` / `context.nonCancellableScope`
+ * (`WorkflowCancelledError`, whose `cause` holds the original
+ * `CancelledFailure`). This helper accepts any of those too — `E` is
+ * intentionally unconstrained so a bare `throw error` at the bottom doesn't
+ * quietly stall the workflow for a union this module didn't anticipate.
+ * `ChildWorkflowNotFoundError` is the one exception with no `cause` to
+ * rethrow: it fires *before* any Temporal call, when the target contract
+ * doesn't declare the child workflow name at all — a deterministic
+ * programmer bug, not a Temporal-observed failure. It is converted to a
+ * `ContractMisuseError` (a non-retryable `ApplicationFailure`) instead, so
+ * it still fails the workflow terminally rather than stalling it.
  */
 export async function propagateActivityFailure<T, E>(result: AsyncResult<T, E>): Promise<T> {
   const settled = await result;
@@ -79,8 +103,11 @@ export async function propagateActivityFailure<T, E>(result: AsyncResult<T, E>):
   }
 
   // A `Defect` is an unmodeled failure (a bug this library didn't
-  // anticipate) — rethrow its cause unchanged rather than trying to classify
-  // it as an activity failure.
+  // anticipate). It falls into the same classification chain below rather
+  // than being rethrown unclassified: a defect's `cause` can itself be one
+  // of the shapes handled here (e.g. an `ActivityError` thrown instead of
+  // returned), and that shape deserves the same re-raise treatment whether
+  // it arrived via `Err` or `Defect`.
   const error: unknown = settled.isErr() ? settled.error : settled.cause;
 
   if (error instanceof ActivityError) {
@@ -94,6 +121,18 @@ export async function propagateActivityFailure<T, E>(result: AsyncResult<T, E>):
   if (error instanceof ContractError) {
     // oxlint-disable-next-line unthrown/no-throw -- deliberate re-raise: re-raise the original ApplicationFailure so the workflow fails with the activity's real declared error, not declareWorkflow's misleading "not declared on workflow" fallback (see doc comment)
     throw error.cause ?? error;
+  }
+  if (error instanceof ChildWorkflowError || error instanceof ChildWorkflowCancelledError) {
+    // oxlint-disable-next-line unthrown/no-throw -- deliberate re-raise: mirrors ActivityError/ActivityCancelledError — `cause` is the unwrapped actionable (or pre-unwrap cancellation) failure Temporal originally produced
+    throw error.cause ?? error;
+  }
+  if (error instanceof WorkflowCancelledError) {
+    // oxlint-disable-next-line unthrown/no-throw -- deliberate re-raise: `cause` holds the original CancelledFailure the scope observed (see cancellableScope/nonCancellableScope)
+    throw error.cause ?? error;
+  }
+  if (error instanceof ChildWorkflowNotFoundError) {
+    // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: this is a deterministic contract-misuse bug, not a Temporal-observed failure, so there is no pre-existing TemporalFailure to re-raise (CLAUDE.md rule 2 exception)
+    throw new ContractMisuseError(error.message);
   }
   // oxlint-disable-next-line unthrown/no-throw -- deliberate re-raise: an unmodeled error/defect value is rethrown unchanged
   throw error;
