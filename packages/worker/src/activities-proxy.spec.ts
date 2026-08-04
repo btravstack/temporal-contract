@@ -27,6 +27,14 @@ import { ActivityCancelledError, type ActivityError } from "./errors.js";
  */
 type ProxyError = AnyContractError | ActivityError | ActivityCancelledError;
 
+/**
+ * The error union for activities with NO declared `errors` map — mirrors
+ * `ActivityErrorsFor`'s else-branch in activities-proxy.ts: the same two
+ * classification fallbacks as `ProxyError`, minus the typed rehydration
+ * member that can't occur without a declared `errors` map.
+ */
+type NoDeclaredErrors = ActivityError | ActivityCancelledError;
+
 const erroredDefinition = {
   input: z.object({ amount: z.number() }),
   output: z.object({ transactionId: z.string() }),
@@ -56,7 +64,7 @@ describe("createValidatedActivities — activities without declared errors", () 
       { chargePayment: async () => ({ transactionId: "tx" }) },
       { chargePayment: plainDefinition },
       undefined,
-    ) as unknown as Record<string, (input: unknown) => AsyncResult<unknown, ActivityError>>;
+    ) as unknown as Record<string, (input: unknown) => AsyncResult<unknown, NoDeclaredErrors>>;
 
     const okResult = await activities["chargePayment"]!({ amount: 1 });
     expect(okResult).toBeOkWith({ transactionId: "tx" });
@@ -98,7 +106,7 @@ describe("createValidatedActivities — wire format (validate on send, parse on 
       },
       { transformer: transformDefinition },
       undefined,
-    ) as unknown as Record<string, (input: unknown) => AsyncResult<unknown, ActivityError>>;
+    ) as unknown as Record<string, (input: unknown) => AsyncResult<unknown, NoDeclaredErrors>>;
 
     const result = await activities["transformer"]!({ text: "hi" });
 
