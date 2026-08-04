@@ -1,3 +1,4 @@
+import { defineContract, defineWorkflow } from "@temporal-contract/contract";
 import {
   ApplicationFailure,
   CancelledFailure,
@@ -15,8 +16,23 @@ import { RetryState } from "@temporalio/common";
  *
  * Closes audit findings #1 (worker child-workflow cause unwrapping) and
  * #11 (`WorkflowFailedError.cause` typing).
+ *
+ * Also covers contract-declared idempotency (`workflowIdReusePolicy`) at
+ * both child-start paths — `startChildWorkflow` and `executeChildWorkflow`
+ * — the same pattern `client.spec.ts`'s "contract-declared idempotency"
+ * block uses for the client's own three start paths. `@temporalio/workflow`
+ * is mocked (its `startChild`/`executeChild` faked to capture the options
+ * they were called with) rather than run against a real/time-skipping
+ * server, because what's under test here is purely the ARGS SHAPE
+ * `child-workflow.ts` builds — the same technique the now-deleted
+ * `wire-format.spec.ts` used before it was replaced by
+ * `child-wire.inprocess.spec.ts`'s real-server EFFECT proofs (see that
+ * file's header comment). A real server can't easily assert precedence
+ * (contract mode vs. an explicit per-call override) without a second full
+ * workflow run per case; a captured-call assertion proves it directly.
  */
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import {
   ChildWorkflowCancelledError,
@@ -24,6 +40,36 @@ import {
   ChildWorkflowNotFoundError,
 } from "./errors.js";
 import { classifyChildWorkflowError } from "./internal.js";
+
+type ChildCall = { workflowName: string; options: Record<string, unknown> };
+
+const startChildCalls: ChildCall[] = [];
+const executeChildCalls: ChildCall[] = [];
+let childResultValue: unknown;
+
+vi.mock("@temporalio/workflow", async () => {
+  const actual =
+    await vi.importActual<typeof import("@temporalio/workflow")>("@temporalio/workflow");
+  return {
+    ...actual,
+    startChild: async (workflowName: string, options: Record<string, unknown>) => {
+      startChildCalls.push({ workflowName, options });
+      return {
+        workflowId: "child-1",
+        firstExecutionRunId: "run-1",
+        signal: async () => undefined,
+        result: async () => childResultValue,
+      };
+    },
+    executeChild: async (workflowName: string, options: Record<string, unknown>) => {
+      executeChildCalls.push({ workflowName, options });
+      return childResultValue;
+    },
+  };
+});
+
+const { createExecuteChildWorkflow, createStartChildWorkflow } =
+  await import("./child-workflow.js");
 
 // Minimal stand-in for a `WorkflowExecution`. The classify helper never
 // inspects the field — it only reads `.cause` off the wrapper — so the
@@ -184,6 +230,148 @@ describe("classifyChildWorkflowError", () => {
       const result = classifyChildWorkflowError("signal", new Error("boom"), "myChild");
       expect(result.message).toContain("Failed to signal child workflow");
       expect(result.message).toContain("myChild");
+    });
+  });
+});
+
+describe("contract-declared idempotency", () => {
+  // `onceChild` declares "once-per-id" so its default policy
+  // (REJECT_DUPLICATE) is distinguishable from Temporal's own default
+  // (ALLOW_DUPLICATE) — see `client.spec.ts`'s identical rationale.
+  // `plainChild` declares no `idempotency` at all, standing in for
+  // contracts that haven't adopted the field yet.
+  const idempotencyContract = defineContract({
+    taskQueue: "child-idempotency-queue",
+    workflows: {
+      onceChild: defineWorkflow({
+        input: z.object({ id: z.string() }),
+        output: z.object({ ok: z.boolean() }),
+        idempotency: "once-per-id",
+      }),
+      plainChild: defineWorkflow({
+        input: z.object({ id: z.string() }),
+        output: z.object({ ok: z.boolean() }),
+      }),
+    },
+  });
+
+  beforeEach(() => {
+    startChildCalls.length = 0;
+    executeChildCalls.length = 0;
+    childResultValue = { ok: true };
+  });
+
+  describe("startChildWorkflow", () => {
+    it("applies the contract's mode as workflowIdReusePolicy", async () => {
+      const result = await createStartChildWorkflow(idempotencyContract, "onceChild", {
+        workflowId: "child-once-1",
+        args: { id: "a" },
+      });
+
+      expect(result).toBeOk();
+      expect(startChildCalls).toEqual([
+        {
+          workflowName: "onceChild",
+          options: {
+            workflowId: "child-once-1",
+            workflowIdReusePolicy: "REJECT_DUPLICATE",
+            taskQueue: "child-idempotency-queue",
+            args: [{ id: "a" }],
+          },
+        },
+      ]);
+    });
+
+    // This is the test that catches a contract-after-spread mistake: the
+    // "applies" test above only proves the field is set to SOMETHING, not
+    // that a caller can still win. Precedence is expressed independently at
+    // each call site's own spread, so a mistake at this site is invisible
+    // to `executeChildWorkflow`'s equivalent test below.
+    it("lets an explicit per-call workflowIdReusePolicy override the contract", async () => {
+      const result = await createStartChildWorkflow(idempotencyContract, "onceChild", {
+        workflowId: "child-once-2",
+        args: { id: "a" },
+        workflowIdReusePolicy: "ALLOW_DUPLICATE",
+      });
+
+      expect(result).toBeOk();
+      expect(startChildCalls).toEqual([
+        {
+          workflowName: "onceChild",
+          options: {
+            workflowId: "child-once-2",
+            workflowIdReusePolicy: "ALLOW_DUPLICATE",
+            taskQueue: "child-idempotency-queue",
+            args: [{ id: "a" }],
+          },
+        },
+      ]);
+    });
+
+    it("sends no policy when the contract declares none", async () => {
+      const result = await createStartChildWorkflow(idempotencyContract, "plainChild", {
+        workflowId: "child-plain-1",
+        args: { id: "a" },
+      });
+
+      expect(result).toBeOk();
+      // Not even a present-`undefined` key — `toHaveBeenCalledWith`-style
+      // equality would not catch that distinction, since vitest treats an
+      // `undefined`-valued key as absent under deep equality.
+      expect(startChildCalls[0]?.options).not.toHaveProperty("workflowIdReusePolicy");
+    });
+  });
+
+  describe("executeChildWorkflow", () => {
+    it("applies the contract's mode as workflowIdReusePolicy", async () => {
+      const result = await createExecuteChildWorkflow(idempotencyContract, "onceChild", {
+        workflowId: "child-once-3",
+        args: { id: "a" },
+      });
+
+      expect(result).toBeOk();
+      expect(executeChildCalls).toEqual([
+        {
+          workflowName: "onceChild",
+          options: {
+            workflowId: "child-once-3",
+            workflowIdReusePolicy: "REJECT_DUPLICATE",
+            taskQueue: "child-idempotency-queue",
+            args: [{ id: "a" }],
+          },
+        },
+      ]);
+    });
+
+    it("lets an explicit per-call workflowIdReusePolicy override the contract", async () => {
+      const result = await createExecuteChildWorkflow(idempotencyContract, "onceChild", {
+        workflowId: "child-once-4",
+        args: { id: "a" },
+        workflowIdReusePolicy: "ALLOW_DUPLICATE",
+      });
+
+      expect(result).toBeOk();
+      expect(executeChildCalls).toEqual([
+        {
+          workflowName: "onceChild",
+          options: {
+            workflowId: "child-once-4",
+            workflowIdReusePolicy: "ALLOW_DUPLICATE",
+            taskQueue: "child-idempotency-queue",
+            args: [{ id: "a" }],
+          },
+        },
+      ]);
+    });
+
+    it("sends no policy when the contract declares none", async () => {
+      const result = await createExecuteChildWorkflow(idempotencyContract, "plainChild", {
+        workflowId: "child-plain-2",
+        args: { id: "a" },
+      });
+
+      expect(result).toBeOk();
+      expect(executeChildCalls[0]?.options).not.toHaveProperty("workflowIdReusePolicy");
     });
   });
 });
