@@ -118,8 +118,35 @@ For each activity, with
   `M.retry.maximumAttempts` must be a finite positive integer.
 
 A violation of either rule collects the activity name and the rule it broke.
-All violations are reported in one `ContractMisuseError` — a non-retryable
-`ApplicationFailure`, so the workflow fails cleanly instead of stalling.
+All violations are reported in one `ContractMisuseError` naming every offender.
+
+**Where this actually fires, corrected after implementation.** An earlier draft
+of this spec claimed the `ContractMisuseError` — being a non-retryable
+`ApplicationFailure` — makes the workflow "fail cleanly instead of stalling."
+**That was wrong**, and the correction matters enough to record rather than
+quietly edit out.
+
+`declareWorkflow` is called at module top level, so the guard throws while the
+workflow bundle's module is being evaluated — before the SDK ever invokes the
+workflow function. A throw at that point is caught by `handleActivation`'s
+outer catch (`@temporalio/worker` `lib/worker.js:1104-1112`), which produces a
+`WorkflowActivationCompletion.failed` **unconditionally**. That is a Workflow
+**Task** failure, and `nonRetryable` is inert there — it only has meaning on a
+`FailWorkflowExecution` command, which this path never emits. So the guard
+stalls the run exactly like the plain `TypeError` it replaced. This was proven
+empirically: with the guard mutated off, a real-server run failed
+byte-for-byte identically — same timeout tag, same duration.
+
+**Stalling is nevertheless the right behavior, and is kept deliberately.**
+Temporal retries workflow tasks precisely so a bug can be fixed and redeployed
+with in-flight executions resuming. Making a misconfiguration terminal would
+permanently fail every in-flight workflow on a bad deploy, including
+mid-payment ones — destroying work that stalling preserves.
+
+The guard's value is therefore **at declaration time in development and CI**,
+where it does fire usefully: unit tests exercise it directly, and it is what
+drove this change's own fixture migration. It is not a production runtime
+safety net, and this document no longer claims it is.
 
 `scheduleToCloseTimeout` satisfies both rules on its own.
 
@@ -193,11 +220,16 @@ shown to be falsifiable, not merely green:
   bypass path: retry-only contract bag; truthy-but-timeoutless `declareWorkflow`
   default; override-only; the shallow-merge bound drop; and `maximumAttempts` of
   `Infinity`, `0`, and a non-integer.
-- **One in-process effect test** on the real time-skipping server: a workflow
-  whose activity is unbounded fails with `ContractMisuseError` rather than
-  hanging. Asserting the error **identity**, not merely that the result is an
-  `Err` — a stalled workflow that hits a test timeout is also an `Err`, and that
-  false green is exactly the defect that shipped in part 1.
+- **No in-process effect test — deliberately, after attempting one.** This spec
+  originally required a real-server test proving an unbounded activity "fails
+  with `ContractMisuseError` rather than hanging." Implementation established
+  that it does **not** fail; it stalls (see the correction above). The test was
+  built and then discarded because it could not distinguish the two worlds: with
+  the guard mutated off, the run failed byte-for-byte identically — same timeout
+  tag, same duration. Shipping it would have added a test that passes whether or
+  not the feature works, which is precisely the vacuous-guard defect this
+  workstream exists to eliminate. The runtime behavior is documented instead.
+  The unit tier plus the mutation matrix carry the proof.
 - **`parentClosePolicy`** gets type-level tests with `@ts-expect-error` on both
   omission **and** explicit `undefined`. The second is the one that fails if the
   `Exclude` is dropped; without it the component silently reverts to a no-op.
@@ -247,6 +279,11 @@ runs.
 5. Examples, docs, and fixtures migrated; `pnpm turbo run typecheck` green
    repo-wide.
 6. A changeset records both breaking changes and the migration.
+7. The documentation states the guard's **real** runtime behavior — that a
+   violation stalls the workflow via workflow-task retry rather than failing it,
+   that this is deliberate because it lets a fix-and-redeploy recover in-flight
+   executions, and that the guard's value is at declaration time in development
+   and CI. No document may claim it fails the workflow cleanly.
 
 ## Out of scope
 
