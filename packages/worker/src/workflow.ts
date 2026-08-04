@@ -179,29 +179,40 @@ export type { TypedContinueAsNewOptions } from "./internal.js";
  *   contract: myContract,
  *   activityOptions: {
  *     startToCloseTimeout: '1 minute',
+ *     retry: { maximumAttempts: 3 },
  *   },
  *   // Optional: override `activityOptions` for specific activities. Each
  *   // entry shallow-merges over the workflow default — the override wins on
  *   // every property it specifies, including the whole `retry` block. The
  *   // override is Temporal's full `ActivityOptions`, so `taskQueue` works too,
  *   // letting you route individual activities to a dedicated worker pool.
+ *   //
+ *   // Every reachable activity's MERGED options need both a per-attempt bound
+ *   // (`startToCloseTimeout` or `scheduleToCloseTimeout`) and a total bound
+ *   // (`scheduleToCloseTimeout`, or a finite positive `retry.maximumAttempts`)
+ *   // — the workflow default above supplies both, so `scoreRisk` below only
+ *   // needs to override what it's actually changing (`taskQueue`).
  *   activityOptionsByName: {
  *     chargePayment: {
  *       startToCloseTimeout: '5 minutes',
  *       retry: { maximumAttempts: 5 },
  *     },
- *     // Route this activity to a dedicated, concurrency-capped queue.
+ *     // Route this activity to a dedicated, concurrency-capped queue; it
+ *     // still inherits the workflow default's bounds (only `taskQueue` is
+ *     // overridden here).
  *     scoreRisk: { taskQueue: 'ml-inference' },
  *   },
  *   implementation: async (context, args) => {
  *     // context.activities: typed activities (workflow + global)
  *     // context.info: WorkflowInfo
  *
- *     // Every activity call returns an AsyncResult — narrow it or use
- *     // `propagateActivityFailure` to let Temporal decide the outcome.
+ *     // Every activity call returns an AsyncResult with three channels —
+ *     // narrow `isDefect()`/`isErr()` (or use `propagateActivityFailure` to
+ *     // let Temporal decide the outcome) before reaching `.value`.
  *     const inventory = await context.activities.validateInventory({
  *       orderId: args.orderId,
  *     });
+ *     if (inventory.isDefect()) throw inventory.cause;
  *     if (inventory.isErr()) {
  *       return { orderId: args.orderId, status: 'out_of_stock' };
  *     }
@@ -214,6 +225,7 @@ export type { TypedContinueAsNewOptions } from "./internal.js";
  *       customerId: args.customerId,
  *       amount: 100,
  *     });
+ *     if (payment.isDefect()) throw payment.cause;
  *     if (payment.isErr()) {
  *       return { orderId: args.orderId, status: 'failed' };
  *     }
@@ -512,11 +524,23 @@ export type DeclareWorkflowOptions<
    * }
    * ```
    *
-   * Optional when every reachable activity carries its own options — via
-   * contract-level `activityOptions` or an {@link activityOptionsByName}
-   * entry. If it is omitted while some activity has neither,
-   * `declareWorkflow` throws at declaration time listing the uncovered
-   * activities.
+   * Optional in isolation, but every activity reachable from this workflow
+   * (workflow-local + global) must end up with a **bounded** merged result:
+   * a per-attempt bound (`startToCloseTimeout` or `scheduleToCloseTimeout`)
+   * AND a total bound (`scheduleToCloseTimeout`, or a finite positive
+   * `retry.maximumAttempts`) — otherwise a failing activity retries forever.
+   * This is checked unconditionally on the MERGE of all three layers
+   * (`activityOptions` → the activity's contract-level `defineActivity({
+   * activityOptions })` → {@link activityOptionsByName}), not on any single
+   * layer in isolation: since each layer shallow-merges over the previous —
+   * replacing a `retry` block wholesale, not field-by-field — two
+   * individually-bounded layers can still merge to something unbounded.
+   * Supplying `activityOptions` here does not exempt an activity that
+   * carries its own contract-level or per-name options; if the FINAL merged
+   * result for any reachable activity is missing either bound,
+   * `declareWorkflow` throws `ContractMisuseError` at declaration time
+   * (workflow-bundle load), naming every offending activity and which
+   * bound(s) it lacks.
    */
   activityOptions?: ActivityOptions;
   /**
@@ -538,7 +562,9 @@ export type DeclareWorkflowOptions<
    *
    * @example Tune timeouts and retries per activity
    * ```ts
-   * activityOptions: { startToCloseTimeout: '1 minute' }, // default
+   * // default — both bounds live here; `fastValidation` below only
+   * // overrides `startToCloseTimeout`, so it still inherits this `retry`.
+   * activityOptions: { startToCloseTimeout: '1 minute', retry: { maximumAttempts: 3 } },
    * activityOptionsByName: {
    *   chargePayment: {
    *     startToCloseTimeout: '5 minutes',
@@ -550,7 +576,9 @@ export type DeclareWorkflowOptions<
    *
    * @example Route specific activities to a dedicated task queue
    * ```ts
-   * activityOptions: { startToCloseTimeout: '10 minutes' }, // default queue
+   * // default — both bounds live here; the `taskQueue`-only override below
+   * // still inherits this `retry`.
+   * activityOptions: { startToCloseTimeout: '10 minutes', retry: { maximumAttempts: 3 } }, // default queue
    * activityOptionsByName: {
    *   // LLM call → dedicated, concurrency-capped queue.
    *   extractLayoutChunk: { taskQueue: 'gemini-pro' },
