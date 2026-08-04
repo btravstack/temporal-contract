@@ -46,9 +46,13 @@ const validateInventory = defineActivity({
       nonRetryable: true,
     },
   },
-  // Optional contract-level ActivityOptions defaults. Merge order:
-  // declareWorkflow activityOptions < defaultOptions < activityOptionsByName.
-  defaultOptions: { startToCloseTimeout: "30 seconds" },
+  // Optional contract-level activity options. Merge order (shallow — a later
+  // layer replaces the whole `retry` block):
+  // declareWorkflow activityOptions < this < activityOptionsByName.
+  // Both bounds are required in the MERGED result: a per-attempt bound and a
+  // total bound. `startToCloseTimeout` alone is NOT enough — it caps one
+  // attempt, not the retry sequence, which defaults to unlimited.
+  activityOptions: { startToCloseTimeout: "30 seconds", retry: { maximumAttempts: 3 } },
 });
 
 const sendEmail = defineActivity({
@@ -123,6 +127,6 @@ Any Standard Schema compatible library works:
   - `errors` — typed domain errors (`{ data?: schema, message?, nonRetryable? }` per name); thrown via `context.errors.X(data)` in the implementation and rehydrated as `ContractError` on the client
 - Each activity (global or workflow-local) can additionally declare:
   - `errors` — same shape as workflow errors; produced via the `errors` constructors in the implementation's helpers argument, and rehydrated as a typed `AsyncResult` error union on the workflow side
-  - `defaultOptions` — contract-level `ActivityOptions` defaults (timeouts, retry). Merge precedence at the worker: `declareWorkflow` `activityOptions` < `defaultOptions` < `activityOptionsByName`
+  - `activityOptions` — contract-level `ContractActivityOptions` defaults (timeouts, retry); renamed from `defaultOptions` in 8.0. Merge precedence at the worker, shallow so a later layer replaces the whole nested `retry` block: `declareWorkflow` `activityOptions` < this < `activityOptionsByName`. The **merged** result must carry both a per-attempt bound (`startToCloseTimeout` or `scheduleToCloseTimeout`) and a total bound (`scheduleToCloseTimeout`, or a finite positive `retry.maximumAttempts`), or `declareWorkflow` throws `ContractMisuseError` naming the activity
 
 `defineContract` validates the contract's structure at runtime with a hand-rolled structural validator (no zod runtime dependency) and throws a descriptive error: strict root keys (only `taskQueue`/`workflows`/`activities`), identifier-safe names, Standard Schema slots, and collision checks. Activities share a single flat namespace at the worker level, so two _different_ definitions can't share a name even across workflows — but reusing the **same definition object** across workflows is allowed (it's one activity), and the collision message recommends hoisting shared activities to the global `activities` block. A workflow name colliding with a global activity name is also rejected (they share the root of the worker implementations map). See `packages/contract/src/builder.ts` (`validateContractDefinition`).
