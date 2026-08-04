@@ -501,9 +501,32 @@ export class WorkflowCancelledError extends TaggedError(WORKFLOW_CANCELLED_ERROR
  *
  * @example
  * ```ts
- * const result = await context.cancellableScope(() => context.activities.processStep(args));
+ * // `fn`'s return value becomes the scope's `T` verbatim, so await and
+ * // narrow the activity's own AsyncResult HERE, inside the callback —
+ * // returning it un-awaited would make `T` the AsyncResult itself, which
+ * // has no `isOk`/`isErr`/`.value`.
+ * const result = await context.cancellableScope(async () => {
+ *   const step = await context.activities.processStep(args);
+ *   if (step.isDefect()) {
+ *     throw step.cause;
+ *   }
+ *   return step.isOk();
+ * });
+ * if (result.isDefect()) {
+ *   throw result.cause; // a genuine bug thrown inside the scope, not a cancel
+ * }
  * if (result.isErr()) {
- *   await context.nonCancellableScope(() => context.activities.releaseResources(args));
+ *   // Capture nonCancellableScope's OWN AsyncResult too — a bare `await`
+ *   // would silently discard a defect thrown during cleanup.
+ *   const released = await context.nonCancellableScope(async () => {
+ *     const step = await context.activities.releaseResources(args);
+ *     if (step.isErr()) {
+ *       // best-effort cleanup — log and continue regardless
+ *     }
+ *   });
+ *   if (released.isDefect()) {
+ *     throw released.cause; // a genuine bug in cleanup, not a cancel
+ *   }
  *   // Honor the cancellation instead of completing normally:
  *   rethrowCancellation(result.error);
  * }
