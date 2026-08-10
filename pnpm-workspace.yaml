@@ -85,8 +85,16 @@ overrides:
   # 3.x via @changesets/cli>@manypkg/get-packages>read-yaml-file and 4.x via
   # @changesets/cli>@changesets/parse. Each major line is version-scoped and
   # pinned to its patched release.
-  "js-yaml@3": "3.15.0"
-  "js-yaml@4": "4.3.0"
+  #
+  # Raised to 3.15.1 / 4.3.1 for GHSA-5p4m-2wfm-xmqj (High), a later advisory on
+  # the same package that 3.15.0 / 4.3.0 predate.
+  "js-yaml@3": "3.15.1"
+  "js-yaml@4": "4.3.1"
+  # GHSA-2v37-7h3g-55p8 (High): nanoid custom generators can loop indefinitely
+  # when size is zero. Reaches us only through the docs build —
+  # docs > @btravstack/theme > vitepress > postcss > nanoid — never the shipped
+  # package. Pinned to its first patched release.
+  "nanoid@<3.3.17": "3.3.17"
   # GHSA-fx2h-pf6j-xcff: vite `server.fs.deny` bypass (dev-server only; the docs
   # ship as static HTML). Reaches us via docs > vitepress > vite. vitepress 1.6.x
   # pins vite 5.x and 5.x has no patched release, so lift any pre-6.4.3 vite to
