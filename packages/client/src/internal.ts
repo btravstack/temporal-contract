@@ -6,11 +6,7 @@
  * In-package modules and tests import it directly via relative path.
  */
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type {
-  AnyWorkflowDefinition,
-  SearchAttributeDefinition,
-  SearchAttributeKind,
-} from "@temporal-contract/contract";
+import type { AnyWorkflowDefinition, SearchAttributeDefinition } from "@temporal-contract/contract";
 import { type AnyContractError } from "@temporal-contract/contract/errors";
 import {
   _internal_makeAsyncResult,
@@ -36,7 +32,7 @@ import {
   TypedSearchAttributes,
   WorkflowNotFoundError as TemporalWorkflowNotFoundError,
 } from "@temporalio/common";
-import { type AsyncResult, Err, fromSafePromise, type Result } from "unthrown";
+import { type AsyncResult, Err, fromSafePromise } from "unthrown";
 
 import {
   QueryFailedError,
@@ -55,54 +51,6 @@ import {
 } from "./errors.js";
 
 /**
- * Runtime `typeof`-per-kind check for a search attribute value. The
- * TypeScript surface already constrains values on the happy path; this
- * catches typed escape hatches (`as never`, raw-call interop) where a
- * mistyped value would otherwise be rejected server-side (or silently
- * coerced) long after the call site.
- */
-const searchAttributeValueChecks: Record<
-  SearchAttributeKind,
-  { expected: string; check: (value: unknown) => boolean }
-> = {
-  TEXT: { expected: "a string", check: (v) => typeof v === "string" },
-  KEYWORD: { expected: "a string", check: (v) => typeof v === "string" },
-  INT: {
-    expected: "an integer number",
-    check: (v) => typeof v === "number" && Number.isInteger(v),
-  },
-  DOUBLE: { expected: "a number", check: (v) => typeof v === "number" && Number.isFinite(v) },
-  BOOL: { expected: "a boolean", check: (v) => typeof v === "boolean" },
-  DATETIME: {
-    expected: "a valid Date",
-    // `new Date(NaN)` is still `instanceof Date` but serializes to nothing
-    // meaningful — reject it here instead of letting the server (or the
-    // payload converter) fail long after the call site.
-    check: (v) => v instanceof Date && !Number.isNaN(v.getTime()),
-  },
-  KEYWORD_LIST: {
-    expected: "an array of strings",
-    check: (v) => Array.isArray(v) && v.every((entry) => typeof entry === "string"),
-  },
-};
-
-/**
- * Name a value's runtime type for error messages. `typeof` alone reports
- * `"object"` for arrays, `Date`s, and `null` — the three shapes search
- * attributes actually trip over — so spell those out (including the
- * invalid-`Date` case, which would otherwise read "must be a valid Date;
- * received a Date").
- */
-function describeRuntimeType(value: unknown): string {
-  if (value === null) return "null";
-  if (Array.isArray(value)) return "an array";
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? "an invalid Date" : "a Date";
-  }
-  return `a ${typeof value}`;
-}
-
-/**
  * Translate the contract's typed `searchAttributes` map (declared
  * name → value) into a Temporal `TypedSearchAttributes` instance, so the
  * Temporal client honours indexing when starting the workflow.
@@ -111,15 +59,13 @@ function describeRuntimeType(value: unknown): string {
  * values) resolve to `undefined`, matching the Temporal SDK's
  * "absent ≠ empty" semantics.
  *
- * **Throws** a {@link RuntimeClientError} on unknown keys or on values that
- * don't match the declared kind's runtime type — a *technical*
- * misconfiguration, not a modeled domain error, so it rides the defect
- * channel (this helper always runs inside a combinator callback or a
- * `makeAsyncResult` work thunk, whose throw→defect net captures it). The
- * TypeScript surface already gates the happy path; the runtime check catches
- * typed escape hatches (`as never`, `as any`, raw-call interop) where a typo
- * would otherwise silently drop the attribute, leaving the workflow
- * unindexed without any signal to the caller.
+ * **Throws** a {@link RuntimeClientError} on an undeclared key — a
+ * *technical* misconfiguration, not a modeled domain error, so it rides the
+ * defect channel (this helper always runs inside a combinator callback or a
+ * `makeAsyncResult` work thunk, whose throw→defect net captures it). Value
+ * types are the TypeScript surface's job; an undeclared key is checked at
+ * runtime because it would otherwise silently drop the attribute, leaving
+ * the workflow unindexed without any signal to the caller.
  */
 export function toTypedSearchAttributes(
   workflowDef: AnyWorkflowDefinition,
@@ -149,44 +95,18 @@ export function toTypedSearchAttributes(
         ),
       );
     }
-    const { expected, check } = searchAttributeValueChecks[def.kind];
-    if (!check(value)) {
-      // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: this throw is captured by the enclosing throw→defect net and becomes a defect, never a modeled Err
-      throw new RuntimeClientError(
-        "searchAttributes",
-        new Error(
-          `Search attribute "${name}" on workflow "${workflowName}" is declared as ` +
-            `${def.kind} and must be ${expected}; received ${describeRuntimeType(value)}.`,
-        ),
-      );
-    }
     const key = defineSearchAttributeKey(name, def.kind);
     pairs.push({ key, value } as SearchAttributePair);
   }
   return pairs.length > 0 ? new TypedSearchAttributes(pairs) : undefined;
 }
 
-/**
- * Wrap an async result-producing function in an `AsyncResult`, routing any
- * unanticipated rejection through unthrown's `defect` channel.
- *
- * The work function is expected to handle its own domain errors and return
- * an `Err(...)` for them; a thrown exception the work didn't anticipate is an
- * *unmodeled* failure and surfaces as a defect (inspectable via
- * `result.isDefect()` / `result.cause`, re-thrown at the edge) rather than a
- * manufactured `RuntimeClientError`.
- *
- * The workflow/handle pipelines compose `AsyncResult` combinators directly;
- * this wrapper remains for the setup-shaped sites (`TypedClient.create`,
- * `schedule.create`) whose multi-step imperative flow doesn't decompose into
- * a chain. Delegates to `_internal_makeAsyncResult` from
- * `@temporal-contract/contract` so the same wrapper is shared between the
- * client and worker packages.
- */
-// oxlint-disable-next-line unthrown/prefer-async-result -- this IS the Promise→AsyncResult conversion seam: the work thunk's throw/rejection is what becomes the defect, and an async implementer cannot be annotated AsyncResult
-export function makeAsyncResult<T, E>(work: () => Promise<Result<T, E>>): AsyncResult<T, E> {
-  return _internal_makeAsyncResult(work);
-}
+// Shared Promise→AsyncResult seam, re-exported from the contract package so
+// client and worker wrap their `() => Promise<Result<T, E>>` work functions
+// identically. Used by the setup-shaped sites (`TypedClient.create`,
+// `schedule.create`) whose multi-step imperative flow doesn't decompose into
+// a combinator chain; an unanticipated throw/rejection becomes a defect.
+export { _internal_makeAsyncResult as makeAsyncResult } from "@temporal-contract/contract/internal";
 
 /**
  * Run a Standard Schema validation as an `AsyncResult` boundary. The Ok

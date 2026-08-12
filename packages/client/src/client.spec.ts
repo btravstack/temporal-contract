@@ -24,17 +24,26 @@ import {
   TypedSearchAttributes,
   WorkflowNotFoundError as TemporalWorkflowNotFoundError,
 } from "@temporalio/common";
+import { P } from "unthrown";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
 
 import { ContractClient, readTypedSearchAttributes, TypedClient } from "./client.js";
-import { WORKFLOW_RESULT_ERROR_TAGS, WORKFLOW_START_ERROR_TAGS } from "./error-tags.js";
+import {
+  WORKFLOW_ALREADY_STARTED_ERROR_TAG,
+  WORKFLOW_CANCELLED_ERROR_TAG,
+  WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG,
+  WORKFLOW_FAILED_ERROR_TAG,
+  WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG,
+  WORKFLOW_TERMINATED_ERROR_TAG,
+  WORKFLOW_TIMEOUT_ERROR_TAG,
+  WORKFLOW_VALIDATION_ERROR_TAG,
+} from "./error-tags.js";
 import {
   QueryFailedError,
   QueryValidationError,
   RuntimeClientError,
   SignalValidationError,
-  tagPatterns,
   UpdateFailedError,
   UpdateRejectedError,
   UpdateValidationError,
@@ -47,7 +56,6 @@ import {
   WorkflowTimeoutError,
   WorkflowValidationError,
 } from "./errors.js";
-import type { ClientInterceptor } from "./interceptors.js";
 
 /**
  * Test construction helper: build the connection-scoped root and bind the
@@ -57,14 +65,8 @@ import type { ClientInterceptor } from "./interceptors.js";
 async function bindContract<TContract extends Parameters<TypedClient["for"]>[0]>(
   contract: TContract,
   rawClient: Client,
-  interceptors?: ClientInterceptor[],
 ): Promise<ContractClient<TContract>> {
-  const root = (
-    await TypedClient.create({
-      client: rawClient,
-      ...(interceptors ? { interceptors } : {}),
-    })
-  ).get();
+  const root = (await TypedClient.create({ client: rawClient })).get();
   return root.for(contract);
 }
 
@@ -348,26 +350,6 @@ describe("TypedClient", () => {
       if (invalid.isErr()) {
         expect(invalid.error).toBeInstanceOf(WorkflowValidationError);
       }
-    });
-
-    it("bindings inherit the root's interceptors", async () => {
-      const seen: string[] = [];
-      const observing: ClientInterceptor = (args, next) => {
-        seen.push(`${args.operation}:${args.workflowName}`);
-        return next();
-      };
-      const rawClient = { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client;
-      const root = (
-        await TypedClient.create({ client: rawClient, interceptors: [observing] })
-      ).get();
-      mockWorkflow.execute.mockResolvedValue({ result: "ok" });
-
-      await root.for(testContract).executeWorkflow("testWorkflow", {
-        workflowId: "wf-1",
-        args: { name: "n", value: 1 },
-      });
-
-      expect(seen).toEqual(["executeWorkflow:testWorkflow"]);
     });
   });
 
@@ -983,11 +965,17 @@ describe("TypedClient", () => {
           expect(value).toEqual({ result: "success" });
         },
         errCases: (matcher) =>
-          // The two exported tag bundles cover executeWorkflow's full error
-          // union (start phase + result phase, outcome trio included).
+          // Covers executeWorkflow's full error union (start phase +
+          // result phase, outcome trio included).
           matcher.with(
-            ...tagPatterns(WORKFLOW_START_ERROR_TAGS),
-            ...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS),
+            P.tag(WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG),
+            P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
+            P.tag(WORKFLOW_ALREADY_STARTED_ERROR_TAG),
+            P.tag(WORKFLOW_FAILED_ERROR_TAG),
+            P.tag(WORKFLOW_CANCELLED_ERROR_TAG),
+            P.tag(WORKFLOW_TERMINATED_ERROR_TAG),
+            P.tag(WORKFLOW_TIMEOUT_ERROR_TAG),
+            P.tag(WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG),
             () => {
               throw new Error("Should not be called");
             },
@@ -1919,180 +1907,6 @@ describe("TypedClient — workflow contract errors", () => {
   });
 });
 
-describe("TypedClient — interceptors", () => {
-  const interceptedContract = defineContract({
-    taskQueue: "test-queue",
-    workflows: {
-      testWorkflow: defineWorkflow({
-        input: z.object({ name: z.string(), value: z.number() }),
-        output: z.object({ result: z.string() }),
-        idempotency: "allow-duplicate",
-        queries: {
-          getStatus: { input: z.tuple([]), output: z.string() },
-        },
-      }),
-    },
-  });
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  const clientWith = (interceptors: ClientInterceptor[]) =>
-    bindContract(
-      interceptedContract,
-      { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client,
-      interceptors,
-    );
-
-  it("runs outermost-first, observing the operation", async () => {
-    mockWorkflow.execute.mockResolvedValue({ result: "ok" });
-    const order: string[] = [];
-    const mk =
-      (label: string): ClientInterceptor =>
-      (args, next) => {
-        order.push(`${label}:${args.operation}:${args.workflowName}`);
-        return next();
-      };
-
-    const result = await (
-      await clientWith([mk("outer"), mk("inner")])
-    ).executeWorkflow("testWorkflow", {
-      workflowId: "wf-1",
-      args: { name: "n", value: 1 },
-    });
-
-    expect(result).toBeOk();
-    expect(order).toEqual([
-      "outer:executeWorkflow:testWorkflow",
-      "inner:executeWorkflow:testWorkflow",
-    ]);
-  });
-
-  it("patched input flows through the normal validation pipeline", async () => {
-    mockWorkflow.execute.mockResolvedValue({ result: "ok" });
-    const patching: ClientInterceptor = (_args, next) =>
-      next({ input: { name: "patched", value: 42 } });
-
-    const result = await (
-      await clientWith([patching])
-    ).executeWorkflow("testWorkflow", {
-      workflowId: "wf-2",
-      args: { name: "original", value: 1 },
-    });
-
-    expect(result).toBeOk();
-    expect(mockWorkflow.execute).toHaveBeenCalledWith(
-      "testWorkflow",
-      expect.objectContaining({ args: [{ name: "patched", value: 42 }] }),
-    );
-  });
-
-  it("an invalid patched input is rejected by validation (no bypass)", async () => {
-    const patching: ClientInterceptor = (_args, next) => next({ input: { name: 42 } });
-
-    const result = await (
-      await clientWith([patching])
-    ).executeWorkflow("testWorkflow", {
-      workflowId: "wf-3",
-      args: { name: "original", value: 1 },
-    });
-
-    expect(result).toBeErr();
-    if (result.isErr()) {
-      expect(result.error).toBeInstanceOf(WorkflowValidationError);
-    }
-    expect(mockWorkflow.execute).not.toHaveBeenCalled();
-  });
-
-  it("a patch merges ONLY the payload keys — identity fields cannot be rewritten", async () => {
-    mockWorkflow.execute.mockResolvedValue({ result: "ok" });
-    const seen: string[] = [];
-    // A hostile/buggy interceptor smuggles identity fields into the patch
-    // beside a legitimate input patch. Only the payload keys may merge.
-    const smuggling: ClientInterceptor = (_args, next) =>
-      next({
-        operation: "signal",
-        workflowName: "evil",
-        workflowId: "evil-id",
-        input: { name: "patched", value: 7 },
-      } as never);
-    const observing: ClientInterceptor = (args, next) => {
-      seen.push(`${args.operation}:${args.workflowName}:${args.workflowId}`);
-      return next();
-    };
-
-    const result = await (
-      await clientWith([smuggling, observing])
-    ).executeWorkflow("testWorkflow", {
-      workflowId: "wf-identity",
-      args: { name: "original", value: 1 },
-    });
-
-    expect(result).toBeOk();
-    // The downstream interceptor still sees the call's true identity...
-    expect(seen).toEqual(["executeWorkflow:testWorkflow:wf-identity"]);
-    // ...while the payload patch went through the normal validation pipeline.
-    expect(mockWorkflow.execute).toHaveBeenCalledWith(
-      "testWorkflow",
-      expect.objectContaining({ args: [{ name: "patched", value: 7 }] }),
-    );
-  });
-
-  it("can retry by calling next again", async () => {
-    mockWorkflow.execute
-      .mockRejectedValueOnce(new Error("transient"))
-      .mockResolvedValueOnce({ result: "ok" });
-    // A transient Temporal failure now rides the defect channel (a
-    // `RuntimeClientError` cause), so the retry re-enters via `recoverDefect`
-    // rather than a modeled-error matcher — a defect is the retry signal, and
-    // any genuinely-modeled `Err` still flows through untouched.
-    const retryOnce: ClientInterceptor = (_args, next) => next().recoverDefect(() => next());
-
-    const result = await (
-      await clientWith([retryOnce])
-    ).executeWorkflow("testWorkflow", {
-      workflowId: "wf-4",
-      args: { name: "n", value: 1 },
-    });
-
-    expect(result).toBeOk();
-    expect(mockWorkflow.execute).toHaveBeenCalledTimes(2);
-  });
-
-  it("wraps handle-level interactions (query)", async () => {
-    const rawHandle = {
-      workflowId: "wf-5",
-      result: vi.fn(),
-      query: vi.fn().mockResolvedValue("running"),
-      signal: vi.fn(),
-      executeUpdate: vi.fn(),
-    };
-    mockWorkflow.getHandle.mockReturnValue(rawHandle);
-    const seen: unknown[] = [];
-    const observing: ClientInterceptor = (args, next) => {
-      seen.push(args);
-      return next();
-    };
-
-    const handleResult = (await clientWith([observing])).getHandle("testWorkflow", "wf-5");
-    expect(handleResult).toBeOk();
-    if (!handleResult.isOk()) return;
-    const query = await handleResult.value.queries.getStatus([]);
-
-    expect(query).toBeOk();
-    expect(seen).toEqual([
-      {
-        operation: "query",
-        workflowName: "testWorkflow",
-        workflowId: "wf-5",
-        name: "getStatus",
-        input: [],
-      },
-    ]);
-  });
-});
-
 describe("ContractClient — handle identifiers and validation-error identity", () => {
   const identityContract = defineContract({
     taskQueue: "identity-q",
@@ -2703,31 +2517,6 @@ describe("ContractClient — search attribute VALUE validation (runtime)", () =>
     vi.clearAllMocks();
   });
 
-  it("rejects values whose runtime type doesn't match the declared kind", async () => {
-    const client = await bindContract(kindContract, {
-      workflow: mockWorkflow,
-      schedule: mockSchedule,
-    } as unknown as Client);
-
-    const result = await client.startWorkflow("kinds", {
-      workflowId: "k-1",
-      args: { id: "a" },
-      searchAttributes: {
-        // INT declared, string provided — escaped the type system via cast.
-        priority: "high" as unknown as number,
-      },
-    });
-
-    expect(result).toBeDefect();
-    if (result.isDefect()) {
-      expect(result.cause).toBeInstanceOf(RuntimeClientError);
-      expect((result.cause as RuntimeClientError).operation).toBe("searchAttributes");
-      expect((result.cause as RuntimeClientError).message).toContain("priority");
-      expect((result.cause as RuntimeClientError).message).toContain("INT");
-    }
-    expect(mockWorkflow.start).not.toHaveBeenCalled();
-  });
-
   it("accepts values matching their declared kinds", async () => {
     mockWorkflow.start.mockResolvedValue({ workflowId: "k-2" });
     const client = await bindContract(kindContract, {
@@ -2746,76 +2535,6 @@ describe("ContractClient — search attribute VALUE validation (runtime)", () =>
     });
 
     expect(result).toBeOk();
-  });
-
-  it("rejects an invalid Date (new Date(NaN)) for DATETIME attributes", async () => {
-    const client = await bindContract(kindContract, {
-      workflow: mockWorkflow,
-      schedule: mockSchedule,
-    } as unknown as Client);
-
-    const result = await client.startWorkflow("kinds", {
-      workflowId: "k-invalid-date",
-      args: { id: "a" },
-      searchAttributes: { placedAt: new Date(Number.NaN) },
-    });
-
-    expect(result).toBeDefect();
-    if (result.isDefect()) {
-      expect(result.cause).toBeInstanceOf(RuntimeClientError);
-      const message = (result.cause as RuntimeClientError).message;
-      expect(message).toContain("placedAt");
-      expect(message).toContain("must be a valid Date");
-      expect(message).toContain("received an invalid Date.");
-    }
-    expect(mockWorkflow.start).not.toHaveBeenCalled();
-  });
-
-  it("rejects non-string entries inside a KEYWORD_LIST", async () => {
-    const client = await bindContract(kindContract, {
-      workflow: mockWorkflow,
-      schedule: mockSchedule,
-    } as unknown as Client);
-
-    const result = await client.startWorkflow("kinds", {
-      workflowId: "k-3",
-      args: { id: "a" },
-      searchAttributes: {
-        tags: ["ok", 42] as unknown as string[],
-      },
-    });
-
-    expect(result).toBeDefect();
-    if (result.isDefect()) {
-      expect((result.cause as RuntimeClientError).message).toContain("tags");
-    }
-    expect(mockWorkflow.start).not.toHaveBeenCalled();
-  });
-
-  it('names the received runtime type instead of typeof\'s blanket "object"', async () => {
-    const client = await bindContract(kindContract, {
-      workflow: mockWorkflow,
-      schedule: mockSchedule,
-    } as unknown as Client);
-
-    const cases: Array<{ value: unknown; reported: string }> = [
-      { value: new Date("2026-01-01T00:00:00Z"), reported: "a Date" },
-      { value: ["not", "an", "int"], reported: "an array" },
-      { value: null, reported: "null" },
-    ];
-    for (const { value, reported } of cases) {
-      const result = await client.startWorkflow("kinds", {
-        workflowId: "k-4",
-        args: { id: "a" },
-        searchAttributes: { priority: value as unknown as number },
-      });
-
-      expect(result).toBeDefect();
-      if (result.isDefect()) {
-        expect((result.cause as RuntimeClientError).message).toContain(`received ${reported}.`);
-      }
-    }
-    expect(mockWorkflow.start).not.toHaveBeenCalled();
   });
 });
 

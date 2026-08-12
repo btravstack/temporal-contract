@@ -101,159 +101,147 @@ export class ActivityDefinitionNotFoundError extends TaggedError(
 }
 
 /**
- * Error thrown when activity input validation fails
+ * The shared message shape of every payload-validation failure below:
+ * `Activity "charge" input validation failed: at amount: Expected number`.
+ * One formatter so the eight boundaries cannot drift.
  */
+function validationMessage(
+  scope: string,
+  name: string,
+  direction: "input" | "output",
+  issues: ReadonlyArray<StandardSchemaV1.Issue>,
+): string {
+  return `${scope} "${name}" ${direction} validation failed: ${summarizeIssues(issues)}`;
+}
+
+// The eight payload-validation errors — one per (boundary × direction).
+// Each keeps its own class, its own failure `type` (the wire discriminant,
+// which must equal the class name), its own scope-named field
+// (`activityName` / `workflowName` / `queryName` / `updateName`), and a
+// `direction` narrowed to a literal so call sites can discriminate on it.
+
+/** Error thrown when activity input validation fails. */
 export class ActivityInputValidationError extends ValidationError {
-  /** Which side of the payload boundary failed — aligns with the client's direction-as-field error family. */
   public readonly direction = "input" as const;
 
   constructor(
     public readonly activityName: string,
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) {
-    const message = summarizeIssues(issues);
     super(
-      `Activity "${activityName}" input validation failed: ${message}`,
+      validationMessage("Activity", activityName, "input", issues),
       "ActivityInputValidationError",
       issues,
     );
   }
 }
 
-/**
- * Error thrown when activity output validation fails
- */
+/** Error thrown when activity output validation fails. */
 export class ActivityOutputValidationError extends ValidationError {
-  /** Which side of the payload boundary failed — aligns with the client's direction-as-field error family. */
   public readonly direction = "output" as const;
 
   constructor(
     public readonly activityName: string,
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) {
-    const message = summarizeIssues(issues);
     super(
-      `Activity "${activityName}" output validation failed: ${message}`,
+      validationMessage("Activity", activityName, "output", issues),
       "ActivityOutputValidationError",
       issues,
     );
   }
 }
 
-/**
- * Error thrown when workflow input validation fails
- */
+/** Error thrown when workflow input validation fails. */
 export class WorkflowInputValidationError extends ValidationError {
-  /** Which side of the payload boundary failed — aligns with the client's direction-as-field error family. */
   public readonly direction = "input" as const;
 
   constructor(
     public readonly workflowName: string,
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) {
-    const message = summarizeIssues(issues);
     super(
-      `Workflow "${workflowName}" input validation failed: ${message}`,
+      validationMessage("Workflow", workflowName, "input", issues),
       "WorkflowInputValidationError",
       issues,
     );
   }
 }
 
-/**
- * Error thrown when workflow output validation fails
- */
+/** Error thrown when workflow output validation fails. */
 export class WorkflowOutputValidationError extends ValidationError {
-  /** Which side of the payload boundary failed — aligns with the client's direction-as-field error family. */
   public readonly direction = "output" as const;
 
   constructor(
     public readonly workflowName: string,
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) {
-    const message = summarizeIssues(issues);
     super(
-      `Workflow "${workflowName}" output validation failed: ${message}`,
+      validationMessage("Workflow", workflowName, "output", issues),
       "WorkflowOutputValidationError",
       issues,
     );
   }
 }
 
-/**
- * Error thrown when query input validation fails
- */
+/** Error thrown when query input validation fails. */
 export class QueryInputValidationError extends ValidationError {
-  /** Which side of the payload boundary failed — aligns with the client's direction-as-field error family. */
   public readonly direction = "input" as const;
 
   constructor(
     public readonly queryName: string,
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) {
-    const message = summarizeIssues(issues);
     super(
-      `Query "${queryName}" input validation failed: ${message}`,
+      validationMessage("Query", queryName, "input", issues),
       "QueryInputValidationError",
       issues,
     );
   }
 }
 
-/**
- * Error thrown when query output validation fails
- */
+/** Error thrown when query output validation fails. */
 export class QueryOutputValidationError extends ValidationError {
-  /** Which side of the payload boundary failed — aligns with the client's direction-as-field error family. */
   public readonly direction = "output" as const;
 
   constructor(
     public readonly queryName: string,
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) {
-    const message = summarizeIssues(issues);
     super(
-      `Query "${queryName}" output validation failed: ${message}`,
+      validationMessage("Query", queryName, "output", issues),
       "QueryOutputValidationError",
       issues,
     );
   }
 }
 
-/**
- * Error thrown when update input validation fails
- */
+/** Error thrown when update input validation fails. */
 export class UpdateInputValidationError extends ValidationError {
-  /** Which side of the payload boundary failed — aligns with the client's direction-as-field error family. */
   public readonly direction = "input" as const;
 
   constructor(
     public readonly updateName: string,
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) {
-    const message = summarizeIssues(issues);
     super(
-      `Update "${updateName}" input validation failed: ${message}`,
+      validationMessage("Update", updateName, "input", issues),
       "UpdateInputValidationError",
       issues,
     );
   }
 }
 
-/**
- * Error thrown when update output validation fails
- */
+/** Error thrown when update output validation fails. */
 export class UpdateOutputValidationError extends ValidationError {
-  /** Which side of the payload boundary failed — aligns with the client's direction-as-field error family. */
   public readonly direction = "output" as const;
 
   constructor(
     public readonly updateName: string,
     issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) {
-    const message = summarizeIssues(issues);
     super(
-      `Update "${updateName}" output validation failed: ${message}`,
+      validationMessage("Update", updateName, "output", issues),
       "UpdateOutputValidationError",
       issues,
     );

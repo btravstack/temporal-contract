@@ -63,7 +63,6 @@ const DOCS_SIDEBAR = [
       { text: "Continue as new", link: "/how-to/continue-as-new" },
       { text: "Tune activity options", link: "/how-to/tune-activity-options" },
       { text: "Add activity middleware", link: "/how-to/add-activity-middleware" },
-      { text: "Intercept client calls", link: "/how-to/intercept-client-calls" },
       { text: "Schedule workflows", link: "/how-to/schedule-workflows" },
       { text: "Configure a worker", link: "/how-to/configure-a-worker" },
       { text: "Test workflows", link: "/how-to/test-workflows" },

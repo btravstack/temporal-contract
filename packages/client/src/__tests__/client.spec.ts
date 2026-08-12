@@ -2,11 +2,21 @@ import { it as baseIt } from "@temporal-contract/testing/extension";
 import { fixturePath } from "@temporal-contract/testing/workflow-bundle";
 import { Client } from "@temporalio/client";
 import { Worker } from "@temporalio/worker";
+import { P } from "unthrown";
 import { describe, expect, vi, beforeEach } from "vitest";
 
 import { type ContractClient, TypedClient } from "../client.js";
-import { WORKFLOW_RESULT_ERROR_TAGS, WORKFLOW_START_ERROR_TAGS } from "../error-tags.js";
-import { tagPatterns, WorkflowValidationError } from "../errors.js";
+import {
+  WORKFLOW_ALREADY_STARTED_ERROR_TAG,
+  WORKFLOW_CANCELLED_ERROR_TAG,
+  WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG,
+  WORKFLOW_FAILED_ERROR_TAG,
+  WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG,
+  WORKFLOW_TERMINATED_ERROR_TAG,
+  WORKFLOW_TIMEOUT_ERROR_TAG,
+  WORKFLOW_VALIDATION_ERROR_TAG,
+} from "../error-tags.js";
+import { WorkflowValidationError } from "../errors.js";
 import { secondContract } from "./second.contract.js";
 import { testContract } from "./test.contract.js";
 
@@ -545,11 +555,17 @@ describe("Client Package - Integration Tests", () => {
           expect(value).toEqual({ result: "Processed: test" });
         },
         errCases: (matcher) =>
-          // The exported tag bundles cover executeWorkflow's full error
-          // union (start phase + result phase, outcome trio included).
+          // Covers executeWorkflow's full error union (start phase +
+          // result phase, outcome trio included).
           matcher.with(
-            ...tagPatterns(WORKFLOW_START_ERROR_TAGS),
-            ...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS),
+            P.tag(WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG),
+            P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
+            P.tag(WORKFLOW_ALREADY_STARTED_ERROR_TAG),
+            P.tag(WORKFLOW_FAILED_ERROR_TAG),
+            P.tag(WORKFLOW_CANCELLED_ERROR_TAG),
+            P.tag(WORKFLOW_TERMINATED_ERROR_TAG),
+            P.tag(WORKFLOW_TIMEOUT_ERROR_TAG),
+            P.tag(WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG),
             () => {
               throw new Error("Should not be called");
             },

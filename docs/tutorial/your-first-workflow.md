@@ -332,11 +332,17 @@ Open a second terminal. Create `src/client.ts`:
 
 ```typescript
 import {
-  tagPatterns,
   TypedClient,
-  WORKFLOW_RESULT_ERROR_TAGS,
-  WORKFLOW_START_ERROR_TAGS,
+  WORKFLOW_ALREADY_STARTED_ERROR_TAG,
+  WORKFLOW_CANCELLED_ERROR_TAG,
+  WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG,
+  WORKFLOW_FAILED_ERROR_TAG,
+  WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG,
+  WORKFLOW_TERMINATED_ERROR_TAG,
+  WORKFLOW_TIMEOUT_ERROR_TAG,
+  WORKFLOW_VALIDATION_ERROR_TAG,
 } from "@temporal-contract/client";
+import { P } from "unthrown";
 import { Client, Connection } from "@temporalio/client";
 
 import { orderContract } from "./contract.js";
@@ -367,8 +373,14 @@ result.match({
     matcher.with(
       // Tag bundles cover the start-phase and result-phase error unions in
       // one arm — no hand-written list of tags to keep in sync.
-      ...tagPatterns(WORKFLOW_START_ERROR_TAGS),
-      ...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS),
+      P.tag(WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG),
+      P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
+      P.tag(WORKFLOW_ALREADY_STARTED_ERROR_TAG),
+      P.tag(WORKFLOW_FAILED_ERROR_TAG),
+      P.tag(WORKFLOW_CANCELLED_ERROR_TAG),
+      P.tag(WORKFLOW_TERMINATED_ERROR_TAG),
+      P.tag(WORKFLOW_TIMEOUT_ERROR_TAG),
+      P.tag(WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG),
       (error) => console.error("workflow failed:", error.message),
     ),
   defect: (cause) => console.error("unexpected:", cause),

@@ -2,15 +2,14 @@ import {
   SCHEDULE_NOT_FOUND_ERROR_TAG,
   SCHEDULE_ALREADY_EXISTS_ERROR_TAG,
   SIGNAL_VALIDATION_ERROR_TAG,
-  tagPatterns,
   TypedClient,
   WORKFLOW_ALREADY_STARTED_ERROR_TAG,
+  WORKFLOW_CANCELLED_ERROR_TAG,
   WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG,
   WORKFLOW_FAILED_ERROR_TAG,
   WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG,
-  WORKFLOW_OUTCOME_ERROR_TAGS,
-  WORKFLOW_RESULT_ERROR_TAGS,
-  WORKFLOW_START_ERROR_TAGS,
+  WORKFLOW_TERMINATED_ERROR_TAG,
+  WORKFLOW_TIMEOUT_ERROR_TAG,
   WORKFLOW_VALIDATION_ERROR_TAG,
 } from "@temporal-contract/client";
 import {
@@ -142,9 +141,15 @@ async function run() {
         )
         // Everything else the result phase can surface — validation, generic
         // failure, the first-class outcome trio (cancelled/terminated/timed
-        // out), and a missing execution — grouped via the exported bundle.
-        .with(...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS), (err) =>
-          logger.error({ error: err }, "❌ Workflow did not complete successfully"),
+        // out), and a missing execution.
+        .with(
+          P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
+          P.tag(WORKFLOW_FAILED_ERROR_TAG),
+          P.tag(WORKFLOW_CANCELLED_ERROR_TAG),
+          P.tag(WORKFLOW_TERMINATED_ERROR_TAG),
+          P.tag(WORKFLOW_TIMEOUT_ERROR_TAG),
+          P.tag(WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG),
+          (err) => logger.error({ error: err }, "❌ Workflow did not complete successfully"),
         ),
     defect: (cause) => logger.error({ cause }, "❌ Unexpected failure awaiting result"),
   });
@@ -219,8 +224,11 @@ async function run() {
         // The first-class outcome errors get their own arm here: a
         // server-side cancel / terminate / timeout is a distinct outcome,
         // not a generic "failure" — no `err.cause instanceof ...` digging.
-        .with(...tagPatterns(WORKFLOW_OUTCOME_ERROR_TAGS), (err) =>
-          logger.warn({ error: err }, `🛑 Workflow ${err.name}: execution was stopped`),
+        .with(
+          P.tag(WORKFLOW_CANCELLED_ERROR_TAG),
+          P.tag(WORKFLOW_TERMINATED_ERROR_TAG),
+          P.tag(WORKFLOW_TIMEOUT_ERROR_TAG),
+          (err) => logger.warn({ error: err }, `🛑 Workflow ${err.name}: execution was stopped`),
         )
         .with(P.tag(WORKFLOW_VALIDATION_ERROR_TAG), (err) =>
           logger.error({ error: err }, "❌ Workflow output validation failed"),
@@ -284,12 +292,16 @@ async function run() {
         .with(P.tag(WORKFLOW_ALREADY_STARTED_ERROR_TAG), (err) =>
           logger.warn({ error: err }, "⏭️  Workflow already started — skipping"),
         )
-        // Everything else executeWorkflow can err with — the start-phase and
-        // result-phase bundles together cover the full union, so a widened
-        // union in a future release fails compilation right here.
+        // Everything else executeWorkflow can err with — the remaining
+        // start-phase and result-phase members.
         .with(
-          ...tagPatterns(WORKFLOW_START_ERROR_TAGS),
-          ...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS),
+          P.tag(WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG),
+          P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
+          P.tag(WORKFLOW_FAILED_ERROR_TAG),
+          P.tag(WORKFLOW_CANCELLED_ERROR_TAG),
+          P.tag(WORKFLOW_TERMINATED_ERROR_TAG),
+          P.tag(WORKFLOW_TIMEOUT_ERROR_TAG),
+          P.tag(WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG),
           (err) => logger.error({ error: err }, "❌ Order processing failed"),
         ),
     // A defect is an unmodeled failure (a bug) — including technical/

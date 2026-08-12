@@ -12,7 +12,6 @@ import type {
   UndefinedInputSchema,
   UpdateDefinition,
 } from "./types.js";
-import type { ValidateContract } from "./validate-contract.js";
 
 // Exported builders first (classic functions for hoisting)
 
@@ -366,33 +365,6 @@ export function defineWorkflow<TWorkflow extends AnyWorkflowDefinition>(
  * });
  * ```
  */
-export function defineContract<const TContract extends ContractDefinition>(
-  definition: ValidateContract<TContract>,
-): TContract;
-// `const` here (and only here — the implementation signature below is
-// deliberately not `const`, see its own comment) is load-bearing, not
-// decorative. Without it, a duration literal written *inline* inside this
-// call — `defineContract({ …, activityOptions: { startToCloseTimeout:
-// "5 minutos" } })` — has no separate call whose constraint (`TActivity
-// extends ActivityDefinition`) preserves it: `defineContract`'s own
-// constraint (`ContractDefinition` → `ContractActivityOptions` →
-// `DurationValue`) is the only thing inference can lean on, and without
-// `const` that constraint-derived contextual type is what wins, widening
-// the literal to plain `string` before `ValidateContract` ever sees it.
-// `CheckDuration`'s `string extends V` branch then treats it as the
-// legitimate computed-value case and passes it through unchecked — a
-// silent gap. `const` makes literal inference win over the constraint for
-// this call specifically, so the inline case is checked the same way the
-// separate-`defineActivity` path already is.
-// Implementation signature only — not part of the public call surface (a
-// signature with a body never is, once a separate overload signature
-// exists above it). It exists purely so the body below type-checks:
-// `ValidateContract<TContract>` is a mapped/conditional type over
-// `TContract`, and `exactOptionalPropertyTypes` makes `return definition`
-// unprovable against the generic `TContract` return type (TS2375) even
-// though every concrete instantiation is sound. Typing this internal
-// signature identity-style (`TContract` in, `TContract` out) sidesteps
-// that without touching what callers see or what the body does.
 export function defineContract<TContract extends ContractDefinition>(
   definition: TContract,
 ): TContract {

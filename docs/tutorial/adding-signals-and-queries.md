@@ -193,7 +193,16 @@ when you need to interact mid-flight. Use `startWorkflow` instead: it returns a
 Replace `src/client.ts`:
 
 ```typescript
-import { tagPatterns, TypedClient, WORKFLOW_RESULT_ERROR_TAGS } from "@temporal-contract/client";
+import {
+  TypedClient,
+  WORKFLOW_CANCELLED_ERROR_TAG,
+  WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG,
+  WORKFLOW_FAILED_ERROR_TAG,
+  WORKFLOW_TERMINATED_ERROR_TAG,
+  WORKFLOW_TIMEOUT_ERROR_TAG,
+  WORKFLOW_VALIDATION_ERROR_TAG,
+} from "@temporal-contract/client";
+import { P } from "unthrown";
 import { Client, Connection } from "@temporalio/client";
 
 import { orderContract } from "./contract.js";
@@ -251,7 +260,12 @@ result.match({
     matcher.with(
       // One arm for the whole result-phase union: validation, failure,
       // cancelled/terminated/timed out, and a missing execution.
-      ...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS),
+      P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
+      P.tag(WORKFLOW_FAILED_ERROR_TAG),
+      P.tag(WORKFLOW_CANCELLED_ERROR_TAG),
+      P.tag(WORKFLOW_TERMINATED_ERROR_TAG),
+      P.tag(WORKFLOW_TIMEOUT_ERROR_TAG),
+      P.tag(WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG),
       (error) => console.error("workflow failed:", error.message),
     ),
   defect: (cause) => console.error("unexpected:", cause),

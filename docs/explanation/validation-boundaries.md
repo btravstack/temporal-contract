@@ -194,26 +194,16 @@ execution. See [Worker surface → Activity
 bounds](/reference/worker-surface#activity-bounds) for the full explanation
 of why that is deliberate.
 
-## Where middleware and interceptors sit
+## Where middleware sits
 
-The two extension points sit on opposite sides of the boundary, and the
-difference matters.
+**Activity middleware runs inside the boundary.** `invocation.input` is already
+validated, and whatever the chain returns is still validated on the way out. If
+middleware substitutes the input via `next({ input })`, the substitution is
+**re-validated** — middleware cannot smuggle unvalidated data past the contract.
 
-**Activity middleware runs inside it.** `invocation.input` is already validated,
-and whatever the chain returns is still validated on the way out. If middleware
-substitutes the input via `next({ input })`, the substitution is **re-validated**
-— middleware cannot smuggle unvalidated data past the contract.
-
-**Client interceptors run outside it.** They see the caller's raw, not-yet-validated
-payload. A patch passed to `next({ input })` goes through exactly the same
-validation as the original.
-
-The invariant holds either way: nothing reaches an implementation without having
-satisfied the contract.
-
-The practical catch for interceptors is that a patched field must exist on the
-schema. Injecting a `traceparent` the workflow's input schema does not declare
-fails validation. Declare it on the contract, or carry it in `memo` /
+The practical catch is that a substituted field must exist on the schema.
+Injecting a `traceparent` the activity's input schema does not declare fails
+validation. Declare it on the contract, or carry it in `memo` /
 `searchAttributes` instead.
 
 ## Any Standard Schema library
