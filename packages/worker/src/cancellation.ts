@@ -13,10 +13,9 @@
  * cancellation.
  */
 import { CancellationScope, isCancellation } from "@temporalio/workflow";
-import { type AsyncResult, Ok, Err } from "unthrown";
+import { type AsyncResult, fromPromise } from "unthrown";
 
 import { WorkflowCancelledError } from "./errors.js";
-import { makeAsyncResult } from "./internal.js";
 
 /**
  * Run `fn` inside a cancellable Temporal scope. If the workflow (or an
@@ -58,24 +57,20 @@ import { makeAsyncResult } from "./internal.js";
 export function cancellableScope<T>(
   fn: () => T | Promise<T>,
 ): AsyncResult<T, WorkflowCancelledError> {
-  const work = async () => {
-    try {
-      // Wrap so synchronous returns satisfy CancellationScope.cancellable's
-      // `() => Promise<T>` signature without forcing every caller to write
-      // `async () => ...` for purely synchronous bodies.
-      const value = await CancellationScope.cancellable(async () => fn());
-      return Ok(value);
-    } catch (error) {
-      if (isCancellation(error)) {
-        return Err(new WorkflowCancelledError(error));
-      }
-      // Non-cancellation throw → re-throw so `makeAsyncResult`'s boundary
-      // routes it through the `defect` channel as an unmodeled failure.
-      // oxlint-disable-next-line unthrown/no-throw -- cancellation-scope rethrow: the throw IS the defect-channel routing through makeAsyncResult's boundary
-      throw error;
-    }
-  };
-  return makeAsyncResult<T, WorkflowCancelledError>(work);
+  return fromPromise(
+    // THUNK form, not a bare promise: `fromPromise` also captures a
+    // *synchronous* throw from the thunk itself, so a `CancellationScope`
+    // constructed outside a workflow context still lands in `qualify` rather
+    // than escaping the AsyncResult. The inner `async () => fn()` wrapper
+    // satisfies `cancellable`'s `() => Promise<T>` signature without forcing
+    // every caller to write `async () => ...` for a synchronous body.
+    () => CancellationScope.cancellable(async () => fn()),
+    // The qualify callback IS the triage: cancellation is the one modeled
+    // outcome; every other cause goes to the injected `defect` helper, which
+    // subtracts it from `E` — so no rethrow, and `E` stays exactly
+    // `WorkflowCancelledError`.
+    (cause, defect) => (isCancellation(cause) ? new WorkflowCancelledError(cause) : defect(cause)),
+  );
 }
 
 /**
@@ -108,17 +103,9 @@ export function cancellableScope<T>(
 export function nonCancellableScope<T>(
   fn: () => T | Promise<T>,
 ): AsyncResult<T, WorkflowCancelledError> {
-  const work = async () => {
-    try {
-      const value = await CancellationScope.nonCancellable(async () => fn());
-      return Ok(value);
-    } catch (error) {
-      if (isCancellation(error)) {
-        return Err(new WorkflowCancelledError(error));
-      }
-      // oxlint-disable-next-line unthrown/no-throw -- cancellation-scope rethrow: the throw IS the defect-channel routing through makeAsyncResult's boundary
-      throw error;
-    }
-  };
-  return makeAsyncResult<T, WorkflowCancelledError>(work);
+  return fromPromise(
+    // Thunk form — see `cancellableScope` for why.
+    () => CancellationScope.nonCancellable(async () => fn()),
+    (cause, defect) => (isCancellation(cause) ? new WorkflowCancelledError(cause) : defect(cause)),
+  );
 }
