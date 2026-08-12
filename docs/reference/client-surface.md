@@ -5,8 +5,8 @@ Everything exported from `@temporal-contract/client`.
 Generated per-symbol docs: [API reference](/api/client/).
 
 The surface is split in two: `TypedClient` is **connection-scoped** — it owns
-the underlying `Client`, the interceptor chain, and the escape hatch — and
-hands out **contract-scoped** `ContractClient`s via `for()`.
+the underlying `Client` and the escape hatch — and hands out
+**contract-scoped** `ContractClient`s via `for()`.
 
 ## `TypedClient`
 
@@ -15,8 +15,7 @@ hands out **contract-scoped** `ContractClient`s via `for()`.
 ```typescript
 // options: CreateClientOptions
 static create(options: {
-  client: Client;                              // from @temporalio/client
-  interceptors?: readonly ClientInterceptor[]; // outermost first
+  client: Client; // from @temporalio/client
 }): AsyncResult<TypedClient, never>;
 ```
 
@@ -45,7 +44,7 @@ for<TContract extends ContractDefinition>(contract: TContract): ContractClient<T
 
 Binds a contract. **Synchronous and infallible** — valid in a field
 initializer. Memoized per contract identity, so `for(c) === for(c)` and
-calling it per request is free. Interceptors are inherited from the root.
+calling it per request is free.
 
 ```typescript
 const orders = client.for(orderContract);
@@ -57,7 +56,7 @@ const shipments = client.for(shipmentContract); // same connection, second contr
 The underlying `@temporalio/client` `Client` — the escape hatch for anything
 the typed surface does not cover yet (`raw.workflow.list(...)`,
 `raw.workflow.count(...)`). Calls made through `raw` bypass contract
-validation and the interceptor chain.
+validation.
 
 ## `ContractClient<TContract>`
 
@@ -196,7 +195,7 @@ For `handle.startUpdate`:
 | `workflowId`               | `string`                                                                                                                                                                                                   |
 | `runId`                    | `string \| undefined` — the bound run, when known                                                                                                                                                          |
 | `firstExecutionRunId`      | `string \| undefined` — first run of the chain, when known                                                                                                                                                 |
-| `raw`                      | the underlying `@temporalio/client` `WorkflowHandle` — escape hatch; bypasses validation and interceptors                                                                                                  |
+| `raw`                      | the underlying `@temporalio/client` `WorkflowHandle` — escape hatch; bypasses validation                                                                                                                   |
 | `queries`                  | `Record<QueryName, (args) => AsyncResult<Output, QueryValidationError \| QueryFailedError \| WorkflowExecutionNotFoundError>>`                                                                             |
 | `signals`                  | `Record<SignalName, (args) => AsyncResult<void, SignalValidationError \| WorkflowExecutionNotFoundError>>`                                                                                                 |
 | `updates`                  | `Record<UpdateName, (args) => AsyncResult<Output, UpdateValidationError \| UpdateRejectedError \| UpdateFailedError \| WorkflowExecutionNotFoundError>>`                                                   |
@@ -346,54 +345,6 @@ action whose `workflowType` is not on the contract stays a passthrough.)
 already-computed options rather than re-invoking it. `backfill` runs the
 schedule's action over historical time ranges.
 
-## Interceptors
-
-### `ClientInterceptor`
-
-```typescript
-type ClientInterceptor = (
-  args: ClientInterceptorArgs,
-  next: ClientInterceptorNext,
-) => AsyncResult<unknown, ClientCallError>;
-```
-
-Passed to `TypedClient.create({ interceptors })`, inherited by every
-`ContractClient` the root hands out. Wraps operations **outside** the
-validation pipeline, but a patched input is validated exactly like the
-caller's original.
-
-### `ClientInterceptorArgs`
-
-Discriminated on `operation`:
-
-| `operation`                            | Fields                                        |
-| -------------------------------------- | --------------------------------------------- |
-| `"startWorkflow"`, `"executeWorkflow"` | `workflowName`, `workflowId`, `input`         |
-| `"signalWithStart"`                    | the above, plus `signalName`, `signalInput`   |
-| `"signal"`, `"query"`, `"update"`      | `workflowName`, `workflowId`, `name`, `input` |
-
-`input` is the raw, not-yet-validated payload.
-
-### `ClientInterceptorNext`
-
-```typescript
-(patch?: { input?: unknown; signalInput?: unknown }) => AsyncResult<unknown, ClientCallError>;
-```
-
-The patch shallow-merges over the invocation, and may set **only** `input`
-(and `signalInput` for `signalWithStart`) — identity fields like
-`workflowName` / `workflowId` are not patchable. A patched `input` is validated
-exactly like the caller's original. Calling `next` again re-runs the rest of
-the chain. Returning without calling it short-circuits.
-
-### `ClientCallError`
-
-The widened union the chain is typed against — every modeled error a typed-client
-operation can surface. Each public method narrows it back at the boundary.
-
-Note it does **not** include `RuntimeClientError`, which rides the defect
-channel.
-
 ## Errors exported here
 
 Setup / lifecycle: `RuntimeClientError`, `TechnicalError`.
@@ -416,29 +367,33 @@ Schedules: `ScheduleAlreadyExistsError`, `ScheduleNotFoundError`.
 Plus `ContractError` and the types `TemporalFailure`, `AnyContractError`,
 `ContractErrorUnion`, `WorkflowContractErrorsOf`, `WorkflowResultErrorsOf`.
 
-### Tag constants and bundles
+### Tag constants
 
 Every error above has a literal-typed `_tag` constant
-(`WORKFLOW_FAILED_ERROR_TAG`, `UPDATE_REJECTED_ERROR_TAG`, …). Three `const`
-bundles group the recurring match unions:
-
-| Bundle                        | Tags                                                                                                                                                                     |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `WORKFLOW_START_ERROR_TAGS`   | `WorkflowNotInContractError`, `WorkflowValidationError`, `WorkflowAlreadyStartedError`                                                                                   |
-| `WORKFLOW_OUTCOME_ERROR_TAGS` | `WorkflowCancelledError`, `WorkflowTerminatedError`, `WorkflowTimeoutError`                                                                                              |
-| `WORKFLOW_RESULT_ERROR_TAGS`  | validation, failed, the outcome trio, execution-not-found — what `result()` (and the result half of `executeWorkflow`) can err with, beside any declared contract errors |
-
-`tagPatterns(tags)` maps a bundle to a tuple of `P.tag(...)` patterns you spread
-into one grouped matcher arm — collapsing a verbatim block of `P.tag(...)`
-lines. The tuple shape is preserved as `TagPatterns<TTags>` (exported):
+(`WORKFLOW_FAILED_ERROR_TAG`, `UPDATE_REJECTED_ERROR_TAG`, …). Group the cases
+that share a handler by listing their tags in one `.with(...)` arm — the
+matcher's exhaustiveness check then forces you to widen the arm if a future
+release adds a member to the union:
 
 ```typescript
-import { tagPatterns, WORKFLOW_RESULT_ERROR_TAGS } from "@temporal-contract/client";
+import {
+  WORKFLOW_CANCELLED_ERROR_TAG,
+  WORKFLOW_FAILED_ERROR_TAG,
+  WORKFLOW_TERMINATED_ERROR_TAG,
+  WORKFLOW_TIMEOUT_ERROR_TAG,
+} from "@temporal-contract/client";
+import { P } from "unthrown";
 
 result.match({
   ok: (value) => value,
   errCases: (matcher) =>
-    matcher.with(...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS), (error) => report(error)),
+    matcher.with(
+      P.tag(WORKFLOW_FAILED_ERROR_TAG),
+      P.tag(WORKFLOW_CANCELLED_ERROR_TAG),
+      P.tag(WORKFLOW_TERMINATED_ERROR_TAG),
+      P.tag(WORKFLOW_TIMEOUT_ERROR_TAG),
+      (error) => report(error),
+    ),
   defect: (cause) => report(cause),
 });
 ```
@@ -464,5 +419,4 @@ function buildOrderArgs(): ClientInferInput<typeof orderContract.workflows.proce
 ## Next
 
 - [Errors reference](/reference/errors)
-- [Intercept client calls](/how-to/intercept-client-calls)
 - [Schedule workflows](/how-to/schedule-workflows)

@@ -9,7 +9,7 @@ import type {
   TerminatedFailure,
   TimeoutFailure,
 } from "@temporalio/common";
-import { P, TaggedError } from "unthrown";
+import { TaggedError } from "unthrown";
 
 import {
   QUERY_FAILED_ERROR_TAG,
@@ -55,40 +55,6 @@ export type TemporalFailure =
   | ChildWorkflowFailure
   | ServerFailure
   | ActivityFailure;
-
-/**
- * The `{ _tag: … }` object patterns for a tuple of tag literals, in tuple
- * order — the type produced by {@link tagPatterns}.
- */
-export type TagPatterns<TTags extends readonly string[]> = {
-  [K in keyof TTags]: { _tag: TTags[K] };
-};
-
-/**
- * Map a tag bundle (an `as const` tuple of `_tag` literals — see
- * `error-tags.ts`) to a tuple of `P.tag` patterns, so the bundle can be
- * spread into a grouped matcher arm:
- *
- * ```ts
- * import { tagPatterns, WORKFLOW_RESULT_ERROR_TAGS } from "@temporal-contract/client";
- *
- * result.match({
- *   ok: (output) => ...,
- *   errCases: (matcher) =>
- *     matcher.with(...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS), (error) => ...),
- *   defect: (cause) => ...,
- * });
- * ```
- *
- * The tuple shape is preserved (`TagPatterns<TTags>`), which is what makes
- * the spread compile — a plain `tags.map(P.tag)` loses tuple-ness and can't
- * be spread into the matcher's variadic `with(...)`.
- */
-export function tagPatterns<const TTags extends readonly string[]>(
-  tags: TTags,
-): TagPatterns<TTags> {
-  return tags.map((tag) => P.tag(tag)) as TagPatterns<TTags>;
-}
 
 /**
  * Generic runtime failure wrapper when no specific error type applies

@@ -222,6 +222,4 @@ deterministic workflow sandbox.
 ## Next
 
 - [Implement activities](/how-to/implement-activities)
-- [Intercept client calls](/how-to/intercept-client-calls) — the client-side
-  equivalent
 - [Worker surface](/reference/worker-surface)

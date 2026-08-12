@@ -12,22 +12,6 @@
  *
  * Kept in a standalone, dependency-free module (no `unthrown` import) so the
  * constants stay importable without pulling in any runtime machinery.
- *
- * Beside the per-error constants, this module exports grouped tag **bundles**
- * (`as const` tuples) for the recurring error unions of the typed client —
- * spread them into a grouped matcher arm via {@link tagPatterns} (exported
- * from the package root) instead of enumerating each tag by hand:
- *
- * ```ts
- * import { tagPatterns, WORKFLOW_RESULT_ERROR_TAGS } from "@temporal-contract/client";
- *
- * result.match({
- *   ok: (output) => ...,
- *   errCases: (matcher) =>
- *     matcher.with(...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS), (error) => ...),
- *   defect: (cause) => ...,
- * });
- * ```
  */
 
 /** `_tag` of `RuntimeClientError` — generic technical-failure wrapper (rides the defect channel). */
@@ -87,45 +71,3 @@ export const SCHEDULE_ALREADY_EXISTS_ERROR_TAG = "@temporal-contract/ScheduleAlr
 
 /** `_tag` of `ScheduleNotFoundError` — the schedule ID is unknown to the Temporal server. */
 export const SCHEDULE_NOT_FOUND_ERROR_TAG = "@temporal-contract/ScheduleNotFoundError";
-
-/**
- * Tags of the start-phase error union — what `startWorkflow` (and the start
- * half of `executeWorkflow` / `signalWithStart`) can err with:
- * `WorkflowNotInContractError | WorkflowValidationError | WorkflowAlreadyStartedError`.
- *
- * `signalWithStart` additionally errs with `SignalValidationError` — add
- * `P.tag(SIGNAL_VALIDATION_ERROR_TAG)` beside the spread for that call.
- */
-export const WORKFLOW_START_ERROR_TAGS = [
-  WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG,
-  WORKFLOW_VALIDATION_ERROR_TAG,
-  WORKFLOW_ALREADY_STARTED_ERROR_TAG,
-] as const;
-
-/**
- * Tags of the workflow-outcome trio — the executions that ended without a
- * result because the server closed them: cancelled, terminated, or timed
- * out. A subset of {@link WORKFLOW_RESULT_ERROR_TAGS} for callers that
- * branch on "the workflow was stopped" separately from "the workflow
- * failed".
- */
-export const WORKFLOW_OUTCOME_ERROR_TAGS = [
-  WORKFLOW_CANCELLED_ERROR_TAG,
-  WORKFLOW_TERMINATED_ERROR_TAG,
-  WORKFLOW_TIMEOUT_ERROR_TAG,
-] as const;
-
-/**
- * Tags of the result-phase error union — what `handle.result()` (and the
- * result half of `executeWorkflow`) can err with, beside any contract errors
- * declared on the workflow (match those with the contract package's
- * `CONTRACT_ERROR_TAG`):
- * `WorkflowValidationError | WorkflowFailedError | WorkflowCancelledError |
- * WorkflowTerminatedError | WorkflowTimeoutError | WorkflowExecutionNotFoundError`.
- */
-export const WORKFLOW_RESULT_ERROR_TAGS = [
-  WORKFLOW_VALIDATION_ERROR_TAG,
-  WORKFLOW_FAILED_ERROR_TAG,
-  ...WORKFLOW_OUTCOME_ERROR_TAGS,
-  WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG,
-] as const;

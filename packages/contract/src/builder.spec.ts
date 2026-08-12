@@ -533,15 +533,9 @@ describe("Contract Builder", () => {
     });
 
     it("should throw when a global activity has the same name as a workflow", () => {
-      // A workflow/global-activity name clash is now also a compile-time
-      // error (ValidateContract's WorkflowActivityNameClashes), but the
-      // runtime check must still fire on its own — this deliberately
-      // invalid contract exercises the runtime path.
       expect(() =>
         defineContract({
           taskQueue: "test",
-          // @ts-expect-error — see the comment above: compile-time mirror of
-          // the runtime check this test exercises.
           workflows: {
             processOrder: {
               input: z.object({}),
@@ -564,12 +558,9 @@ describe("Contract Builder", () => {
     it("should throw when a workflow has the same name as a global activity", () => {
       // Same collision, declared the other way around: the activity name
       // comes first alphabetically and the workflow map holds several keys.
-      // See the previous test for why this needs @ts-expect-error now too.
       expect(() =>
         defineContract({
           taskQueue: "test",
-          // @ts-expect-error — compile-time mirror of the runtime check this
-          // test exercises.
           workflows: {
             aWorkflow: {
               input: z.object({}),
@@ -1363,12 +1354,6 @@ describe("Contract Builder — duration validation", () => {
           sendEmail: {
             input: z.object({}),
             output: z.void(),
-            // @ts-expect-error -- `CheckDuration` now rejects "quick" at compile
-            // time too, because `defineContract`'s `const` type parameter keeps
-            // this inline literal from widening to `string`. The runtime check
-            // is still the authoritative one and must keep throwing, so the
-            // assertion below stays exactly as it was — this directive only
-            // acknowledges that the same mistake is now caught twice.
             activityOptions: { retry: { initialInterval: "quick" } },
           },
         },
@@ -1387,9 +1372,6 @@ describe("Contract Builder — Temporal-reserved names", () => {
       defineContract({
         taskQueue: "test",
         workflows: {
-          // @ts-expect-error — reserved name, now also a compile-time error
-          // (ValidateContract's CheckName); this test exercises the runtime
-          // check firing independently.
           __temporal_cleanup: {
             input: z.object({}),
             output: z.object({}),
@@ -1423,14 +1405,10 @@ describe("Contract Builder — Temporal-reserved names", () => {
   it("rejects reserved global activity, workflow activity, signal, and update names", () => {
     const base = { input: z.object({}), output: z.object({}) };
 
-    // Each reserved name below is now also a compile-time error
-    // (ValidateContract's CheckName); every @ts-expect-error exercises the
-    // runtime check firing independently of its compile-time mirror.
     expect(() =>
       defineContract({
         taskQueue: "test",
         workflows: {},
-        // @ts-expect-error — reserved global activity name.
         activities: { __temporal_probe: base },
       }),
     ).toThrow(RESERVED_MESSAGE);

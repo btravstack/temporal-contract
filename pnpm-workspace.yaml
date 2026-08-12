@@ -66,8 +66,6 @@ overrides:
   # GHSA-v2hh-gcrm-f6hx (High): fast-uri host confusion via literal backslash
   # authority delimiter. The advisory widened after disclosure; the vulnerable
   # range is now <3.1.5, so pin the transitive dev/build line to 3.1.5.
-  # fast-uri is added to minimumReleaseAgeExclude below because 3.1.5 is younger
-  # than the 7-day cutoff.
   "fast-uri@<3.1.5": "3.1.5"
   # GHSA-3jxr-9vmj-r5cp, GHSA-mh99-v99m-4gvg, GHSA-7p8r-x3mc-p8w7, and
   # GHSA-rgw5-rvv9-x895 (all ReDoS / expansion-DoS): brace-expansion. Two lines
@@ -151,12 +149,3 @@ minimumReleaseAgeExclude:
   - "unthrown"
   - "@unthrown/oxlint"
   - "@unthrown/vitest"
-  # Temporary: fast-uri 3.1.5 (the GHSA-v2hh-gcrm-f6hx override above) is younger
-  # than the 7-day cutoff. Remove once 3.1.5 is 7 days old.
-  - fast-uri
-  # Temporary: brace-expansion 5.0.9 / 2.1.4 (the overrides above) are younger
-  # than the 7-day cutoff. Remove once both patched releases are 7 days old.
-  - brace-expansion
-  # Temporary: undici 8.9.0 (the GHSA-4cwx-7wf7-3272 override above) is younger
-  # than the 7-day cutoff. Remove once 8.9.0 is 7 days old.
-  - undici

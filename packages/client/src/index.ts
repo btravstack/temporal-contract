@@ -14,12 +14,6 @@ export {
   type WorkflowContractErrorsOf,
   type WorkflowResultErrorsOf,
 } from "./client.js";
-export type {
-  ClientCallError,
-  ClientInterceptor,
-  ClientInterceptorArgs,
-  ClientInterceptorNext,
-} from "./interceptors.js";
 // Technical creation failure — `TypedClient.create` routes it to the Defect
 // channel (as the defect's cause) instead of throwing.
 export { TechnicalError } from "@temporal-contract/contract/errors";
@@ -44,7 +38,6 @@ export {
   ScheduleAlreadyExistsError,
   ScheduleNotFoundError,
   SignalValidationError,
-  tagPatterns,
   UpdateFailedError,
   UpdateRejectedError,
   UpdateValidationError,
@@ -57,9 +50,8 @@ export {
   WorkflowTimeoutError,
   WorkflowValidationError,
 } from "./errors.js";
-export type { TagPatterns, TemporalFailure } from "./errors.js";
-// `_tag` literal constants + grouped bundles for the recurring match
-// unions — see `error-tags.ts` and the `tagPatterns` helper above.
+export type { TemporalFailure } from "./errors.js";
+// `_tag` literal constants for matching — see `error-tags.ts`.
 export {
   QUERY_FAILED_ERROR_TAG,
   QUERY_VALIDATION_ERROR_TAG,
@@ -75,9 +67,6 @@ export {
   WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG,
   WORKFLOW_FAILED_ERROR_TAG,
   WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG,
-  WORKFLOW_OUTCOME_ERROR_TAGS,
-  WORKFLOW_RESULT_ERROR_TAGS,
-  WORKFLOW_START_ERROR_TAGS,
   WORKFLOW_TERMINATED_ERROR_TAG,
   WORKFLOW_TIMEOUT_ERROR_TAG,
   WORKFLOW_VALIDATION_ERROR_TAG,

@@ -56,12 +56,6 @@ import {
   RuntimeClientError,
 } from "./errors.js";
 import {
-  chainInterceptors,
-  type ClientCallError,
-  type ClientInterceptor,
-  type ClientInterceptorArgs,
-} from "./interceptors.js";
-import {
   classifyHandleError,
   classifyQueryError,
   classifyResultError,
@@ -357,8 +351,7 @@ export type TypedWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
    * The underlying `@temporalio/client` `WorkflowHandle` — the escape hatch
    * for anything the typed surface doesn't cover yet (e.g.
    * `raw.getUpdateHandle(...)`, `raw.cancel()` with SDK-specific options).
-   * Calls made through `raw` bypass contract validation and the interceptor
-   * chain. Mirrors {@link TypedClient.raw} at the handle level.
+   * Calls made through `raw` bypass contract validation. Mirrors {@link TypedClient.raw} at the handle level.
    */
   readonly raw: WorkflowHandle;
 
@@ -543,13 +536,6 @@ function resolveDefinitionAndValidateInput<
 export type CreateClientOptions = {
   /** The underlying `@temporalio/client` `Client`. */
   client: Client;
-  /**
-   * Client-side interceptors wrapping `startWorkflow` / `executeWorkflow` /
-   * `signalWithStart` and handle-level `signal` / `query` / `update`,
-   * outermost-first, inherited by every contract-bound client handed out by
-   * {@link TypedClient.for}. See {@link ClientInterceptor}.
-   */
-  interceptors?: readonly ClientInterceptor[];
 };
 
 /**
@@ -557,7 +543,7 @@ export type CreateClientOptions = {
  *
  * A client is a *connection*; a contract is a *schema*. `TypedClient` owns
  * the connection-lifetime concerns — the eager `ensureConnected()`, the
- * `@temporalio/client` capability check, the interceptor chain, and the
+ * `@temporalio/client` capability check and the
  * {@link TypedClient.raw | raw} escape hatch — and hands out contract-bound
  * {@link ContractClient}s via {@link TypedClient.for}. Create it once at
  * process start; bind contracts freely (binding is synchronous, infallible,
@@ -568,11 +554,9 @@ export class TypedClient {
    * The underlying `@temporalio/client` `Client` — the escape hatch for
    * anything the typed surface doesn't cover yet (e.g.
    * `raw.workflow.list(...)`, `raw.workflow.count(...)`). Calls made through
-   * `raw` bypass contract validation and the interceptor chain.
+   * `raw` bypass contract validation.
    */
   readonly raw: Client;
-
-  private readonly interceptors: readonly ClientInterceptor[];
 
   /**
    * Memoized contract bindings, keyed by contract identity, so
@@ -585,9 +569,8 @@ export class TypedClient {
     ContractClient<ContractDefinition>
   >();
 
-  private constructor(client: Client, interceptors: readonly ClientInterceptor[]) {
+  private constructor(client: Client) {
     this.raw = client;
-    this.interceptors = interceptors;
   }
 
   /**
@@ -617,7 +600,7 @@ export class TypedClient {
    * const client = await TypedClient.create({ client: temporalClient }).get();
    * ```
    */
-  static create({ client, interceptors }: CreateClientOptions): AsyncResult<TypedClient, never> {
+  static create({ client }: CreateClientOptions): AsyncResult<TypedClient, never> {
     const work = async () => {
       // `client.schedule` is the ScheduleClient wired into Temporal's
       // top-level `Client` since 1.16. The peer dep allows all of `^1`, so a
@@ -652,7 +635,7 @@ export class TypedClient {
         }
       }
 
-      return Ok(new TypedClient(client, interceptors ?? []));
+      return Ok(new TypedClient(client));
     };
     return makeAsyncResult(work);
   }
@@ -667,11 +650,7 @@ export class TypedClient {
    *
    * @example
    * ```ts
-   * import {
-   *   tagPatterns,
-   *   WORKFLOW_RESULT_ERROR_TAGS,
-   *   WORKFLOW_START_ERROR_TAGS,
-   * } from "@temporal-contract/client";
+   * import { P } from "unthrown";
    *
    * import { orderContract } from "./contracts/order.contract.js";
    *
@@ -686,8 +665,9 @@ export class TypedClient {
    *   ok: (output) => console.log("processed", output),
    *   errCases: (matcher) =>
    *     matcher.with(
-   *       ...tagPatterns(WORKFLOW_START_ERROR_TAGS),
-   *       ...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS),
+   *       P.tag(WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG),
+   *       P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
+   *       // ...one P.tag per remaining member of the union
    *       (error) => console.error("processing failed", error),
    *     ),
    *   defect: (cause) => console.error("unexpected failure", cause),
@@ -699,7 +679,7 @@ export class TypedClient {
     // restore/erase it at the memo boundary (see the field's doc).
     const memoized = this.contractClients.get(contract);
     if (memoized) return memoized as unknown as ContractClient<TContract>;
-    const bound = ContractClient._internal_create(contract, this.raw, this.interceptors);
+    const bound = ContractClient._internal_create(contract, this.raw);
     this.contractClients.set(contract, bound as unknown as ContractClient<ContractDefinition>);
     return bound;
   }
@@ -712,7 +692,7 @@ export class TypedClient {
  * Provides type-safe methods to start and execute workflows defined in the
  * bound contract, with explicit error handling using the Result pattern.
  * Obtained from {@link TypedClient.for} — the connection-scoped root — and
- * inherits its underlying `Client` and interceptors. Not constructible
+ * inherits its underlying `Client`. Not constructible
  * directly: the class is exported for type annotations only.
  */
 export class ContractClient<TContract extends ContractDefinition> {
@@ -758,16 +738,10 @@ export class ContractClient<TContract extends ContractDefinition> {
   readonly schedule: TypedScheduleClient<TContract>;
 
   private readonly client: Client;
-  private readonly interceptors: readonly ClientInterceptor[];
 
-  private constructor(
-    contract: TContract,
-    client: Client,
-    interceptors: readonly ClientInterceptor[],
-  ) {
+  private constructor(contract: TContract, client: Client) {
     this.contract = contract;
     this.client = client;
-    this.interceptors = interceptors;
     this.schedule = TypedScheduleClient._internal_create(contract, client.schedule);
   }
 
@@ -780,9 +754,8 @@ export class ContractClient<TContract extends ContractDefinition> {
   static _internal_create<TContract extends ContractDefinition>(
     contract: TContract,
     client: Client,
-    interceptors: readonly ClientInterceptor[],
   ): ContractClient<TContract> {
-    return new ContractClient(contract, client, interceptors);
+    return new ContractClient(contract, client);
   }
 
   /**
@@ -799,8 +772,6 @@ export class ContractClient<TContract extends ContractDefinition> {
    *
    * @example
    * ```ts
-   * import { tagPatterns, WORKFLOW_START_ERROR_TAGS } from "@temporal-contract/client";
-   *
    * const handleResult = await contractClient.startWorkflow('processOrder', {
    *   workflowId: 'order-123',
    *   args: { orderId: 'ORD-123' },
@@ -814,8 +785,11 @@ export class ContractClient<TContract extends ContractDefinition> {
    *     // ... handle result
    *   },
    *   errCases: (matcher) =>
-   *     matcher.with(...tagPatterns(WORKFLOW_START_ERROR_TAGS), (error) =>
-   *       console.error('Failed to start:', error),
+   *     matcher.with(
+   *       P.tag(WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG),
+   *       P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
+   *       P.tag(WORKFLOW_ALREADY_STARTED_ERROR_TAG),
+   *       (error) => console.error('Failed to start:', error),
    *     ),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
    * });
@@ -876,20 +850,7 @@ export class ContractClient<TContract extends ContractDefinition> {
         ),
       );
 
-    // Interceptors wrap the whole pipeline (outside validation), so a
-    // patched input is validated exactly like the caller's original. Types
-    // are erased through the chain and restored at this boundary.
-    if (this.interceptors.length === 0) return runPipeline(args);
-    return chainInterceptors(
-      this.interceptors,
-      {
-        operation: "startWorkflow",
-        workflowName,
-        workflowId: temporalOptions.workflowId,
-        input: args,
-      } satisfies ClientInterceptorArgs,
-      (current) => runPipeline(current.input) as AsyncResult<unknown, ClientCallError>,
-    ) as AsyncResult<StartOk, StartErr>;
+    return runPipeline(args);
   }
 
   /**
@@ -907,11 +868,7 @@ export class ContractClient<TContract extends ContractDefinition> {
    * @example
    * ```ts
    * import { P } from "unthrown";
-   * import {
-   *   SIGNAL_VALIDATION_ERROR_TAG,
-   *   tagPatterns,
-   *   WORKFLOW_START_ERROR_TAGS,
-   * } from "@temporal-contract/client";
+   * import { SIGNAL_VALIDATION_ERROR_TAG } from "@temporal-contract/client";
    *
    * const result = await contractClient.signalWithStart('processOrder', {
    *   workflowId: 'order-123',
@@ -923,11 +880,16 @@ export class ContractClient<TContract extends ContractDefinition> {
    * await result.match({
    *   ok: (handle) => console.log('signaled run', handle.signaledRunId),
    *   errCases: (matcher) =>
-   *     matcher.with(
-   *       ...tagPatterns(WORKFLOW_START_ERROR_TAGS),
-   *       P.tag(SIGNAL_VALIDATION_ERROR_TAG),
-   *       (error) => console.error('signalWithStart failed', error),
-   *     ),
+   *     matcher
+   *       .with(P.tag(SIGNAL_VALIDATION_ERROR_TAG), (error) =>
+   *         console.error('signal payload rejected', error),
+   *       )
+   *       .with(
+   *         P.tag(WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG),
+   *         P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
+   *         P.tag(WORKFLOW_ALREADY_STARTED_ERROR_TAG),
+   *         (error) => console.error('signalWithStart failed', error),
+   *       ),
    *   defect: (cause) => console.error('unexpected failure', cause),
    * });
    * ```
@@ -1032,23 +994,7 @@ export class ContractClient<TContract extends ContractDefinition> {
           }),
         );
 
-    if (this.interceptors.length === 0) return runPipeline(args, signalArgs);
-    return chainInterceptors(
-      this.interceptors,
-      {
-        operation: "signalWithStart",
-        workflowName,
-        workflowId: temporalOptions.workflowId,
-        input: args,
-        signalName,
-        signalInput: signalArgs,
-      } satisfies ClientInterceptorArgs,
-      (current) =>
-        runPipeline(
-          current.input,
-          (current as { signalInput: unknown }).signalInput,
-        ) as AsyncResult<unknown, ClientCallError>,
-    ) as AsyncResult<SignalStartOk, SignalStartErr>;
+    return runPipeline(args, signalArgs);
   }
 
   /**
@@ -1063,11 +1009,6 @@ export class ContractClient<TContract extends ContractDefinition> {
    * @example
    * ```ts
    * import { P } from "unthrown";
-   * import {
-   *   tagPatterns,
-   *   WORKFLOW_RESULT_ERROR_TAGS,
-   *   WORKFLOW_START_ERROR_TAGS,
-   * } from "@temporal-contract/client";
    *
    * const result = await contractClient.executeWorkflow('processOrder', {
    *   workflowId: 'order-123',
@@ -1084,8 +1025,9 @@ export class ContractClient<TContract extends ContractDefinition> {
    *         console.error('Domain failure:', error.errorName),
    *       )
    *       .with(
-   *         ...tagPatterns(WORKFLOW_START_ERROR_TAGS),
-   *         ...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS),
+   *         P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
+   *         P.tag(WORKFLOW_FAILED_ERROR_TAG),
+   *         // ...one P.tag per remaining member of the union
    *         (error) => console.error('Processing failed:', error),
    *       ),
    *   defect: (cause) => console.error('Unexpected failure:', cause),
@@ -1149,7 +1091,6 @@ export class ContractClient<TContract extends ContractDefinition> {
               // otherwise the generic WorkflowFailedError flows through.
               // The cast narrows `AnyContractError` to this workflow's
               // precise declared-error union (same erase/restore pattern
-              // as the interceptor boundary).
               .with(
                 P.tag(WORKFLOW_FAILED_ERROR_TAG),
                 (failed) =>
@@ -1188,17 +1129,7 @@ export class ContractClient<TContract extends ContractDefinition> {
           ),
       );
 
-    if (this.interceptors.length === 0) return runPipeline(args);
-    return chainInterceptors(
-      this.interceptors,
-      {
-        operation: "executeWorkflow",
-        workflowName,
-        workflowId: temporalOptions.workflowId,
-        input: args,
-      } satisfies ClientInterceptorArgs,
-      (current) => runPipeline(current.input) as AsyncResult<unknown, ClientCallError>,
-    ) as AsyncResult<ExecuteOk, ExecuteErr>;
+    return runPipeline(args);
   }
 
   /**
@@ -1259,9 +1190,6 @@ export class ContractClient<TContract extends ContractDefinition> {
     const queries = buildValidatedProxy({
       defs: definition.queries,
       operation: "query",
-      workflowName,
-      workflowId: workflowHandle.workflowId,
-      interceptors: this.interceptors,
       makeValidationError: (name, direction, issues) =>
         new QueryValidationError(name, direction, issues),
       invoke: (name, input) =>
@@ -1276,9 +1204,6 @@ export class ContractClient<TContract extends ContractDefinition> {
     const signals = buildValidatedProxy({
       defs: definition.signals,
       operation: "signal",
-      workflowName,
-      workflowId: workflowHandle.workflowId,
-      interceptors: this.interceptors,
       makeValidationError: (name, _direction, issues) => new SignalValidationError(name, issues),
       invoke: async (name, input) => {
         // A payload-less send travels as empty args, not `[undefined]`.
@@ -1296,9 +1221,6 @@ export class ContractClient<TContract extends ContractDefinition> {
     const updates = buildValidatedProxy({
       defs: definition.updates,
       operation: "update",
-      workflowName,
-      workflowId: workflowHandle.workflowId,
-      interceptors: this.interceptors,
       makeValidationError: (name, direction, issues) =>
         new UpdateValidationError(name, direction, issues),
       invoke: (name, input) =>
@@ -1379,20 +1301,7 @@ export class ContractClient<TContract extends ContractDefinition> {
         );
       };
 
-      // Interceptors wrap the whole pipeline (outside validation), same
-      // `update` operation as the execute-and-wait `updates` map.
-      if (this.interceptors.length === 0) return runPipeline(options?.args);
-      return chainInterceptors(
-        this.interceptors,
-        {
-          operation: "update",
-          workflowName,
-          workflowId: workflowHandle.workflowId,
-          name: updateName,
-          input: options?.args,
-        } satisfies ClientInterceptorArgs,
-        (current) => runPipeline(current.input) as AsyncResult<unknown, ClientCallError>,
-      ) as AsyncResult<unknown, UpdateCallError>;
+      return runPipeline(options?.args);
     };
 
     return {
@@ -1514,18 +1423,8 @@ type ProxyOperationError =
 
 type ProxyOptions<TDef extends DefWithInput, TValidationError extends Error> = {
   readonly defs: Record<string, TDef> | undefined;
+  /** Operation label carried into `RuntimeClientError` on an unclassified failure. */
   readonly operation: "signal" | "query" | "update";
-  /** Contract workflow name of the handle — surfaced to interceptors. */
-  readonly workflowName: string;
-  /**
-   * Workflow ID of the handle these proxies bind to. Used by the
-   * `classifyError` callbacks to surface
-   * {@link WorkflowExecutionNotFoundError} with the targeted ID even when
-   * Temporal's error doesn't carry it.
-   */
-  readonly workflowId: string;
-  /** Client interceptors wrapping every invocation, outermost-first. */
-  readonly interceptors: readonly ClientInterceptor[];
   readonly makeValidationError: (
     name: string,
     direction: "input" | "output",
@@ -1568,9 +1467,6 @@ type ProxyOptions<TDef extends DefWithInput, TValidationError extends Error> = {
 function buildValidatedProxy<TDef extends DefWithInput, TValidationError extends Error>({
   defs,
   operation,
-  workflowName,
-  workflowId,
-  interceptors,
   makeValidationError,
   invoke,
   validateOutput,
@@ -1609,22 +1505,7 @@ function buildValidatedProxy<TDef extends DefWithInput, TValidationError extends
         },
       );
 
-    proxy[name] = (args) => {
-      // Interceptors wrap the whole pipeline (outside validation), so a
-      // patched input is validated exactly like the caller's original.
-      if (interceptors.length === 0) return runPipeline(args);
-      return chainInterceptors(
-        interceptors,
-        {
-          operation,
-          workflowName,
-          workflowId,
-          name,
-          input: args,
-        } satisfies ClientInterceptorArgs,
-        (current) => runPipeline(current.input) as AsyncResult<unknown, ClientCallError>,
-      ) as AsyncResult<unknown, ProxyError>;
-    };
+    proxy[name] = (args) => runPipeline(args);
   }
 
   return proxy;

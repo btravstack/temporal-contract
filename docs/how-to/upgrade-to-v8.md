@@ -236,28 +236,6 @@ on its own discards the outcome — the modeled `ScheduleNotFoundError` (an `Err
 not a defect) included. Chain `.getOrThrow()`, or branch on `isErr()`.
 :::
 
-## 5. Interceptors and middleware
-
-If a client interceptor retried on `RuntimeClientError`, move it to
-`recoverDefect`:
-
-```typescript
-// 7.x
-const retryOnce: ClientInterceptor = (args, next) =>
-  next().flatMapErr((error) =>
-    error instanceof RuntimeClientError ? next() : Err(error).toAsync(),
-  );
-
-// 8.0
-const retryOnce: ClientInterceptor = (args, next) =>
-  next().recoverDefect((cause) => {
-    if (cause instanceof RuntimeClientError) {
-      return next();
-    }
-    throw cause;
-  });
-```
-
 ## 6. Split the client: `create` then `for`
 
 A client is a _connection_; a contract is a _schema_. 8.0 decouples them:
@@ -352,7 +330,7 @@ Not breaking, but part of the same overhaul:
 
 - **`typedClient.raw`** — the underlying `@temporalio/client` `Client`, for
   anything the typed surface does not cover (`raw.workflow.list(...)`,
-  `raw.workflow.count(...)`). Bypasses validation and interceptors.
+  `raw.workflow.count(...)`). Bypasses validation.
 - **`handle.runId` / `handle.firstExecutionRunId`** — carried on typed
   handles when known.
 - **`handle.startUpdate(name, options)`** — start an update without waiting
@@ -689,15 +667,27 @@ inherited by default.
 previously leaked as defects. Widen (or, more likely, let the exhaustive
 matcher force you to widen) your `result()` / update / query match arms.
 
-Collapse the recurring multi-tag arms with the new bundles and `tagPatterns`:
+Group the recurring multi-tag arms by listing the tags that share a handler:
 
 ```typescript
-import { tagPatterns, WORKFLOW_RESULT_ERROR_TAGS } from "@temporal-contract/client";
+import {
+  WORKFLOW_CANCELLED_ERROR_TAG,
+  WORKFLOW_FAILED_ERROR_TAG,
+  WORKFLOW_TERMINATED_ERROR_TAG,
+  WORKFLOW_TIMEOUT_ERROR_TAG,
+} from "@temporal-contract/client";
+import { P } from "unthrown";
 
 result.match({
   ok: (value) => value,
   errCases: (matcher) =>
-    matcher.with(...tagPatterns(WORKFLOW_RESULT_ERROR_TAGS), (error) => report(error)),
+    matcher.with(
+      P.tag(WORKFLOW_FAILED_ERROR_TAG),
+      P.tag(WORKFLOW_CANCELLED_ERROR_TAG),
+      P.tag(WORKFLOW_TERMINATED_ERROR_TAG),
+      P.tag(WORKFLOW_TIMEOUT_ERROR_TAG),
+      (error) => report(error),
+    ),
   defect: (cause) => report(cause),
 });
 ```
@@ -851,14 +841,12 @@ validation, marker or not.
 - `ChildWorkflowError` carries a structured `workflowName`; the input/output
   `ValidationError` subclasses carry a `direction: "input" | "output"`.
 
-### Client construction and interceptors
+### Client construction
 
 - `ContractClient` and `TypedScheduleClient` are no longer constructible
   directly — obtain them via `typedClient.for(...)` and `client.schedule`.
   `ContractClient` exposes readonly `contract` and `taskQueue` getters, and
   `handle.raw` reaches the underlying `WorkflowHandle`.
-- Client interceptor patches may set **only** `input` / `signalInput`; identity
-  fields such as `workflowName` are no longer patchable.
 
 ### Testing: option bags and a boundary-faithful tier
 

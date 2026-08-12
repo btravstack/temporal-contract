@@ -1,4 +1,4 @@
-import { ContractError, TypedClient, type ClientInterceptor } from "@temporal-contract/client";
+import { ContractError, TypedClient } from "@temporal-contract/client";
 import { testRig } from "@temporal-contract/testing/test-rig";
 import { it } from "@temporal-contract/testing/time-skipping";
 import { bundleFor, fixturePath } from "@temporal-contract/testing/workflow-bundle";
@@ -14,7 +14,6 @@ import { OkAsync, ErrAsync } from "unthrown";
  * - `createContext` seed + accumulating middleware context,
  * - typed contract errors (activity-side rehydration in the workflow,
  *   workflow-side rehydration at the client),
- * - client interceptors observing every operation,
  * - contract-level `activityOptions` standing in for `activityOptions`,
  * - time skipping (an hour-long `sleep` resolving immediately).
  */
@@ -53,12 +52,6 @@ const activities = declareActivitiesHandler({
   },
 });
 
-const interceptedOperations: string[] = [];
-const recording: ClientInterceptor = (args, next) => {
-  interceptedOperations.push(args.operation);
-  return next();
-};
-
 /** `EVENT_TYPE_WORKFLOW_TASK_COMPLETED` from `@temporalio/proto`'s `EventType` enum. */
 const WORKFLOW_TASK_COMPLETED_EVENT_TYPE = 7;
 
@@ -74,10 +67,7 @@ describe("time-skipping TestWorkflowEnvironment", () => {
     if (!workerResult.isOk()) return;
     const worker = workerResult.value;
 
-    const clientResult = await TypedClient.create({
-      client: testEnv.client,
-      interceptors: [recording],
-    });
+    const clientResult = await TypedClient.create({ client: testEnv.client });
     expect(clientResult).toBeOk();
     if (!clientResult.isOk()) return;
     const client = clientResult.value.for(inprocessContract);
@@ -110,12 +100,6 @@ describe("time-skipping TestWorkflowEnvironment", () => {
       }
     });
 
-    // Interceptors observed every operation, outermost of validation.
-    expect(interceptedOperations).toEqual([
-      "executeWorkflow",
-      "executeWorkflow",
-      "executeWorkflow",
-    ]);
     // The createContext seed + middleware injection reached the
     // implementation (only the two executions that hit the activity).
     expect(seenContexts).toEqual([
@@ -127,8 +111,8 @@ describe("time-skipping TestWorkflowEnvironment", () => {
   // The one test below that uses testRig — the other four in this file build
   // TypedWorker.create / TypedClient.create by hand instead: two assert on
   // the creation Result itself (Ok/Defect), which testRig's `.get()`-unwrapping
-  // helper hides, and two need `interceptors` / arbitrary WorkerOptions
-  // passthrough that RigOptions doesn't expose.
+  // helper hides, and two need arbitrary WorkerOptions passthrough that
+  // RigOptions doesn't expose.
   it("a workflow that re-raises cancellation via rethrowCancellation ends Cancelled", async ({
     testEnv,
   }) => {
