@@ -20,6 +20,7 @@
     "contract-types-node",
     "enable-all-unthrown-oxlint-rules",
     "family-consistency-typed-worker",
+    "ponytail-audit-cuts",
     "safe-default-option-shapes",
     "technical-errors-to-defect",
     "testing-test-rig-export",
