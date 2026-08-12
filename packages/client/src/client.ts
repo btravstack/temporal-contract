@@ -650,6 +650,10 @@ export class TypedClient {
    *
    * @example
    * ```ts
+   * import {
+   *   WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG,
+   *   WORKFLOW_VALIDATION_ERROR_TAG,
+   * } from "@temporal-contract/client";
    * import { P } from "unthrown";
    *
    * import { orderContract } from "./contracts/order.contract.js";
@@ -772,6 +776,13 @@ export class ContractClient<TContract extends ContractDefinition> {
    *
    * @example
    * ```ts
+   * import {
+   *   WORKFLOW_ALREADY_STARTED_ERROR_TAG,
+   *   WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG,
+   *   WORKFLOW_VALIDATION_ERROR_TAG,
+   * } from "@temporal-contract/client";
+   * import { P } from "unthrown";
+   *
    * const handleResult = await contractClient.startWorkflow('processOrder', {
    *   workflowId: 'order-123',
    *   args: { orderId: 'ORD-123' },
@@ -867,8 +878,13 @@ export class ContractClient<TContract extends ContractDefinition> {
    *
    * @example
    * ```ts
+   * import {
+   *   SIGNAL_VALIDATION_ERROR_TAG,
+   *   WORKFLOW_ALREADY_STARTED_ERROR_TAG,
+   *   WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG,
+   *   WORKFLOW_VALIDATION_ERROR_TAG,
+   * } from "@temporal-contract/client";
    * import { P } from "unthrown";
-   * import { SIGNAL_VALIDATION_ERROR_TAG } from "@temporal-contract/client";
    *
    * const result = await contractClient.signalWithStart('processOrder', {
    *   workflowId: 'order-123',
@@ -1008,6 +1024,10 @@ export class ContractClient<TContract extends ContractDefinition> {
    *
    * @example
    * ```ts
+   * import {
+   *   WORKFLOW_FAILED_ERROR_TAG,
+   *   WORKFLOW_VALIDATION_ERROR_TAG,
+   * } from "@temporal-contract/client";
    * import { P } from "unthrown";
    *
    * const result = await contractClient.executeWorkflow('processOrder', {

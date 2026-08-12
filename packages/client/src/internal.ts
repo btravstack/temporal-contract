@@ -8,10 +8,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { AnyWorkflowDefinition, SearchAttributeDefinition } from "@temporal-contract/contract";
 import { type AnyContractError } from "@temporal-contract/contract/errors";
-import {
-  _internal_makeAsyncResult,
-  _internal_rehydrateContractError,
-} from "@temporal-contract/contract/internal";
+import { _internal_rehydrateContractError } from "@temporal-contract/contract/internal";
 import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
 import {
   QueryNotRegisteredError,
