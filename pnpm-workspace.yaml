@@ -91,8 +91,8 @@ overrides:
   # GHSA-2v37-7h3g-55p8 (High): nanoid custom generators can loop indefinitely
   # when size is zero. Reaches us only through the docs build —
   # docs > @btravstack/theme > vitepress > postcss > nanoid — never the shipped
-  # package. Pinned to its first patched release.
-  "nanoid@<3.3.17": "3.3.17"
+  # package. The advisory later widened to <3.3.18, so the floor moves with it.
+  "nanoid@<3.3.18": "3.3.18"
   # GHSA-fx2h-pf6j-xcff: vite `server.fs.deny` bypass (dev-server only; the docs
   # ship as static HTML). Reaches us via docs > vitepress > vite. vitepress 1.6.x
   # pins vite 5.x and 5.x has no patched release, so lift any pre-6.4.3 vite to
@@ -120,9 +120,9 @@ overrides:
   # GHSA-c2j3-45gr-mqc4 (Low): DOMPurify `CUSTOM_ELEMENT_HANDLING` bypasses
   # `afterSanitizeAttributes`. Reaches us via docs > mermaid > dompurify, and is
   # unrelated to this branch — the advisory was disclosed after main's last
-  # green audit, so main is affected too. Only 3.4.11 is present and 3.4.12 is
-  # the first patched release; the docs `vitepress build` is verified against it.
-  "dompurify@<3.4.12": "3.4.12"
+  # green audit, so main is affected too. GHSA-55q2-fjhq-7xh7 (moderate) then
+  # moved the patched floor to 3.4.13, so the override moves with it.
+  "dompurify@<3.4.13": "3.4.13"
 
 allowBuilds:
   "@swc/core": true
@@ -149,3 +149,8 @@ minimumReleaseAgeExclude:
   - "unthrown"
   - "@unthrown/oxlint"
   - "@unthrown/vitest"
+  # Temporary: nanoid 3.3.18 (the widened GHSA-2v37-7h3g-55p8 override above)
+  # was published 2026-08-07, inside the 7-day cutoff. Remove once it is 7 days
+  # old (i.e. after 2026-08-14). dompurify 3.4.13 needs no entry — published
+  # 2026-08-03, past the cutoff.
+  - nanoid
