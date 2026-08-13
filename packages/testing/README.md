@@ -1,5 +1,12 @@
 # @temporal-contract/testing
 
+> [!IMPORTANT]
+> **Internal package — no longer published.** These utilities were built for
+> this repository's own test suites and were never designed as a public API.
+> The previously published versions are deprecated on npm; do not depend on
+> them from other repositories.
+
+
 > Testing utilities for temporal-contract integration tests
 
 [![npm version](https://img.shields.io/npm/v/@temporal-contract/testing.svg?logo=npm)](https://www.npmjs.com/package/@temporal-contract/testing)
