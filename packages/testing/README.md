@@ -6,18 +6,17 @@
 > The previously published versions are deprecated on npm; do not depend on
 > them from other repositories.
 
-
 > Testing utilities for temporal-contract integration tests
-
-[![npm version](https://img.shields.io/npm/v/@temporal-contract/testing.svg?logo=npm)](https://www.npmjs.com/package/@temporal-contract/testing)
 
 ## Installation
 
-```bash
-pnpm add -D @temporal-contract/testing
-```
-
-The package declares peer dependencies on the other three `@temporal-contract/*` packages (contract, client, worker — the contract-aware fixtures hand you a `TypedClient` and run a worker, so they must resolve to _your_ copies), plus `@temporalio/client`, `@temporalio/testing`, `@temporalio/worker`, `unthrown` (`^5`), and `vitest` (`^4`). Make sure they are installed alongside it — see [Install temporal-contract](https://btravstack.github.io/temporal-contract/how-to/install) for the full matrix.
+None — this package is consumed only inside this workspace, as
+`"@temporal-contract/testing": "workspace:*"` in a sibling package's
+`devDependencies`. It declares peer dependencies on the other three
+`@temporal-contract/*` packages (the contract-aware fixtures hand you a
+`TypedClient` and run a worker, so they must resolve to the workspace copies),
+plus `@temporalio/client`, `@temporalio/testing`, `@temporalio/worker`,
+`unthrown` (`^5`), and `vitest` (`^4`).
 
 ## Quick Example
 
