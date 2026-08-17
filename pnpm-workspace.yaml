@@ -33,7 +33,7 @@ catalog:
   "@unthrown/vitest": 5.5.0
   "@vitest/coverage-v8": 4.1.10
   arktype: 2.2.3
-  knip: 6.31.0
+  knip: 6.32.1
   lefthook: 2.1.10
   mermaid: 11.16.1
   oxfmt: 0.62.0
