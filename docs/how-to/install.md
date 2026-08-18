@@ -4,7 +4,7 @@
 
 |               |                                                                |
 | ------------- | -------------------------------------------------------------- |
-| Node.js       | ≥ 22.19.0                                                      |
+| Node.js       | ≥ 22.22.0                                                      |
 | Module system | ESM only (`"type": "module"`)                                  |
 | TypeScript    | Developed against 6.0; `strict` required for correct inference |
 | Temporal SDK  | `@temporalio/*` v1                                             |
