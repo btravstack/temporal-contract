@@ -17,7 +17,7 @@ jobs:
     uses: btravstack/tools/.github/workflows/ci-reusable.yml@workflows-v1
     with:
       integration-tests: true
-      node-versions: '["", "22.19.0"]'
+      node-versions: '["", "22.22.0"]'
 
   package-check:
     name: Package

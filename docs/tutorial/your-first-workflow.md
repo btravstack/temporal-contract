@@ -12,7 +12,7 @@ lists live in [Reference](/reference/contract-surface).
 
 ## What you need
 
-- **Node.js ≥ 22.19**
+- **Node.js ≥ 22.22**
 - **A Temporal server** running on `localhost:7233`
 - About 20 minutes
 

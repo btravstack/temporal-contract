@@ -153,7 +153,7 @@ pnpm add unthrown \
 pnpm add zod
 ```
 
-Requires **Node.js ≥ 22.19**, ESM (`"type": "module"`), and TypeScript `strict`.
+Requires **Node.js ≥ 22.22**, ESM (`"type": "module"`), and TypeScript `strict`.
 Developed against **TypeScript 6.0**.
 
 > Install `unthrown` explicitly even if your package manager auto-installs
