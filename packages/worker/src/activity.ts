@@ -330,14 +330,13 @@ type ContractResultActivitiesImplementations<
     // All workflow-specific activities merged; workflows without activities
     // are remapped away entirely instead of demanding a `{}` entry.
     {
-      [TWorkflow in keyof TContract["workflows"] as WorkflowHasActivities<
-        TContract["workflows"][TWorkflow]
-      > extends true
-        ? TWorkflow
-        : never]: TContract["workflows"][TWorkflow]["activities"] extends Record<
-        string,
-        ActivityDefinition
-      >
+      [
+        TWorkflow in keyof TContract["workflows"] as WorkflowHasActivities<
+          TContract["workflows"][TWorkflow]
+        > extends true
+          ? TWorkflow
+          : never
+      ]: TContract["workflows"][TWorkflow]["activities"] extends Record<string, ActivityDefinition>
         ? ResultActivitiesImplementations<TContract["workflows"][TWorkflow]["activities"], TContext>
         : never;
     };
@@ -768,7 +767,9 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
     // All workflow-specific activities merged at root level (flat)
     UnionToIntersection<
       {
-        [TWorkflow in keyof TContract["workflows"]]: TContract["workflows"][TWorkflow]["activities"] extends Record<
+        [
+          TWorkflow in keyof TContract["workflows"]
+        ]: TContract["workflows"][TWorkflow]["activities"] extends Record<
           string,
           ActivityDefinition
         >
