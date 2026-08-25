@@ -19,7 +19,7 @@ catalog:
   "@btravstack/tsconfig": 0.2.0
   "@btravstack/typedoc": 0.1.0
   "@changesets/cli": 3.0.0
-  "@commitlint/cli": 21.2.1
+  "@commitlint/cli": 21.2.2
   "@standard-schema/spec": 1.1.0
   "@stryker-mutator/core": 9.2.0
   "@stryker-mutator/vitest-runner": 9.2.0
