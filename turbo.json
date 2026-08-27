@@ -32,6 +32,10 @@
     },
     "@temporal-contract/docs#build": {
       "dependsOn": ["^build", "^build:docs"],
+      // deploy-docs.yml passes these to build the versioned (/beta/) site; turbo's
+      // strict env mode drops anything undeclared, which silently builds the beta
+      // site with the root base and 404s every asset.
+      "env": ["DOCS_BASE", "DOCS_VERSIONS"],
       "outputs": [".vitepress/dist/**"]
     },
     "check:package": {
