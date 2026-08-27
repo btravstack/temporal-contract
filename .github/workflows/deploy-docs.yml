@@ -126,6 +126,10 @@ jobs:
           # (Runs with the main checkout's docs toolchain — tsx lives there.)
           pnpm --filter ./docs exec tsx "$GITHUB_WORKSPACE/.github/scripts/inject-docs-version-nav.ts" \
             /tmp/stable-docs/docs/.vitepress
+          # Brand assets follow main, not the tag: the stable site is the landing page,
+          # and a tag cut before a rebrand would otherwise serve the old logo forever.
+          rm -rf /tmp/stable-docs/docs/public
+          cp -r docs/public /tmp/stable-docs/docs/public
           cd /tmp/stable-docs
           pnpm install --frozen-lockfile
           pnpm --filter ./docs exec turbo build
