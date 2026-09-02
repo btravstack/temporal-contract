@@ -150,6 +150,26 @@ describe("standalone activity implementations (ActivityImplementationFor)", () =
     expect(await handler.log({ msg: "hello" })).toEqual({});
   });
 
+  it("reads the same call off one destructuring, the input being on the helpers record too", async () => {
+    // The oRPC shape: `ProcedureHandlerOptions` carries `input` and the handler
+    // still takes it positionally, so both spellings are the same call.
+    const validateOrder: ActivityImplementationFor<
+      typeof inferenceContract,
+      "orderWorkflow",
+      "validateOrder"
+    > = ({ args }) => {
+      expectTypeOf(args).toEqualTypeOf<{ orderId: string }>();
+      return OkAsync({ valid: args.orderId.length > 0 });
+    };
+
+    const handler = declareActivitiesHandler({
+      contract: inferenceContract,
+      activities: { log: () => OkAsync({}), orderWorkflow: { validateOrder } },
+    });
+
+    expect(await handler.validateOrder({ orderId: "ORD-1" })).toEqual({ valid: true });
+  });
+
   it("rejects an implementation with the wrong output shape", () => {
     const wrong: ActivityImplementationFor<
       typeof inferenceContract,

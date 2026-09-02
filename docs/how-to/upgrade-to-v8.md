@@ -1074,6 +1074,11 @@ injected context still names the position.
   });
 ```
 
+The input is on the helpers record as well, so an implementation can be written
+from one destructuring instead — `({ errors, args }) => ...`. That is oRPC's own
+shape: `ProcedureHandlerOptions` carries `input` and the handler still takes it
+positionally, and both spellings are the same call.
+
 `ActivityImplementationFor` / `GlobalActivityImplementationFor` annotations and
 `@temporal-contract/testing`'s `runActivity` / `runActivityHandler`
 `implementation` option carry the same order.
