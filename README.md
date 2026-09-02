@@ -126,8 +126,8 @@ partial state, nothing to unwind.
   [unthrown](https://github.com/btravstack/unthrown), with a separate `defect`
   channel that keeps genuine bugs loud
 - **Child workflows** — typed, including across contracts and teams
-- **Schedules, cancellation scopes, continue-as-new, activity middleware, client
-  interceptors** — all contract-aware
+- **Schedules, cancellation scopes, continue-as-new, activity middleware** —
+  all contract-aware
 - **Testing utilities** — time-skipping (no Docker) and real-server
   (testcontainers) fixtures
 - **Nexus** — not implemented; see

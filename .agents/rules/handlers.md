@@ -69,8 +69,12 @@ boundary, operating on the `AsyncResult` — not thrown exceptions). Middleware
 accumulates context with bounded generics (`TContextOut extends TContextIn`,
 amqp-contract's model): `next({ context })` extends what downstream stages and
 the implementation see; `next({ input })` substitutes the input (re-validated).
-The client has the mirror-image seam: `TypedClient.create({ interceptors })`
-wraps start/execute/signalWithStart and handle-level signal/query/update.
+The client has **no** mirror-image seam, deliberately: client interceptors were
+cut in `533c796` because every client method already answers an `AsyncResult`,
+so wrapping a call is composing one — `.tap`, `.flatMap`, `.mapErrCases` at the
+call site, no registration and no framework hook to learn. Middleware exists on
+the activity side because there is no `AsyncResult` in the caller's hand to
+compose: the platform invokes the activity, not the application.
 
 ## Workflow Declaration
 
