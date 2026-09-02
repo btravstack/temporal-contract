@@ -1,5 +1,14 @@
 # @temporal-contract/testing
 
+## 8.0.0-beta.8
+
+### Patch Changes
+
+- Updated dependencies [274e340]
+  - @temporal-contract/worker@8.0.0-beta.8
+  - @temporal-contract/client@8.0.0-beta.8
+  - @temporal-contract/contract@8.0.0-beta.8
+
 ## 8.0.0-beta.7
 
 ### Major Changes
