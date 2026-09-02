@@ -1,5 +1,11 @@
 # @temporal-contract/client
 
+## 8.0.0-beta.7
+
+### Patch Changes
+
+- @temporal-contract/contract@8.0.0-beta.7
+
 ## 8.0.0-beta.6
 
 ### Major Changes

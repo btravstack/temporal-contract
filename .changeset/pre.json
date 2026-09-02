@@ -1,32 +1,4 @@
 {
   "mode": "pre",
-  "tag": "beta",
-  "initialVersions": {
-    "@temporal-contract/client": "7.0.0",
-    "@temporal-contract/contract": "7.0.0",
-    "@temporal-contract/testing": "7.0.0",
-    "@temporal-contract/worker": "7.0.0"
-  },
-  "changesets": [
-    "adopt-lefthook-oxfmt",
-    "adopt-unthrown-v5-beta",
-    "bump-unthrown-5-1-0",
-    "bump-unthrown-beta-5",
-    "bump-unthrown-beta-6",
-    "bump-unthrown-beta-7",
-    "bump-unthrown-v5-stable",
-    "compile-time-contract-validation",
-    "contract-idempotency",
-    "contract-types-node",
-    "enable-all-unthrown-oxlint-rules",
-    "family-consistency-typed-worker",
-    "ponytail-audit-cuts",
-    "safe-default-option-shapes",
-    "technical-errors-to-defect",
-    "testing-test-rig-export",
-    "testing-workflow-bundle-export",
-    "uniform-activity-result",
-    "v8-audit-remediation",
-    "v8-review-remediation"
-  ]
+  "tag": "beta"
 }
