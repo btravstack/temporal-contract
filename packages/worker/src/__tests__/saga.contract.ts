@@ -13,9 +13,11 @@ const reserve = defineActivity({
 });
 
 const charge = defineActivity({
-  input: z.object({}),
+  input: z.object({ sleepMs: z.number() }),
   output: z.object({ chargeId: z.string() }),
-  activityOptions: { retry: { maximumAttempts: 1 } },
+  // Temporal delivers a cancellation notification only in the response to a
+  // heartbeat RPC, so `cancelled` is unobservable without this.
+  activityOptions: { heartbeatTimeout: "2 seconds", retry: { maximumAttempts: 1 } },
 });
 
 /**
@@ -47,10 +49,26 @@ const fulfil = defineWorkflow({
   input: z.object({ mode: z.enum(["declared", "unmodelled"]) }),
   output: z.object({ failedWith: z.string() }),
   idempotency: "allow-duplicate",
-  activities: { reserve, charge, ship, release, refund },
+  activities: { ship, refund },
+});
+
+/**
+ * The `compensateOnCancellation` branch: step two blocks until the workflow
+ * is cancelled, and the undo of step one must still run — which it can only
+ * do from a non-cancellable scope, since a cancelled scope schedules nothing.
+ */
+const fulfilUntilCancelled = defineWorkflow({
+  input: z.object({}),
+  output: z.object({ failedWith: z.string() }),
+  idempotency: "allow-duplicate",
+  activities: {},
 });
 
 export const sagaContract = defineContract({
   taskQueue: "saga-tests",
-  workflows: { fulfil },
+  // `reserve`, `charge` and `release` are global: both workflows use them, and
+  // activities share one flat namespace at runtime, so a per-workflow copy
+  // would be two implementations of one name.
+  activities: { reserve, charge, release },
+  workflows: { fulfil, fulfilUntilCancelled },
 });

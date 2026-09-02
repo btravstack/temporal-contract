@@ -944,7 +944,9 @@ export type WorkflowContext<
    * a second bug. That failure propagates untouched, so
    * {@link propagateActivityFailure} still re-raises Temporal's original
    * failure. Cancellation is the one case a caller may opt back in to, with
-   * `saga({ compensateOnCancellation: true })`.
+   * `saga({ compensateOnCancellation: true })`. Every undo runs inside a
+   * non-cancellable scope, so a cancellation cannot interrupt the walk-back
+   * it triggered.
    *
    * @example
    * ```ts
@@ -952,11 +954,11 @@ export type WorkflowContext<
    *   .saga()
    *   .step(
    *     () => context.activities.reserveStock(order),
-   *     (reservation) => context.activities.releaseStock(reservation.id),
+   *     (reservation) => context.activities.releaseStock({ id: reservation.id }),
    *   )
    *   .step(
    *     () => context.activities.chargeCard(order),
-   *     (charge) => context.activities.refund(charge.id),
+   *     (charge) => context.activities.refund({ id: charge.id }),
    *   )
    *   .step(() => context.activities.ship(order))
    *   .run();
