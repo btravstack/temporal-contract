@@ -1081,7 +1081,9 @@ injected context still names the position.
 **The compiler catches every site that READS its input**, since the first
 parameter is now the helpers record — and misses the ones that ignore it, where
 the swap is harmless but the parameter name lies. Grep the implementations map
-for a leaf whose first parameter is not a helpers destructuring.
+for a leaf whose first parameter is neither `_` nor a helpers destructuring
+(`{ errors }`, `{ context }`, `{ errors, context }`): those two are the migrated
+forms, anything else still names the input.
 
 ## Checklist
 
@@ -1147,7 +1149,8 @@ for a leaf whose first parameter is not a helpers destructuring.
       states `parentClosePolicy` explicitly; `"TERMINATE"` reproduces prior
       behavior, but audit each site rather than filling it in mechanically
 - [ ] Every activity implementation takes `(helpers, args)` — a leaf that reads
-      neither still spells the position, `(_, args) => ...`
+      neither still spells the position, `(_, args) => ...`, so a first
+      parameter that is neither `_` nor a helpers destructuring is unmigrated
 - [ ] `pnpm typecheck` clean
 
 The exhaustive matcher does most of the work: once it compiles, the migration is
