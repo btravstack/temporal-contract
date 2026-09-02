@@ -42,16 +42,20 @@ hold, not for direct construction — unthrown has no lowercase
 
 Canonical example: `examples/order-processing-worker/src/application/activities.ts`.
 
-Implementations take **helpers first, input second** — oRPC's parameter order,
-which this family converged on. A leaf that consumes neither typed errors nor
-injected context still names the position (`(_, args) => ...`). The helpers
-record carries:
+Implementations take **helpers first, input second** — oRPC's shape, which this
+family converged on: its `ProcedureHandlerOptions` carries `input` and the
+handler still takes it positionally, so `({ errors, args }) => ...` and
+`({ errors }, args) => ...` are the same call. A leaf that consumes neither
+typed errors nor injected context is `(_, args) => ...`. The helpers record
+carries:
 
 - `helpers.errors` — typed constructors for the activity's contract-declared
   `errors` map. `Err(errors.PaymentDeclined({ reason }))` is converted at the
   boundary to `ApplicationFailure(type = "PaymentDeclined", details = [validated data],
 nonRetryable from the contract)`, and rehydrated as a typed `ContractError` on the
   workflow side.
+- `helpers.args` — the validated input, the same value the second parameter
+  carries.
 - `helpers.context` — the accumulated typed context: the seed built by
   `declareActivitiesHandler`'s optional `createContext` factory (runs once per
   activity execution with `{ activityName, workflowName }`) plus everything

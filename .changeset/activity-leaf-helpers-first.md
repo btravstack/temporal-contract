@@ -19,9 +19,18 @@ input keeps compiling with a parameter whose name lies — grep the
 implementations map for a leaf whose first parameter is not a helpers
 destructuring.
 
+`args` is on the helpers record as well as in the second parameter, which is
+oRPC's own shape — `ProcedureHandlerOptions` carries `input` and the handler
+still takes it positionally — so both spellings are the same call:
+
+```ts
+place: ({ errors, args }) => …   // everything off one destructuring
+place: ({ errors }, args) => …   // the positional shortcut
+place: (_, args) => …            // consumes neither errors nor context
+```
+
 `ActivityImplementationFor` / `GlobalActivityImplementationFor` annotations and
 `@temporal-contract/testing`'s `runActivity` / `runActivityHandler`
-`implementation` option carry the same order. A leaf that consumes neither
-typed errors nor injected context still names the position: `(_, args) => ...`.
+`implementation` option carry the same order.
 
 Closes #414.

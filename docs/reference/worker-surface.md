@@ -492,14 +492,25 @@ const validateOrder: ActivityImplementationFor<
 
 ```typescript
 (
-  helpers: { errors: ContractErrorConstructors; context: TContext },
+  helpers: {
+    errors: ContractErrorConstructors;
+    context: TContext;
+    args: WorkerInferInput<TActivity>;
+  },
   args: WorkerInferInput<TActivity>,
 ) => AsyncResult<WorkerInferOutput<TActivity>, ApplicationFailure | ContractError>;
 ```
 
-**Helpers first, input second** — oRPC's parameter order, which this family
-converged on. An implementation that consumes neither typed errors nor injected
-context still names the position: `(_, args) => ...`.
+**Helpers first, input second** — oRPC's shape, which this family converged on:
+its `ProcedureHandlerOptions` carries `input` and the handler still takes it
+positionally, so `args` is on the record AND in the second parameter. Both
+spellings are the same call:
+
+```typescript
+place: ({ errors, args }) => …   // everything off one destructuring
+place: ({ errors }, args) => …   // the positional shortcut
+place: (_, args) => …            // consumes neither errors nor context
+```
 
 `args` is **parsed on receive** — the calling side validated the payload but
 transmitted the original value, so a transforming schema applies exactly once.

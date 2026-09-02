@@ -250,7 +250,8 @@ type ActivityImplementationErrorOf<TActivity extends ActivityDefinition> = TActi
   : ApplicationFailure;
 
 /**
- * Second argument passed to every activity implementation.
+ * First argument passed to every activity implementation — everything the
+ * invocation carries, including its input.
  *
  * - `errors` — typed constructors for the errors declared on this activity's
  *   contract entry. `Err(errors.PaymentDeclined({ reason }))` surfaces to the
@@ -260,6 +261,11 @@ type ActivityImplementationErrorOf<TActivity extends ActivityDefinition> = TActi
  *   `next({ context })` (an empty object when neither is configured). Use
  *   it to inject dependencies (service clients, repositories) instead of
  *   closing over them at module scope.
+ * - `args` — the validated input, the SAME value the second parameter
+ *   carries. It is on the record so a whole implementation can be written
+ *   from one destructuring, which is oRPC's own shape
+ *   (`ProcedureHandlerOptions` carries `input` and the handler still takes it
+ *   positionally); take it whichever way reads better at the call.
  */
 export type ActivityImplementationHelpers<
   TActivity extends ActivityDefinition,
@@ -267,6 +273,7 @@ export type ActivityImplementationHelpers<
 > = {
   readonly errors: ActivityErrorConstructorsOf<TActivity>;
   readonly context: TContext;
+  readonly args: WorkerInferInput<TActivity>;
 };
 
 /**
@@ -281,8 +288,11 @@ export type ActivityImplementationHelpers<
  * throw surfaces as a `defect` and is re-thrown with its original cause.
  *
  * **Helpers first, input second** — oRPC's parameter order, which this family
- * converged on: an implementation that consumes neither typed errors nor
- * injected context still names the position, `(_, args) => ...`.
+ * converged on, and the input is on the helpers record too, so both spellings
+ * are available: `({ errors, args }) => ...` reads everything off one
+ * destructuring, `({ errors }, args) => ...` takes the positional shortcut, and
+ * an implementation that consumes neither typed errors nor injected context is
+ * `(_, args) => ...`.
  */
 type ResultActivityImplementation<
   TActivity extends ActivityDefinition,
@@ -888,7 +898,7 @@ export function declareActivitiesHandler<
     info: ActivityInvocationInfo,
     activityDef: ActivityDefinition,
     activityImpl: (
-      helpers: { errors: unknown; context: unknown },
+      helpers: { errors: unknown; context: unknown; args: unknown },
       args: unknown,
     ) => AsyncResult<unknown, ApplicationFailure | AnyContractError>,
   ) {
@@ -920,7 +930,10 @@ export function declareActivitiesHandler<
         stageInput: unknown,
         stageContext: Record<string, unknown>,
       ): AsyncResult<unknown, ApplicationFailure | AnyContractError> =>
-        activityImpl({ errors: errorConstructors, context: stageContext }, stageInput);
+        activityImpl(
+          { errors: errorConstructors, context: stageContext, args: stageInput },
+          stageInput,
+        );
 
       // Run the (single, possibly composed) middleware around the
       // implementation. `next({ input })` substitutions are re-validated
@@ -1012,7 +1025,7 @@ export function declareActivitiesHandler<
   }
 
   type ErasedImplementation = (
-    helpers: { errors: unknown; context: unknown },
+    helpers: { errors: unknown; context: unknown; args: unknown },
     args: unknown,
   ) => AsyncResult<unknown, ApplicationFailure | AnyContractError>;
 

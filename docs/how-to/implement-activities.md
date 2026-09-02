@@ -177,10 +177,12 @@ The helpers record also carries `errors`, the typed constructors for the
 activity's declared contract errors. See
 [Model domain errors](/how-to/model-domain-errors).
 
-::: tip Helpers first, input second
-That is oRPC's parameter order, which this family converged on. An
-implementation that needs neither typed errors nor injected context still names
-the position: `(_, args) => ...`.
+::: tip Helpers first, input second — and the input is on the helpers too
+That is oRPC's shape, which this family converged on: its
+`ProcedureHandlerOptions` carries `input` and the handler still takes it
+positionally. So `({ errors, args }) => ...` and `({ errors }, args) => ...` are
+the same call, and an implementation that needs neither typed errors nor
+injected context is `(_, args) => ...`.
 :::
 
 ## Reach Temporal's activity runtime
