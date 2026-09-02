@@ -111,14 +111,20 @@ const cancellableCharge = ({ sleepMs }: { sleepMs: number }) => {
   const context = Context.current();
   return fromSafePromise(async () => {
     const heartbeat = setInterval(() => context.heartbeat(), 100);
+    // Held so the loser of the race is cleared too: cancellation wins here by
+    // design, and an uncleared 30s timer would outlive the test.
+    let sleeping: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
-        new Promise<void>((resolve) => setTimeout(resolve, sleepMs)),
+        new Promise<void>((resolve) => {
+          sleeping = setTimeout(resolve, sleepMs);
+        }),
         context.cancelled,
       ]);
       return { chargeId: "c-1" };
     } finally {
       clearInterval(heartbeat);
+      clearTimeout(sleeping);
     }
   });
 };
@@ -131,12 +137,23 @@ describe("the workflow saga, compensating on cancellation", () => {
     const contract = withTaskQueue(sagaContract, nextTaskQueueId("saga-cancelled"));
     const bundle = await bundleFor(fixturePath(import.meta.url, "saga.workflows"));
     const undone: string[] = [];
+    // `startWorkflow` returns once the start request is accepted, which is
+    // well before `reserve` finishes. Cancelling then would cancel step ONE,
+    // where no undo has been earned yet — a different case than the one under
+    // test, and a flaky one.
+    let chargeStarted!: () => void;
+    const chargeIsRunning = new Promise<void>((resolve) => {
+      chargeStarted = resolve;
+    });
 
     const activities = declareActivitiesHandler({
       contract,
       activities: {
         reserve: () => OkAsync({ reservationId: "r-1" }),
-        charge: ({ input }) => cancellableCharge(input),
+        charge: ({ input }) => {
+          chargeStarted();
+          return cancellableCharge(input);
+        },
         release: () => {
           undone.push("release");
           return OkAsync({});
@@ -160,6 +177,7 @@ describe("the workflow saga, compensating on cancellation", () => {
           workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
         })
         .getOrThrow();
+      await chargeIsRunning;
       await handle.cancel().getOrThrow();
       return handle.result();
     });
