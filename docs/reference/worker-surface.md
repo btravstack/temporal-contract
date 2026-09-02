@@ -318,6 +318,57 @@ to run cleanup that must not be interrupted.
 In both, a **non-cancellation** throw is an unmodeled failure and rides the
 defect channel, so the modeled error channel stays exactly one type.
 
+#### `saga(options?)`
+
+```typescript
+(options?: { compensateOnCancellation?: boolean }) => WorkflowSagaBuilder<undefined, never>;
+```
+
+A sequence of steps whose compensations are unwound **LIFO** when a later step
+fails. `step(run, undo?)` takes thunks — `run` receives nothing, `undo` receives
+the value its own step produced — and both may answer a plain `Result` as well
+as an `AsyncResult`, so an undo is written as the ordinary activity call it is.
+
+```typescript
+const fulfilled = await context
+  .saga()
+  .step(
+    () => context.activities.reserveStock(order),
+    (reservation) => context.activities.releaseStock({ id: reservation.id }),
+  )
+  .step(
+    () => context.activities.chargeCard(order),
+    (charge) => context.activities.refund({ id: charge.id }),
+  )
+  .step(() => context.activities.ship(order))
+  .run();
+```
+
+**Which failures compensate is the decision this makes for you.** The undos run
+on a **declared contract error** — a permanent domain answer, where what the
+step did before saying no is knowable. They do **not** run on an
+`ActivityError`, a `ChildWorkflowError` or a defect: a step that failed
+unmodelled left state nobody can see, and un-deciding what you cannot see is a
+second bug. That failure propagates untouched, so
+[`propagateActivityFailure`](#propagateactivityfailure-result) still re-raises
+Temporal's original failure.
+
+Cancellation is the one case a caller may opt back in to, with
+`saga({ compensateOnCancellation: true })` — for steps holding something a
+cancellation has to release anyway: a seat, a reservation, a lock.
+
+`run()` answers the last step's value, and the failure comes back **unchanged**,
+so a caller triages exactly what it would have without the saga. A compensation
+that itself **fails** becomes a defect carrying its own failure, which outranks
+the failure that triggered the unwind — a refund that never happened is worse
+news than the order that could not ship — and the remaining undos still run
+first.
+
+It is pure control flow — no timers, no clock, no randomness — so it replays
+deterministically inside the sandbox. `workflowSaga` is the same function,
+exported from `@temporal-contract/worker/workflow` for a workflow that composes
+its steps in a helper.
+
 #### `continueAsNew(...)`
 
 ```typescript
