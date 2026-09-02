@@ -44,7 +44,7 @@ Canonical example: `examples/order-processing-worker/src/application/activities.
 
 Implementations take **helpers first, input second** — oRPC's shape, which this
 family converged on: its `ProcedureHandlerOptions` carries `input` and the
-handler still takes it positionally, so `({ errors, args }) => ...` and
+handler still takes it positionally, so `({ errors, input }) => ...` and
 `({ errors }, args) => ...` are the same call — oRPC has both. Reach for the
 record: a leaf that consumes neither typed errors nor injected context is
 `({ input }) => ...`. The record carries:
