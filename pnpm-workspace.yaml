@@ -99,6 +99,13 @@ overrides:
   # 6.4.3 (the first fixed version) — the docs `vitepress build` is verified
   # against it. This also drags esbuild to a patched 0.25.x, resolving GHSA-gv7w-rqvm-qjhr.
   "vite@<6.4.3": "6.4.3"
+  # GHSA-c83g-rgw3-j3cx and GHSA-73wf-gq98-2v4g (both High): browserslist
+  # config parsing. Reaches us only through examples/order-processing-worker >
+  # @temporalio/worker > webpack — the workflow bundler, a dev/build path that
+  # no published package carries. Upstream has nothing to take: @temporalio/
+  # worker's webpack dependency resolves the vulnerable line on its own, and
+  # 4.28.7 is the first release patching both advisories.
+  "browserslist@<4.28.7": "4.28.7"
   # GHSA-3ppc-4f35-3m26, GHSA-7r86-cg39-jmmj, GHSA-23c5-xmqv-rm74 (all High,
   # ReDoS): minimatch 10.x. Reaches us via @stryker-mutator/core, added for the
   # nightly mutation run. Only the 10.x line is present, and 10.2.3 is the first

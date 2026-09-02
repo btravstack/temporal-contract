@@ -148,6 +148,7 @@ overrides:
   js-yaml@4: 4.3.1
   nanoid@<3.3.18: 3.3.18
   vite@<6.4.3: 6.4.3
+  browserslist@<4.28.7: 4.28.7
   minimatch@10: 10.2.3
   ajv@8: 8.18.0
   '@babel/core@<7.29.7': 7.29.7
@@ -3469,8 +3470,8 @@ packages:
     resolution: {integrity: sha512-ScQ4IuvIEF1TMlP7Zt+vjJ//9zlPb2SDcxWxM3bk8s6t6GGdJ7KO1dCcTidOPJKePW30LE/2cT7wCyPho9/Wxg==}
     engines: {node: 20 || >=22}
 
-  browserslist@4.28.2:
-    resolution: {integrity: sha512-48xSriZYYg+8qXna9kwqjIVzuQxi+KYWp2+5nCYnYKPTr0LvD89Jqk2Or5ogxz0NUMfIjhh2lIUX/LyX9B4oIg==}
+  browserslist@4.28.7:
+    resolution: {integrity: sha512-JxV13hNrFxqjOc8alRbq9dK1MM79NEXYpma2B2J4wAtpWS5zIEIKqWPGCl7N4o7Uc7B7itylh7SuDujATRyyTw==}
     engines: {node: ^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7}
     hasBin: true
 
@@ -5438,7 +5439,7 @@ packages:
     resolution: {integrity: sha512-ZZ61DsRsOnakl74HAmp3oSN4aXUmEWXf+i/yv0h7tIBfICc3VdrFErQKUUKPgu3AMsTUMbcongALEN4l6GSUrQ==}
     hasBin: true
     peerDependencies:
-      browserslist: '>= 4.21.0'
+      browserslist: 4.28.7
 
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
@@ -5898,7 +5899,7 @@ snapshots:
     dependencies:
       '@babel/compat-data': 7.29.7
       '@babel/helper-validator-option': 7.29.7
-      browserslist: 4.28.2
+      browserslist: 4.28.7
       lru-cache: 5.1.1
       semver: 6.3.1
 
@@ -8370,13 +8371,13 @@ snapshots:
     dependencies:
       balanced-match: 4.0.4
 
-  browserslist@4.28.2:
+  browserslist@4.28.7:
     dependencies:
       baseline-browser-mapping: 2.11.15
       caniuse-lite: 1.0.30001809
       electron-to-chromium: 1.5.408
       node-releases: 2.0.53
-      update-browserslist-db: 1.3.1(browserslist@4.28.2)
+      update-browserslist-db: 1.3.1(browserslist@4.28.7)
 
   buffer-crc32@1.0.0: {}
 
@@ -10451,9 +10452,9 @@ snapshots:
 
   unthrown@5.7.0: {}
 
-  update-browserslist-db@1.3.1(browserslist@4.28.2):
+  update-browserslist-db@1.3.1(browserslist@4.28.7):
     dependencies:
-      browserslist: 4.28.2
+      browserslist: 4.28.7
       escalade: 3.2.0
       picocolors: 1.1.1
 
@@ -10623,7 +10624,7 @@ snapshots:
       '@webassemblyjs/wasm-parser': 1.14.1
       acorn: 8.18.0
       acorn-import-phases: 1.0.4(acorn@8.18.0)
-      browserslist: 4.28.2
+      browserslist: 4.28.7
       chrome-trace-event: 1.0.4
       enhanced-resolve: 5.24.0
       es-module-lexer: 2.1.0
