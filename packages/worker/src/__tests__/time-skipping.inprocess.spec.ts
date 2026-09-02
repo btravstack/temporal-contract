@@ -41,7 +41,7 @@ const activities = declareActivitiesHandler({
   middleware: tracing,
   activities: {
     placeOrder: {
-      charge: ({ errors, context }, { amount }) => {
+      charge: ({ errors, context, input: { amount } }) => {
         seenContexts.push(context);
         if (amount < 0) {
           return ErrAsync(errors.PaymentDeclined({ reason: "negative-amount" }));

@@ -191,7 +191,7 @@ import { CancelledFailure } from "@temporalio/common";
 import { fromPromise } from "unthrown";
 
 processOrder: {
-  exportLedger: (_, { accountId }) =>
+  exportLedger: ({ input: { accountId } }) =>
     fromPromise(
       (async () => {
         const { cancellationSignal } = Context.current();

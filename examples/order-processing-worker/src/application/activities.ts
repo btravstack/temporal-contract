@@ -56,7 +56,7 @@ import {
 export const activities = declareActivitiesHandler({
   contract: orderProcessingContract,
   activities: {
-    sendNotification: (_, { customerId, subject, message }) =>
+    sendNotification: ({ input: { customerId, subject, message } }) =>
       fromPromise(
         sendNotificationUseCase.execute(customerId, subject, message),
         qualifyFailure("NOTIFICATION_FAILED", {
@@ -72,7 +72,7 @@ export const activities = declareActivitiesHandler({
         }),
       ),
 
-    purgeExpiredOrders: (_, { olderThanDays }) =>
+    purgeExpiredOrders: ({ input: { olderThanDays } }) =>
       fromPromise(
         purgeExpiredOrdersUseCase.execute(olderThanDays),
         qualifyFailure("ORDER_PURGE_FAILED", {
@@ -89,7 +89,7 @@ export const activities = declareActivitiesHandler({
       // an `ApplicationFailure(type: "PaymentDeclined")` and rehydrates as a
       // typed `ContractError` on the workflow side. Only gateway faults ride
       // the generic `ApplicationFailure` path.
-      processPayment: ({ errors }, { customerId, amount }) =>
+      processPayment: ({ errors, input: { customerId, amount } }) =>
         fromPromise(
           processPaymentUseCase.execute(customerId, amount),
           qualifyFailure("PAYMENT_GATEWAY_ERROR", {
@@ -103,7 +103,7 @@ export const activities = declareActivitiesHandler({
           return Ok({ transactionId: outcome.transactionId, paidAmount: outcome.paidAmount });
         }),
 
-      reserveInventory: (_, items) =>
+      reserveInventory: ({ input: items }) =>
         fromPromise(
           reserveInventoryUseCase.execute(items),
           qualifyFailure("INVENTORY_RESERVATION_FAILED", {
@@ -112,7 +112,7 @@ export const activities = declareActivitiesHandler({
           }),
         ),
 
-      releaseInventory: (_, reservationId) =>
+      releaseInventory: ({ input: reservationId }) =>
         fromPromise(
           releaseInventoryUseCase.execute(reservationId),
           qualifyFailure("INVENTORY_RELEASE_FAILED", {
@@ -121,7 +121,7 @@ export const activities = declareActivitiesHandler({
           }),
         ),
 
-      createShipment: (_, { orderId, customerId }) =>
+      createShipment: ({ input: { orderId, customerId } }) =>
         fromPromise(
           createShipmentUseCase.execute(orderId, customerId),
           qualifyFailure("SHIPMENT_CREATION_FAILED", {
@@ -130,7 +130,7 @@ export const activities = declareActivitiesHandler({
           }),
         ),
 
-      refundPayment: (_, transactionId) =>
+      refundPayment: ({ input: transactionId }) =>
         fromPromise(
           refundPaymentUseCase.execute(transactionId),
           qualifyFailure("REFUND_FAILED", { expected: PaymentError, message: "Refund failed" }),

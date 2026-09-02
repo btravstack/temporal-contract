@@ -64,7 +64,7 @@ describe("Worker unthrown Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          processPayment: (_, args) => OkAsync({ transactionId: `tx-${args.amount}` }),
+          processPayment: ({ input: args }) => OkAsync({ transactionId: `tx-${args.amount}` }),
         },
       });
 
@@ -98,7 +98,7 @@ describe("Worker unthrown Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          fetchData: (_, args) => OkAsync({ data: `data-${args.id}`, timestamp: 123 }),
+          fetchData: ({ input: args }) => OkAsync({ data: `data-${args.id}`, timestamp: 123 }),
         },
       });
 
@@ -138,7 +138,7 @@ describe("Worker unthrown Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          successActivity: (_, args) => OkAsync({ result: `success-${args.value}` }),
+          successActivity: ({ input: args }) => OkAsync({ result: `success-${args.value}` }),
         },
       });
 
@@ -242,7 +242,7 @@ describe("Worker unthrown Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          asyncActivity: (_, args) =>
+          asyncActivity: ({ input: args }) =>
             fromSafePromise<{ completed: boolean }>(
               new Promise((resolve) => {
                 setTimeout(() => resolve({ completed: true }), args.delay);
@@ -281,7 +281,7 @@ describe("Worker unthrown Package", () => {
         contract,
         activities: {
           orderWorkflow: {
-            validateOrder: (_, args) => OkAsync({ valid: args.orderId.length > 0 }),
+            validateOrder: ({ input: args }) => OkAsync({ valid: args.orderId.length > 0 }),
           },
         },
       });
@@ -581,7 +581,7 @@ describe("Worker unthrown Package", () => {
       const activities = declareActivitiesHandler({
         contract: transformContract,
         activities: {
-          transformer: (_, args) => {
+          transformer: ({ input: args }) => {
             seen.push(args);
             return OkAsync({ n: 21 });
           },

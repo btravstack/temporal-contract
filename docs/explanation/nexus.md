@@ -119,7 +119,7 @@ contract covers its input and output again, at the cost of an extra hop:
 
 ```typescript
 processOrder: {
-  chargeViaNexus: (_, { customerId, amount }) =>
+  chargeViaNexus: ({ input: { customerId, amount } }) =>
     fromPromise(nexusClient.executeOperation("charge", { customerId, amount }),
       qualifyFailure("NEXUS_CHARGE_FAILED", { expected: NexusOperationError })),
 }

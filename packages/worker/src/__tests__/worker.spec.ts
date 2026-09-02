@@ -75,26 +75,26 @@ const activities = declareActivitiesHandler({
     // Workflows without declared activities (simpleWorkflow,
     // interactiveWorkflow, parentWorkflow, ...) no longer need `{}` entries.
     workflowWithActivities: {
-      processPayment: (_, { amount }) => {
+      processPayment: ({ input: { amount } }) => {
         return OkAsync({
           transactionId: `TXN-${amount}-${Date.now()}`,
           success: amount > 0,
         });
       },
 
-      validateOrder: (_, { orderId }) => {
+      validateOrder: ({ input: { orderId } }) => {
         return OkAsync({
           valid: orderId.startsWith("ORD-"),
         });
       },
     },
 
-    logMessage: (_, { message }) => {
+    logMessage: ({ input: { message } }) => {
       logMessages.push(message);
       return OkAsync({});
     },
 
-    failableActivity: (_, { shouldFail }) => {
+    failableActivity: ({ input: { shouldFail } }) => {
       if (shouldFail) {
         return ErrAsync(
           ApplicationFailure.create({

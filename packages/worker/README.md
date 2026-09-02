@@ -22,7 +22,7 @@ import { myContract } from "./contract.js";
 export const activities = declareActivitiesHandler({
   contract: myContract,
   activities: {
-    sendEmail: (_, { to, body }) =>
+    sendEmail: ({ input: { to, body } }) =>
       fromPromise(emailService.send({ to, body }), (error) =>
         ApplicationFailure.create({
           type: "EMAIL_FAILED",

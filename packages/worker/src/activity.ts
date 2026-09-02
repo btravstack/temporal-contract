@@ -173,14 +173,14 @@ function matchesExpected(cause: unknown, expected: QualifyFailureOptions["expect
  * export const activities = declareActivitiesHandler({
  *   contract: myContract,
  *   activities: {
- *     sendEmail: (_, args) =>
+ *     sendEmail: ({ input: args }) =>
  *       fromPromise(
  *         emailService.send(args),
  *         // Anticipated: the SDK's typed error. Anything else (TypeError,
  *         // assertion failure, ...) is a defect and re-throws at the edge.
  *         qualifyFailure('EMAIL_SEND_FAILED', { expected: EmailServiceError }),
  *       ).map(() => ({ sent: true })),
- *     chargeCard: (_, args) =>
+ *     chargeCard: ({ input: args }) =>
  *       fromPromise(
  *         paymentGateway.charge(args),
  *         qualifyFailure('CARD_DECLINED', {
@@ -261,11 +261,12 @@ type ActivityImplementationErrorOf<TActivity extends ActivityDefinition> = TActi
  *   `next({ context })` (an empty object when neither is configured). Use
  *   it to inject dependencies (service clients, repositories) instead of
  *   closing over them at module scope.
- * - `args` — the validated input, the SAME value the second parameter
- *   carries. It is on the record so a whole implementation can be written
- *   from one destructuring, which is oRPC's own shape
- *   (`ProcedureHandlerOptions` carries `input` and the handler still takes it
- *   positionally); take it whichever way reads better at the call.
+ * - `input` — the validated input, the SAME value the second parameter
+ *   carries. It is on the record so a whole implementation is one
+ *   destructuring, which is oRPC's own shape and its own word for it
+ *   (`ProcedureHandlerOptions` carries `input`, and the handler still takes it
+ *   positionally). One name across the three transports is the point: a
+ *   developer moving between them destructures `input` in each.
  */
 export type ActivityImplementationHelpers<
   TActivity extends ActivityDefinition,
@@ -273,7 +274,7 @@ export type ActivityImplementationHelpers<
 > = {
   readonly errors: ActivityErrorConstructorsOf<TActivity>;
   readonly context: TContext;
-  readonly args: WorkerInferInput<TActivity>;
+  readonly input: WorkerInferInput<TActivity>;
 };
 
 /**
@@ -287,12 +288,10 @@ export type ActivityImplementationHelpers<
  * `nonRetryable: true` opting an instance out per-call). An unexpected
  * throw surfaces as a `defect` and is re-thrown with its original cause.
  *
- * **Helpers first, input second** — oRPC's parameter order, which this family
- * converged on, and the input is on the helpers record too, so both spellings
- * are available: `({ errors, args }) => ...` reads everything off one
- * destructuring, `({ errors }, args) => ...` takes the positional shortcut, and
- * an implementation that consumes neither typed errors nor injected context is
- * `(_, args) => ...`.
+ * **One record, everything on it** — oRPC's shape, which this family converged
+ * on: `({ errors, input }) => ...` is the spelling to reach for, and the input
+ * is repeated as a second positional parameter for a caller who prefers
+ * `({ errors }, args) => ...`.
  */
 type ResultActivityImplementation<
   TActivity extends ActivityDefinition,
@@ -386,8 +385,8 @@ type ResultActivitiesImplementations<
  *   typeof myContract,
  *   "orderWorkflow",
  *   "validateOrder"
- * > = ({ errors }, args) =>
- *   args.orderId ? OkAsync({ valid: true }) : ErrAsync(errors.EmptyOrder({}));
+ * > = ({ errors, input }) =>
+ *   input.orderId ? OkAsync({ valid: true }) : ErrAsync(errors.EmptyOrder({}));
  *
  * declareActivitiesHandler({
  *   contract: myContract,
@@ -423,7 +422,7 @@ export type ActivityImplementationFor<
  * @example
  * ```ts
  * const sendEmail: GlobalActivityImplementationFor<typeof myContract, "sendEmail"> =
- *   (_, args) => OkAsync({ sent: true });
+ *   ({ input: args }) => OkAsync({ sent: true });
  * ```
  */
 export type GlobalActivityImplementationFor<
@@ -898,7 +897,7 @@ export function declareActivitiesHandler<
     info: ActivityInvocationInfo,
     activityDef: ActivityDefinition,
     activityImpl: (
-      helpers: { errors: unknown; context: unknown; args: unknown },
+      helpers: { errors: unknown; context: unknown; input: unknown },
       args: unknown,
     ) => AsyncResult<unknown, ApplicationFailure | AnyContractError>,
   ) {
@@ -931,7 +930,7 @@ export function declareActivitiesHandler<
         stageContext: Record<string, unknown>,
       ): AsyncResult<unknown, ApplicationFailure | AnyContractError> =>
         activityImpl(
-          { errors: errorConstructors, context: stageContext, args: stageInput },
+          { errors: errorConstructors, context: stageContext, input: stageInput },
           stageInput,
         );
 
@@ -1025,7 +1024,7 @@ export function declareActivitiesHandler<
   }
 
   type ErasedImplementation = (
-    helpers: { errors: unknown; context: unknown; args: unknown },
+    helpers: { errors: unknown; context: unknown; input: unknown },
     args: unknown,
   ) => AsyncResult<unknown, ApplicationFailure | AnyContractError>;
 

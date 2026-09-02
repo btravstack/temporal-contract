@@ -11,8 +11,8 @@ import { fromPromise } from "unthrown";
 export const activities = declareActivitiesHandler({
   contract: myContract,
   activities: {
-    validateInventory: (_, args) =>
-      fromPromise(inventoryService.check(args.orderId), (error) =>
+    validateInventory: ({ input }) =>
+      fromPromise(inventoryService.check(input.orderId), (error) =>
         ApplicationFailure.create({
           type: "INVENTORY_CHECK_FAILED",
           message: error instanceof Error ? error.message : "Failed to check inventory",
@@ -45,17 +45,18 @@ Canonical example: `examples/order-processing-worker/src/application/activities.
 Implementations take **helpers first, input second** — oRPC's shape, which this
 family converged on: its `ProcedureHandlerOptions` carries `input` and the
 handler still takes it positionally, so `({ errors, args }) => ...` and
-`({ errors }, args) => ...` are the same call. A leaf that consumes neither
-typed errors nor injected context is `(_, args) => ...`. The helpers record
-carries:
+`({ errors }, args) => ...` are the same call — oRPC has both. Reach for the
+record: a leaf that consumes neither typed errors nor injected context is
+`({ input }) => ...`. The record carries:
 
 - `helpers.errors` — typed constructors for the activity's contract-declared
   `errors` map. `Err(errors.PaymentDeclined({ reason }))` is converted at the
   boundary to `ApplicationFailure(type = "PaymentDeclined", details = [validated data],
 nonRetryable from the contract)`, and rehydrated as a typed `ContractError` on the
   workflow side.
-- `helpers.args` — the validated input, the same value the second parameter
-  carries.
+- `helpers.input` — the validated input, the same value the second parameter
+  carries. `input` is oRPC's word for it, and the same name on all three
+  transports is the point.
 - `helpers.context` — the accumulated typed context: the seed built by
   `declareActivitiesHandler`'s optional `createContext` factory (runs once per
   activity execution with `{ activityName, workflowName }`) plus everything

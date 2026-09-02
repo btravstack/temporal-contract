@@ -28,7 +28,7 @@ describe("nonRetryable is a behavior, not a field", () => {
         runsFlaky: {
           // Always fails. `Context.current().info.attempt` is Temporal's own
           // attempt counter, so the assertion reads what the server did.
-          flaky: ({ errors }, _input) =>
+          flaky: ({ errors, input: _input }) =>
             ErrAsync(errors.TerminalFailure({ at: Context.current().info.attempt })),
         },
       },
@@ -59,7 +59,7 @@ describe("nonRetryable is a behavior, not a field", () => {
       contract,
       activities: {
         runsFlaky: {
-          flaky: ({ errors }, _input) =>
+          flaky: ({ errors, input: _input }) =>
             ErrAsync(errors.RetryableFailure({ at: Context.current().info.attempt })),
         },
       },

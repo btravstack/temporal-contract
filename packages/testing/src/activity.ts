@@ -57,10 +57,9 @@ type ActivityErrorConstructorsOf<TActivity extends ActivityDefinition> = TActivi
 /**
  * Shape of the implementation accepted by {@link runActivity} and
  * {@link runActivityHandler} — the same `(helpers, args) => AsyncResult<...>`
- * shape `declareActivitiesHandler` expects (the input is on the helpers record
- * too, so `({ errors, args }) => ...` reads the same call off one
- * destructuring), with the output/error channels inferred from the function
- * itself. The `context` helper is always empty
+ * shape `declareActivitiesHandler` expects — the input is on the helpers record
+ * too, so `({ errors, input }) => ...` is the same call in one destructuring —
+ * with the output/error channels inferred from the function itself. The `context` helper is always empty
  * here: implementations relying on middleware-injected context should be
  * exercised through a worker instead.
  */
@@ -68,7 +67,7 @@ export type RunActivityImplementation<TActivity extends ActivityDefinition, TOut
   helpers: {
     readonly errors: ActivityErrorConstructorsOf<TActivity>;
     readonly context: Record<never, never>;
-    readonly args: WorkerInferInput<TActivity>;
+    readonly input: WorkerInferInput<TActivity>;
   },
   args: WorkerInferInput<TActivity>,
 ) => AsyncResult<TOutput, TError>;
@@ -112,7 +111,7 @@ export type RunActivityOptions<TActivity extends ActivityDefinition, TOutput, TE
  * const result = await runActivity(
  *   orderContract.workflows.processOrder.activities.chargeCard,
  *   {
- *     implementation: chargeCard, // ({ errors }, args) => AsyncResult<...>
+ *     implementation: chargeCard, // ({ errors, input }) => AsyncResult<...>
  *     input: { amount: 100 },
  *   },
  * );
@@ -134,7 +133,7 @@ export function runActivity<TActivity extends ActivityDefinition, TOutput, TErro
       definition.errors,
     ) as unknown as ActivityErrorConstructorsOf<TActivity>,
     context: {},
-    args: options.input,
+    input: options.input,
   };
 
   return _internal_makeAsyncResult(() =>

@@ -126,14 +126,14 @@ describe("standalone activity implementations (ActivityImplementationFor)", () =
       typeof inferenceContract,
       "orderWorkflow",
       "validateOrder"
-    > = (_, args) => {
-      expectTypeOf(args).toEqualTypeOf<{ orderId: string }>();
-      return OkAsync({ valid: args.orderId.length > 0 });
+    > = ({ input }) => {
+      expectTypeOf(input).toEqualTypeOf<{ orderId: string }>();
+      return OkAsync({ valid: input.orderId.length > 0 });
     };
 
     // Global-scope variant.
-    const log: GlobalActivityImplementationFor<typeof inferenceContract, "log"> = (_, args) => {
-      expectTypeOf(args).toEqualTypeOf<{ msg: string }>();
+    const log: GlobalActivityImplementationFor<typeof inferenceContract, "log"> = ({ input }) => {
+      expectTypeOf(input).toEqualTypeOf<{ msg: string }>();
       return OkAsync({});
     };
 
@@ -150,14 +150,15 @@ describe("standalone activity implementations (ActivityImplementationFor)", () =
     expect(await handler.log({ msg: "hello" })).toEqual({});
   });
 
-  it("reads the same call off one destructuring, the input being on the helpers record too", async () => {
-    // The oRPC shape: `ProcedureHandlerOptions` carries `input` and the handler
-    // still takes it positionally, so both spellings are the same call.
+  it("takes the same input positionally, for a caller who prefers the second parameter", async () => {
+    // oRPC's own shape: `ProcedureHandlerOptions` carries `input` and the
+    // handler still takes it positionally, so the two spellings are one call.
     const validateOrder: ActivityImplementationFor<
       typeof inferenceContract,
       "orderWorkflow",
       "validateOrder"
-    > = ({ args }) => {
+    > = ({ errors }, args) => {
+      expectTypeOf(errors).toEqualTypeOf<Record<string, never>>();
       expectTypeOf(args).toEqualTypeOf<{ orderId: string }>();
       return OkAsync({ valid: args.orderId.length > 0 });
     };

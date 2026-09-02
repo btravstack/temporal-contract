@@ -1053,42 +1053,43 @@ fire-and-forget work that should outlive its parent. Of this repo's own
 child call sites, most had silently inherited `TERMINATE` before this change
 — auditing each one is the point, not just making the compiler pass.
 
-## 15. The activity leaf takes helpers first
+## 15. The activity leaf takes one record
 
-An activity implementation's parameters swapped: **helpers first, input
-second**, which is oRPC's order and therefore the one this family converged on
-(`@amqp-contract` moved with it). A leaf that consumes neither typed errors nor
-injected context still names the position.
+An activity implementation now receives **one record carrying everything the
+invocation has** — `errors`, `context` and the validated `input` — with that
+input repeated as a second positional parameter. That is oRPC's shape, down to
+its word for the input, and therefore the one this family converged on
+(`@amqp-contract` moved with it).
 
 ```diff
   export const activities = declareActivitiesHandler({
     contract: orderContract,
     activities: {
 -     sendNotification: ({ customerId, message }) => ...,
-+     sendNotification: (_, { customerId, message }) => ...,
++     sendNotification: ({ input: { customerId, message } }) => ...,
       processOrder: {
 -       chargeCard: ({ customerId, amount }, { errors }) => ...,
-+       chargeCard: ({ errors }, { customerId, amount }) => ...,
++       chargeCard: ({ errors, input: { customerId, amount } }) => ...,
       },
     },
   });
 ```
 
-The input is on the helpers record as well, so an implementation can be written
-from one destructuring instead — `({ errors, args }) => ...`. That is oRPC's own
-shape: `ProcedureHandlerOptions` carries `input` and the handler still takes it
-positionally, and both spellings are the same call.
+The second parameter is oRPC's too — `ProcedureHandlerOptions` carries `input`
+and the handler still takes it positionally — so `({ errors }, args) => ...`
+remains the same call for anyone who prefers it. The record is the spelling to
+reach for: it is the one that does not need a `_` placeholder when the
+implementation wants only its input.
 
 `ActivityImplementationFor` / `GlobalActivityImplementationFor` annotations and
 `@temporal-contract/testing`'s `runActivity` / `runActivityHandler`
 `implementation` option carry the same order.
 
 **The compiler catches every site that READS its input**, since the first
-parameter is now the helpers record — and misses the ones that ignore it, where
-the swap is harmless but the parameter name lies. Grep the implementations map
-for a leaf whose first parameter is neither `_` nor a helpers destructuring
-(`{ errors }`, `{ context }`, `{ errors, context }`): those two are the migrated
-forms, anything else still names the input.
+parameter is the record now — and misses the ones that ignore it, where the
+swap is harmless but the parameter name lies. Grep the implementations map for a
+leaf whose first parameter is not a record destructuring: anything else still
+names the input.
 
 ## Checklist
 
@@ -1154,8 +1155,8 @@ forms, anything else still names the input.
       states `parentClosePolicy` explicitly; `"TERMINATE"` reproduces prior
       behavior, but audit each site rather than filling it in mechanically
 - [ ] Every activity implementation takes `(helpers, args)` — a leaf that reads
-      neither still spells the position, `(_, args) => ...`, so a first
-      parameter that is neither `_` nor a helpers destructuring is unmigrated
+      neither reads `({ input }) => ...`, so a first parameter that is not a
+      record destructuring is unmigrated
 - [ ] `pnpm typecheck` clean
 
 The exhaustive matcher does most of the work: once it compiles, the migration is

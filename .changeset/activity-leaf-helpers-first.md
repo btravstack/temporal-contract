@@ -24,9 +24,9 @@ oRPC's own shape — `ProcedureHandlerOptions` carries `input` and the handler
 still takes it positionally — so both spellings are the same call:
 
 ```ts
-place: ({ errors, args }) => …   // everything off one destructuring
-place: ({ errors }, args) => …   // the positional shortcut
-place: (_, args) => …            // consumes neither errors nor context
+place: ({ errors, input }) => …  // the spelling to reach for
+place: ({ errors }, args) => …   // or the positional shortcut, oRPC has both
+place: ({ input }) => …          // consumes neither errors nor context
 ```
 
 `ActivityImplementationFor` / `GlobalActivityImplementationFor` annotations and

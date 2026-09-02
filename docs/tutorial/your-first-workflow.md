@@ -185,13 +185,13 @@ export const activities = declareActivitiesHandler({
     // Workflow-scoped activities nest under their workflow's name,
     // mirroring the contract.
     processOrder: {
-      chargeCard: (_, { customerId, amount }) =>
+      chargeCard: ({ input: { customerId, amount } }) =>
         fromPromise(
           paymentGateway.charge(customerId, amount),
           qualifyFailure("CHARGE_FAILED", { expected: Error }),
         ).map((charge) => ({ transactionId: charge.id })),
 
-      sendReceipt: (_, { customerId, transactionId }) =>
+      sendReceipt: ({ input: { customerId, transactionId } }) =>
         fromPromise(
           mailer.send(customerId, transactionId),
           qualifyFailure("RECEIPT_FAILED", { expected: Error }),
