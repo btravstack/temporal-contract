@@ -126,13 +126,13 @@ describe("standalone activity implementations (ActivityImplementationFor)", () =
       typeof inferenceContract,
       "orderWorkflow",
       "validateOrder"
-    > = (args) => {
+    > = (_, args) => {
       expectTypeOf(args).toEqualTypeOf<{ orderId: string }>();
       return OkAsync({ valid: args.orderId.length > 0 });
     };
 
     // Global-scope variant.
-    const log: GlobalActivityImplementationFor<typeof inferenceContract, "log"> = (args) => {
+    const log: GlobalActivityImplementationFor<typeof inferenceContract, "log"> = (_, args) => {
       expectTypeOf(args).toEqualTypeOf<{ msg: string }>();
       return OkAsync({});
     };

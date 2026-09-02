@@ -44,7 +44,7 @@ const charge = defineActivity({
 describe("runActivity", () => {
   it("returns the implementation's Ok result", async () => {
     const result = await runActivity(charge, {
-      implementation: ({ amount }) => OkAsync({ transactionId: `TXN-${amount}` }),
+      implementation: (_, { amount }) => OkAsync({ transactionId: `TXN-${amount}` }),
       input: { amount: 42 },
     });
 
@@ -53,7 +53,7 @@ describe("runActivity", () => {
 
   it("returns a typed contract error built with the errors helper", async () => {
     const result = await runActivity(charge, {
-      implementation: ({ amount }, { errors }) =>
+      implementation: ({ errors }, { amount }) =>
         ErrAsync(errors.PaymentDeclined({ reason: `insufficient funds for ${amount}` })),
       input: { amount: 9000 },
     });
@@ -86,7 +86,7 @@ describe("runActivity", () => {
     env.on("heartbeat", (details: unknown) => heartbeats.push(details));
 
     const result = await runActivity(charge, {
-      implementation: ({ amount }) => {
+      implementation: (_, { amount }) => {
         // Inside `env.run`, `Context.current()` is this environment's
         // context — the mock env instance exposes it as `env.context`.
         env.context.heartbeat("halfway");
@@ -127,7 +127,7 @@ describe("runActivityHandler", () => {
   it("round-trips an Ok output through the real wrapping (input parsed, output validated)", async () => {
     const seen: unknown[] = [];
     const result = await runActivityHandler(charge, {
-      implementation: (args) => {
+      implementation: (_, args) => {
         seen.push(args);
         return OkAsync({ transactionId: `TXN-${args.amount}` });
       },
@@ -141,7 +141,7 @@ describe("runActivityHandler", () => {
 
   it("round-trips a declared error over the wire and rehydrates the typed ContractError", async () => {
     const result = await runActivityHandler(charge, {
-      implementation: ({ amount }, { errors }) =>
+      implementation: ({ errors }, { amount }) =>
         ErrAsync(errors.PaymentDeclined({ reason: `declined-${amount}` })),
       input: { amount: 9 },
     });
@@ -164,7 +164,7 @@ describe("runActivityHandler", () => {
     // runActivity would return this Err untouched (a green test); the real
     // boundary rejects the contract misuse terminally.
     const result = await runActivityHandler(charge, {
-      implementation: (_args, { errors }) =>
+      implementation: ({ errors }) =>
         ErrAsync(errors.PaymentDeclined({ reason: 42 as unknown as string })),
       input: { amount: 1 },
     });

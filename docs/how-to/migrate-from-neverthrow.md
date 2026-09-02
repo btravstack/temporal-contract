@@ -218,7 +218,7 @@ const chargeCard = ({ customerId, amount }) =>
 import { Err, Ok, fromPromise } from "unthrown";
 import { qualifyFailure } from "@temporal-contract/worker/activity";
 
-const chargeCard = ({ customerId, amount }) =>
+const chargeCard = (_, { customerId, amount }) =>
   fromPromise(
     gateway.charge(customerId, amount),
     // `expected` names the anticipated failure class; unmatched throws stay defects.

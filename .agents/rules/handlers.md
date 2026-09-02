@@ -11,7 +11,7 @@ import { fromPromise } from "unthrown";
 export const activities = declareActivitiesHandler({
   contract: myContract,
   activities: {
-    validateInventory: (args) =>
+    validateInventory: (_, args) =>
       fromPromise(inventoryService.check(args.orderId), (error) =>
         ApplicationFailure.create({
           type: "INVENTORY_CHECK_FAILED",
@@ -42,7 +42,10 @@ hold, not for direct construction — unthrown has no lowercase
 
 Canonical example: `examples/order-processing-worker/src/application/activities.ts`.
 
-Implementations receive an optional second **helpers** argument:
+Implementations take **helpers first, input second** — oRPC's parameter order,
+which this family converged on. A leaf that consumes neither typed errors nor
+injected context still names the position (`(_, args) => ...`). The helpers
+record carries:
 
 - `helpers.errors` — typed constructors for the activity's contract-declared
   `errors` map. `Err(errors.PaymentDeclined({ reason }))` is converted at the

@@ -81,7 +81,7 @@ export const activities = declareActivitiesHandler({
   activities: {
     // Workflow-scoped activities nest under their workflow, mirroring the contract.
     processOrder: {
-      chargeCard: ({ customerId, amount }) =>
+      chargeCard: (_, { customerId, amount }) =>
         fromPromise(
           gateway.charge(customerId, amount),
           // Anticipated failures become a typed ApplicationFailure; anything

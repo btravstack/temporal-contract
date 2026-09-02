@@ -22,7 +22,7 @@ const activities = declareActivitiesHandler({
   contract: testContract,
   activities: {
     greet: {
-      decorate: ({ name }) => OkAsync({ decorated: name.toUpperCase() }),
+      decorate: (_, { name }) => OkAsync({ decorated: name.toUpperCase() }),
     },
   },
 });

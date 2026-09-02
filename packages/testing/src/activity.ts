@@ -56,18 +56,18 @@ type ActivityErrorConstructorsOf<TActivity extends ActivityDefinition> = TActivi
 
 /**
  * Shape of the implementation accepted by {@link runActivity} and
- * {@link runActivityHandler} — the same `(args, helpers) => AsyncResult<...>`
+ * {@link runActivityHandler} — the same `(helpers, args) => AsyncResult<...>`
  * shape `declareActivitiesHandler` expects, with the output/error channels
  * inferred from the function itself. The `context` helper is always empty
  * here: implementations relying on middleware-injected context should be
  * exercised through a worker instead.
  */
 export type RunActivityImplementation<TActivity extends ActivityDefinition, TOutput, TError> = (
-  args: WorkerInferInput<TActivity>,
   helpers: {
     readonly errors: ActivityErrorConstructorsOf<TActivity>;
     readonly context: Record<never, never>;
   },
+  args: WorkerInferInput<TActivity>,
 ) => AsyncResult<TOutput, TError>;
 
 /**
@@ -109,7 +109,7 @@ export type RunActivityOptions<TActivity extends ActivityDefinition, TOutput, TE
  * const result = await runActivity(
  *   orderContract.workflows.processOrder.activities.chargeCard,
  *   {
- *     implementation: chargeCard, // (args, { errors }) => AsyncResult<...>
+ *     implementation: chargeCard, // ({ errors }, args) => AsyncResult<...>
  *     input: { amount: 100 },
  *   },
  * );
@@ -138,7 +138,7 @@ export function runActivity<TActivity extends ActivityDefinition, TOutput, TErro
       // Awaiting the AsyncResult yields its settled Result (ok / err /
       // defect) without throwing; the outer wrapper re-lifts it, and any
       // synchronous throw or rejection lands on the defect channel.
-      return await options.implementation(options.input, helpers);
+      return await options.implementation(helpers, options.input);
     }),
   );
 }

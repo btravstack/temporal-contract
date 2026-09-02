@@ -29,7 +29,7 @@ const activities = declareActivitiesHandler({
   contract: inprocessContract,
   activities: {
     placeOrder: {
-      charge: ({ amount }, { errors }) => {
+      charge: ({ errors }, { amount }) => {
         if (amount < 0) {
           return ErrAsync(errors.PaymentDeclined({ reason: "negative-amount" }));
         }

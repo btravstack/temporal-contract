@@ -18,7 +18,7 @@ export const activities = declareActivitiesHandler({
   contract: orderContract,
   activities: {
     // Global activity — declared on the contract, so it sits at the root.
-    sendNotification: ({ customerId, message }) =>
+    sendNotification: (_, { customerId, message }) =>
       fromPromise(
         mailer.send(customerId, message),
         qualifyFailure("NOTIFICATION_FAILED", { expected: MailerError }),
@@ -26,7 +26,7 @@ export const activities = declareActivitiesHandler({
 
     // Workflow-scoped activities nest under their workflow's name.
     processOrder: {
-      chargeCard: ({ customerId, amount }) =>
+      chargeCard: (_, { customerId, amount }) =>
         fromPromise(
           gateway.charge(customerId, amount),
           qualifyFailure("CHARGE_FAILED", { expected: GatewayError }),
@@ -123,7 +123,7 @@ so you do not need a separate `@temporalio/common` import.
 
 ```typescript
 processOrder: {
-  chargeCard: ({ customerId, amount }) =>
+  chargeCard: (_, { customerId, amount }) =>
     fromPromise(
       riskEngine.score(customerId),
       qualifyFailure("RISK_CHECK_FAILED", { expected: RiskEngineError }),
@@ -148,7 +148,8 @@ processOrder: {
 ## Inject dependencies
 
 Rather than closing over module-scope singletons, seed a typed context with
-`createContext`. Implementations receive it as the second argument:
+`createContext`. Implementations receive it in their first argument, the
+helpers record:
 
 ```typescript
 export const activities = declareActivitiesHandler({
@@ -159,7 +160,7 @@ export const activities = declareActivitiesHandler({
   }),
   activities: {
     processOrder: {
-      chargeCard: ({ customerId, amount }, { context }) =>
+      chargeCard: ({ context }, { customerId, amount }) =>
         fromPromise(
           context.gateway.charge(customerId, amount),
           qualifyFailure("CHARGE_FAILED", { expected: GatewayError }),
@@ -172,12 +173,14 @@ export const activities = declareActivitiesHandler({
 `context` is fully typed from what `createContext` returns. This is the seam to
 substitute fakes in tests — see [Test workflows](/how-to/test-workflows).
 
-The second argument also carries `errors`, the typed constructors for the
+The helpers record also carries `errors`, the typed constructors for the
 activity's declared contract errors. See
 [Model domain errors](/how-to/model-domain-errors).
 
-::: tip Implementations that need neither may omit it
-`(args) => ...` stays valid. Destructure the helpers only when you use them.
+::: tip Helpers first, input second
+That is oRPC's parameter order, which this family converged on. An
+implementation that needs neither typed errors nor injected context still names
+the position: `(_, args) => ...`.
 :::
 
 ## Reach Temporal's activity runtime
@@ -191,7 +194,7 @@ import { Context, activityInfo } from "@temporalio/activity";
 import { fromPromise } from "unthrown";
 
 processOrder: {
-  syncCatalog: ({ pageSize }) =>
+  syncCatalog: (_, { pageSize }) =>
     fromPromise(
       (async () => {
         const { attempt, heartbeatDetails } = activityInfo();
@@ -226,7 +229,7 @@ signal. Let it propagate — do not swallow it:
 import { CancelledFailure } from "@temporalio/common";
 
 processOrder: {
-  longRunningExport: (args) =>
+  longRunningExport: (_, args) =>
     fromPromise(runExport(args), (error) => {
       if (error instanceof CancelledFailure) {
         throw error; // must propagate, not become a modeled Err

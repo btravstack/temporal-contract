@@ -173,14 +173,14 @@ function matchesExpected(cause: unknown, expected: QualifyFailureOptions["expect
  * export const activities = declareActivitiesHandler({
  *   contract: myContract,
  *   activities: {
- *     sendEmail: (args) =>
+ *     sendEmail: (_, args) =>
  *       fromPromise(
  *         emailService.send(args),
  *         // Anticipated: the SDK's typed error. Anything else (TypeError,
  *         // assertion failure, ...) is a defect and re-throws at the edge.
  *         qualifyFailure('EMAIL_SEND_FAILED', { expected: EmailServiceError }),
  *       ).map(() => ({ sent: true })),
- *     chargeCard: (args) =>
+ *     chargeCard: (_, args) =>
  *       fromPromise(
  *         paymentGateway.charge(args),
  *         qualifyFailure('CARD_DECLINED', {
@@ -280,16 +280,16 @@ export type ActivityImplementationHelpers<
  * `nonRetryable: true` opting an instance out per-call). An unexpected
  * throw surfaces as a `defect` and is re-thrown with its original cause.
  *
- * The helpers argument is optional to consume — implementations that need
- * neither typed errors nor injected context keep the plain `(args) => ...`
- * shape.
+ * **Helpers first, input second** — oRPC's parameter order, which this family
+ * converged on: an implementation that consumes neither typed errors nor
+ * injected context still names the position, `(_, args) => ...`.
  */
 type ResultActivityImplementation<
   TActivity extends ActivityDefinition,
   TContext extends Record<string, unknown> | EmptyContext = EmptyContext,
 > = (
-  args: WorkerInferInput<TActivity>,
   helpers: ActivityImplementationHelpers<TActivity, TContext>,
+  args: WorkerInferInput<TActivity>,
 ) => AsyncResult<WorkerInferOutput<TActivity>, ActivityImplementationErrorOf<TActivity>>;
 
 /**
@@ -376,7 +376,7 @@ type ResultActivitiesImplementations<
  *   typeof myContract,
  *   "orderWorkflow",
  *   "validateOrder"
- * > = (args, { errors }) =>
+ * > = ({ errors }, args) =>
  *   args.orderId ? OkAsync({ valid: true }) : ErrAsync(errors.EmptyOrder({}));
  *
  * declareActivitiesHandler({
@@ -413,7 +413,7 @@ export type ActivityImplementationFor<
  * @example
  * ```ts
  * const sendEmail: GlobalActivityImplementationFor<typeof myContract, "sendEmail"> =
- *   (args) => OkAsync({ sent: true });
+ *   (_, args) => OkAsync({ sent: true });
  * ```
  */
 export type GlobalActivityImplementationFor<
@@ -888,8 +888,8 @@ export function declareActivitiesHandler<
     info: ActivityInvocationInfo,
     activityDef: ActivityDefinition,
     activityImpl: (
-      args: unknown,
       helpers: { errors: unknown; context: unknown },
+      args: unknown,
     ) => AsyncResult<unknown, ApplicationFailure | AnyContractError>,
   ) {
     // Constructors are stateless and derived from contract-time immutables,
@@ -920,7 +920,7 @@ export function declareActivitiesHandler<
         stageInput: unknown,
         stageContext: Record<string, unknown>,
       ): AsyncResult<unknown, ApplicationFailure | AnyContractError> =>
-        activityImpl(stageInput, { errors: errorConstructors, context: stageContext });
+        activityImpl({ errors: errorConstructors, context: stageContext }, stageInput);
 
       // Run the (single, possibly composed) middleware around the
       // implementation. `next({ input })` substitutions are re-validated
@@ -1012,8 +1012,8 @@ export function declareActivitiesHandler<
   }
 
   type ErasedImplementation = (
-    args: unknown,
     helpers: { errors: unknown; context: unknown },
+    args: unknown,
   ) => AsyncResult<unknown, ApplicationFailure | AnyContractError>;
 
   const implementationMap = activities as Record<string, unknown>;

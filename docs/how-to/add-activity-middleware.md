@@ -96,7 +96,7 @@ export const activities = declareActivitiesHandler({
   middleware: withTenant,
   activities: {
     processOrder: {
-      chargeCard: ({ customerId, amount }, { context }) =>
+      chargeCard: ({ context }, { customerId, amount }) =>
         // context.tenantId: string
         fromPromise(
           gateway.charge(context.tenantId, customerId, amount),
@@ -150,7 +150,7 @@ export const activities = declareActivitiesHandler({
   }),
   activities: {
     processOrder: {
-      chargeCard: ({ customerId, amount }, { context }) =>
+      chargeCard: ({ context }, { customerId, amount }) =>
         fromPromise(
           context.gateway.charge(customerId, amount),
           qualifyFailure("CHARGE_FAILED", { expected: GatewayError }),

@@ -484,7 +484,7 @@ const validateOrder: ActivityImplementationFor<
   typeof myContract,
   "orderWorkflow",
   "validateOrder"
-> = (args, { errors }) =>
+> = ({ errors }, args) =>
   args.orderId ? OkAsync({ valid: true }) : ErrAsync(errors.EmptyOrder({}));
 ```
 
@@ -492,12 +492,14 @@ const validateOrder: ActivityImplementationFor<
 
 ```typescript
 (
-  args: WorkerInferInput<TActivity>,
   helpers: { errors: ContractErrorConstructors; context: TContext },
+  args: WorkerInferInput<TActivity>,
 ) => AsyncResult<WorkerInferOutput<TActivity>, ApplicationFailure | ContractError>;
 ```
 
-The `helpers` argument is optional to consume.
+**Helpers first, input second** — oRPC's parameter order, which this family
+converged on. An implementation that consumes neither typed errors nor injected
+context still names the position: `(_, args) => ...`.
 
 `args` is **parsed on receive** — the calling side validated the payload but
 transmitted the original value, so a transforming schema applies exactly once.
