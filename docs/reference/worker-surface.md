@@ -355,7 +355,11 @@ Temporal's original failure.
 
 Cancellation is the one case a caller may opt back in to, with
 `saga({ compensateOnCancellation: true })` — for steps holding something a
-cancellation has to release anyway: a seat, a reservation, a lock.
+cancellation has to release anyway: a seat, a reservation, a lock. Every undo
+runs inside a **non-cancellable scope**, so a cancellation cannot interrupt the
+walk-back it triggered — and, more to the point, a cancelled scope schedules no
+activity at all, so the opt-in would otherwise be unable to compensate for the
+very failure it exists for.
 
 `run()` answers the last step's value, and the failure comes back **unchanged**,
 so a caller triages exactly what it would have without the saga. A compensation

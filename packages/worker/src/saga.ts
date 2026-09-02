@@ -1,4 +1,5 @@
 import { ContractError } from "@temporal-contract/contract/errors";
+import { CancellationScope, inWorkflowContext } from "@temporalio/workflow";
 /**
  * A saga for workflow code: a sequence of steps whose compensations are
  * unwound LIFO when a later step fails.
@@ -58,9 +59,9 @@ export type WorkflowSagaBuilder<T, E> = {
    * workflow loudly: a refund that never happened is worse news than the
    * order that could not ship. The remaining undos still run first.
    */
-  readonly step: <T2, E2>(
+  readonly step: <T2, E2, U = unknown, E3 = unknown>(
     run: () => Produced<T2, E2>,
-    undo?: (value: T2) => Produced<unknown, unknown>,
+    undo?: (value: T2) => Produced<U, E3>,
   ) => WorkflowSagaBuilder<T2, E | E2>;
   /** Run the steps in order, unwinding LIFO on a failure the policy compensates. */
   readonly run: () => AsyncResult<T, E>;
@@ -79,26 +80,35 @@ export type WorkflowSagaBuilder<T, E> = {
  *
  * Cancellation is the one case a caller may opt back in to.
  */
-/**
- * Run a compensation, and make its own failure the loudest thing that
- * happened. A defect is how the primitive spells "this outranks the failure
- * that triggered the unwind", and it is what Temporal should see: an operator
- * has to know a rollback did not roll back.
- */
-const loudly = (produced: Produced<unknown, unknown>): AsyncResult<void, never> =>
-  fromSafePromise(async () => {
-    const settled = await produced;
-    if (settled.isOk()) return;
-    // oxlint-disable-next-line unthrown/no-throw -- `Defect` has no public constructor, and a throw inside a combinator is the only way to mint one; the cause is the compensation's own failure, unwrapped
-    throw settled.isErr() ? settled.error : settled.cause;
-  });
-
 const compensates = (error: unknown, onCancellation: boolean): boolean =>
   error instanceof ContractError ||
   (onCancellation &&
     (error instanceof ActivityCancelledError ||
       error instanceof ChildWorkflowCancelledError ||
       error instanceof WorkflowCancelledError));
+
+/**
+ * Run a compensation, and make its own failure the loudest thing that
+ * happened. A defect is how the primitive spells "this outranks the failure
+ * that triggered the unwind", and it is what Temporal should see: an operator
+ * has to know a rollback did not roll back.
+ */
+const loudly = <U, E3>(undo: () => Produced<U, E3>): AsyncResult<void, never> =>
+  fromSafePromise(async () => {
+    // The undo and the activity it schedules both go inside the
+    // non-cancellable scope. A cancelled scope schedules nothing — the SDK
+    // rejects the call at once — so a compensation run inside one would
+    // report `ActivityCancelledError` and never actually compensate, which
+    // would leave `compensateOnCancellation` unable to do the one thing it
+    // exists for. Outside a workflow (a saga composed in a unit test) there
+    // is no scope to enter.
+    const settled = await (inWorkflowContext()
+      ? CancellationScope.nonCancellable(async () => await undo())
+      : undo());
+    if (settled.isOk()) return;
+    // oxlint-disable-next-line unthrown/no-throw -- `Defect` has no public constructor, and a throw inside a combinator is the only way to mint one; the cause is the compensation's own failure, unwrapped
+    throw settled.isErr() ? settled.error : settled.cause;
+  });
 
 /**
  * Open a saga whose undos run only on a failure the policy compensates.
@@ -115,11 +125,11 @@ const compensates = (error: unknown, onCancellation: boolean): boolean =>
  *   .saga()
  *   .step(
  *     () => context.activities.reserveStock(order),
- *     (reservation) => context.activities.releaseStock(reservation.id),
+ *     (reservation) => context.activities.releaseStock({ id: reservation.id }),
  *   )
  *   .step(
  *     () => context.activities.chargeCard(order),
- *     (charge) => context.activities.refund(charge.id),
+ *     (charge) => context.activities.refund({ id: charge.id }),
  *   )
  *   .step(() => context.activities.ship(order))
  *   .run();
@@ -134,7 +144,10 @@ export function workflowSaga(options?: WorkflowSagaOptions): WorkflowSagaBuilder
   let failure: unknown = undefined;
 
   const wrap = <T, E>(inner: SagaAsyncBuilder<T, E>): WorkflowSagaBuilder<T, E> => ({
-    step: <T2, E2>(run: () => Produced<T2, E2>, undo?: (value: T2) => Produced<unknown, unknown>) =>
+    step: <T2, E2, U = unknown, E3 = unknown>(
+      run: () => Produced<T2, E2>,
+      undo?: (value: T2) => Produced<U, E3>,
+    ) =>
       wrap(
         inner.step(
           () =>
@@ -144,7 +157,7 @@ export function workflowSaga(options?: WorkflowSagaOptions): WorkflowSagaBuilder
           undo === undefined
             ? undefined
             : (value: T2) =>
-                compensates(failure, onCancellation) ? loudly(undo(value)) : OkAsync(),
+                compensates(failure, onCancellation) ? loudly(() => undo(value)) : OkAsync(),
         ),
       ),
     run: () => inner.run(),

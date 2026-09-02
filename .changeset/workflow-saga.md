@@ -39,7 +39,10 @@ still re-raises Temporal's original failure — which deletes the per-step
 arm that had to be repeated, was easy to omit, and was invisible when omitted.
 
 Cancellation is the one case a caller may opt back in to, with
-`saga({ compensateOnCancellation: true })`. A compensation that itself fails
+`saga({ compensateOnCancellation: true })`. Every undo runs inside a
+non-cancellable scope: a cancelled scope schedules no activity at all, so
+without one that opt-in could never compensate for the failure it exists for.
+A compensation that itself fails
 becomes a defect carrying its own failure, which outranks the failure that
 triggered the unwind — a refund that never happened is worse news than the order
 that could not ship — and the remaining undos still run first.

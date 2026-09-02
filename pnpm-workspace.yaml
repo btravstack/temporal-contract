@@ -64,10 +64,14 @@ peerDependencyRules:
 # pulls a transitive dep to its first fixed release without disturbing unrelated
 # version lines. High-severity advisories gate CI's `pnpm audit --audit-level=high`.
 overrides:
-  # GHSA-v2hh-gcrm-f6hx (High): fast-uri host confusion via literal backslash
-  # authority delimiter. The advisory widened after disclosure; the vulnerable
-  # range is now <3.1.5, so pin the transitive dev/build line to 3.1.5.
-  "fast-uri@<3.1.5": "3.1.5"
+  # GHSA-v2hh-gcrm-f6hx, GHSA-5jgf-p345-68v8 and GHSA-8gv4-fj48-4jhw (High):
+  # fast-uri host confusion via a literal backslash authority delimiter, then
+  # via skipped IDN canonicalization, then SSRF via malformed IPv6
+  # normalization. Each disclosure widened the range; <3.1.6 is the current
+  # one, so the transitive dev/build line moves with it. Raise THIS floor
+  # rather than adding a second overlapping range — with two entries pnpm
+  # resolves the older, still-vulnerable pin.
+  "fast-uri@<3.1.6": "3.1.6"
   # GHSA-3jxr-9vmj-r5cp, GHSA-mh99-v99m-4gvg, GHSA-7p8r-x3mc-p8w7, and
   # GHSA-rgw5-rvv9-x895 (all ReDoS / expansion-DoS): brace-expansion. Two lines
   # are present — 2.x via testcontainers>archiver>minimatch and 5.x via
