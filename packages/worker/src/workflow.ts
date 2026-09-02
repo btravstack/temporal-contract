@@ -56,6 +56,7 @@ import {
   extractHandlerInput,
   type TypedContinueAsNewOptions,
 } from "./internal.js";
+import { workflowSaga, type WorkflowSagaBuilder, type WorkflowSagaOptions } from "./saga.js";
 import {
   type ClientInferInput,
   type ClientInferOutput,
@@ -112,6 +113,11 @@ export { rethrowCancellation } from "./errors.js";
 // `TemporalFailure`) so Temporal classifies the workflow outcome exactly as
 // it would have if the activity call still threw directly.
 export { propagateActivityFailure } from "./activity-failure.js";
+
+// The saga, reachable without a context for the workflow that composes its
+// steps in a helper. `context.saga` is this same function.
+export { workflowSaga } from "./saga.js";
+export type { WorkflowSagaBuilder, WorkflowSagaOptions } from "./saga.js";
 
 // Literal-typed `_tag` constants for this package's tagged errors, so
 // consumers can `P.tag(ACTIVITY_ERROR_TAG)` without hand-writing the
@@ -400,6 +406,7 @@ export function declareWorkflow<
       executeChildWorkflow: createExecuteChildWorkflow,
       cancellableScope,
       nonCancellableScope,
+      saga: workflowSaga,
       handleSignal: ((signalName, handler) =>
         bindSignalHandler(
           definition,
@@ -925,6 +932,37 @@ export type WorkflowContext<
    * surface on the `defect` channel.
    */
   nonCancellableScope: <T>(fn: () => T | Promise<T>) => AsyncResult<T, WorkflowCancelledError>;
+
+  /**
+   * Open a saga: a sequence of steps whose compensations are unwound LIFO when
+   * a later step fails.
+   *
+   * The undos run on a **declared contract error** — a permanent domain answer,
+   * where what the step did before saying no is knowable. They do NOT run on an
+   * `ActivityError`, a `ChildWorkflowError` or a defect: an activity that failed
+   * unmodelled left state nobody can see, and un-deciding what you cannot see is
+   * a second bug. That failure propagates untouched, so
+   * {@link propagateActivityFailure} still re-raises Temporal's original
+   * failure. Cancellation is the one case a caller may opt back in to, with
+   * `saga({ compensateOnCancellation: true })`.
+   *
+   * @example
+   * ```ts
+   * const fulfilled = await context
+   *   .saga()
+   *   .step(
+   *     () => context.activities.reserveStock(order),
+   *     (reservation) => context.activities.releaseStock(reservation.id),
+   *   )
+   *   .step(
+   *     () => context.activities.chargeCard(order),
+   *     (charge) => context.activities.refund(charge.id),
+   *   )
+   *   .step(() => context.activities.ship(order))
+   *   .run();
+   * ```
+   */
+  saga: (options?: WorkflowSagaOptions) => WorkflowSagaBuilder<undefined, never>;
 
   /**
    * Continue this workflow execution as a new run, optionally with a different

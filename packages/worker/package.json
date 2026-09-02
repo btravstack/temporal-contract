@@ -53,7 +53,8 @@
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:",
-    "@temporal-contract/contract": "workspace:*"
+    "@temporal-contract/contract": "workspace:*",
+    "@unthrown/saga": "catalog:"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "catalog:",

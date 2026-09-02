@@ -66,6 +66,9 @@ catalogs:
     '@unthrown/oxlint':
       specifier: 5.7.0
       version: 5.7.0
+    '@unthrown/saga':
+      specifier: 5.7.0
+      version: 5.7.0
     '@unthrown/vitest':
       specifier: 5.5.0
       version: 5.5.0
@@ -545,6 +548,9 @@ importers:
       '@temporal-contract/contract':
         specifier: workspace:*
         version: link:../contract
+      '@unthrown/saga':
+        specifier: 'catalog:'
+        version: 5.7.0(unthrown@5.7.0)
     devDependencies:
       '@arethetypeswrong/cli':
         specifier: 'catalog:'
@@ -2964,6 +2970,12 @@ packages:
     engines: {node: '>=20'}
     peerDependencies:
       oxlint: ^1.69.0
+
+  '@unthrown/saga@5.7.0':
+    resolution: {integrity: sha512-U03nHwKNiuWoOe64G6UgyGnnjPfzvTkSRsj0mBxfkt4/X4feiGaoPHCU5gsW2/Wt8sm+pGhjXSllFIxszKIIYQ==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      unthrown: ^5.7.0
 
   '@unthrown/vitest@5.5.0':
     resolution: {integrity: sha512-ZDGw9fIJsYDieZRC3BidtgsCPYj6ZNdVdfrPro90RDgwmwMn2y6dAJDdpoWjAPQhKryUSbz5HAlx8+aUVFBmPQ==}
@@ -7869,6 +7881,10 @@ snapshots:
     dependencies:
       '@oxlint/plugins': 1.80.0
       oxlint: 1.80.0
+
+  '@unthrown/saga@5.7.0(unthrown@5.7.0)':
+    dependencies:
+      unthrown: 5.7.0
 
   '@unthrown/vitest@5.5.0(unthrown@5.7.0)(vitest@4.1.10)':
     dependencies:

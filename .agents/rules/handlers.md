@@ -93,6 +93,7 @@ export const processOrder = declareWorkflow({
     // context.handleSignal/handleQuery/handleUpdate — handler binding
     // context.executeChildWorkflow / context.startChildWorkflow
     // context.cancellableScope / context.nonCancellableScope — see below
+    // context.saga — steps with compensating undos, unwound LIFO
 
     const inventory = await context.activities.validateInventory({ orderId: args.orderId });
     if (inventory.isDefect()) {
