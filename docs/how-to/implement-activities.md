@@ -18,7 +18,7 @@ export const activities = declareActivitiesHandler({
   contract: orderContract,
   activities: {
     // Global activity — declared on the contract, so it sits at the root.
-    sendNotification: (_, { customerId, message }) =>
+    sendNotification: ({ input: { customerId, message } }) =>
       fromPromise(
         mailer.send(customerId, message),
         qualifyFailure("NOTIFICATION_FAILED", { expected: MailerError }),
@@ -26,7 +26,7 @@ export const activities = declareActivitiesHandler({
 
     // Workflow-scoped activities nest under their workflow's name.
     processOrder: {
-      chargeCard: (_, { customerId, amount }) =>
+      chargeCard: ({ input: { customerId, amount } }) =>
         fromPromise(
           gateway.charge(customerId, amount),
           qualifyFailure("CHARGE_FAILED", { expected: GatewayError }),
@@ -123,7 +123,7 @@ so you do not need a separate `@temporalio/common` import.
 
 ```typescript
 processOrder: {
-  chargeCard: (_, { customerId, amount }) =>
+  chargeCard: ({ input: { customerId, amount } }) =>
     fromPromise(
       riskEngine.score(customerId),
       qualifyFailure("RISK_CHECK_FAILED", { expected: RiskEngineError }),
@@ -160,7 +160,7 @@ export const activities = declareActivitiesHandler({
   }),
   activities: {
     processOrder: {
-      chargeCard: ({ context }, { customerId, amount }) =>
+      chargeCard: ({ context, input: { customerId, amount } }) =>
         fromPromise(
           context.gateway.charge(customerId, amount),
           qualifyFailure("CHARGE_FAILED", { expected: GatewayError }),
@@ -177,12 +177,12 @@ The helpers record also carries `errors`, the typed constructors for the
 activity's declared contract errors. See
 [Model domain errors](/how-to/model-domain-errors).
 
-::: tip Helpers first, input second — and the input is on the helpers too
-That is oRPC's shape, which this family converged on: its
-`ProcedureHandlerOptions` carries `input` and the handler still takes it
-positionally. So `({ errors, args }) => ...` and `({ errors }, args) => ...` are
-the same call, and an implementation that needs neither typed errors nor
-injected context is `(_, args) => ...`.
+::: tip One record, and a positional shortcut
+That is oRPC's shape, which this family converged on, down to its word for the
+input: `ProcedureHandlerOptions` carries `input` and the handler still takes it
+positionally. So `({ errors, input }) => ...` and `({ errors }, args) => ...` are
+the same call. Reach for the record — it is the one that needs no `_`
+placeholder when an implementation wants only its input: `({ input }) => ...`.
 :::
 
 ## Reach Temporal's activity runtime
@@ -196,7 +196,7 @@ import { Context, activityInfo } from "@temporalio/activity";
 import { fromPromise } from "unthrown";
 
 processOrder: {
-  syncCatalog: (_, { pageSize }) =>
+  syncCatalog: ({ input: { pageSize } }) =>
     fromPromise(
       (async () => {
         const { attempt, heartbeatDetails } = activityInfo();
@@ -231,8 +231,8 @@ signal. Let it propagate — do not swallow it:
 import { CancelledFailure } from "@temporalio/common";
 
 processOrder: {
-  longRunningExport: (_, args) =>
-    fromPromise(runExport(args), (error) => {
+  longRunningExport: ({ input }) =>
+    fromPromise(runExport(input), (error) => {
       if (error instanceof CancelledFailure) {
         throw error; // must propagate, not become a modeled Err
       }

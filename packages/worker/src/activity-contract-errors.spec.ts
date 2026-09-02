@@ -59,7 +59,7 @@ describe("declareActivitiesHandler — contract errors", () => {
       activities: {
         sendEmail: () => OkAsync({ sent: true }),
         processOrder: {
-          chargePayment: ({ errors }, _args) =>
+          chargePayment: ({ errors, input: _args }) =>
             ErrAsync(errors.PaymentDeclined({ reason: "insufficient_funds" })),
         },
       },
@@ -81,7 +81,7 @@ describe("declareActivitiesHandler — contract errors", () => {
       activities: {
         sendEmail: () => OkAsync({ sent: true }),
         processOrder: {
-          chargePayment: ({ errors }, _args) => ErrAsync(errors.GatewayUnavailable()),
+          chargePayment: ({ errors, input: _args }) => ErrAsync(errors.GatewayUnavailable()),
         },
       },
     });
@@ -118,7 +118,7 @@ describe("declareActivitiesHandler — contract errors", () => {
     const activities = declareActivitiesHandler({
       contract: transformingContract,
       activities: {
-        flaky: ({ errors }, _args) => ErrAsync(errors.Nope({ reason: "declined" })),
+        flaky: ({ errors, input: _args }) => ErrAsync(errors.Nope({ reason: "declined" })),
       },
     });
 
@@ -134,7 +134,7 @@ describe("declareActivitiesHandler — contract errors", () => {
       activities: {
         sendEmail: () => OkAsync({ sent: true }),
         processOrder: {
-          chargePayment: ({ errors }, _args) =>
+          chargePayment: ({ errors, input: _args }) =>
             // @ts-expect-error — deliberately invalid payload
             ErrAsync(errors.PaymentDeclined({ reason: 42 })),
         },
@@ -194,7 +194,7 @@ describe("declareActivitiesHandler — createContext", () => {
       activities: {
         sendEmail: () => OkAsync({ sent: true }),
         processOrder: {
-          chargePayment: ({ context }, args) =>
+          chargePayment: ({ context, input: args }) =>
             OkAsync({
               transactionId: `${context.paymentGateway === paymentGateway}-${args.amount}`,
             }),
@@ -285,7 +285,7 @@ describe("declareActivitiesHandler — middleware", () => {
       activities: {
         sendEmail: () => OkAsync({ sent: true }),
         processOrder: {
-          chargePayment: (_, args) => OkAsync({ transactionId: `tx-${args.amount}` }),
+          chargePayment: ({ input: args }) => OkAsync({ transactionId: `tx-${args.amount}` }),
         },
       },
     });
@@ -348,7 +348,7 @@ describe("declareActivitiesHandler — middleware", () => {
       activities: {
         sendEmail: () => OkAsync({ sent: true }),
         processOrder: {
-          chargePayment: ({ errors }, _args) =>
+          chargePayment: ({ errors, input: _args }) =>
             ErrAsync(errors.PaymentDeclined({ reason: "expired_card" })),
         },
       },
@@ -398,7 +398,7 @@ describe("declareActivitiesHandler — middleware", () => {
       createContext: () => ({ tenant: "acme" }),
       middleware: composeActivityMiddleware(outer, inner),
       activities: {
-        sendEmail: ({ context }, _args) => {
+        sendEmail: ({ context, input: _args }) => {
           seenByImplementation.push(context);
           return OkAsync({ sent: true });
         },

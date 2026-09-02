@@ -47,7 +47,7 @@ const activities = declareActivitiesHandler({
   contract: rehydrationWorkerContract,
   activities: {
     quote: {
-      charge: ({ errors }, { mode }) => {
+      charge: ({ errors, input: { mode } }) => {
         if (mode === "fake-typed") {
           // A plain ApplicationFailure that reuses the declared data-less
           // error name as its `type` — no wire marker. `nonRetryable` so the

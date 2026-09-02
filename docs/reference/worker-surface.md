@@ -484,7 +484,7 @@ const validateOrder: ActivityImplementationFor<
   typeof myContract,
   "orderWorkflow",
   "validateOrder"
-> = ({ errors }, args) =>
+> = ({ errors, input: args }) =>
   args.orderId ? OkAsync({ valid: true }) : ErrAsync(errors.EmptyOrder({}));
 ```
 
@@ -507,9 +507,9 @@ positionally, so `args` is on the record AND in the second parameter. Both
 spellings are the same call:
 
 ```typescript
-place: ({ errors, args }) => …   // everything off one destructuring
-place: ({ errors }, args) => …   // the positional shortcut
-place: (_, args) => …            // consumes neither errors nor context
+place: ({ errors, input }) => …  // the spelling to reach for
+place: ({ errors }, args) => …   // or the positional shortcut, oRPC has both
+place: ({ input }) => …          // consumes neither errors nor context
 ```
 
 `args` is **parsed on receive** — the calling side validated the payload but

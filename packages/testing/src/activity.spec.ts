@@ -44,7 +44,7 @@ const charge = defineActivity({
 describe("runActivity", () => {
   it("returns the implementation's Ok result", async () => {
     const result = await runActivity(charge, {
-      implementation: (_, { amount }) => OkAsync({ transactionId: `TXN-${amount}` }),
+      implementation: ({ input: { amount } }) => OkAsync({ transactionId: `TXN-${amount}` }),
       input: { amount: 42 },
     });
 
@@ -86,7 +86,7 @@ describe("runActivity", () => {
     env.on("heartbeat", (details: unknown) => heartbeats.push(details));
 
     const result = await runActivity(charge, {
-      implementation: (_, { amount }) => {
+      implementation: ({ input: { amount } }) => {
         // Inside `env.run`, `Context.current()` is this environment's
         // context — the mock env instance exposes it as `env.context`.
         env.context.heartbeat("halfway");
@@ -127,7 +127,7 @@ describe("runActivityHandler", () => {
   it("round-trips an Ok output through the real wrapping (input parsed, output validated)", async () => {
     const seen: unknown[] = [];
     const result = await runActivityHandler(charge, {
-      implementation: (_, args) => {
+      implementation: ({ input: args }) => {
         seen.push(args);
         return OkAsync({ transactionId: `TXN-${args.amount}` });
       },

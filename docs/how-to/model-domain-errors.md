@@ -54,7 +54,7 @@ export const activities = declareActivitiesHandler({
   contract: orderContract,
   activities: {
     processOrder: {
-      chargeCard: ({ errors }, { customerId, amount }) =>
+      chargeCard: ({ errors, input: { customerId, amount } }) =>
         fromPromise(
           gateway.charge(customerId, amount),
           // `expected` is required: name the anticipated failure class (or a
