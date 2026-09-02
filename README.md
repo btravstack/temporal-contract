@@ -76,7 +76,7 @@ export const activities = declareActivitiesHandler({
   contract: orderContract,
   activities: {
     processOrder: {
-      chargeCard: ({ customerId, amount }) =>
+      chargeCard: (_, { customerId, amount }) =>
         fromPromise(gateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED")).map(
           (charge) => ({
             transactionId: charge.id,

@@ -25,7 +25,7 @@ import { activityOptionsContract, layeredOptionsContract } from "./activity-opti
  * line is expected, not a bug — heartbeat-less activities are never
  * notified that they were timed out.
  */
-function sleepThenDone({ sleepMs }: { sleepMs: number }) {
+function sleepThenDone(_: unknown, { sleepMs }: { sleepMs: number }) {
   return fromSafePromise(
     new Promise<{ done: boolean }>((resolve) => {
       setTimeout(() => resolve({ done: true }), sleepMs);

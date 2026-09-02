@@ -64,7 +64,7 @@ describe("Worker unthrown Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          processPayment: (args) => OkAsync({ transactionId: `tx-${args.amount}` }),
+          processPayment: (_, args) => OkAsync({ transactionId: `tx-${args.amount}` }),
         },
       });
 
@@ -98,7 +98,7 @@ describe("Worker unthrown Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          fetchData: (args) => OkAsync({ data: `data-${args.id}`, timestamp: 123 }),
+          fetchData: (_, args) => OkAsync({ data: `data-${args.id}`, timestamp: 123 }),
         },
       });
 
@@ -112,9 +112,7 @@ describe("Worker unthrown Package", () => {
       const badActivities = declareActivitiesHandler({
         contract,
         activities: {
-          fetchData: (
-            _args,
-          ): AsyncResult<{ data: string; timestamp: number }, ApplicationFailure> =>
+          fetchData: (): AsyncResult<{ data: string; timestamp: number }, ApplicationFailure> =>
             // @ts-expect-error - intentionally returning invalid output
             OkAsync({ data: "test" }), // Missing timestamp
         },
@@ -140,7 +138,7 @@ describe("Worker unthrown Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          successActivity: (args) => OkAsync({ result: `success-${args.value}` }),
+          successActivity: (_, args) => OkAsync({ result: `success-${args.value}` }),
         },
       });
 
@@ -167,7 +165,7 @@ describe("Worker unthrown Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          failingActivity: (_args) =>
+          failingActivity: () =>
             ErrAsync(
               ApplicationFailure.create({
                 type: "ACTIVITY_FAILED",
@@ -207,7 +205,7 @@ describe("Worker unthrown Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          permanentlyFailingActivity: (_args) =>
+          permanentlyFailingActivity: () =>
             ErrAsync(
               ApplicationFailure.create({
                 type: "PERMANENT",
@@ -244,7 +242,7 @@ describe("Worker unthrown Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          asyncActivity: (args) =>
+          asyncActivity: (_, args) =>
             fromSafePromise<{ completed: boolean }>(
               new Promise((resolve) => {
                 setTimeout(() => resolve({ completed: true }), args.delay);
@@ -283,7 +281,7 @@ describe("Worker unthrown Package", () => {
         contract,
         activities: {
           orderWorkflow: {
-            validateOrder: (args) => OkAsync({ valid: args.orderId.length > 0 }),
+            validateOrder: (_, args) => OkAsync({ valid: args.orderId.length > 0 }),
           },
         },
       });
@@ -313,9 +311,9 @@ describe("Worker unthrown Package", () => {
         declareActivitiesHandler({
           contract,
           activities: {
-            validActivity: (_args: unknown) => OkAsync({ result: "test" }),
+            validActivity: () => OkAsync({ result: "test" }),
             // @ts-expect-error - intentionally missing activity definition
-            unknownActivity: (_args: unknown) => OkAsync({ result: "test" }),
+            unknownActivity: () => OkAsync({ result: "test" }),
           },
         });
       }).toThrowError(new ActivityDefinitionNotFoundError("unknownActivity", ["validActivity"]));
@@ -343,7 +341,7 @@ describe("Worker unthrown Package", () => {
           // workflow activities), which TypeScript can't flag excess keys
           // against — the runtime check is the only guard.
           activities: {
-            strayActivity: (_args: unknown) => OkAsync({}),
+            strayActivity: () => OkAsync({}),
           },
         });
       }).toThrowError(new ActivityDefinitionNotFoundError("strayActivity", []));
@@ -370,7 +368,7 @@ describe("Worker unthrown Package", () => {
           contract,
           // @ts-expect-error - intentionally omitting a declared implementation
           activities: {
-            implemented: (_args: unknown) => OkAsync({}),
+            implemented: () => OkAsync({}),
           },
         });
       }).toThrow(/missing implementation for declared activity: forgotten/);
@@ -406,7 +404,7 @@ describe("Worker unthrown Package", () => {
           activities: {
             // @ts-expect-error - intentionally omitting a declared implementation
             orderWorkflow: {
-              validateOrder: (_args: unknown) => OkAsync({}),
+              validateOrder: () => OkAsync({}),
             },
           },
         });
@@ -457,8 +455,8 @@ describe("Worker unthrown Package", () => {
           declareActivitiesHandler({
             contract: sharedContract,
             activities: {
-              alpha: { sharedActivity: (_args) => OkAsync({ ok: true }) },
-              beta: { sharedActivity: (_args) => OkAsync({ ok: false }) },
+              alpha: { sharedActivity: () => OkAsync({ ok: true }) },
+              beta: { sharedActivity: () => OkAsync({ ok: false }) },
             },
           });
         }).toThrow(
@@ -471,8 +469,8 @@ describe("Worker unthrown Package", () => {
           declareActivitiesHandler({
             contract: sharedContract,
             activities: {
-              alpha: { sharedActivity: (_args) => OkAsync({ ok: true }) },
-              beta: { sharedActivity: (_args) => OkAsync({ ok: false }) },
+              alpha: { sharedActivity: () => OkAsync({ ok: true }) },
+              beta: { sharedActivity: () => OkAsync({ ok: false }) },
             },
           });
         }).toThrow(
@@ -482,7 +480,7 @@ describe("Worker unthrown Package", () => {
 
       it("dedupes silently when both scopes pass the exact same function reference", async () => {
         const calls: unknown[] = [];
-        const shared = (args: { id: string }) => {
+        const shared = (_: unknown, args: { id: string }) => {
           calls.push(args);
           return OkAsync({ ok: true });
         };
@@ -520,8 +518,8 @@ describe("Worker unthrown Package", () => {
           declareActivitiesHandler({
             contract: globalSharedContract,
             activities: {
-              sharedActivity: (_args: { id: string }) => OkAsync({ ok: true }),
-              alpha: { sharedActivity: (_args: { id: string }) => OkAsync({ ok: false }) },
+              sharedActivity: () => OkAsync({ ok: true }),
+              alpha: { sharedActivity: () => OkAsync({ ok: false }) },
             },
           });
         }).toThrow(
@@ -554,7 +552,7 @@ describe("Worker unthrown Package", () => {
         declareActivitiesHandler({
           contract,
           activities: {
-            conflicted: (_args: unknown) => OkAsync({}),
+            conflicted: () => OkAsync({}),
           },
         });
       }).toThrow(/global activity "conflicted" has the same name as a workflow/);
@@ -583,7 +581,7 @@ describe("Worker unthrown Package", () => {
       const activities = declareActivitiesHandler({
         contract: transformContract,
         activities: {
-          transformer: (args) => {
+          transformer: (_, args) => {
             seen.push(args);
             return OkAsync({ n: 21 });
           },
@@ -628,7 +626,7 @@ describe("Worker unthrown Package", () => {
       const activities = declareActivitiesHandler({
         contract,
         activities: {
-          strictActivity: (_args) => OkAsync({ success: true }),
+          strictActivity: () => OkAsync({ success: true }),
         },
       });
 
@@ -663,7 +661,7 @@ describe("Worker unthrown Package", () => {
         contract,
         activities: {
           // @ts-expect-error - intentionally returning invalid output
-          strictOutputActivity: (_args) => OkAsync({ value: "not-a-number", status: "active" }),
+          strictOutputActivity: () => OkAsync({ value: "not-a-number", status: "active" }),
         },
       });
 

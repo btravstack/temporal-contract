@@ -44,7 +44,7 @@ contract instead of being scattered across worker configuration.
 
 ## Raise one from an activity
 
-Implementations receive typed constructors as `errors` in the second argument:
+Implementations receive typed constructors as `errors` in their first argument, the helpers record:
 
 ```typescript
 import { declareActivitiesHandler, qualifyFailure } from "@temporal-contract/worker/activity";
@@ -54,7 +54,7 @@ export const activities = declareActivitiesHandler({
   contract: orderContract,
   activities: {
     processOrder: {
-      chargeCard: ({ customerId, amount }, { errors }) =>
+      chargeCard: ({ errors }, { customerId, amount }) =>
         fromPromise(
           gateway.charge(customerId, amount),
           // `expected` is required: name the anticipated failure class (or a

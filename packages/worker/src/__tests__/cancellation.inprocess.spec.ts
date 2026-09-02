@@ -61,7 +61,7 @@ const WORKFLOW_EXECUTION_TIMEOUT = "30 seconds";
  * leave the workflow-side await pending until the activity naturally
  * finishes).
  */
-function cancellableSleep({ sleepMs }: { sleepMs: number }) {
+function cancellableSleep(_: unknown, { sleepMs }: { sleepMs: number }) {
   const context = Context.current();
   const work = (async () => {
     const heartbeat = setInterval(() => context.heartbeat(), 100);

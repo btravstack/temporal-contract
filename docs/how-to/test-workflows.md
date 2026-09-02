@@ -62,7 +62,7 @@ import { orderContract } from "./contract.js";
 describe("chargeCard", () => {
   it("returns a transaction id", async () => {
     const result = await runActivity(orderContract.workflows.processOrder.activities.chargeCard, {
-      implementation: chargeCard, // (args, { errors }) => AsyncResult<...>
+      implementation: chargeCard, // ({ errors }, args) => AsyncResult<...>
       input: { customerId: "CUST-1", amount: 42 },
     });
 
@@ -145,7 +145,7 @@ export const makeActivities = (deps: { gateway: PaymentGateway }) =>
     createContext: () => deps,
     activities: {
       processOrder: {
-        chargeCard: ({ customerId, amount }, { context }) =>
+        chargeCard: ({ context }, { customerId, amount }) =>
           fromPromise(
             context.gateway.charge(customerId, amount),
             qualifyFailure("CHARGE_FAILED", { expected: GatewayError }),

@@ -24,7 +24,7 @@ give better failure messages. Register them once in a Vitest setup file.
 ## `@temporal-contract/testing/activity`
 
 Two altitudes for testing one activity implementation — the
-`(args, helpers) => AsyncResult<...>` function you pass to
+`(helpers, args) => AsyncResult<...>` function you pass to
 `declareActivitiesHandler` — inside `@temporalio/testing`'s
 `MockActivityEnvironment`. No worker, server, or Docker.
 
@@ -34,7 +34,7 @@ Two altitudes for testing one activity implementation — the
 function runActivity<TActivity, TOutput, TError>(
   definition: TActivity, // e.g. contract.workflows.processOrder.activities.chargeCard
   options: {
-    implementation: (args, helpers) => AsyncResult<TOutput, TError>;
+    implementation: (helpers, args) => AsyncResult<TOutput, TError>;
     input: WorkerInferInput<TActivity>; // the parsed shape the worker hands the impl
     env?: MockActivityEnvironment; // reuse one to observe heartbeats / cancel
   },
@@ -70,7 +70,7 @@ customize the activity info.
 function runActivityHandler<TActivity, TOutput, TError>(
   definition: TActivity,
   options: {
-    implementation: (args, helpers) => AsyncResult<TOutput, TError>;
+    implementation: (helpers, args) => AsyncResult<TOutput, TError>;
     input: ClientInferInput<TActivity>; // the WIRE value, as a caller sends it
     activityName?: string; // diagnostic name in validation errors (default "activity")
     env?: MockActivityEnvironment;

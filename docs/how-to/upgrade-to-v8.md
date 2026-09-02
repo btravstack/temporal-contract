@@ -1,6 +1,6 @@
 # Upgrade from 7.x to 8.0
 
-Version 8 has four headline breaking changes:
+Version 8 has five headline breaking changes:
 
 1. **unthrown 5** — error combinators and `match`'s error handler take a matcher
    callback, and the bare combinators gained a `Cases` suffix.
@@ -12,6 +12,9 @@ Version 8 has four headline breaking changes:
 4. **Each boundary parses exactly once** — the sender validates but transmits
    the original value; the receiver parses. Transforming schemas are no longer
    applied twice.
+
+5. **The activity leaf takes helpers first** — `(helpers, args)`, oRPC's
+   parameter order, shared with `@amqp-contract`.
 
 Plus a set of smaller renames and semantic fixes, each with its own section
 below. Most are mechanical. Budget an afternoon for a medium codebase.
@@ -1050,6 +1053,36 @@ fire-and-forget work that should outlive its parent. Of this repo's own
 child call sites, most had silently inherited `TERMINATE` before this change
 — auditing each one is the point, not just making the compiler pass.
 
+## 15. The activity leaf takes helpers first
+
+An activity implementation's parameters swapped: **helpers first, input
+second**, which is oRPC's order and therefore the one this family converged on
+(`@amqp-contract` moved with it). A leaf that consumes neither typed errors nor
+injected context still names the position.
+
+```diff
+  export const activities = declareActivitiesHandler({
+    contract: orderContract,
+    activities: {
+-     sendNotification: ({ customerId, message }) => ...,
++     sendNotification: (_, { customerId, message }) => ...,
+      processOrder: {
+-       chargeCard: ({ customerId, amount }, { errors }) => ...,
++       chargeCard: ({ errors }, { customerId, amount }) => ...,
+      },
+    },
+  });
+```
+
+`ActivityImplementationFor` / `GlobalActivityImplementationFor` annotations and
+`@temporal-contract/testing`'s `runActivity` / `runActivityHandler`
+`implementation` option carry the same order.
+
+**The compiler catches every site that READS its input**, since the first
+parameter is now the helpers record — and misses the ones that ignore it, where
+the swap is harmless but the parameter name lies. Grep the implementations map
+for a leaf whose first parameter is not a helpers destructuring.
+
 ## Checklist
 
 - [ ] All four `@temporal-contract/*` packages on the same 8.0 version
@@ -1113,6 +1146,8 @@ child call sites, most had silently inherited `TERMINATE` before this change
 - [ ] Every `context.startChildWorkflow` / `context.executeChildWorkflow` call
       states `parentClosePolicy` explicitly; `"TERMINATE"` reproduces prior
       behavior, but audit each site rather than filling it in mechanically
+- [ ] Every activity implementation takes `(helpers, args)` — a leaf that reads
+      neither still spells the position, `(_, args) => ...`
 - [ ] `pnpm typecheck` clean
 
 The exhaustive matcher does most of the work: once it compiles, the migration is
