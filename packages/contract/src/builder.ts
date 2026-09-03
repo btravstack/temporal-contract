@@ -60,8 +60,21 @@ import type {
  * });
  * ```
  */
-export function defineActivity<TActivity extends ActivityDefinition>(
-  definition: TActivity,
+export function defineActivity<
+  TInput extends AnySchema,
+  TOutput extends AnySchema,
+  TActivity extends ActivityDefinition<TInput, TOutput>,
+>(
+  definition: TActivity & {
+    readonly input: TInput;
+    readonly output: TOutput;
+    /**
+     * Re-stated against the bound input schema (the structural definition
+     * types it `never` — see {@link ActivityDefinition}), so this lambda's
+     * parameter is contextually typed as the activity's validated input.
+     */
+    readonly idempotencyKey?: (input: StandardSchemaV1.InferOutput<TInput>) => string;
+  },
 ): TActivity {
   return definition;
 }

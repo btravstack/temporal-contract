@@ -134,6 +134,13 @@ export function runActivity<TActivity extends ActivityDefinition, TOutput, TErro
     ) as unknown as ActivityErrorConstructorsOf<TActivity>,
     context: {},
     input: options.input,
+    // Same value production hands over: the declared derivation applied to
+    // this input, verbatim. The structural slot types its parameter `never`
+    // so plain-object contracts stay assignable (see `ActivityDefinition`);
+    // the value passed here is the input the derivation was written against.
+    idempotencyKey: (definition.idempotencyKey as ((input: unknown) => string) | undefined)?.(
+      options.input,
+    ),
   };
 
   return _internal_makeAsyncResult(() =>

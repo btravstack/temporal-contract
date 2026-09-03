@@ -133,6 +133,51 @@ export type ActivityDefinition<
   readonly output: TOutput;
   readonly errors?: TErrors;
   readonly activityOptions?: ContractActivityOptions;
+  /**
+   * Derive this activity's **idempotency key** from its input.
+   *
+   * Temporal runs an activity **at least once**: a retry, a worker crash, or
+   * a completion that succeeded but was never recorded all re-run the
+   * implementation. Making the effect idempotent is the application's job,
+   * and the usual remedy is handing a stable key to the downstream API
+   * (Stripe's `Idempotency-Key`, and its equivalents). Declaring the key here
+   * means the caller and the implementation cannot disagree about what it is.
+   *
+   * The function receives the **validated** input (post-parse, so schema
+   * transforms have already run) and must be pure and deterministic: the same
+   * input has to produce the same key on every attempt, or the key protects
+   * nothing.
+   *
+   * Being derived from the *payload* rather than from Temporal's own
+   * identifiers is what makes it stable across activity retries, worker
+   * crashes, **and** a fresh workflow execution started with the same inputs.
+   * (`Context.current().info.activityId` looks like an alternative and is
+   * not: it is a per-run command sequence number, so a re-run that branches
+   * differently before this call gets a different value.)
+   *
+   * The parameter is typed `never` **here**, in the structural definition, so
+   * a contract written as a plain object literal (`satisfies
+   * ContractDefinition`) still accepts a derivation that narrows its input —
+   * a property-position function type is contravariant in its parameter, and
+   * this slot's `TInput` is only known once a concrete schema is bound.
+   * `defineActivity` re-states the slot against the real input type, so the
+   * lambda written there is contextually typed and checked.
+   *
+   * The key reaches the implementation verbatim. Two activities sharing a
+   * downstream keyspace must therefore disambiguate in their own derivations
+   * (`` `charge:${orderId}` `` vs `` `refund:${orderId}` ``) — handing a
+   * gateway one key for two opposite operations is the failure to avoid.
+   *
+   * @example
+   * ```ts
+   * const chargeCard = defineActivity({
+   *   input: z.object({ customerId: z.string(), amount: z.number() }),
+   *   output: PaymentSchema,
+   *   idempotencyKey: ({ customerId, amount }) => `${customerId}:${amount}`,
+   * });
+   * ```
+   */
+  readonly idempotencyKey?: (input: never) => string;
 };
 
 /**
