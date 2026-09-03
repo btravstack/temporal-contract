@@ -1,5 +1,62 @@
 # @temporal-contract/testing
 
+## 8.0.0-beta.9
+
+### Minor Changes
+
+- 4e47875: Activities can declare an **idempotency key**, derived from their input:
+
+  ```ts
+  const chargeCard = defineActivity({
+    input: z.object({ orderId: z.string(), customerId: z.string(), amount: z.number() }),
+    output: PaymentSchema,
+    // Key on what IDENTIFIES the charge, not on what describes it: one customer
+    // placing two orders of the same value must not collide on one key.
+    idempotencyKey: ({ orderId }) => `charge:${orderId}`,
+  });
+
+  chargeCard: ({ input, idempotencyKey }) =>
+    fromPromise(
+      gateway.charge(input, { idempotencyKey }),
+      qualifyFailure("CHARGE_FAILED", { expected: GatewayError }),
+    ),
+  ```
+
+  Temporal runs activities **at least once**, and nothing in the library helped
+  with that until now — `idempotency` on a workflow is start deduplication and
+  says nothing about an activity running twice. Being payload-derived, the key is
+  stable across activity retries, worker crashes, and a fresh workflow execution
+  with the same input.
+
+  `helpers.idempotencyKey` is typed `string` for an activity that declares one and
+  `undefined` for one that does not, so reaching for a key that was never declared
+  is a compile error. `runActivity` hands over the same value.
+
+  Good key sources: a business identifier already in the input, a dedicated
+  `idempotencyKey` field the caller mints, or the workflow ID — which is
+  per-execution and, when the contract derives it, a function of the payload.
+
+- 2cc0053: `createTimeSkippingContractTest({ contract, workflowsPath, activities })` — the
+  one-call fixture for the **time-skipping** tier, the Docker-free counterpart to
+  `createContractTest`. It owns the `TestWorkflowEnvironment`, the workflow bundle
+  (built once per Vitest worker process), the worker, the `TypedClient` binding,
+  and the replay-on-finish check, and hands the test `{ worker, client }`.
+
+  Previously the tier with the better ergonomics was also the one that needed
+  Docker: the time-skipping tier only offered `testRig`, which makes the caller
+  build a bundle and manage the environment. `testRig` stays as the lower-level
+  seam.
+
+### Patch Changes
+
+- Updated dependencies [4e47875]
+- Updated dependencies [8d1359a]
+- Updated dependencies [3ed260c]
+- Updated dependencies [5545236]
+  - @temporal-contract/contract@8.0.0-beta.9
+  - @temporal-contract/worker@8.0.0-beta.9
+  - @temporal-contract/client@8.0.0-beta.9
+
 ## 8.0.0-beta.8
 
 ### Patch Changes

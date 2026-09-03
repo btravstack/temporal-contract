@@ -1,5 +1,61 @@
 # @temporal-contract/worker
 
+## 8.0.0-beta.9
+
+### Minor Changes
+
+- 4e47875: Activities can declare an **idempotency key**, derived from their input:
+
+  ```ts
+  const chargeCard = defineActivity({
+    input: z.object({ orderId: z.string(), customerId: z.string(), amount: z.number() }),
+    output: PaymentSchema,
+    // Key on what IDENTIFIES the charge, not on what describes it: one customer
+    // placing two orders of the same value must not collide on one key.
+    idempotencyKey: ({ orderId }) => `charge:${orderId}`,
+  });
+
+  chargeCard: ({ input, idempotencyKey }) =>
+    fromPromise(
+      gateway.charge(input, { idempotencyKey }),
+      qualifyFailure("CHARGE_FAILED", { expected: GatewayError }),
+    ),
+  ```
+
+  Temporal runs activities **at least once**, and nothing in the library helped
+  with that until now — `idempotency` on a workflow is start deduplication and
+  says nothing about an activity running twice. Being payload-derived, the key is
+  stable across activity retries, worker crashes, and a fresh workflow execution
+  with the same input.
+
+  `helpers.idempotencyKey` is typed `string` for an activity that declares one and
+  `undefined` for one that does not, so reaching for a key that was never declared
+  is a compile error. `runActivity` hands over the same value.
+
+  Good key sources: a business identifier already in the input, a dedicated
+  `idempotencyKey` field the caller mints, or the workflow ID — which is
+  per-execution and, when the contract derives it, a function of the payload.
+
+- 8d1359a: `bestEffort(result, onFailure)` — the counterpart to `propagateFailure` for a
+  non-critical call (a notification, a metric, an audit write). It hands the
+  failure to `onFailure` and resolves `undefined` instead of ending the workflow,
+  but **re-raises real cancellation** (`ActivityCancelledError`,
+  `ChildWorkflowCancelledError`, `WorkflowCancelledError`) so a workflow can no
+  longer absorb its own cancel by accident. That rule used to live in every
+  hand-written best-effort fold; it is now structural.
+
+  `propagateActivityFailure` is renamed to **`propagateFailure`** — it has always
+  also handled child-workflow calls and cancellation scopes, and the old name said
+  otherwise. The old name is **removed**, not aliased: it only ever shipped in 8.0
+  betas, and this release already renames `idempotency` to `startPolicy` outright.
+  Rename the import; behaviour is unchanged.
+
+### Patch Changes
+
+- Updated dependencies [4e47875]
+- Updated dependencies [5545236]
+  - @temporal-contract/contract@8.0.0-beta.9
+
 ## 8.0.0-beta.8
 
 ### Minor Changes

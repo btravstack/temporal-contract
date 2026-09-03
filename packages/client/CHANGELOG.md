@@ -1,5 +1,49 @@
 # @temporal-contract/client
 
+## 8.0.0-beta.9
+
+### Minor Changes
+
+- 3ed260c: Ready-made error pattern groups — `WORKFLOW_START_PATTERNS`,
+  `WORKFLOW_RESULT_PATTERNS`, `WORKFLOW_EXECUTE_PATTERNS`,
+  `WORKFLOW_STOPPED_PATTERNS`, `SIGNAL_PATTERNS`, `QUERY_PATTERNS`,
+  `UPDATE_PATTERNS`, `SCHEDULE_CREATE_PATTERNS`. Each mirrors one method's error
+  union exactly, so `matcher.with(...WORKFLOW_RESULT_PATTERNS, handler)` replaces
+  six hand-written `P.tag(...)` arguments.
+
+  Exhaustiveness is unchanged: these are ordinary pattern tuples, so a missing
+  member is still a compile error naming it. A workflow's **declared contract
+  errors** are deliberately not in these groups — no shipped group can name a
+  user's own errors — so for a workflow that declares `errors`, a group alone is
+  not exhaustive: match those first with `{ errorName: "..." }`.
+
+- 5545236: Workflows can derive their **workflow ID** from their input:
+
+  ```ts
+  const processOrder = defineWorkflow({
+    input: OrderSchema,
+    output: OrderResultSchema,
+    workflowId: ({ orderId }) => `order-${orderId}`,
+    startPolicy: "once-per-id",
+  });
+  ```
+
+  `startPolicy` only bites when two starts of the same logical request collide on
+  one ID, and the ID used to be entirely the caller's — passing
+  `crypto.randomUUID()` made `"once-per-id"` inert with no diagnostic. A workflow
+  that declares `workflowId` now derives it from the validated payload on
+  `startWorkflow` / `executeWorkflow` / `signalWithStart`, and supplying one at
+  the call site is a type error. Workflows that declare none are unchanged.
+
+  `IdempotencyMode` is renamed to `WorkflowStartPolicy` (the old name stays as a
+  deprecated type alias).
+
+### Patch Changes
+
+- Updated dependencies [4e47875]
+- Updated dependencies [5545236]
+  - @temporal-contract/contract@8.0.0-beta.9
+
 ## 8.0.0-beta.8
 
 ### Patch Changes

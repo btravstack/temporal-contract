@@ -1,5 +1,62 @@
 # @temporal-contract/contract
 
+## 8.0.0-beta.9
+
+### Minor Changes
+
+- 4e47875: Activities can declare an **idempotency key**, derived from their input:
+
+  ```ts
+  const chargeCard = defineActivity({
+    input: z.object({ orderId: z.string(), customerId: z.string(), amount: z.number() }),
+    output: PaymentSchema,
+    // Key on what IDENTIFIES the charge, not on what describes it: one customer
+    // placing two orders of the same value must not collide on one key.
+    idempotencyKey: ({ orderId }) => `charge:${orderId}`,
+  });
+
+  chargeCard: ({ input, idempotencyKey }) =>
+    fromPromise(
+      gateway.charge(input, { idempotencyKey }),
+      qualifyFailure("CHARGE_FAILED", { expected: GatewayError }),
+    ),
+  ```
+
+  Temporal runs activities **at least once**, and nothing in the library helped
+  with that until now — `idempotency` on a workflow is start deduplication and
+  says nothing about an activity running twice. Being payload-derived, the key is
+  stable across activity retries, worker crashes, and a fresh workflow execution
+  with the same input.
+
+  `helpers.idempotencyKey` is typed `string` for an activity that declares one and
+  `undefined` for one that does not, so reaching for a key that was never declared
+  is a compile error. `runActivity` hands over the same value.
+
+  Good key sources: a business identifier already in the input, a dedicated
+  `idempotencyKey` field the caller mints, or the workflow ID — which is
+  per-execution and, when the contract derives it, a function of the payload.
+
+- 5545236: Workflows can derive their **workflow ID** from their input:
+
+  ```ts
+  const processOrder = defineWorkflow({
+    input: OrderSchema,
+    output: OrderResultSchema,
+    workflowId: ({ orderId }) => `order-${orderId}`,
+    startPolicy: "once-per-id",
+  });
+  ```
+
+  `startPolicy` only bites when two starts of the same logical request collide on
+  one ID, and the ID used to be entirely the caller's — passing
+  `crypto.randomUUID()` made `"once-per-id"` inert with no diagnostic. A workflow
+  that declares `workflowId` now derives it from the validated payload on
+  `startWorkflow` / `executeWorkflow` / `signalWithStart`, and supplying one at
+  the call site is a type error. Workflows that declare none are unchanged.
+
+  `IdempotencyMode` is renamed to `WorkflowStartPolicy` (the old name stays as a
+  deprecated type alias).
+
 ## 8.0.0-beta.8
 
 ## 8.0.0-beta.7
