@@ -89,9 +89,15 @@ export const activities = declareActivitiesHandler({
       // an `ApplicationFailure(type: "PaymentDeclined")` and rehydrates as a
       // typed `ContractError` on the workflow side. Only gateway faults ride
       // the generic `ApplicationFailure` path.
-      processPayment: ({ errors, input: { customerId, amount } }) =>
+      // `idempotencyKey` is declared on this activity in the contract, so it
+      // arrives typed as `string` (an activity without one types it
+      // `undefined`, so reaching for a key that was never declared is a
+      // compile error). It goes to the gateway, which is what makes a
+      // re-run under Temporal's at-least-once guarantee settle the first
+      // charge instead of making a second one.
+      processPayment: ({ errors, idempotencyKey, input: { customerId, amount } }) =>
         fromPromise(
-          processPaymentUseCase.execute(customerId, amount),
+          processPaymentUseCase.execute(customerId, amount, idempotencyKey),
           qualifyFailure("PAYMENT_GATEWAY_ERROR", {
             expected: PaymentError,
             message: "Payment gateway call failed",
@@ -130,9 +136,9 @@ export const activities = declareActivitiesHandler({
           }),
         ),
 
-      refundPayment: ({ input: transactionId }) =>
+      refundPayment: ({ idempotencyKey, input: transactionId }) =>
         fromPromise(
-          refundPaymentUseCase.execute(transactionId),
+          refundPaymentUseCase.execute(transactionId, idempotencyKey),
           qualifyFailure("REFUND_FAILED", { expected: PaymentError, message: "Refund failed" }),
         ),
     },

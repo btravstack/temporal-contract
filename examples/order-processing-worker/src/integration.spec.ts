@@ -1,19 +1,10 @@
-import { extname } from "node:path";
-import { fileURLToPath } from "node:url";
-
-import {
-  ContractError,
-  TypedClient,
-  WorkflowValidationError,
-  type ContractClient,
-} from "@temporal-contract/client";
+import { ContractError, WorkflowValidationError } from "@temporal-contract/client";
 import {
   orderProcessingContract,
   type OrderSchema,
 } from "@temporal-contract/sample-order-processing-contract";
-import { it as baseIt } from "@temporal-contract/testing/extension";
-import { Client } from "@temporalio/client";
-import { Worker } from "@temporalio/worker";
+import { createContractTest } from "@temporal-contract/testing/contract";
+import { fixturePath } from "@temporal-contract/testing/workflow-bundle";
 import { describe, expect, vi, beforeEach } from "vitest";
 import type { z } from "zod";
 
@@ -22,47 +13,14 @@ import { paymentAdapter } from "./dependencies.js";
 
 type Order = z.infer<typeof OrderSchema>;
 
-const it = baseIt.extend<{
-  worker: Worker;
-  client: ContractClient<typeof orderProcessingContract>;
-}>({
-  worker: [
-    async ({ workerConnection }, use) => {
-      // Create and start worker
-      const worker = await Worker.create({
-        connection: workerConnection,
-        namespace: "default",
-        taskQueue: orderProcessingContract.taskQueue,
-        workflowsPath: workflowPath("application/workflows"),
-        activities,
-      });
-
-      // Start worker in background
-      worker.run().catch((err) => {
-        console.error("Worker failed:", err);
-      });
-
-      await vi.waitFor(() => worker.getState() === "RUNNING", { interval: 100 });
-
-      await use(worker);
-
-      worker.shutdown();
-
-      await vi.waitFor(() => worker.getState() === "STOPPED", { interval: 100 });
-    },
-    { auto: true },
-  ],
-  client: async ({ clientConnection }, use) => {
-    const rawClient = new Client({
-      connection: clientConnection,
-      namespace: "default",
-    });
-    // Connection-scoped root (E = never, so `.get()` unwraps directly),
-    // then bind the contract for the typed, contract-scoped surface.
-    const typedClient = await TypedClient.create({ client: rawClient }).get();
-
-    await use(typedClient.for(orderProcessingContract));
-  },
+const it = createContractTest({
+  contract: orderProcessingContract,
+  // `fixturePath` derives the extension from the CALLER's URL, so this
+  // resolves to `.ts` under vitest and `.js` from built output.
+  // `workflowsPathFromURL` takes the extension literally and is the right
+  // helper once the workflows really are `.js` on disk.
+  workflowsPath: fixturePath(import.meta.url, "application/workflows"),
+  activities,
 });
 
 describe("Order Processing Workflow - Integration Tests", () => {
@@ -97,7 +55,6 @@ describe("Order Processing Workflow - Integration Tests", () => {
 
     // WHEN
     const result = await client.executeWorkflow("processOrder", {
-      workflowId: order.orderId,
       args: order,
     });
 
@@ -130,7 +87,6 @@ describe("Order Processing Workflow - Integration Tests", () => {
 
     // WHEN
     const handleResult = await client.startWorkflow("processOrder", {
-      workflowId: order.orderId,
       args: order,
     });
 
@@ -138,7 +94,8 @@ describe("Order Processing Workflow - Integration Tests", () => {
     expect(handleResult).toBeOk();
     if (!handleResult.isOk()) throw new Error("Expected Ok result");
     const handle = handleResult.value;
-    expect(handle.workflowId).toBe(order.orderId);
+    // The contract derived it: `order-${orderId}`.
+    expect(handle.workflowId).toBe(`order-${order.orderId}`);
 
     const result = await handle.result();
     expect(result).toBeOk();
@@ -168,19 +125,21 @@ describe("Order Processing Workflow - Integration Tests", () => {
     };
 
     // WHEN
-    await client.startWorkflow("processOrder", {
-      workflowId: order.orderId,
-      args: order,
-    });
+    const started = await client.startWorkflow("processOrder", { args: order });
+    expect(started).toBeOk();
+    if (!started.isOk()) throw new Error("Expected Ok result");
 
     // THEN — getHandle is synchronous: the only failure mode is a workflow
-    // name missing from the contract, surfaced as a sync Result Err.
-    const handleResult = client.getHandle("processOrder", order.orderId);
+    // name missing from the contract, surfaced as a sync Result Err. It
+    // addresses an execution by ID, so for a workflow whose ID the contract
+    // derives, read that ID off the start result rather than re-deriving it.
+    const handleResult = client.getHandle("processOrder", started.value.workflowId);
 
     expect(handleResult).toBeOk();
     if (!handleResult.isOk()) throw new Error("Expected Ok result");
     const handle = handleResult.value;
-    expect(handle.workflowId).toBe(order.orderId);
+    // The contract derived it: `order-${orderId}`.
+    expect(handle.workflowId).toBe(`order-${order.orderId}`);
 
     const result = await handle.result();
     expect(result).toBeOk();
@@ -211,7 +170,6 @@ describe("Order Processing Workflow - Integration Tests", () => {
 
     // WHEN
     const handleResult = await client.startWorkflow("processOrder", {
-      workflowId: order.orderId,
       args: order,
     });
 
@@ -224,7 +182,7 @@ describe("Order Processing Workflow - Integration Tests", () => {
     expect(describeResult).toBeOk();
     if (describeResult.isOk()) {
       expect(describeResult.value).toEqual(
-        expect.objectContaining({ workflowId: order.orderId, type: "processOrder" }),
+        expect.objectContaining({ workflowId: `order-${order.orderId}`, type: "processOrder" }),
       );
     }
 
@@ -248,7 +206,6 @@ describe("Order Processing Workflow - Integration Tests", () => {
 
     // WHEN
     const execution = await client.executeWorkflow("processOrder", {
-      workflowId: invalidOrder.orderId,
       args: invalidOrder as Order,
     });
 
@@ -288,7 +245,6 @@ describe("Order Processing Workflow - Integration Tests", () => {
     };
 
     const handleResult = await client.startWorkflow("processOrder", {
-      workflowId: order.orderId,
       args: order,
     });
     expect(handleResult).toBeOk();
@@ -338,12 +294,13 @@ describe("Order Processing Workflow - Integration Tests", () => {
       totalAmount: 199.99,
     };
 
-    await client.startWorkflow("processOrder", {
-      workflowId: order.orderId,
-      args: order,
-    });
+    const started = await client.startWorkflow("processOrder", { args: order });
+    expect(started).toBeOk();
+    if (!started.isOk()) throw new Error("Expected Ok result");
 
-    const handleResult = client.getHandle("processOrder", order.orderId);
+    // The ID came from the contract's derivation — take it from the start
+    // result instead of re-deriving it at the call site.
+    const handleResult = client.getHandle("processOrder", started.value.workflowId);
     expect(handleResult).toBeOk();
     if (!handleResult.isOk()) throw new Error("Expected Ok result");
     const handle = handleResult.value;
@@ -390,7 +347,6 @@ describe("Order Processing Workflow - Integration Tests", () => {
 
     // WHEN
     const result = await client.executeWorkflow("processOrder", {
-      workflowId: order.orderId,
       args: order,
     });
 
@@ -407,7 +363,3 @@ describe("Order Processing Workflow - Integration Tests", () => {
     }
   });
 });
-
-function workflowPath(filename: string): string {
-  return fileURLToPath(new URL(`./${filename}${extname(import.meta.url)}`, import.meta.url));
-}

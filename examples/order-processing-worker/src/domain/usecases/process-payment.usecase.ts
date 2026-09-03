@@ -10,7 +10,11 @@ import type { PaymentPort } from "../ports/payment.port.js";
 export class ProcessPaymentUseCase {
   constructor(private readonly paymentPort: PaymentPort) {}
 
-  async execute(customerId: string, amount: number): Promise<PaymentOutcome> {
+  async execute(
+    customerId: string,
+    amount: number,
+    idempotencyKey: string,
+  ): Promise<PaymentOutcome> {
     // Business validation
     if (amount <= 0) {
       // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
@@ -23,6 +27,6 @@ export class ProcessPaymentUseCase {
     }
 
     // Delegate to payment port
-    return this.paymentPort.processPayment(customerId, amount);
+    return this.paymentPort.processPayment(customerId, amount, idempotencyKey);
   }
 }

@@ -90,6 +90,11 @@ const purgeExpiredOrders = defineActivity({
 const processPayment = defineActivity({
   input: z.object({ customerId: z.string(), amount: z.number() }),
   output: PaymentResultSchema,
+  // Temporal runs an activity AT LEAST once — a retry, a worker crash, or a
+  // completion that succeeded but was never recorded all re-run this. The
+  // key travels to the gateway so the second run settles the first charge
+  // instead of making a new one.
+  idempotencyKey: ({ customerId, amount }) => `charge:${customerId}:${amount}`,
   errors: {
     PaymentDeclined: paymentDeclinedError,
   },
@@ -125,6 +130,10 @@ const createShipment = defineActivity({
 const refundPayment = defineActivity({
   input: z.string(),
   output: z.void(),
+  // Same reasoning as `processPayment`, opposite direction — and a distinct
+  // prefix, because a gateway keyed on the transaction alone would treat the
+  // charge and its refund as the same request.
+  idempotencyKey: (transactionId) => `refund:${transactionId}`,
 });
 
 // ============================================================================
@@ -163,31 +172,24 @@ const getOrderStatus = defineQuery({ output: OrderStatusReportSchema });
 const processOrder = defineWorkflow({
   input: OrderSchema,
   output: OrderResultSchema,
-  // A Completed run charged the customer — Temporal's default
-  // (`allow-duplicate`) would let a retried start under the same order ID
-  // charge them again. `retry-if-failed` blocks that while still letting a
-  // start be retried after a run that ended Failed *before* any charge went
-  // through — chiefly `PaymentDeclined` (see this contract's implementation,
-  // `order-processing-worker/src/application/workflows.ts`), where the
-  // customer would otherwise have to be given a new order ID to try again.
+  // The ID is derived from the order, not supplied by the caller: a client
+  // passing a fresh UUID per attempt would make any start policy inert,
+  // because every retry would be a different workflow ID.
+  workflowId: ({ orderId }) => `order-${orderId}`,
+  // A Completed run charged the customer, so a second successful run under
+  // the same order must not happen. `retry-if-failed` still allows a start
+  // after a run that ended Failed — chiefly `PaymentDeclined`, where no
+  // charge went through, so the customer can retry without a new order ID.
   //
-  // Caveat this example doesn't fully close: several post-charge paths in
-  // that file also end the run in a state `retry-if-failed` treats as
-  // re-runnable (`ALLOW_DUPLICATE_FAILED_ONLY` covers Cancelled/Terminated/
-  // TimedOut, not just Failed) — including a failed compensating
-  // `refundPayment` that deliberately fails the workflow with the charge
-  // unrefunded (`workflows.ts:287-298`), real cancellation during/after
-  // inventory reservation ending the run Cancelled post-charge
-  // (`workflows.ts:262`), and a `createShipment` failure, which has no
-  // rollback path and is left to fail the workflow outright
-  // (`workflows.ts:350-358`). A retried start after any of these would
-  // re-enter `processPayment` and double-charge — this list is illustrative,
-  // not exhaustive; any future terminal failure after payment has the same
-  // shape unless it's explicitly compensated. `once-per-id` would close the
-  // gap entirely, at the cost of forcing a fresh workflow ID for every
-  // legitimate retry, including the common pre-charge `PaymentDeclined` case
-  // above — kept as `retry-if-failed` here because that trade favors the
-  // common case, not because the gap doesn't exist.
+  // Post-charge terminal failures (a failed compensating `refundPayment`, a
+  // cancel during inventory reservation, a `createShipment` failure) also end
+  // the run in a state this policy treats as re-runnable. What stops those
+  // from double-charging is not this field but `processPayment`'s
+  // `idempotencyKey`: a retried start derives the same key from the same
+  // customer and amount, so the gateway settles one charge no matter how
+  // many times the activity runs. Start policy dedupes *executions*; the
+  // activity key dedupes *effects*, and Temporal's at-least-once activity
+  // guarantee means only the second one can close this gap.
   startPolicy: "retry-if-failed",
   activities: {
     processPayment,
