@@ -359,6 +359,43 @@ export default createGlobalSetup({
 });
 ```
 
+### Wire the whole stack with `createTimeSkippingContractTest`
+
+The time-skipping tier has the same one-call fixture, with no Docker and no
+server to run — reach for this one first, and drop to the Dockerized
+`createContractTest` below only for what needs a real cluster (visibility,
+search attributes, schedules, retention):
+
+```typescript
+import { createTimeSkippingContractTest } from "@temporal-contract/testing/time-skipping";
+import { workflowsPathFromURL } from "@temporal-contract/worker/worker";
+import { describe, expect } from "vitest";
+
+const it = createTimeSkippingContractTest({
+  contract: orderContract,
+  workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
+  activities,
+});
+
+describe("order processing", () => {
+  it("processes an order end-to-end", async ({ worker, client }) => {
+    const result = await worker.raw.runUntil(async () =>
+      client.executeWorkflow("processOrder", {
+        workflowId: `order-${Date.now()}`,
+        args: { orderId: "ORD-1" },
+      }),
+    );
+
+    await expect(result).toBeOk();
+  });
+});
+```
+
+It owns the environment, the workflow bundle (built once per Vitest worker
+process), the worker, the `TypedClient` binding, and the replay-on-finish
+check. `testRig` remains the lower-level seam for suites that need to hold
+those pieces themselves.
+
 ### Wire the whole stack with `createContractTest`
 
 `@temporal-contract/testing/contract` builds a vitest `it` whose fixtures run
