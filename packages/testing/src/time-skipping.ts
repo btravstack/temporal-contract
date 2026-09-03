@@ -210,16 +210,24 @@ export function createTimeSkippingContractTest<TContract extends ContractDefinit
 
       await use(rig);
 
-      // A worker the test never ran still holds a reference to the
-      // environment's native connection, and the worker-scoped `testEnv`
-      // teardown then fails with "Cannot close connection while Workers hold
-      // a reference to it". `runUntil` on an already-resolved promise starts
-      // and immediately stops it, which is the only way to release that
-      // reference from the `INITIALIZED` state (`shutdown()` throws unless
-      // the worker is `RUNNING`). Tests that used `runUntil` themselves are
-      // already `STOPPED` and skip this.
-      if (rig.worker.raw.getState() === "INITIALIZED") {
+      // A worker still holding the environment's native connection makes the
+      // worker-scoped `testEnv` teardown fail with "Cannot close connection
+      // while Workers hold a reference to it". Two states can reach here:
+      //
+      // - `INITIALIZED` — the test never ran the worker. `runUntil` on an
+      //   already-resolved promise starts and immediately stops it, which is
+      //   the only way to release the reference from this state
+      //   (`shutdown()` throws unless the worker is `RUNNING`).
+      // - `RUNNING` — the test started it with `run()` and did not stop it.
+      //   `shutdown()` is the documented way out, and is what
+      //   `createContractTest` does.
+      //
+      // A test that used `runUntil` is already `STOPPED` and skips both.
+      const state = rig.worker.raw.getState();
+      if (state === "INITIALIZED") {
         await rig.worker.raw.runUntil(Promise.resolve());
+      } else if (state === "RUNNING") {
+        rig.worker.shutdown();
       }
     },
     worker: async ({ rig }, use) => {

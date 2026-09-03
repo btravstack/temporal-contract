@@ -27,7 +27,7 @@ export {
  * API: contract authors only ever set `startPolicy` on `defineWorkflow`; the
  * client and worker are the ones that translate it to Temporal's
  * `workflowIdReusePolicy` via this function, so it lives here rather than on
- * `.` alongside the public `IdempotencyMode` type.
+ * `.` alongside the public `WorkflowStartPolicy` type.
  */
 export { reusePolicyFor as _internal_reusePolicyFor } from "./idempotency.js";
 

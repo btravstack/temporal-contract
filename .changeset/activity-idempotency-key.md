@@ -14,7 +14,10 @@ const chargeCard = defineActivity({
 });
 
 chargeCard: ({ input, idempotencyKey }) =>
-  fromPromise(gateway.charge(input, { idempotencyKey }), qualifyFailure("CHARGE_FAILED")),
+  fromPromise(
+    gateway.charge(input, { idempotencyKey }),
+    qualifyFailure("CHARGE_FAILED", { expected: GatewayError }),
+  ),
 ```
 
 Temporal runs activities **at least once**, and nothing in the library helped

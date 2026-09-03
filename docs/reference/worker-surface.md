@@ -350,7 +350,7 @@ step did before saying no is knowable. They do **not** run on an
 `ActivityError`, a `ChildWorkflowError` or a defect: a step that failed
 unmodelled left state nobody can see, and un-deciding what you cannot see is a
 second bug. That failure propagates untouched, so
-[`propagateFailure`](#propagateactivityfailure-result) still re-raises
+[`propagateFailure`](#propagatefailure-result) still re-raises
 Temporal's original failure.
 
 Cancellation is the one case a caller may opt back in to, with

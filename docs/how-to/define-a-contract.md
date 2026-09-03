@@ -36,7 +36,7 @@ reusable across workflows and contracts, give you precise hover and
 jump-to-definition, and keep the contract itself readable as a table of
 contents.
 
-## Declare idempotency
+## Declare a start policy
 
 `startPolicy` is required on every workflow. It answers one question: **is it
 safe to start this workflow ID again after a previous run has closed?**

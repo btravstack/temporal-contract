@@ -946,6 +946,46 @@ describe("Contract Builder", () => {
       );
     });
 
+    it("should reject the pre-rename `idempotency` field instead of silently ignoring it", () => {
+      // A plain-JS contract or a stale compiled artifact can still carry the
+      // old field. Ignoring it would leave the workflow with no policy at
+      // all — Temporal's ALLOW_DUPLICATE — silently dropping the protection
+      // the author thought they had declared.
+      expect(() =>
+        defineContract({
+          taskQueue: "test",
+          workflows: {
+            test: {
+              input: z.object({}),
+              output: z.object({}),
+              // @ts-expect-error - the pre-rename field, as untyped callers still have it
+              idempotency: "once-per-id",
+            },
+          },
+        }),
+      ).toThrow('"idempotency" was renamed to "startPolicy"');
+    });
+
+    it("accepts a definition carrying BOTH fields, taking the new one", () => {
+      // Mid-migration codebases exist; only a *missing* startPolicy is fatal.
+      expect(() =>
+        defineContract({
+          taskQueue: "test",
+          workflows: {
+            test: {
+              input: z.object({}),
+              output: z.object({}),
+              startPolicy: "once-per-id",
+              // Not a type error: the definition generic infers the literal,
+              // so a leftover key rides along. That is exactly why the
+              // runtime check above has to exist.
+              idempotency: "allow-duplicate",
+            },
+          },
+        }),
+      ).not.toThrow();
+    });
+
     it("should throw when workflow startPolicy is not a string", () => {
       expect(() =>
         defineContract({
