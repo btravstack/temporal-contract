@@ -71,6 +71,19 @@ export {
   WORKFLOW_TIMEOUT_ERROR_TAG,
   WORKFLOW_VALIDATION_ERROR_TAG,
 } from "./error-tags.js";
+// Ready-made pattern groups over those tags, each mirroring one method's
+// error union — `matcher.with(...WORKFLOW_RESULT_PATTERNS, handler)` instead
+// of six hand-written `P.tag(...)` arguments. Exhaustiveness is unchanged.
+export {
+  QUERY_PATTERNS,
+  SCHEDULE_CREATE_PATTERNS,
+  SIGNAL_PATTERNS,
+  UPDATE_PATTERNS,
+  WORKFLOW_EXECUTE_PATTERNS,
+  WORKFLOW_RESULT_PATTERNS,
+  WORKFLOW_START_PATTERNS,
+  WORKFLOW_STOPPED_PATTERNS,
+} from "./error-patterns.js";
 export type {
   ClientInferInput,
   ClientInferOutput,
