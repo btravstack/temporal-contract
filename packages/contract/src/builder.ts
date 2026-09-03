@@ -239,7 +239,7 @@ export function defineUpdate(
  * defineWorkflow({
  *   input: z.object({ orderId: z.string() }),
  *   output: z.object({ status: z.string() }),
- *   idempotency: 'allow-duplicate',
+ *   startPolicy: 'allow-duplicate',
  *   searchAttributes: {
  *     customerId: defineSearchAttribute({ kind: 'KEYWORD' }),
  *     priority: defineSearchAttribute({ kind: 'INT' }),
@@ -288,7 +288,7 @@ export function defineSearchAttribute<TKind extends SearchAttributeKind>(
  *   // Payment already moved money on success — block a second successful
  *   // run per order. A start is still retryable after a genuinely failed
  *   // attempt (e.g. a declined payment, where no charge went through).
- *   idempotency: 'retry-if-failed',
+ *   startPolicy: 'retry-if-failed',
  *   activities: {
  *     chargePayment: defineActivity({
  *       input: z.object({ orderId: z.string(), amount: z.number() }),
@@ -303,8 +303,19 @@ export function defineSearchAttribute<TKind extends SearchAttributeKind>(
  * });
  * ```
  */
-export function defineWorkflow<TWorkflow extends AnyWorkflowDefinition>(
-  definition: TWorkflow,
+export function defineWorkflow<
+  TInput extends AnySchema,
+  TWorkflow extends AnyWorkflowDefinition & { readonly input: TInput },
+>(
+  definition: TWorkflow & {
+    readonly input: TInput;
+    /**
+     * Re-stated against the bound input schema (the structural definition
+     * types it `never` — see {@link WorkflowDefinition}), so this lambda's
+     * parameter is contextually typed as the workflow's validated input.
+     */
+    readonly workflowId?: (input: StandardSchemaV1.InferOutput<TInput>) => string;
+  },
 ): TWorkflow {
   return definition;
 }
@@ -365,7 +376,7 @@ export function defineWorkflow<TWorkflow extends AnyWorkflowDefinition>(
  *   // Payment already moved money on success — block a second successful
  *   // run per order. A start is still retryable after a genuinely failed
  *   // attempt (e.g. a declined payment, where no charge went through).
- *   idempotency: 'retry-if-failed',
+ *   startPolicy: 'retry-if-failed',
  *   activities: { chargePayment },
  * });
  *
@@ -746,24 +757,24 @@ function validateWorkflowDefinition(context: string, definition: unknown): void 
   }
   assertSchema(context, "input", definition["input"]);
   assertSchema(context, "output", definition["output"]);
-  const idempotency = definition["idempotency"];
-  // `idempotency` is required at the *type* level (`WorkflowDefinition`,
+  const startPolicy = definition["startPolicy"];
+  // `startPolicy` is required at the *type* level (`WorkflowDefinition`,
   // types.ts), but this runtime check deliberately still accepts `undefined`
   // here — tightening it to reject a missing field would be "finishing the
   // flip" for real, and it's load-bearing: it's what lets a definition reach
-  // the client/worker without `idempotency` at runtime despite the type
+  // the client/worker without `startPolicy` at runtime despite the type
   // requiring it (e.g. a contract assembled outside the type system, or an
   // older compiled artifact) without failing contract validation. The
-  // client's/worker's own `definition.idempotency ? {...} : {}` guards stay
+  // client's/worker's own `definition.startPolicy ? {...} : {}` guards stay
   // defensive for exactly that case, and the `plainWorkflow` fixture in
   // client.spec.ts exists to prove it.
   if (
-    idempotency !== undefined &&
-    idempotency !== "once-per-id" &&
-    idempotency !== "retry-if-failed" &&
-    idempotency !== "allow-duplicate"
+    startPolicy !== undefined &&
+    startPolicy !== "once-per-id" &&
+    startPolicy !== "retry-if-failed" &&
+    startPolicy !== "allow-duplicate"
   ) {
-    fail(`${context}: idempotency must be "once-per-id", "retry-if-failed", or "allow-duplicate"`);
+    fail(`${context}: startPolicy must be "once-per-id", "retry-if-failed", or "allow-duplicate"`);
   }
   validateDefinitionMap(
     context,

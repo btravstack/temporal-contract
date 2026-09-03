@@ -12,7 +12,7 @@ const contract = defineContract({
     noop: defineWorkflow({
       input: z.object({}),
       output: z.object({}),
-      idempotency: "allow-duplicate",
+      startPolicy: "allow-duplicate",
     }),
   },
 });

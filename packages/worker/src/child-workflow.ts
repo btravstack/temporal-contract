@@ -37,7 +37,7 @@ import type { ClientInferInput, ClientInferOutput, SignalDefOf } from "./types.j
 /**
  * Options for starting a child workflow. `taskQueue` and `args` come from
  * the contract, which also supplies a default `workflowIdReusePolicy`
- * derived from the target workflow's declared `idempotency` mode; everything
+ * derived from the target workflow's declared `startPolicy` mode; everything
  * else — including an explicit `workflowIdReusePolicy` here, which overrides
  * that default — is forwarded to Temporal's `startChild` / `executeChild`.
  *
@@ -297,8 +297,8 @@ export function createStartChildWorkflow<
       // the child workflow on receive (D1).
       const { args: childArgs, ...temporalOptions } = options;
       const handle = await startChild(childWorkflowName, {
-        ...(childDefinition.idempotency
-          ? { workflowIdReusePolicy: _internal_reusePolicyFor(childDefinition.idempotency) }
+        ...(childDefinition.startPolicy
+          ? { workflowIdReusePolicy: _internal_reusePolicyFor(childDefinition.startPolicy) }
           : {}),
         ...temporalOptions,
         taskQueue,
@@ -349,8 +349,8 @@ export function createExecuteChildWorkflow<
       // the child workflow on receive (D1).
       const { args: childArgs, ...temporalOptions } = options;
       const result = await executeChild(childWorkflowName, {
-        ...(childDefinition.idempotency
-          ? { workflowIdReusePolicy: _internal_reusePolicyFor(childDefinition.idempotency) }
+        ...(childDefinition.startPolicy
+          ? { workflowIdReusePolicy: _internal_reusePolicyFor(childDefinition.startPolicy) }
           : {}),
         ...temporalOptions,
         taskQueue,

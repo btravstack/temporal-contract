@@ -23,7 +23,7 @@ export const testContract = defineContract({
       output: z.object({
         result: z.string(),
       }),
-      idempotency: "allow-duplicate",
+      startPolicy: "allow-duplicate",
     }),
 
     // Workflow with its own activities
@@ -38,7 +38,7 @@ export const testContract = defineContract({
         transactionId: z.string().optional(),
         reason: z.string().optional(),
       }),
-      idempotency: "allow-duplicate",
+      startPolicy: "allow-duplicate",
       activities: {
         processPayment: defineActivity({
           input: z.object({
@@ -73,7 +73,7 @@ export const testContract = defineContract({
       output: z.object({
         finalValue: z.number(),
       }),
-      idempotency: "allow-duplicate",
+      startPolicy: "allow-duplicate",
       signals: {
         increment: defineSignal({
           input: z.object({
@@ -109,7 +109,7 @@ export const testContract = defineContract({
       output: z.object({
         results: z.array(z.string()),
       }),
-      idempotency: "allow-duplicate",
+      startPolicy: "allow-duplicate",
     }),
 
     // Child workflow to be called from parent
@@ -120,7 +120,7 @@ export const testContract = defineContract({
       output: z.object({
         message: z.string(),
       }),
-      idempotency: "allow-duplicate",
+      startPolicy: "allow-duplicate",
     }),
 
     // Workflow that calls a failable activity for error handling tests
@@ -131,7 +131,7 @@ export const testContract = defineContract({
       output: z.object({
         success: z.boolean(),
       }),
-      idempotency: "allow-duplicate",
+      startPolicy: "allow-duplicate",
     }),
   },
   activities: {

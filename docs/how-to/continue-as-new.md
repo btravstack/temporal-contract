@@ -101,7 +101,7 @@ const pollSubscription = defineWorkflow({
   // fine. It does NOT guard against double-charging a cycle: that's
   // `chargeSubscription`'s job (an idempotency key derived from
   // `lastChargeId`/`cycle`), independent of this field.
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
 });
 ```
 

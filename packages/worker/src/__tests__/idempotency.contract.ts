@@ -13,19 +13,19 @@ const output = z.object({ ok: z.boolean() });
 const onceWorkflow = defineWorkflow({
   input,
   output,
-  idempotency: "once-per-id",
+  startPolicy: "once-per-id",
 });
 
 const retryWorkflow = defineWorkflow({
   input,
   output,
-  idempotency: "retry-if-failed",
+  startPolicy: "retry-if-failed",
 });
 
 const allowWorkflow = defineWorkflow({
   input,
   output,
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
 });
 
 export const idempotencyContract = defineContract({

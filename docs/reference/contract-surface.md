@@ -61,7 +61,7 @@ relaxes when the contract exists purely to serve activities.
 | ------------------ | ------------------------------------------- | -------- |
 | `input`            | `AnySchema`                                 | yes      |
 | `output`           | `AnySchema`                                 | yes      |
-| `idempotency`      | `IdempotencyMode`                           | yes      |
+| `startPolicy`      | `IdempotencyMode`                           | yes      |
 | `activities`       | `Record<string, ActivityDefinition>`        | no       |
 | `signals`          | `Record<string, SignalDefinition>`          | no       |
 | `queries`          | `Record<string, QueryDefinition>`           | no       |
@@ -69,7 +69,7 @@ relaxes when the contract exists purely to serve activities.
 | `searchAttributes` | `Record<string, SearchAttributeDefinition>` | no       |
 | `errors`           | `Record<string, ErrorDefinition>`           | no       |
 
-`idempotency` governs what happens when this workflow ID is started again
+`startPolicy` governs what happens when this workflow ID is started again
 after a previous run has **closed** — `"once-per-id"` (`REJECT_DUPLICATE`),
 `"retry-if-failed"` (`ALLOW_DUPLICATE_FAILED_ONLY` — re-runnable after any
 Closed state other than Completed: Failed, Cancelled, Terminated, or

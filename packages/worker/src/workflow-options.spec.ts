@@ -19,7 +19,7 @@ const contract = defineContract({
     processOrder: defineWorkflow({
       input: z.object({}),
       output: z.object({}),
-      idempotency: "allow-duplicate",
+      startPolicy: "allow-duplicate",
       activities: {
         chargePayment: defineActivity({
           input: z.object({ amount: z.number() }),
@@ -34,7 +34,7 @@ const contract = defineContract({
     other: defineWorkflow({
       input: z.object({}),
       output: z.object({}),
-      idempotency: "allow-duplicate",
+      startPolicy: "allow-duplicate",
     }),
   },
   activities: {

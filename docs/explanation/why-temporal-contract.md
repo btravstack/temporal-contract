@@ -68,7 +68,7 @@ const processOrder = defineWorkflow({
     amount: z.number().positive(),
   }),
   output: z.object({ transactionId: z.string() }),
-  idempotency: "retry-if-failed", // charges a card — see Define a contract
+  startPolicy: "retry-if-failed", // charges a card — see Define a contract
   activities: { chargeCard },
 });
 

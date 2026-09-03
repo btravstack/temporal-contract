@@ -21,7 +21,7 @@ const chargeCard = defineActivity({
 const processOrder = defineWorkflow({
   input: z.object({ orderId: z.string(), customerId: z.string() }),
   output: z.object({ status: z.enum(["completed", "failed"]) }),
-  idempotency: "retry-if-failed", // charges a card — see below
+  startPolicy: "retry-if-failed", // charges a card — see below
   activities: { chargeCard },
 });
 
@@ -38,7 +38,7 @@ contents.
 
 ## Declare idempotency
 
-`idempotency` is required on every workflow. It answers one question: **is it
+`startPolicy` is required on every workflow. It answers one question: **is it
 safe to start this workflow ID again after a previous run has closed?**
 
 Temporal's own default (`workflowIdReusePolicy: ALLOW_DUPLICATE`) says yes —
@@ -66,7 +66,7 @@ const chargeOrder = defineWorkflow({
   // successful run under the same order ID. A start is still retryable
   // after a genuinely failed attempt (e.g. a declined payment, where no
   // charge went through).
-  idempotency: "retry-if-failed",
+  startPolicy: "retry-if-failed",
   activities: { chargeCard },
 });
 ```
@@ -197,7 +197,7 @@ const changeAddress = defineUpdate({
 const processOrder = defineWorkflow({
   input: OrderSchema,
   output: OrderResultSchema,
-  idempotency: "retry-if-failed",
+  startPolicy: "retry-if-failed",
   activities: { chargeCard },
   signals: { approve },
   queries: { getStatus },
@@ -250,7 +250,7 @@ import { defineSearchAttribute } from "@temporal-contract/contract";
 const processOrder = defineWorkflow({
   input: OrderSchema,
   output: OrderResultSchema,
-  idempotency: "retry-if-failed",
+  startPolicy: "retry-if-failed",
   searchAttributes: {
     customerId: defineSearchAttribute({ kind: "KEYWORD" }),
     orderTotal: defineSearchAttribute({ kind: "DOUBLE" }),

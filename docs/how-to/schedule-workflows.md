@@ -119,7 +119,7 @@ await ledger.schedule
 `overlap: "SKIP"` is the safe default for anything non-idempotent. `ALLOW_ALL`
 will happily run twenty copies at once after an outage.
 
-Note that a contract's `idempotency` mode does not help here either way: it
+Note that a contract's `startPolicy` mode does not help here either way: it
 governs `workflowIdReusePolicy` for a _new_ run under a workflow ID that a
 _previous, already-closed_ run held, not overlap between a scheduled run and
 one still in flight. `overlap` is the only lever for that on this path — see
@@ -173,9 +173,9 @@ are nested separately.
 
 `workflowType` and `taskQueue` are owned by the contract and are not settable.
 
-::: warning `action.workflowId` bypasses the contract's `idempotency` mode
+::: warning `action.workflowId` bypasses the contract's `startPolicy` mode
 Pinning a fixed `action.workflowId` here does **not** get the protection of
-the workflow's declared `idempotency` mode. `schedule.create` builds a plain
+the workflow's declared `startPolicy` mode. `schedule.create` builds a plain
 `ScheduleOptionsStartWorkflowAction`, which has no `workflowIdReusePolicy`
 field — every scheduled run is started with Temporal's own default
 (`ALLOW_DUPLICATE`), regardless of whether the contract says `once-per-id`,

@@ -20,7 +20,7 @@ describe("Worker unthrown Package", () => {
           testWorkflow: {
             input: z.object({ value: z.string() }),
             output: z.object({ result: z.string() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
         activities: {
@@ -266,7 +266,7 @@ describe("Worker unthrown Package", () => {
           orderWorkflow: {
             input: z.object({ orderId: z.string() }),
             output: z.object({ status: z.string() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
             activities: {
               validateOrder: {
                 input: z.object({ orderId: z.string() }),
@@ -329,7 +329,7 @@ describe("Worker unthrown Package", () => {
           noopWorkflow: {
             input: z.object({}),
             output: z.object({}),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
       } satisfies ContractDefinition;
@@ -381,7 +381,7 @@ describe("Worker unthrown Package", () => {
           orderWorkflow: {
             input: z.object({}),
             output: z.object({}),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
             activities: {
               validateOrder: {
                 input: z.object({}),
@@ -438,13 +438,13 @@ describe("Worker unthrown Package", () => {
           alpha: {
             input: z.object({}),
             output: z.object({}),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
             activities: { sharedActivity: sharedDef },
           },
           beta: {
             input: z.object({}),
             output: z.object({}),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
             activities: { sharedActivity: sharedDef },
           },
         },
@@ -507,7 +507,7 @@ describe("Worker unthrown Package", () => {
             alpha: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
               activities: { sharedActivity: sharedDef },
             },
           },
@@ -537,7 +537,7 @@ describe("Worker unthrown Package", () => {
           conflicted: {
             input: z.object({}),
             output: z.object({}),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
         activities: {

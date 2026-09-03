@@ -224,7 +224,7 @@ import { z } from "zod";
 const ping = defineWorkflow({
   input: z.object({ message: z.string() }),
   output: z.object({ echo: z.string() }),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
 });
 
 const contract = defineContract({

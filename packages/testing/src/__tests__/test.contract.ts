@@ -13,7 +13,7 @@ const decorate = defineActivity({
 const greet = defineWorkflow({
   input: z.object({ name: z.string() }),
   output: z.object({ message: z.string() }),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
   activities: { decorate },
 });
 

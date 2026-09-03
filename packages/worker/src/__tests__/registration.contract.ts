@@ -10,13 +10,13 @@ import { z } from "zod";
 const alpha = defineWorkflow({
   input: z.object({ value: z.string() }),
   output: z.object({ result: z.string() }),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
 });
 
 const beta = defineWorkflow({
   input: z.object({ n: z.number() }),
   output: z.object({ doubled: z.number() }),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
 });
 
 export const registrationContract = defineContract({

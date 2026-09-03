@@ -1,6 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
-import type { IdempotencyMode } from "./idempotency.js";
+import type { WorkflowStartPolicy } from "./idempotency.js";
 
 /**
  * Base types for validation schemas
@@ -274,6 +274,40 @@ export type WorkflowDefinition<
   readonly input: TInput;
   readonly output: TOutput;
   /**
+   * Derive this workflow's **workflow ID** from its input.
+   *
+   * Declaring it moves the ID from the caller to the contract: every
+   * `startWorkflow` / `executeWorkflow` / `signalWithStart` computes the ID
+   * from the payload, and passing one explicitly becomes a type error. That
+   * is what makes {@link startPolicy} mean anything — a caller free to pass
+   * `crypto.randomUUID()` defeats `"once-per-id"` silently, because every
+   * start gets a fresh ID and the policy never fires.
+   *
+   * The function receives the **validated** input and must be pure: the same
+   * payload has to produce the same ID on every call, or two starts of the
+   * same logical request will not collide.
+   *
+   * NOT applied to `schedule.create`, which generates one ID per firing —
+   * a scheduled run wants a distinct execution, not deduplication.
+   *
+   * The parameter is typed `never` here for the same reason as an activity's
+   * `idempotencyKey` (a property-position function type is contravariant, and
+   * plain-object contracts must stay assignable); `defineWorkflow` re-states
+   * the slot against the bound input schema, so the lambda written there is
+   * contextually typed.
+   *
+   * @example
+   * ```ts
+   * const processOrder = defineWorkflow({
+   *   input: OrderSchema,
+   *   output: OrderResultSchema,
+   *   workflowId: ({ orderId }) => orderId,
+   *   startPolicy: "retry-if-failed",
+   * });
+   * ```
+   */
+  readonly workflowId?: (input: never) => string;
+  /**
    * Whether this workflow is safe to re-run under a workflow ID that has
    * already been used. Applied by the client to every `startWorkflow` /
    * `executeWorkflow` / `signalWithStart`, and by the worker to every
@@ -287,8 +321,14 @@ export type WorkflowDefinition<
    *
    * Required so the question is asked once per workflow rather than
    * silently inheriting Temporal's `ALLOW_DUPLICATE`.
+   *
+   * Named for what it governs — Temporal's `workflowIdReusePolicy` — rather
+   * than for idempotency in general. It does **not** make a workflow
+   * idempotent, and it says nothing about an activity running twice under
+   * Temporal's at-least-once guarantee; that is an activity's
+   * `idempotencyKey`.
    */
-  readonly idempotency: IdempotencyMode;
+  readonly startPolicy: WorkflowStartPolicy;
   readonly activities?: TActivities;
   readonly signals?: TSignals;
   readonly queries?: TQueries;

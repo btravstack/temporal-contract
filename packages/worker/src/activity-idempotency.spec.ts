@@ -24,7 +24,7 @@ const contract = {
     checkout: {
       input: z.object({ orderId: z.string() }),
       output: z.object({ done: z.boolean() }),
-      idempotency: "retry-if-failed",
+      startPolicy: "retry-if-failed",
     },
   },
   activities: {

@@ -188,7 +188,7 @@ const processOrder = defineWorkflow({
   // legitimate retry, including the common pre-charge `PaymentDeclined` case
   // above — kept as `retry-if-failed` here because that trade favors the
   // common case, not because the gap doesn't exist.
-  idempotency: "retry-if-failed",
+  startPolicy: "retry-if-failed",
   activities: {
     processPayment,
     reserveInventory,
@@ -221,12 +221,12 @@ const cleanupExpiredOrders = defineWorkflow({
   // declaration is inert here regardless of which mode is picked:
   // `schedule.create`'s action type has no `workflowIdReusePolicy` field, so
   // every scheduled run gets Temporal's own default (`ALLOW_DUPLICATE`) no
-  // matter what `idempotency` says (see "Schedule workflows" in the docs).
+  // matter what `startPolicy` says (see "Schedule workflows" in the docs).
   // `allow-duplicate` is chosen anyway to document the intent for any path
   // that *does* apply it — a direct `client.startWorkflow` under this
   // workflow's type, for instance — and because purging expired orders
   // twice is harmless.
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
 });
 
 // ============================================================================

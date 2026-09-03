@@ -193,7 +193,7 @@ describe("TypedClient", () => {
       testWorkflow: {
         input: z.object({ name: z.string(), value: z.number() }),
         output: z.object({ result: z.string() }),
-        idempotency: "allow-duplicate",
+        startPolicy: "allow-duplicate",
         queries: {
           getStatus: {
             input: z.tuple([]),
@@ -215,7 +215,7 @@ describe("TypedClient", () => {
       simpleWorkflow: {
         input: z.object({ message: z.string() }),
         output: z.string(),
-        idempotency: "allow-duplicate",
+        startPolicy: "allow-duplicate",
       },
     },
   });
@@ -294,7 +294,7 @@ describe("TypedClient", () => {
         otherWorkflow: defineWorkflow({
           input: z.object({ id: z.string() }),
           output: z.object({ ok: z.boolean() }),
-          idempotency: "allow-duplicate",
+          startPolicy: "allow-duplicate",
         }),
       },
     });
@@ -1015,7 +1015,7 @@ describe("TypedClient", () => {
         processOrder: defineWorkflow({
           input: z.object({ orderId: z.string() }),
           output: z.object({ status: z.string() }),
-          idempotency: "allow-duplicate",
+          startPolicy: "allow-duplicate",
           signals: {
             cancel: { input: z.tuple([z.object({ reason: z.string() })]) },
           },
@@ -1030,7 +1030,7 @@ describe("TypedClient", () => {
         plain: defineWorkflow({
           input: z.object({ id: z.string() }),
           output: z.object({}),
-          idempotency: "allow-duplicate",
+          startPolicy: "allow-duplicate",
         }),
       },
     });
@@ -1590,7 +1590,7 @@ describe("TypedClient — wire format (validate on send, parse on receive)", () 
         // Asymmetric transform: input type is `string`, parsed type is `number`.
         input: z.string().transform((s) => s.length),
         output: z.number().transform((n) => n * 2),
-        idempotency: "allow-duplicate",
+        startPolicy: "allow-duplicate",
         signals: {
           ping: { input: z.string().transform((s) => s.length) },
         },
@@ -1783,7 +1783,7 @@ describe("TypedClient — workflow contract errors", () => {
       processOrder: defineWorkflow({
         input: z.object({ orderId: z.string() }),
         output: z.object({ status: z.string() }),
-        idempotency: "allow-duplicate",
+        startPolicy: "allow-duplicate",
         errors: {
           EmptyOrder: {
             data: z.object({ orderId: z.string() }),
@@ -1914,7 +1914,7 @@ describe("ContractClient — handle identifiers and validation-error identity", 
       identityWorkflow: defineWorkflow({
         input: z.object({ id: z.string() }),
         output: z.object({ ok: z.boolean() }),
-        idempotency: "allow-duplicate",
+        startPolicy: "allow-duplicate",
       }),
     },
   });
@@ -2039,7 +2039,7 @@ describe("ContractClient — startUpdate", () => {
       updatable: defineWorkflow({
         input: z.object({ id: z.string() }),
         output: z.object({ ok: z.boolean() }),
-        idempotency: "allow-duplicate",
+        startPolicy: "allow-duplicate",
         updates: {
           adjust: {
             input: z.object({ delta: z.number() }),
@@ -2154,7 +2154,7 @@ describe("ContractClient — update/query operational errors", () => {
       opWorkflow: defineWorkflow({
         input: z.object({ id: z.string() }),
         output: z.object({ ok: z.boolean() }),
-        idempotency: "allow-duplicate",
+        startPolicy: "allow-duplicate",
         queries: {
           peek: { input: z.tuple([]), output: z.string() },
         },
@@ -2324,7 +2324,7 @@ describe("ContractClient — raw escape hatch and accessors", () => {
       plain: defineWorkflow({
         input: z.object({ id: z.string() }),
         output: z.object({}),
-        idempotency: "allow-duplicate",
+        startPolicy: "allow-duplicate",
       }),
     },
   });
@@ -2387,7 +2387,7 @@ describe("ContractClient — omittable input-less payloads (runtime)", () => {
       omittable: defineWorkflow({
         input: z.object({ id: z.string() }),
         output: z.object({ ok: z.boolean() }),
-        idempotency: "allow-duplicate",
+        startPolicy: "allow-duplicate",
         signals: {
           stop: defineSignal(),
         },
@@ -2503,7 +2503,7 @@ describe("ContractClient — search attribute VALUE validation (runtime)", () =>
       kinds: defineWorkflow({
         input: z.object({ id: z.string() }),
         output: z.object({}),
-        idempotency: "allow-duplicate",
+        startPolicy: "allow-duplicate",
         searchAttributes: {
           priority: defineSearchAttribute({ kind: "INT" }),
           placedAt: defineSearchAttribute({ kind: "DATETIME" }),
@@ -2546,19 +2546,19 @@ describe("contract-declared idempotency", () => {
   const onceWorkflow = defineWorkflow({
     input: z.object({ id: z.string() }),
     output: z.object({ ok: z.boolean() }),
-    idempotency: "once-per-id",
+    startPolicy: "once-per-id",
     signals: {
       ping: { input: z.tuple([]) },
     },
   });
 
-  // Simulates a definition that reaches the client without `idempotency` at
+  // Simulates a definition that reaches the client without `startPolicy` at
   // runtime despite the field now being required at the type level (e.g. a
   // contract assembled dynamically outside the type system, or an older
   // compiled artifact) — the `as unknown as typeof onceWorkflow` cast is the
   // point, not a mistake; it keeps every other generic (notably the `ping`
   // signal's literal name and tuple schema) intact so the calls below stay
-  // precisely typed. `client.ts`'s `definition.idempotency ? {
+  // precisely typed. `client.ts`'s `definition.startPolicy ? {
   // workflowIdReusePolicy: … } : {}` guard must stay defensive for exactly
   // this case.
   const plainWorkflow = {
@@ -2709,7 +2709,7 @@ describe("contract-declared idempotency", () => {
   });
 
   it("sends no policy when the contract declares none, on startWorkflow", async () => {
-    // `plainWorkflow` is missing `idempotency` at runtime (see its
+    // `plainWorkflow` is missing `startPolicy` at runtime (see its
     // definition above) — no `workflowIdReusePolicy` key at all should be
     // sent (not even `undefined`, which differs under
     // exactOptionalPropertyTypes).

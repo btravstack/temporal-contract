@@ -15,11 +15,11 @@ import { z } from "zod";
 export const processOrder = defineWorkflow({
   input: OrderSchema,
   output: OrderResultSchema,
-  // Search attributes are this doc's topic, but `idempotency` is required on
+  // Search attributes are this doc's topic, but `startPolicy` is required on
   // every workflow. `retry-if-failed` is the right mode for this shape — an
   // order that charged a customer must not be re-runnable after a Completed
   // run. See "Declare idempotency" in define-a-contract.md.
-  idempotency: "retry-if-failed",
+  startPolicy: "retry-if-failed",
   searchAttributes: {
     customerId: defineSearchAttribute({ kind: "KEYWORD" }),
     orderTotal: defineSearchAttribute({ kind: "DOUBLE" }),

@@ -20,7 +20,7 @@ const charge = defineActivity({
 const placeOrder = defineWorkflow({
   input: z.object({ orderId: z.string(), amount: z.number() }),
   output: z.object({ status: z.string() }),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
   errors: {
     EmptyOrder: {
       data: z.object({ orderId: z.string() }),
@@ -39,7 +39,7 @@ const placeOrder = defineWorkflow({
 const waitForever = defineWorkflow({
   input: z.object({}),
   output: z.object({ status: z.string() }),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
 });
 
 export const inprocessContract = defineContract({

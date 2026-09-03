@@ -26,7 +26,7 @@ const slowActivity = defineActivity({
 const runsActivity = defineWorkflow({
   input: sleepInput,
   output: z.object({ outcome: z.string() }),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
   activities: { slowActivity },
 });
 
@@ -128,7 +128,7 @@ const resolvesLayeredOptions = defineWorkflow({
     flaky: z.string(),
     globalTimeout: z.string(),
   }),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
   activities: { contractTimeoutActivity, usesDefaultActivity, flakyActivity },
 });
 

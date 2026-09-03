@@ -37,7 +37,7 @@ const baseDefinition = (): AnyWorkflowDefinition =>
   ({
     input: z.object({}),
     output: z.object({}),
-    idempotency: "allow-duplicate",
+    startPolicy: "allow-duplicate",
   }) as unknown as AnyWorkflowDefinition;
 
 const withSignals = (signals: Record<string, SignalDefinition>): AnyWorkflowDefinition =>
