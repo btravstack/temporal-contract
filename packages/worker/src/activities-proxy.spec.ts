@@ -208,7 +208,7 @@ describe("createValidatedActivities — activities with declared errors", () => 
       // cause stays the UNWRAPPED failure (documented, unchanged behavior).
       expect(error.cause).toBe(inner);
       // originalFailure is the wrapper Temporal actually threw, retained
-      // specifically so propagateActivityFailure can re-raise it faithfully.
+      // specifically so propagateFailure can re-raise it faithfully.
       expect(error.originalFailure).toBe(wrapper);
     }
   });

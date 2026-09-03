@@ -726,17 +726,17 @@ if (result.isErr()) {
 
 // Or propagate it — let a failure escape and have Temporal decide the
 // workflow's fate, matching the pre-8.0 "just let it throw" behavior.
-import { propagateActivityFailure } from "@temporal-contract/worker/workflow";
+import { propagateFailure } from "@temporal-contract/worker/workflow";
 
-await propagateActivityFailure(context.activities.sendEmail(input));
+await propagateFailure(context.activities.sendEmail(input));
 ```
 
-**Do not reach for unthrown's `.getOrThrow()` instead of `propagateActivityFailure`.**
+**Do not reach for unthrown's `.getOrThrow()` instead of `propagateFailure`.**
 `.getOrThrow()` throws the `ActivityError`/`ActivityCancelledError` wrapper
 itself — a `TaggedError`, not a `TemporalFailure`. Temporal treats a thrown
 non-`TemporalFailure` as a workflow-_task_ failure and retries it
 indefinitely, so the workflow never fails — it stalls until its execution
-timeout instead. `propagateActivityFailure` re-raises the preserved original
+timeout instead. `propagateFailure` re-raises the preserved original
 failure instead, which is exactly what would have escaped the workflow
 before this change. See [The result model](/explanation/the-result-model).
 
@@ -744,7 +744,7 @@ A bare `await` that discards the result is easy to introduce by habit,
 especially copying a pre-8.0 call site that never needed narrowing. Grep for
 `await context.activities.` / `await activities.` (or your local alias) and
 confirm each hit either narrows the result or passes it through
-`propagateActivityFailure` — an un-narrowed, un-propagated `AsyncResult` sitting
+`propagateFailure` — an un-narrowed, un-propagated `AsyncResult` sitting
 in an expression statement is the tell.
 
 ### Cancellation can be swallowed by any activity call
@@ -1129,7 +1129,7 @@ names the input.
       (`WorkflowCancelledError` / `Terminated` / `Timeout`, `UpdateFailedError`,
       `UpdateRejectedError`, `QueryFailedError`)
 - [ ] Every `await context.activities.x(...)` (declared-error or not) either
-      narrows the `AsyncResult` or is wrapped in `propagateActivityFailure` —
+      narrows the `AsyncResult` or is wrapped in `propagateFailure` —
       a bare, discarded `await` compiles identically before and after 8.0 but
       now silently swallows the failure
 - [ ] Cancellation isn't swallowed by **any** activity call (declared-error

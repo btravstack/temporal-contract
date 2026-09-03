@@ -96,7 +96,7 @@ export const activities = declareActivitiesHandler({
 ```
 
 ```typescript [3. Workflow]
-import { declareWorkflow, propagateActivityFailure } from "@temporal-contract/worker/workflow";
+import { declareWorkflow, propagateFailure } from "@temporal-contract/worker/workflow";
 
 import { orderContract } from "./contract.js";
 
@@ -106,9 +106,9 @@ export const processOrder = declareWorkflow({
   activityOptions: { startToCloseTimeout: "1 minute", retry: { maximumAttempts: 3 } },
   implementation: async (context, order) => {
     // `order` is typed from the contract. So is the return value. Every
-    // activity call returns an AsyncResult; `propagateActivityFailure` lets
+    // activity call returns an AsyncResult; `propagateFailure` lets
     // Temporal's retry policy decide the outcome.
-    const { transactionId } = await propagateActivityFailure(
+    const { transactionId } = await propagateFailure(
       context.activities.chargeCard({
         customerId: order.customerId,
         amount: order.amount,

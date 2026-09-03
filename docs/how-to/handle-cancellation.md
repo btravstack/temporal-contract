@@ -127,22 +127,22 @@ Once a workflow is cancelled, further activity calls are cancelled too. Cleanup
 must run in a `nonCancellableScope`:
 
 ```typescript
-import { propagateActivityFailure } from "@temporal-contract/worker/workflow";
+import { propagateFailure } from "@temporal-contract/worker/workflow";
 
 implementation: async (context, order) => {
   let transactionId: string | undefined;
 
   const shipped = await context.cancellableScope(async () => {
     // Await and narrow the activity's own AsyncResult INSIDE the scope's
-    // callback — `propagateActivityFailure` lets a genuine (non-cancellation)
+    // callback — `propagateFailure` lets a genuine (non-cancellation)
     // charge failure ride the defect channel via the scope's own throw
     // handling, same as it would have without the scope.
-    const charge = await propagateActivityFailure(
+    const charge = await propagateFailure(
       context.activities.chargeCard({ customerId: order.customerId, amount: order.total }),
     );
     transactionId = charge.transactionId;
 
-    return propagateActivityFailure(context.activities.createShipment({ orderId: order.orderId }));
+    return propagateFailure(context.activities.createShipment({ orderId: order.orderId }));
   });
 
   if (shipped.isDefect()) {
@@ -157,9 +157,7 @@ implementation: async (context, order) => {
       // narrowing across into this new arrow function.
       const chargedTransactionId = transactionId;
       const refunded = await context.nonCancellableScope(() =>
-        propagateActivityFailure(
-          context.activities.refundPayment({ transactionId: chargedTransactionId }),
-        ),
+        propagateFailure(context.activities.refundPayment({ transactionId: chargedTransactionId })),
       );
       if (refunded.isDefect()) {
         throw refunded.cause; // a refund that silently failed is worse than a loud failure

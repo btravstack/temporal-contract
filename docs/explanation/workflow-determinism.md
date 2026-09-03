@@ -152,12 +152,12 @@ Temporal's versioning API handles this:
 
 ```typescript
 import { patched } from "@temporalio/workflow";
-import { propagateActivityFailure } from "@temporal-contract/worker/workflow";
+import { propagateFailure } from "@temporal-contract/worker/workflow";
 
 if (patched("add-fraud-check")) {
-  await propagateActivityFailure(context.activities.scoreRisk({ orderId }));  // new path
+  await propagateFailure(context.activities.scoreRisk({ orderId }));  // new path
 }
-await propagateActivityFailure(context.activities.chargeCard({ ... }));       // both paths
+await propagateFailure(context.activities.chargeCard({ ... }));       // both paths
 ```
 
 `patched()` returns `true` for new executions and for old ones that already

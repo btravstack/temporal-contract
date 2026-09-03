@@ -6,7 +6,7 @@ import {
   ACTIVITY_CANCELLED_ERROR_TAG,
   ACTIVITY_ERROR_TAG,
   declareWorkflow,
-  propagateActivityFailure,
+  propagateFailure,
   rethrowCancellation,
 } from "@temporal-contract/worker/workflow";
 import { condition, log } from "@temporalio/workflow";
@@ -289,13 +289,13 @@ export const processOrder = declareWorkflow({
       // customer would be charged for an order that both failed and was
       // never refunded. That is exactly the case where Temporal should fail
       // the workflow loudly (visible, alertable) instead of completing it
-      // with a routine "failed" order status. `propagateActivityFailure`
+      // with a routine "failed" order status. `propagateFailure`
       // restores the exact pre-uniform-`AsyncResult` behavior: before every
       // activity call returned a `Result`, an unhandled `refundPayment`
       // failure threw and failed this workflow outright — this is that same
       // outcome, made explicit instead of accidental.
       log.info("Rolling back: refunding payment");
-      await propagateActivityFailure(activities.refundPayment(payment.transactionId));
+      await propagateFailure(activities.refundPayment(payment.transactionId));
       log.info(`Payment refunded: ${payment.transactionId}`);
 
       // Best-effort notification — see the PaymentDeclined branch above for
@@ -350,7 +350,7 @@ export const processOrder = declareWorkflow({
     // No rollback path exists for a failed shipment creation (unlike
     // inventory reservation above) — that is a genuine "let Temporal fail
     // the workflow" case, not a business outcome this example models.
-    const shippingResult = await propagateActivityFailure(
+    const shippingResult = await propagateFailure(
       activities.createShipment({
         orderId: order.orderId,
         customerId: order.customerId,
@@ -443,7 +443,7 @@ export const cleanupExpiredOrders = declareWorkflow({
     // fail loudly (visible in the Temporal UI, the schedule runs again next
     // time) rather than being silently swallowed into a fake "0 purged"
     // success.
-    const { purgedCount } = await propagateActivityFailure(
+    const { purgedCount } = await propagateFailure(
       context.activities.purgeExpiredOrders({ olderThanDays }),
     );
 

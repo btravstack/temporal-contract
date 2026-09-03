@@ -8,6 +8,7 @@ import {
   ChildWorkflowError,
   ChildWorkflowNotFoundError,
   ContractMisuseError,
+  rethrowCancellation,
   WorkflowCancelledError,
 } from "./errors.js";
 
@@ -80,8 +81,8 @@ import {
  * A failure with nothing preserved at all rethrows the wrapper, so the error
  * identity is never lost.
  *
- * **Not just activity calls.** The same non-`TemporalFailure`-stall hazard
- * applies to `context.executeChildWorkflow` / `context.startChildWorkflow`
+ * **Not just activity calls** — hence the name. The same
+ * non-`TemporalFailure`-stall hazard applies to `context.executeChildWorkflow` / `context.startChildWorkflow`
  * (`ChildWorkflowError`, `ChildWorkflowCancelledError`) and to
  * `context.cancellableScope` / `context.nonCancellableScope`
  * (`WorkflowCancelledError`, whose `cause` holds the original
@@ -111,7 +112,7 @@ import {
  * `ContractMisuseError` (a non-retryable `ApplicationFailure`) instead, so
  * it still fails the workflow terminally rather than stalling it.
  */
-export async function propagateActivityFailure<T, E>(result: AsyncResult<T, E>): Promise<T> {
+export async function propagateFailure<T, E>(result: AsyncResult<T, E>): Promise<T> {
   const settled = await result;
   if (settled.isOk()) {
     return settled.value;
@@ -159,4 +160,67 @@ export async function propagateActivityFailure<T, E>(result: AsyncResult<T, E>):
   }
   // oxlint-disable-next-line unthrown/no-throw -- deliberate re-raise: an unmodeled error/defect value is rethrown unchanged
   throw error;
+}
+
+/**
+ * @deprecated Renamed to {@link propagateFailure}: this helper has always
+ * handled child-workflow calls and cancellation scopes too, not just activity
+ * calls, and the old name said otherwise. Behaviourally identical; it will be
+ * removed in the next major.
+ */
+export const propagateActivityFailure = propagateFailure;
+
+/**
+ * Await a call whose failure is **not** worth ending the workflow over — a
+ * notification, a metric, an audit write — and hand that failure to
+ * `onFailure` instead. Returns the value on success and `undefined` on
+ * failure, so a caller that wants the value can still narrow it.
+ *
+ * The counterpart to {@link propagateFailure}: that one says "let Temporal
+ * decide", this one says "log it and carry on".
+ *
+ * **Cancellation is the exception, and that is the whole point of having this
+ * as a helper.** A cancelled call arrives on the modeled `Err` channel like
+ * any other failure, so a hand-written best-effort fold absorbs it — and a
+ * workflow that absorbs its own cancellation runs to `Completed` after
+ * someone asked it to stop. Every cancellation shape
+ * ({@link ActivityCancelledError}, {@link ChildWorkflowCancelledError},
+ * {@link WorkflowCancelledError}) is re-raised through
+ * {@link rethrowCancellation} before `onFailure` is ever reached, so the
+ * rule is structural instead of remembered at each call site.
+ *
+ * A `Defect` (an unmodeled failure — a bug) is passed to `onFailure` like any
+ * other: the caller has already declared this call non-critical, and a
+ * notification bug must not block an outcome that is already authoritative.
+ * Reach for {@link propagateFailure} when that is not true.
+ *
+ * @example
+ * ```ts
+ * await bestEffort(
+ *   context.activities.sendNotification({ customerId, subject, message }),
+ *   (failure) => log.warn(`notification failed: ${String(failure)}`),
+ * );
+ * ```
+ */
+export async function bestEffort<T, E>(
+  result: AsyncResult<T, E>,
+  onFailure: (failure: unknown) => void,
+): Promise<T | undefined> {
+  const settled = await result;
+  if (settled.isOk()) {
+    return settled.value;
+  }
+
+  const error: unknown = settled.isErr() ? settled.error : settled.cause;
+
+  if (
+    error instanceof ActivityCancelledError ||
+    error instanceof ChildWorkflowCancelledError ||
+    error instanceof WorkflowCancelledError
+  ) {
+    rethrowCancellation(error);
+  }
+
+  onFailure(error);
+  return undefined;
 }

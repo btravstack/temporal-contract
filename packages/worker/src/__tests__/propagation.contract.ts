@@ -7,7 +7,7 @@ import { z } from "zod";
  * (now-deleted) `makeThrowingActivity` path, and Temporal's original
  * `ActivityFailure` propagated out of the workflow via a bare `await`. This
  * is the activity whose observable behavior — now reached through
- * `propagateActivityFailure`, or handled by narrowing `isErr()` — must stay
+ * `propagateFailure`, or handled by narrowing `isErr()` — must stay
  * IDENTICAL to that pre-change throwing behavior.
  *
  * `maximumAttempts: 2` bounds the run: enough to prove Temporal retried,

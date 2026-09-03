@@ -75,7 +75,7 @@ export type WorkflowSagaBuilder<T, E> = {
  * other failure is not. An activity that failed unmodelled, or a child
  * workflow that did, left state nobody can see, and a defect is a bug rather
  * than an answer; un-deciding what you cannot see is a second bug, so the
- * failure propagates untouched and `propagateActivityFailure` still re-raises
+ * failure propagates untouched and `propagateFailure` still re-raises
  * the platform's original failure.
  *
  * Cancellation is the one case a caller may opt back in to.

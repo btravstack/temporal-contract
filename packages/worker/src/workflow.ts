@@ -106,13 +106,22 @@ export {
 // re-raises the original CancelledFailure so the execution ends `Cancelled`.
 export { rethrowCancellation } from "./errors.js";
 
-// Activity-failure re-raise helper: the workflow-side equivalent of "let it
-// fail" for any activity call's `AsyncResult` — declared `errors` map or not.
-// Re-raises the original Temporal failure (not the
-// `ActivityError`/`ActivityCancelledError` wrapper, which isn't a
-// `TemporalFailure`) so Temporal classifies the workflow outcome exactly as
-// it would have if the activity call still threw directly.
-export { propagateActivityFailure } from "./activity-failure.js";
+// The two ways to fold a call's `AsyncResult` when the error channel is not
+// worth matching by hand:
+//
+// - `propagateFailure` — "let Temporal decide". Re-raises the original
+//   Temporal failure (not the `ActivityError`/`ActivityCancelledError`
+//   wrapper, which isn't a `TemporalFailure`) so Temporal classifies the
+//   workflow outcome exactly as it would have if the call still threw
+//   directly. Covers activity calls, child-workflow calls, and cancellation
+//   scopes alike.
+// - `bestEffort` — "log it and carry on", for a non-critical call. Real
+//   cancellation is still re-raised, so absorbing a cancel is not something
+//   each call site has to remember.
+//
+// `propagateActivityFailure` is the deprecated former name of
+// `propagateFailure`.
+export { bestEffort, propagateActivityFailure, propagateFailure } from "./activity-failure.js";
 
 // The saga, reachable without a context for the workflow that composes its
 // steps in a helper. `context.saga` is this same function.
@@ -213,7 +222,7 @@ export type { TypedContinueAsNewOptions } from "./internal.js";
  *     // context.info: WorkflowInfo
  *
  *     // Every activity call returns an AsyncResult with three channels —
- *     // narrow `isDefect()`/`isErr()` (or use `propagateActivityFailure` to
+ *     // narrow `isDefect()`/`isErr()` (or use `propagateFailure` to
  *     // let Temporal decide the outcome) before reaching `.value`.
  *     const inventory = await context.activities.validateInventory({
  *       orderId: args.orderId,
@@ -942,7 +951,7 @@ export type WorkflowContext<
    * `ActivityError`, a `ChildWorkflowError` or a defect: an activity that failed
    * unmodelled left state nobody can see, and un-deciding what you cannot see is
    * a second bug. That failure propagates untouched, so
-   * {@link propagateActivityFailure} still re-raises Temporal's original
+   * {@link propagateFailure} still re-raises Temporal's original
    * failure. Cancellation is the one case a caller may opt back in to, with
    * `saga({ compensateOnCancellation: true })`. Every undo runs inside a
    * non-cancellable scope, so a cancellation cannot interrupt the walk-back

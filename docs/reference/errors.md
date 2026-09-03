@@ -301,7 +301,7 @@ every non-cancellation failure lands here.
 | `cause`           | the **unwrapped** actionable failure                                                                                                                            |
 | `originalFailure` | the failure exactly as caught, **before** the unwrap (typically Temporal's `ActivityFailure` wrapper) — `undefined` when there is no separate wrapper to retain |
 
-`originalFailure` exists so `propagateActivityFailure` can re-raise the exact
+`originalFailure` exists so `propagateFailure` can re-raise the exact
 failure Temporal originally produced without changing what `cause` means for
 existing consumers that narrow on it — see [Worker
 surface](/reference/worker-surface#propagateactivityfailure-result).

@@ -1,4 +1,4 @@
-import { declareWorkflow, propagateActivityFailure } from "../workflow.js";
+import { declareWorkflow, propagateFailure } from "../workflow.js";
 import { timeoutsContract } from "./timeouts.contract.js";
 
 export const reportsLayered = declareWorkflow({
@@ -17,7 +17,7 @@ export const reportsLayered = declareWorkflow({
     // call is uniformly `AsyncResult`-shaped now regardless of a declared
     // `errors` map. The spec only exercises the success path (each merge
     // layer contributing its value), so let a technical failure escape via
-    // propagateActivityFailure and have Temporal decide the workflow's fate.
-    return await propagateActivityFailure(context.activities.reportsTimeouts({}));
+    // propagateFailure and have Temporal decide the workflow's fate.
+    return await propagateFailure(context.activities.reportsTimeouts({}));
   },
 });

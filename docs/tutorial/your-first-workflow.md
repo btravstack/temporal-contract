@@ -237,7 +237,7 @@ The workflow orchestrates. It must be deterministic — no `Date.now()`, no
 Create `src/workflows.ts`:
 
 ```typescript
-import { declareWorkflow, propagateActivityFailure } from "@temporal-contract/worker/workflow";
+import { declareWorkflow, propagateFailure } from "@temporal-contract/worker/workflow";
 
 import { orderContract } from "./contract.js";
 
@@ -252,14 +252,14 @@ export const processOrder = declareWorkflow({
     retry: { maximumAttempts: 3 },
   },
   implementation: async (context, order) => {
-    const { transactionId } = await propagateActivityFailure(
+    const { transactionId } = await propagateFailure(
       context.activities.chargeCard({
         customerId: order.customerId,
         amount: order.amount,
       }),
     );
 
-    await propagateActivityFailure(
+    await propagateFailure(
       context.activities.sendReceipt({ customerId: order.customerId, transactionId }),
     );
 
@@ -274,7 +274,7 @@ object and TypeScript will tell you it no longer satisfies the contract.
 
 Notice that `context.activities.chargeCard(...)` returns an **`AsyncResult`**,
 not a plain value — every activity call does, whether or not the contract
-declares any `errors`. `propagateActivityFailure` unwraps the success value
+declares any `errors`. `propagateFailure` unwraps the success value
 and re-raises the original failure on the way out, so Temporal's retry policy
 still handles it — the same "let it throw" behavior as before, made explicit
 at the call site. See [The result model](/explanation/the-result-model).

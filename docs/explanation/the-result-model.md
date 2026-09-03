@@ -95,24 +95,22 @@ if (charge.isErr()) {
 Most activity failures still have one sensible response: let Temporal's retry
 policy exhaust, then fail the workflow. Narrowing every such call site would
 add ceremony to code whose correct behaviour is "let it throw" — so use
-`propagateActivityFailure` to re-raise the original failure and hand the
+`propagateFailure` to re-raise the original failure and hand the
 outcome to Temporal, the same "let it throw" behaviour a bare `await` gave you
 before this call convention became uniform:
 
 ```typescript
-import { propagateActivityFailure } from "@temporal-contract/worker/workflow";
+import { propagateFailure } from "@temporal-contract/worker/workflow";
 
-const charge = await propagateActivityFailure(
-  context.activities.chargeCard({ customerId, amount }),
-);
-const shipment = await propagateActivityFailure(context.activities.createShipment({ orderId }));
+const charge = await propagateFailure(context.activities.chargeCard({ customerId, amount }));
+const shipment = await propagateFailure(context.activities.createShipment({ orderId }));
 ```
 
 **Do not use unthrown's `.getOrThrow()` for this.** It throws the
 `ActivityError`/`ActivityCancelledError` wrapper — a `TaggedError`, not a
 `TemporalFailure` — and Temporal treats a non-`TemporalFailure` thrown from
 workflow code as a workflow-_task_ failure, retrying it indefinitely rather
-than failing the execution. `propagateActivityFailure` re-raises the
+than failing the execution. `propagateFailure` re-raises the
 _preserved original_ Temporal failure instead, which is what actually fails
 the workflow.
 
@@ -132,7 +130,7 @@ if (charged.isErr()) {
 ```
 
 Declare errors on the activities whose failures should drive workflow
-decisions; for the rest, `propagateActivityFailure` keeps the call site to a
+decisions; for the rest, `propagateFailure` keeps the call site to a
 single line.
 
 ### Why child workflows never unwrap

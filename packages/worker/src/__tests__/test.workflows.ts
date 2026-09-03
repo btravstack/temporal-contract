@@ -1,13 +1,13 @@
 import { sleep } from "@temporalio/workflow";
 
-import { declareWorkflow, propagateActivityFailure } from "../workflow.js";
+import { declareWorkflow, propagateFailure } from "../workflow.js";
 import { testContract } from "./test.contract.js";
 
 export const simpleWorkflow = declareWorkflow({
   workflowName: "simpleWorkflow",
   contract: testContract,
   implementation: async ({ activities }, args) => {
-    await propagateActivityFailure(activities.logMessage({ message: `Processing: ${args.value}` }));
+    await propagateFailure(activities.logMessage({ message: `Processing: ${args.value}` }));
     return {
       result: `Processed: ${args.value}`,
     };
@@ -35,10 +35,10 @@ export const workflowWithActivities = declareWorkflow({
     // value, not activity failures. A *technical* failure here (neither
     // test exercises one) should still fail the workflow rather than being
     // folded into the "failed" business status, so unwrap with
-    // propagateActivityFailure and only branch on the business fields.
+    // propagateFailure and only branch on the business fields.
 
     // Validate order
-    const validationResult = await propagateActivityFailure(
+    const validationResult = await propagateFailure(
       activities.validateOrder({ orderId: args.orderId }),
     );
 
@@ -51,7 +51,7 @@ export const workflowWithActivities = declareWorkflow({
     }
 
     // Process payment
-    const paymentResult = await propagateActivityFailure(
+    const paymentResult = await propagateFailure(
       activities.processPayment({ amount: args.amount }),
     );
 
@@ -64,7 +64,7 @@ export const workflowWithActivities = declareWorkflow({
     }
 
     // Log success
-    await propagateActivityFailure(
+    await propagateFailure(
       activities.logMessage({
         message: `Order ${args.orderId} completed with transaction ${paymentResult.transactionId}`,
       }),
@@ -152,9 +152,7 @@ export const childWorkflow = declareWorkflow({
   workflowName: "childWorkflow",
   contract: testContract,
   implementation: async ({ activities }, args) => {
-    await propagateActivityFailure(
-      activities.logMessage({ message: `Child workflow ${args.id} running` }),
-    );
+    await propagateFailure(activities.logMessage({ message: `Child workflow ${args.id} running` }));
     return {
       message: `Child ${args.id} completed`,
     };
@@ -172,10 +170,8 @@ export const workflowWithFailableActivity = declareWorkflow({
     // The (skipped) "Error Handling" spec in worker.spec.ts expects the
     // workflow itself to FAIL when the activity fails — not to fold the
     // failure into a returned status — so let it escape via
-    // propagateActivityFailure rather than narrowing.
-    return await propagateActivityFailure(
-      activities.failableActivity({ shouldFail: args.shouldFail }),
-    );
+    // propagateFailure rather than narrowing.
+    return await propagateFailure(activities.failableActivity({ shouldFail: args.shouldFail }));
   },
   activityOptions: {
     startToCloseTimeout: "1 minute",
