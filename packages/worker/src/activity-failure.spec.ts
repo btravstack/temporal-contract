@@ -3,7 +3,7 @@ import { ApplicationFailure, ActivityFailure, RetryState } from "@temporalio/com
 import { ErrAsync, OkAsync } from "unthrown";
 import { describe, expect, it } from "vitest";
 
-import { bestEffort, propagateActivityFailure, propagateFailure } from "./activity-failure.js";
+import { bestEffort, propagateFailure } from "./activity-failure.js";
 import {
   ActivityCancelledError,
   ActivityError,
@@ -198,14 +198,6 @@ describe("propagateFailure", () => {
     });
 
     await expect(propagateFailure(defect)).rejects.toBe(cause);
-  });
-});
-
-describe("propagateActivityFailure (deprecated alias)", () => {
-  it("is the same function as propagateFailure", () => {
-    // Not a behavioural copy — the identical reference, so the alias cannot
-    // drift from the helper it stands in for.
-    expect(propagateActivityFailure).toBe(propagateFailure);
   });
 });
 

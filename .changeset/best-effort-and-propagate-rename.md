@@ -12,5 +12,6 @@ hand-written best-effort fold; it is now structural.
 
 `propagateActivityFailure` is renamed to **`propagateFailure`** — it has always
 also handled child-workflow calls and cancellation scopes, and the old name said
-otherwise. The old name stays as a deprecated alias (the identical function
-reference) and will be removed in the next major.
+otherwise. The old name is **removed**, not aliased: it only ever shipped in 8.0
+betas, and this release already renames `idempotency` to `startPolicy` outright.
+Rename the import; behaviour is unchanged.

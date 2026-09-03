@@ -939,6 +939,27 @@ worker-initiated child-workflow starts each have a dedicated integration
 suite that starts real executions and checks which ones the server actually
 accepts or rejects.
 
+### `propagateActivityFailure` is now `propagateFailure`
+
+Same function, honest name: it has always also handled child-workflow calls
+(`ChildWorkflowError`, `ChildWorkflowCancelledError`) and cancellation scopes
+(`WorkflowCancelledError`), not just activity calls.
+
+```diff
+-import { propagateActivityFailure } from "@temporal-contract/worker/workflow";
+-await propagateActivityFailure(context.activities.sendEmail(input));
++import { propagateFailure } from "@temporal-contract/worker/workflow";
++await propagateFailure(context.activities.sendEmail(input));
+```
+
+No alias is kept: the old name only ever shipped in 8.0 betas. Behaviour is
+unchanged, so the rename is the whole migration.
+
+Its new counterpart, `bestEffort(result, onFailure)`, covers the other half —
+a call whose failure is worth a warning rather than the workflow. It re-raises
+real cancellation, which a hand-written best-effort fold has to remember not to
+absorb.
+
 ### Let the contract derive the workflow ID
 
 `startPolicy` only bites if two starts of the same logical request actually

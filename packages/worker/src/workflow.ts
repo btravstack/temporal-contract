@@ -118,10 +118,7 @@ export { rethrowCancellation } from "./errors.js";
 // - `bestEffort` — "log it and carry on", for a non-critical call. Real
 //   cancellation is still re-raised, so absorbing a cancel is not something
 //   each call site has to remember.
-//
-// `propagateActivityFailure` is the deprecated former name of
-// `propagateFailure`.
-export { bestEffort, propagateActivityFailure, propagateFailure } from "./activity-failure.js";
+export { bestEffort, propagateFailure } from "./activity-failure.js";
 
 // The saga, reachable without a context for the workflow that composes its
 // steps in a helper. `context.saga` is this same function.
