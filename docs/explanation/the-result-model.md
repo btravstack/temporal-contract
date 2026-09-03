@@ -60,6 +60,42 @@ anticipated failure modes_. Everything that can go wrong is a defect.
 const client = await TypedClient.create({ client: temporalClient }).get();
 ```
 
+## Setup calls have an empty Err channel
+
+`TypedClient.create` and `TypedWorker.create` return an `AsyncResult` whose
+error type is `never`, and `worker.run()` does the same. That is not an
+oversight: **nothing about creating a client or a worker is a modeled domain
+outcome.** A bad address, a namespace that does not exist, a server too old to
+serve the Schedule API — these are technical faults, and this library routes
+technical faults to the defect channel (see above). There is no `Err` case to
+name, so `E` is `never`.
+
+The practical consequence is that `.get()` is the right way to read them:
+
+```typescript
+// E is `never`, so `.get()` unwraps the value directly. A setup defect
+// rethrows its cause — which is what you want at process start.
+const typedClient = await TypedClient.create({ client: rawClient }).get();
+const worker = await TypedWorker.create({ contract, connection, ... }).get();
+```
+
+Reach for `.isDefect()` first only when the process wants to report the
+failure itself before exiting:
+
+```typescript
+const created = await TypedWorker.create({ contract, connection, ... });
+if (created.isDefect()) {
+  logger.error({ err: created.cause }, "worker creation failed");
+  process.exit(1);
+}
+const worker = created.get();
+```
+
+This is the one place `.get()` is safe by construction. Everywhere else —
+`startWorkflow`, an activity call, `handle.result()` — the Err channel is
+populated with outcomes the contract actually models, and `.get()` would throw
+away exactly the information the Result exists to carry. Narrow those.
+
 ## The shapes at each boundary
 
 This is the table to internalize:

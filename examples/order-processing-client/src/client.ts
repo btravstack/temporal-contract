@@ -55,11 +55,9 @@ async function run() {
     namespace: "default",
   });
 
-  // Connection-scoped root — create once at process start. Creation failures
-  // (bad connection, missing Schedule API) are technical faults that ride the
-  // defect channel (a `TechnicalError` cause), so the Err channel is empty
-  // (`never`) and `.get()` unwraps directly (a setup defect rethrows its
-  // cause).
+  // Connection-scoped root — create once at process start. Its Err channel is
+  // empty (`never`), so `.get()` unwraps directly; see "Setup calls have an
+  // empty Err channel" in docs/explanation/the-result-model.md.
   const typedClient = await TypedClient.create({ client: rawClient }).get();
 
   // Contract-scoped client — binding a contract is synchronous, infallible,
