@@ -23,9 +23,9 @@ async function run() {
     address: "localhost:7233",
   });
 
-  // Create and run the worker via the TypedWorker.create factory — creation
-  // failures are technical faults that ride the defect channel (a
-  // TechnicalError cause), not the Err channel and not thrown.
+  // Creation failures ride the defect channel, not the Err channel and not a
+  // throw — see "Setup calls have an empty Err channel" in
+  // docs/explanation/the-result-model.md.
   const workerResult = await TypedWorker.create({
     contract: orderProcessingContract,
     connection,
@@ -41,14 +41,12 @@ async function run() {
     logger.error({ err: workerResult.cause }, "❌ Worker creation failed");
     process.exit(1);
   }
-  // The Err channel is empty (never) and the defect case exited above, so
-  // `.get()` unwraps directly.
   const worker = workerResult.get();
 
   logger.info("✅ Worker registered successfully");
 
-  // Run the worker loop. `run()` returns AsyncResult<void, never> — a
-  // runtime failure is a defect whose cause `.get()` rethrows below.
+  // `run()` is `AsyncResult<void, never>` for the same reason: a runtime
+  // failure is a defect, and `.get()` rethrows its cause.
   await worker.run().get();
 }
 

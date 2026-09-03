@@ -112,8 +112,8 @@ export function createContractTest<TContract extends ContractDefinition>(
   return baseIt.extend<ContractTestContext<TContract>>({
     worker: [
       async ({ workerConnection }, use) => {
-        // Technical creation failures ride the defect channel (E = never);
-        // `get()` unwraps directly and rethrows a defect's cause.
+        // E is `never` here — see "Setup calls have an empty Err channel" in
+        // docs/explanation/the-result-model.md.
         const worker = await TypedWorker.create({
           contract,
           connection: workerConnection,

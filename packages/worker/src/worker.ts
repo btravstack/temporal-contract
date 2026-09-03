@@ -221,6 +221,15 @@ export class TypedWorker {
    *
    * await worker.run().get();
    * ```
+   *
+   * @remarks
+   * The Err channel is empty (`never`): nothing about creating a worker is a
+   * modeled domain outcome, so a bad connection or an invalid contract is a
+   * technical fault on the **defect** channel. `.get()` therefore unwraps
+   * directly and rethrows a setup defect's cause; narrow with `.isDefect()`
+   * first only to report the failure before exiting. `run()` is `never` in the
+   * same way. See "Setup calls have an empty Err channel" in
+   * `docs/explanation/the-result-model.md`.
    */
   static create<TContract extends ContractDefinition>(
     options: CreateWorkerOptions<TContract>,

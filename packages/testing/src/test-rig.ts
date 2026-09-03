@@ -196,6 +196,9 @@ export async function testRig<TContract extends ContractDefinition>(
 ): Promise<{ worker: TypedWorker; client: ContractClient<TContract> }> {
   const { contract, bundle, activities, replaySkipAllowlist = {} } = options;
 
+  // `TypedWorker.create`/`TypedClient.create` have an empty Err channel — see
+  // "Setup calls have an empty Err channel" in
+  // docs/explanation/the-result-model.md.
   const worker = await TypedWorker.create({
     contract,
     connection: testEnv.nativeConnection,
