@@ -14,7 +14,7 @@ End-to-end type safety and runtime validation for workflows and activities
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-[**Documentation**](https://btravstack.github.io/temporal-contract) · [**Tutorial**](https://btravstack.github.io/temporal-contract/tutorial/your-first-workflow) · [**Reference**](https://btravstack.github.io/temporal-contract/reference/contract-surface)
+[**Documentation**](https://btravstack.github.io/temporal-contract) · [**Tutorial**](https://btravstack.github.io/temporal-contract/tutorial/your-first-workflow) · [**Reference**](https://btravstack.github.io/temporal-contract/reference/contract-surface) · [**Sample coverage**](EXAMPLES.md)
 
 </div>
 
