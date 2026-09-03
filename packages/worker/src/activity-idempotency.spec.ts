@@ -28,11 +28,13 @@ const contract = {
     },
   },
   activities: {
-    // Declares a key: the customer + amount pair a gateway must not charge twice.
+    // Declares a key on what IDENTIFIES the charge. Keying on customer +
+    // amount would describe it instead, and collide across two distinct
+    // orders of the same value.
     charge: {
-      input: z.object({ customerId: z.string(), amount: z.number() }),
+      input: z.object({ orderId: z.string(), customerId: z.string(), amount: z.number() }),
       output: z.object({ key: z.string() }),
-      idempotencyKey: ({ customerId, amount }) => `${customerId}:${amount}`,
+      idempotencyKey: ({ orderId }) => `charge:${orderId}`,
     },
     // Declares none: reading a balance twice is harmless.
     readBalance: {
@@ -63,9 +65,9 @@ describe("activity idempotency key", () => {
       },
     });
 
-    await expect(activities.charge({ customerId: "CUST-1", amount: 149.97 })).resolves.toEqual({
-      key: "CUST-1:149.97",
-    });
+    await expect(
+      activities.charge({ orderId: "ORD-1", customerId: "CUST-1", amount: 149.97 }),
+    ).resolves.toEqual({ key: "charge:ORD-1" });
   });
 
   it("produces the SAME key on a re-run of the same input", async () => {
@@ -75,10 +77,41 @@ describe("activity idempotency key", () => {
       activities: { charge: echoKey, readBalance: echoKey, chargeTrimmed: echoKey },
     });
 
-    const first = await activities.charge({ customerId: "CUST-1", amount: 149.97 });
-    const second = await activities.charge({ customerId: "CUST-1", amount: 149.97 });
+    const first = await activities.charge({
+      orderId: "ORD-1",
+      customerId: "CUST-1",
+      amount: 149.97,
+    });
+    const second = await activities.charge({
+      orderId: "ORD-1",
+      customerId: "CUST-1",
+      amount: 149.97,
+    });
 
     expect(first).toEqual(second);
+  });
+
+  it("does NOT collide across two orders of the same value", async () => {
+    // The failure this key shape exists to avoid: keyed on customer + amount,
+    // these two legitimate orders would share a key and a gateway would
+    // swallow the second charge as a replay of the first.
+    const activities = declareActivitiesHandler({
+      contract,
+      activities: { charge: echoKey, readBalance: echoKey, chargeTrimmed: echoKey },
+    });
+
+    const first = await activities.charge({
+      orderId: "ORD-1",
+      customerId: "CUST-1",
+      amount: 149.97,
+    });
+    const second = await activities.charge({
+      orderId: "ORD-2",
+      customerId: "CUST-1",
+      amount: 149.97,
+    });
+
+    expect(first).not.toEqual(second);
   });
 
   it("hands over undefined when the activity declares no key", async () => {
@@ -109,8 +142,8 @@ describe("activity idempotency key", () => {
     // Middleware may replace the input (re-validated at the boundary); the
     // key must describe what actually ran, not what the caller sent.
     const rewrite = declareActivityMiddleware(({ input }, next) => {
-      const typed = input as { customerId: string; amount: number };
-      return next({ input: { ...typed, customerId: "CUST-REWRITTEN" } });
+      const typed = input as { orderId: string; customerId: string; amount: number };
+      return next({ input: { ...typed, orderId: "ORD-REWRITTEN" } });
     });
 
     const activities = declareActivitiesHandler({
@@ -119,9 +152,9 @@ describe("activity idempotency key", () => {
       activities: { charge: echoKey, readBalance: echoKey, chargeTrimmed: echoKey },
     });
 
-    await expect(activities.charge({ customerId: "CUST-1", amount: 10 })).resolves.toEqual({
-      key: "CUST-REWRITTEN:10",
-    });
+    await expect(
+      activities.charge({ orderId: "ORD-1", customerId: "CUST-1", amount: 10 }),
+    ).resolves.toEqual({ key: "charge:ORD-REWRITTEN" });
   });
 });
 
@@ -130,9 +163,9 @@ describe("activity idempotency key — types", () => {
   // derivation's parameter is contextually typed: no annotation needed, and a
   // field the input doesn't have is a compile error.
   const charge = defineActivity({
-    input: z.object({ customerId: z.string(), amount: z.number() }),
+    input: z.object({ orderId: z.string(), customerId: z.string(), amount: z.number() }),
     output: z.object({ ok: z.boolean() }),
-    idempotencyKey: ({ customerId, amount }) => `${customerId}:${amount}`,
+    idempotencyKey: ({ orderId }) => `charge:${orderId}`,
   });
 
   const readBalance = defineActivity({

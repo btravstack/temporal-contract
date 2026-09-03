@@ -168,12 +168,35 @@ export type ActivityDefinition<
    * (`` `charge:${orderId}` `` vs `` `refund:${orderId}` ``) — handing a
    * gateway one key for two opposite operations is the failure to avoid.
    *
+   * Key on the **identity of the operation**, not on its parameters. A
+   * customer and an amount describe a charge but do not identify it: the same
+   * customer legitimately placing two orders of the same value would produce
+   * one key, and the second charge would be swallowed as a replay of the
+   * first. Good sources, in rough order of preference:
+   *
+   * - a business identifier already in the input (`orderId`, `invoiceId`) —
+   *   add it to the input schema if it is not there yet, as this example does;
+   * - a dedicated `idempotencyKey` field in the input, minted by the caller
+   *   when no natural identifier exists;
+   * - the **workflow ID**, which is per-execution and — when the contract
+   *   derives it (see {@link WorkflowDefinition.workflowId}) — is itself a
+   *   function of the payload. Read it inside the activity from
+   *   `Context.current().info.workflowExecution.workflowId`, and combine it
+   *   with a per-call discriminator if the same activity runs more than once
+   *   in a workflow.
+   *
    * @example
    * ```ts
    * const chargeCard = defineActivity({
-   *   input: z.object({ customerId: z.string(), amount: z.number() }),
+   *   // `orderId` is in the input for the key's sake: it identifies the
+   *   // charge, where customer and amount only describe it.
+   *   input: z.object({
+   *     orderId: z.string(),
+   *     customerId: z.string(),
+   *     amount: z.number(),
+   *   }),
    *   output: PaymentSchema,
-   *   idempotencyKey: ({ customerId, amount }) => `${customerId}:${amount}`,
+   *   idempotencyKey: ({ orderId }) => `charge:${orderId}`,
    * });
    * ```
    */

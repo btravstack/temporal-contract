@@ -8,9 +8,11 @@ Activities can declare an **idempotency key**, derived from their input:
 
 ```ts
 const chargeCard = defineActivity({
-  input: z.object({ customerId: z.string(), amount: z.number() }),
+  input: z.object({ orderId: z.string(), customerId: z.string(), amount: z.number() }),
   output: PaymentSchema,
-  idempotencyKey: ({ customerId, amount }) => `${customerId}:${amount}`,
+  // Key on what IDENTIFIES the charge, not on what describes it: one customer
+  // placing two orders of the same value must not collide on one key.
+  idempotencyKey: ({ orderId }) => `charge:${orderId}`,
 });
 
 chargeCard: ({ input, idempotencyKey }) =>
@@ -29,3 +31,7 @@ with the same input.
 `helpers.idempotencyKey` is typed `string` for an activity that declares one and
 `undefined` for one that does not, so reaching for a key that was never declared
 is a compile error. `runActivity` hands over the same value.
+
+Good key sources: a business identifier already in the input, a dedicated
+`idempotencyKey` field the caller mints, or the workflow ID — which is
+per-execution and, when the contract derives it, a function of the payload.
