@@ -77,11 +77,12 @@ export const activities = declareActivitiesHandler({
   activities: {
     processOrder: {
       chargeCard: ({ input: { customerId, amount } }) =>
-        fromPromise(gateway.charge(customerId, amount), qualifyFailure("CHARGE_FAILED")).map(
-          (charge) => ({
-            transactionId: charge.id,
-          }),
-        ),
+        fromPromise(
+          gateway.charge(customerId, amount),
+          // `expected` names the failures this activity anticipates; anything
+          // else rides the defect channel with its original stack.
+          qualifyFailure("CHARGE_FAILED", { expected: GatewayError }),
+        ).map((charge) => ({ transactionId: charge.id })),
     },
   },
 });

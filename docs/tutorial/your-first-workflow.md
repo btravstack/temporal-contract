@@ -141,8 +141,8 @@ Three things to notice:
 - `taskQueue` lives on the contract, so neither the worker nor the client has to
   repeat it.
 - `startPolicy` is required on every workflow — it is what stops a retried
-  start from re-running a workflow that already finished. See [Define a
-  contract](/how-to/define-a-contract#declare-idempotency) for the three
+  start from re-running a workflow that already completed successfully. See [Define a
+  contract](/how-to/define-a-contract#declare-a-start-policy) for the three
   modes and why the field exists.
 
 `defineContract` validates this structure the moment it runs. Misspell a key,

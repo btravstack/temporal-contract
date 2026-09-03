@@ -304,7 +304,7 @@ every non-cancellation failure lands here.
 `originalFailure` exists so `propagateFailure` can re-raise the exact
 failure Temporal originally produced without changing what `cause` means for
 existing consumers that narrow on it — see [Worker
-surface](/reference/worker-surface#propagateactivityfailure-result).
+surface](/reference/worker-surface#propagatefailure-result).
 
 ### `ActivityCancelledError`
 

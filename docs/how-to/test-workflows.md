@@ -382,7 +382,7 @@ describe("order processing", () => {
     const result = await worker.raw.runUntil(async () =>
       client.executeWorkflow("processOrder", {
         workflowId: `order-${Date.now()}`,
-        args: { orderId: "ORD-1" },
+        args: { orderId: "ORD-1", customerId: "CUST-1", amount: 42 },
       }),
     );
 

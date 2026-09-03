@@ -61,7 +61,7 @@ relaxes when the contract exists purely to serve activities.
 | ------------------ | ------------------------------------------- | -------- |
 | `input`            | `AnySchema`                                 | yes      |
 | `output`           | `AnySchema`                                 | yes      |
-| `startPolicy`      | `IdempotencyMode`                           | yes      |
+| `startPolicy`      | `WorkflowStartPolicy`                       | yes      |
 | `activities`       | `Record<string, ActivityDefinition>`        | no       |
 | `signals`          | `Record<string, SignalDefinition>`          | no       |
 | `queries`          | `Record<string, QueryDefinition>`           | no       |
@@ -84,7 +84,7 @@ workflow; an explicit per-call `workflowIdReusePolicy` overrides it. It is
 this mode; see [Schedule workflows](/how-to/schedule-workflows) for the
 implications. `workflowIdConflictPolicy` — what to do about a run that is
 already _open_ — stays a per-call client/worker option, untouched by this
-field. See [Define a contract](/how-to/define-a-contract#declare-idempotency).
+field. See [Define a contract](/how-to/define-a-contract#declare-a-start-policy).
 
 ### `defineActivity(definition)`
 
@@ -271,7 +271,7 @@ See the [errors reference](/reference/errors).
 `AnySchema`, `UndefinedInputSchema`, `ActivityDefinition`, `SignalDefinition`,
 `QueryDefinition`, `UpdateDefinition`, `WorkflowDefinition`,
 `AnyWorkflowDefinition`, `ContractDefinition`, `SearchAttributeDefinition`,
-`SearchAttributeKind`, `SearchAttributeKindToType`, `IdempotencyMode`
+`SearchAttributeKind`, `SearchAttributeKindToType`, `WorkflowStartPolicy`
 
 `UndefinedInputSchema` is the Standard Schema type materialized by
 `defineSignal` / `defineQuery` / `defineUpdate` when `input` is omitted —

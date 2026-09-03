@@ -88,13 +88,17 @@ const purgeExpiredOrders = defineActivity({
  * a typed `ContractError` on the activity call's error channel.
  */
 const processPayment = defineActivity({
-  input: z.object({ customerId: z.string(), amount: z.number() }),
+  // `orderId` is here for the idempotency key rather than for the charge
+  // itself: the key has to name the *business operation*, and a customer may
+  // legitimately place two orders for the same amount.
+  input: z.object({ orderId: z.string(), customerId: z.string(), amount: z.number() }),
   output: PaymentResultSchema,
   // Temporal runs an activity AT LEAST once — a retry, a worker crash, or a
   // completion that succeeded but was never recorded all re-run this. The
   // key travels to the gateway so the second run settles the first charge
-  // instead of making a new one.
-  idempotencyKey: ({ customerId, amount }) => `charge:${customerId}:${amount}`,
+  // instead of making a new one. Keying on customer + amount would collide
+  // across two distinct orders and swallow the second charge entirely.
+  idempotencyKey: ({ orderId }) => `charge:${orderId}`,
   errors: {
     PaymentDeclined: paymentDeclinedError,
   },

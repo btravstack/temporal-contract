@@ -16,6 +16,9 @@ export class MockPaymentAdapter implements PaymentPort {
    */
   private readonly settled = new Map<string, PaymentOutcome>();
 
+  /** Refunds already issued, by idempotency key — same contract, same reason. */
+  private readonly refunded = new Set<string>();
+
   async processPayment(
     customerId: string,
     amount: number,
@@ -73,6 +76,14 @@ export class MockPaymentAdapter implements PaymentPort {
   }
 
   async refundPayment(transactionId: string, idempotencyKey: string): Promise<void> {
+    if (this.refunded.has(idempotencyKey)) {
+      // A refund is as unsafe to repeat as a charge: `refundPayment` is
+      // retried by Temporal like any other activity, and this workflow also
+      // runs it as a compensation.
+      logger.info({ idempotencyKey }, `↩️  Refund already issued for ${idempotencyKey}`);
+      return;
+    }
+
     logger.info(
       { transactionId, idempotencyKey },
       `💰 Processing refund for transaction ${transactionId}`,
@@ -83,6 +94,7 @@ export class MockPaymentAdapter implements PaymentPort {
 
     if (success) {
       logger.info(`✅ Refund successful`);
+      this.refunded.add(idempotencyKey);
     } else {
       logger.error(`❌ Refund failed`);
       // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))

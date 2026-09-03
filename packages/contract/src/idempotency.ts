@@ -50,7 +50,7 @@ export function reusePolicyFor(mode: WorkflowStartPolicy): WorkflowIdReusePolicy
 
 /**
  * @deprecated Renamed to {@link WorkflowStartPolicy}, and the field that
- * carries it from `startPolicy` to `startPolicy`: it governs
+ * carries it from `idempotency` to `startPolicy`: it governs
  * `workflowIdReusePolicy` — whether a workflow ID may be reused after a
  * Closed run — and never made a workflow idempotent. For an activity running
  * twice under Temporal's at-least-once guarantee, see an activity's

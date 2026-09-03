@@ -768,6 +768,19 @@ function validateWorkflowDefinition(context: string, definition: unknown): void 
   // client's/worker's own `definition.startPolicy ? {...} : {}` guards stay
   // defensive for exactly that case, and the `plainWorkflow` fixture in
   // client.spec.ts exists to prove it.
+  // A definition still carrying the pre-rename `idempotency` field fails
+  // loudly rather than silently losing its policy. The type system catches
+  // this for TypeScript callers, but a plain-JS contract or a stale compiled
+  // artifact would otherwise reach the client with no `startPolicy` at all
+  // and inherit Temporal's `ALLOW_DUPLICATE` — silently dropping the very
+  // protection the field exists to declare.
+  if (definition["idempotency"] !== undefined && startPolicy === undefined) {
+    fail(
+      `${context}: "idempotency" was renamed to "startPolicy". Rename the field ` +
+        `(the mode values are unchanged) — leaving it as "idempotency" would ` +
+        `silently fall back to Temporal's ALLOW_DUPLICATE.`,
+    );
+  }
   if (
     startPolicy !== undefined &&
     startPolicy !== "once-per-id" &&

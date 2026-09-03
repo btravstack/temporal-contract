@@ -154,7 +154,11 @@ export const processOrder = declareWorkflow({
     // channels once, at the call site — every arm either produces a value or
     // deliberately ends the workflow.
     const paymentOutcome = await activities
-      .processPayment({ customerId: order.customerId, amount: order.totalAmount })
+      .processPayment({
+        orderId: order.orderId,
+        customerId: order.customerId,
+        amount: order.totalAmount,
+      })
       .match({
         ok: (payment) => ({ kind: "paid" as const, payment }),
         errCases: (matcher) =>
