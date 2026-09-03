@@ -163,14 +163,6 @@ export async function propagateFailure<T, E>(result: AsyncResult<T, E>): Promise
 }
 
 /**
- * @deprecated Renamed to {@link propagateFailure}: this helper has always
- * handled child-workflow calls and cancellation scopes too, not just activity
- * calls, and the old name said otherwise. Behaviourally identical; it will be
- * removed in the next major.
- */
-export const propagateActivityFailure = propagateFailure;
-
-/**
  * Await a call whose failure is **not** worth ending the workflow over — a
  * notification, a metric, an audit write — and hand that failure to
  * `onFailure` instead. Returns the value on success and `undefined` on
