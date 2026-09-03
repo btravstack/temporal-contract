@@ -89,7 +89,7 @@ Register handlers **inside** the implementation so they can close over workflow
 state:
 
 ```typescript
-import { declareWorkflow, propagateActivityFailure } from "@temporal-contract/worker/workflow";
+import { declareWorkflow, propagateFailure } from "@temporal-contract/worker/workflow";
 import { condition } from "@temporalio/workflow";
 
 export const importCatalog = declareWorkflow({
@@ -98,7 +98,7 @@ export const importCatalog = declareWorkflow({
   activityOptions: { startToCloseTimeout: "5 minutes", retry: { maximumAttempts: 3 } },
   implementation: async (context, args) => {
     let completed = 0;
-    let pending = await propagateActivityFailure(
+    let pending = await propagateFailure(
       context.activities.listSkus({ catalogId: args.catalogId }),
     );
     let cancelReason: string | undefined;
@@ -123,7 +123,7 @@ export const importCatalog = declareWorkflow({
     while (pending.length > 0 && cancelReason === undefined) {
       const [next, ...rest] = pending;
       pending = rest;
-      await propagateActivityFailure(context.activities.importSku({ sku: next }));
+      await propagateFailure(context.activities.importSku({ sku: next }));
       completed += 1;
     }
 

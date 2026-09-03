@@ -31,14 +31,14 @@ import { WorkflowCancelledError } from "./errors.js";
  * @example
  * ```ts
  * import { P } from "unthrown";
- * import { propagateActivityFailure } from "@temporal-contract/worker/workflow";
+ * import { propagateFailure } from "@temporal-contract/worker/workflow";
  *
  * // `fn`'s return value becomes the scope's `T` verbatim — an un-awaited
  * // `context.activities.processStep(...)` would make `T` the AsyncResult
  * // itself (it has no `isOk`/`isErr`/`.value`), not the activity's output.
- * // `propagateActivityFailure` awaits it and hands the scope a plain value.
+ * // `propagateFailure` awaits it and hands the scope a plain value.
  * const result = await context.cancellableScope(async () => {
- *   return await propagateActivityFailure(context.activities.processStep(...));
+ *   return await propagateFailure(context.activities.processStep(...));
  * });
  *
  * result.match({
@@ -49,7 +49,7 @@ import { WorkflowCancelledError } from "./errors.js";
  *     }),
  *   defect: (cause) => {
  *     // a non-cancellation failure thrown inside the scope (a bug) — or,
- *     // via propagateActivityFailure, a non-cancellation activity failure
+ *     // via propagateFailure, a non-cancellation activity failure
  *   },
  * });
  * ```

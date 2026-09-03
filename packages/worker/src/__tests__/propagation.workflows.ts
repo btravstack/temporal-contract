@@ -1,11 +1,11 @@
 import { ActivityFailure } from "@temporalio/workflow";
 
 import { ActivityError } from "../errors.js";
-import { declareWorkflow, propagateActivityFailure } from "../workflow.js";
+import { declareWorkflow, propagateFailure } from "../workflow.js";
 import { propagationContract } from "./propagation.contract.js";
 
 /**
- * Lets the failure escape via `propagateActivityFailure`, the post-change
+ * Lets the failure escape via `propagateFailure`, the post-change
  * equivalent of the bare `await` this fixture used before. The
  * characterization spec asserts the workflow still FAILS and that Temporal
  * still retried the activity to its configured maximum.
@@ -14,7 +14,7 @@ export const propagatesFailure = declareWorkflow({
   workflowName: "propagatesFailure",
   contract: propagationContract,
   implementation: async (context) => {
-    await propagateActivityFailure(context.activities.alwaysFailsNoErrors({}));
+    await propagateFailure(context.activities.alwaysFailsNoErrors({}));
     return { reached: true };
   },
 });

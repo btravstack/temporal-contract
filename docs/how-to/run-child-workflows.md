@@ -12,7 +12,7 @@ same-contract and cross-contract calls look identical.
 `executeChildWorkflow` starts the child and waits for its result:
 
 ```typescript
-import { declareWorkflow, propagateActivityFailure } from "@temporal-contract/worker/workflow";
+import { declareWorkflow, propagateFailure } from "@temporal-contract/worker/workflow";
 import { P } from "unthrown";
 
 import { orderContract } from "./contract.js";
@@ -51,7 +51,7 @@ uniformity is deliberate. What differs is the usual _response_: a child
 workflow is a peer operation whose failure is usually a branch in your logic
 (narrow it, as above), whereas an activity failure is normally something
 Temporal's retry policy should already have handled by the time it reaches
-the workflow (propagate it with `propagateActivityFailure`, unless the
+the workflow (propagate it with `propagateFailure`, unless the
 workflow itself needs to branch on it too). See
 [The result model](/explanation/the-result-model).
 
@@ -76,7 +76,7 @@ implementation: async (context, order) => {
   }
 
   // Do other work while the child runs.
-  const shipment = await propagateActivityFailure(
+  const shipment = await propagateFailure(
     context.activities.createShipment({ orderId: order.orderId }),
   );
 

@@ -171,7 +171,7 @@ every activity, declared `errors` map or not: `ActivityErrorsFor<TActivity>`
 is `ActivityError | ActivityCancelledError`, plus the activity's declared
 `ContractErrorUnion` when it has one. Input is validated before the call,
 output after. See [The result model](/explanation/the-result-model) and
-`propagateActivityFailure` below.
+`propagateFailure` below.
 
 The map's type is `WorkflowInferWorkflowContextActivities<TContract,
 TWorkflowName>` and a single entry's is `WorkflowInferActivity<TActivity>` —
@@ -350,7 +350,7 @@ step did before saying no is knowable. They do **not** run on an
 `ActivityError`, a `ChildWorkflowError` or a defect: a step that failed
 unmodelled left state nobody can see, and un-deciding what you cannot see is a
 second bug. That failure propagates untouched, so
-[`propagateActivityFailure`](#propagateactivityfailure-result) still re-raises
+[`propagateFailure`](#propagateactivityfailure-result) still re-raises
 Temporal's original failure.
 
 Cancellation is the one case a caller may opt back in to, with
@@ -410,10 +410,10 @@ Each `ValidationError` subclass carries a readonly `direction: "input" |
 "output"` field (the class names are unchanged; they remain
 `ApplicationFailure` subclasses discriminated by `failure.type`).
 
-#### `propagateActivityFailure(result)`
+#### `propagateFailure(result)`
 
 ```typescript
-function propagateActivityFailure<T, E>(result: AsyncResult<T, E>): Promise<T>;
+function propagateFailure<T, E>(result: AsyncResult<T, E>): Promise<T>;
 ```
 
 Await an activity call and return its value, re-raising the original Temporal
@@ -421,9 +421,9 @@ failure so **Temporal** decides the workflow's outcome — the explicit
 equivalent of the pre-8.0 "just let it throw" call site:
 
 ```typescript
-import { propagateActivityFailure } from "@temporal-contract/worker/workflow";
+import { propagateFailure } from "@temporal-contract/worker/workflow";
 
-const { transactionId } = await propagateActivityFailure(
+const { transactionId } = await propagateFailure(
   context.activities.chargeCard({ customerId, amount }),
 );
 ```
@@ -432,7 +432,7 @@ const { transactionId } = await propagateActivityFailure(
 `ActivityError`/`ActivityCancelledError` wrapper — a `TaggedError`, not a
 `TemporalFailure` — which Temporal treats as a workflow-_task_ failure and
 retries indefinitely, stalling the workflow until its execution timeout
-instead of failing it. `propagateActivityFailure` re-raises the preserved
+instead of failing it. `propagateFailure` re-raises the preserved
 original failure instead — see [The result
 model](/explanation/the-result-model).
 

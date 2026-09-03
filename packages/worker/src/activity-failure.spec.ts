@@ -3,7 +3,7 @@ import { ApplicationFailure, ActivityFailure, RetryState } from "@temporalio/com
 import { ErrAsync, OkAsync } from "unthrown";
 import { describe, expect, it } from "vitest";
 
-import { propagateActivityFailure } from "./activity-failure.js";
+import { bestEffort, propagateActivityFailure, propagateFailure } from "./activity-failure.js";
 import {
   ActivityCancelledError,
   ActivityError,
@@ -14,9 +14,9 @@ import {
   WorkflowCancelledError,
 } from "./errors.js";
 
-describe("propagateActivityFailure", () => {
+describe("propagateFailure", () => {
   it("returns the value on Ok", async () => {
-    await expect(propagateActivityFailure(OkAsync({ ok: true }))).resolves.toEqual({ ok: true });
+    await expect(propagateFailure(OkAsync({ ok: true }))).resolves.toEqual({ ok: true });
   });
 
   it("rethrows the ORIGINAL ActivityFailure wrapper, not the unwrapped cause", async () => {
@@ -43,14 +43,14 @@ describe("propagateActivityFailure", () => {
       wrapper,
     );
 
-    await expect(propagateActivityFailure(ErrAsync(activityError))).rejects.toBe(wrapper);
+    await expect(propagateFailure(ErrAsync(activityError))).rejects.toBe(wrapper);
   });
 
   it("falls back to cause when no originalFailure was preserved", async () => {
     const cause = ApplicationFailure.create({ message: "boom", type: "Boom" });
     const activityError = new ActivityError("charge", 'Activity "charge" failed: boom', cause);
 
-    await expect(propagateActivityFailure(ErrAsync(activityError))).rejects.toBe(cause);
+    await expect(propagateFailure(ErrAsync(activityError))).rejects.toBe(cause);
   });
 
   it("rethrows the wrapper itself when neither cause nor originalFailure was preserved", async () => {
@@ -58,7 +58,7 @@ describe("propagateActivityFailure", () => {
     // ActivityError itself is the most informative thing available.
     const activityError = new ActivityError("charge", 'Activity "charge" failed: opaque');
 
-    await expect(propagateActivityFailure(ErrAsync(activityError))).rejects.toBe(activityError);
+    await expect(propagateFailure(ErrAsync(activityError))).rejects.toBe(activityError);
   });
 
   it("rethrows the preserved cause for a cancelled activity", async () => {
@@ -68,18 +68,18 @@ describe("propagateActivityFailure", () => {
     const cancelledFailure = ApplicationFailure.create({ message: "cancelled", type: "Cancelled" });
     const cancelled = new ActivityCancelledError("charge", cancelledFailure);
 
-    await expect(propagateActivityFailure(ErrAsync(cancelled))).rejects.toBe(cancelledFailure);
+    await expect(propagateFailure(ErrAsync(cancelled))).rejects.toBe(cancelledFailure);
   });
 
   it("rethrows a cancelled activity's wrapper when no cause was preserved", async () => {
     const cancelled = new ActivityCancelledError("charge");
 
-    await expect(propagateActivityFailure(ErrAsync(cancelled))).rejects.toBe(cancelled);
+    await expect(propagateFailure(ErrAsync(cancelled))).rejects.toBe(cancelled);
   });
 
   it("rethrows a non-ActivityError error value unchanged", async () => {
     const other = new Error("something else");
-    await expect(propagateActivityFailure(ErrAsync(other))).rejects.toBe(other);
+    await expect(propagateFailure(ErrAsync(other))).rejects.toBe(other);
   });
 
   it("rethrows the ApplicationFailure cause for a declared ContractError, not the TaggedError wrapper", async () => {
@@ -106,7 +106,7 @@ describe("propagateActivityFailure", () => {
     });
 
     expect(contractError).not.toBeInstanceOf(ApplicationFailure);
-    await expect(propagateActivityFailure(ErrAsync(contractError))).rejects.toBe(wireFailure);
+    await expect(propagateFailure(ErrAsync(contractError))).rejects.toBe(wireFailure);
   });
 
   it("rethrows a ContractError itself when no cause was set", async () => {
@@ -116,7 +116,7 @@ describe("propagateActivityFailure", () => {
       message: "Card declined",
     });
 
-    await expect(propagateActivityFailure(ErrAsync(contractError))).rejects.toBe(contractError);
+    await expect(propagateFailure(ErrAsync(contractError))).rejects.toBe(contractError);
   });
 
   it("rethrows the preserved cause for a failed child workflow", async () => {
@@ -124,7 +124,7 @@ describe("propagateActivityFailure", () => {
     const cause = ApplicationFailure.create({ message: "child failed", type: "Boom" });
     const childError = new ChildWorkflowError("processPayment", "Child workflow failed", cause);
 
-    await expect(propagateActivityFailure(ErrAsync(childError))).rejects.toBe(cause);
+    await expect(propagateFailure(ErrAsync(childError))).rejects.toBe(cause);
   });
 
   it("converts a causeless child workflow error to a terminal ContractMisuseError, not a bare TaggedError rethrow", async () => {
@@ -136,10 +136,8 @@ describe("propagateActivityFailure", () => {
     // ApplicationFailure instead (see activity-failure.ts's doc comment).
     const childError = new ChildWorkflowError("processPayment", "Child workflow failed");
 
-    await expect(propagateActivityFailure(ErrAsync(childError))).rejects.toThrow(
-      ContractMisuseError,
-    );
-    await expect(propagateActivityFailure(ErrAsync(childError))).rejects.toMatchObject({
+    await expect(propagateFailure(ErrAsync(childError))).rejects.toThrow(ContractMisuseError);
+    await expect(propagateFailure(ErrAsync(childError))).rejects.toMatchObject({
       message: childError.message,
       nonRetryable: true,
     });
@@ -149,7 +147,7 @@ describe("propagateActivityFailure", () => {
     const cancelledFailure = ApplicationFailure.create({ message: "cancelled", type: "Cancelled" });
     const cancelled = new ChildWorkflowCancelledError("processPayment", cancelledFailure);
 
-    await expect(propagateActivityFailure(ErrAsync(cancelled))).rejects.toBe(cancelledFailure);
+    await expect(propagateFailure(ErrAsync(cancelled))).rejects.toBe(cancelledFailure);
   });
 
   it("rethrows the preserved cause for a cancelled cancellation scope", async () => {
@@ -158,13 +156,13 @@ describe("propagateActivityFailure", () => {
     const cancelledFailure = ApplicationFailure.create({ message: "cancelled", type: "Cancelled" });
     const cancelled = new WorkflowCancelledError(cancelledFailure);
 
-    await expect(propagateActivityFailure(ErrAsync(cancelled))).rejects.toBe(cancelledFailure);
+    await expect(propagateFailure(ErrAsync(cancelled))).rejects.toBe(cancelledFailure);
   });
 
   it("rethrows a cancelled scope's wrapper when no cause was preserved", async () => {
     const cancelled = new WorkflowCancelledError();
 
-    await expect(propagateActivityFailure(ErrAsync(cancelled))).rejects.toBe(cancelled);
+    await expect(propagateFailure(ErrAsync(cancelled))).rejects.toBe(cancelled);
   });
 
   it("converts a not-found child workflow to a terminal ContractMisuseError, not a bare TaggedError rethrow", async () => {
@@ -175,8 +173,8 @@ describe("propagateActivityFailure", () => {
     // converted to a terminal ApplicationFailure instead.
     const notFound = new ChildWorkflowNotFoundError("processPayment", ["processOrder"]);
 
-    await expect(propagateActivityFailure(ErrAsync(notFound))).rejects.toThrow(ContractMisuseError);
-    await expect(propagateActivityFailure(ErrAsync(notFound))).rejects.toMatchObject({
+    await expect(propagateFailure(ErrAsync(notFound))).rejects.toThrow(ContractMisuseError);
+    await expect(propagateFailure(ErrAsync(notFound))).rejects.toMatchObject({
       message: notFound.message,
       nonRetryable: true,
     });
@@ -199,6 +197,86 @@ describe("propagateActivityFailure", () => {
       throw activityError;
     });
 
-    await expect(propagateActivityFailure(defect)).rejects.toBe(cause);
+    await expect(propagateFailure(defect)).rejects.toBe(cause);
+  });
+});
+
+describe("propagateActivityFailure (deprecated alias)", () => {
+  it("is the same function as propagateFailure", () => {
+    // Not a behavioural copy — the identical reference, so the alias cannot
+    // drift from the helper it stands in for.
+    expect(propagateActivityFailure).toBe(propagateFailure);
+  });
+});
+
+describe("bestEffort", () => {
+  it("returns the value and never calls onFailure on Ok", async () => {
+    const seen: unknown[] = [];
+
+    await expect(bestEffort(OkAsync({ sent: true }), (f) => seen.push(f))).resolves.toEqual({
+      sent: true,
+    });
+    expect(seen).toEqual([]);
+  });
+
+  it("hands a modeled activity failure to onFailure and resolves undefined", async () => {
+    const cause = ApplicationFailure.create({ message: "smtp down", type: "NOTIFY_FAILED" });
+    const failure = new ActivityError("sendNotification", "notify failed", cause);
+    const seen: unknown[] = [];
+
+    await expect(bestEffort(ErrAsync(failure), (f) => seen.push(f))).resolves.toBeUndefined();
+    expect(seen).toEqual([failure]);
+  });
+
+  it("hands a defect's cause to onFailure rather than rethrowing it", async () => {
+    // A best-effort call has already been declared non-critical: a bug in the
+    // notification path must not block an outcome that is already decided.
+    const cause = new TypeError("cannot read properties of undefined");
+    const seen: unknown[] = [];
+
+    await expect(
+      bestEffort(
+        OkAsync(undefined).map(() => {
+          throw cause;
+        }),
+        (f) => seen.push(f),
+      ),
+    ).resolves.toBeUndefined();
+    expect(seen).toEqual([cause]);
+  });
+
+  it("re-raises a cancelled ACTIVITY call instead of absorbing it", async () => {
+    // The reason this helper exists. Absorbing cancellation would let the
+    // workflow run on to Completed after someone asked it to stop.
+    const cancelledFailure = ApplicationFailure.create({ message: "cancelled" });
+    const cancelled = new ActivityCancelledError("sendNotification", cancelledFailure);
+    const seen: unknown[] = [];
+
+    await expect(bestEffort(ErrAsync(cancelled), (f) => seen.push(f))).rejects.toBe(
+      cancelledFailure,
+    );
+    expect(seen).toEqual([]);
+  });
+
+  it("re-raises a cancelled CHILD WORKFLOW call", async () => {
+    const cancelledFailure = ApplicationFailure.create({ message: "cancelled" });
+    const cancelled = new ChildWorkflowCancelledError("childOrder", cancelledFailure);
+    const seen: unknown[] = [];
+
+    await expect(bestEffort(ErrAsync(cancelled), (f) => seen.push(f))).rejects.toBe(
+      cancelledFailure,
+    );
+    expect(seen).toEqual([]);
+  });
+
+  it("re-raises a cancelled SCOPE", async () => {
+    const cancelledFailure = ApplicationFailure.create({ message: "cancelled" });
+    const cancelled = new WorkflowCancelledError(cancelledFailure);
+    const seen: unknown[] = [];
+
+    await expect(bestEffort(ErrAsync(cancelled), (f) => seen.push(f))).rejects.toBe(
+      cancelledFailure,
+    );
+    expect(seen).toEqual([]);
   });
 });

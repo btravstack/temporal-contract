@@ -328,7 +328,7 @@ export class ContractMisuseError extends ValidationError {
  * was caught, *before* `classifyActivityError` unwrapped it into `cause`
  * (typically Temporal's `ActivityFailure` wrapper). `cause`'s unwrapping is
  * documented, caller-facing behavior and stays as-is — `originalFailure`
- * exists purely so {@link propagateActivityFailure} can re-raise the exact
+ * exists purely so {@link propagateFailure} can re-raise the exact
  * failure Temporal originally produced, without changing what `cause` means.
  * Unset when there is no separate wrapper to retain (e.g. the input/output
  * validation branches, where `cause` is already the terminal failure).
@@ -366,7 +366,7 @@ export class ActivityError extends TaggedError(ACTIVITY_ERROR_TAG, {
  * Unlike {@link ActivityError}, `cause` here is already the value exactly as
  * caught (`classifyActivityError` checks cancellation *before* unwrapping
  * `ActivityFailure`) — so there is no separate `originalFailure` to retain;
- * {@link propagateActivityFailure} re-raises `cause` directly.
+ * {@link propagateFailure} re-raises `cause` directly.
  */
 export class ActivityCancelledError extends TaggedError(ACTIVITY_CANCELLED_ERROR_TAG, {
   name: "ActivityCancelledError",

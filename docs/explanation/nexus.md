@@ -69,7 +69,7 @@ covers and drop to the SDK at the Nexus boundary:
 
 ```typescript
 import * as nexus from "@temporalio/nexus";
-import { declareWorkflow, propagateActivityFailure } from "@temporal-contract/worker/workflow";
+import { declareWorkflow, propagateFailure } from "@temporal-contract/worker/workflow";
 
 const paymentService = nexus.service("PaymentService", {
   charge: nexus.operation<{ customerId: string; amount: number }, { transactionId: string }>(),
@@ -81,7 +81,7 @@ export const processOrder = declareWorkflow({
   activityOptions: { startToCloseTimeout: "1 minute", retry: { maximumAttempts: 3 } },
   implementation: async (context, order) => {
     // Contract-typed for everything local...
-    const reserved = await propagateActivityFailure(
+    const reserved = await propagateFailure(
       context.activities.reserveInventory({ items: order.items }),
     );
 

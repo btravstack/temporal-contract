@@ -55,7 +55,7 @@ export type ActivityErrorsFor<TActivity extends ActivityDefinition> = TActivity 
  * Every activity call returns an `AsyncResult` — the call convention no
  * longer depends on whether the contract declared errors, only the error
  * channel does. To let a failure escape and have Temporal decide the
- * workflow's outcome, use `propagateActivityFailure` rather than
+ * workflow's outcome, use `propagateFailure` rather than
  * unthrown's `.getOrThrow()`; see that function's documentation for why.
  */
 export type WorkflowInferActivity<TActivity extends ActivityDefinition> = (
@@ -252,7 +252,7 @@ async function classifyActivityError(
     `Activity "${activityName}" failed: ${innerMessage}`,
     inner,
     // Retain the value exactly as caught (pre-unwrap) as `originalFailure`,
-    // alongside the unwrapped `cause` above. `propagateActivityFailure`
+    // alongside the unwrapped `cause` above. `propagateFailure`
     // re-raises `originalFailure` so Temporal classifies the workflow
     // outcome exactly as it would if this activity call still threw
     // directly — see the field's doc comment on `ActivityError`.

@@ -183,7 +183,7 @@ already seen through.
 Every activity call is already a `Result` — declaring errors doesn't add a
 result fold, it adds typed members to the one you already have. Declare errors
 on the activities whose failures the workflow actually branches on; for the
-rest, `propagateActivityFailure` keeps the call site to a single line instead
+rest, `propagateFailure` keeps the call site to a single line instead
 of a fold. See [The result model](/explanation/the-result-model).
 :::
 
