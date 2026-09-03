@@ -49,7 +49,7 @@ import {
   type TimeSkippingTestWorkflowEnvironmentOptions,
 } from "@temporalio/testing";
 import type { WorkflowBundleWithSourceMap } from "@temporalio/worker";
-import { it as vitestIt } from "vitest";
+import { it as vitestIt, vi } from "vitest";
 
 import { testRig } from "./test-rig.js";
 import { bundleFor } from "./workflow-bundle.js";
@@ -227,7 +227,13 @@ export function createTimeSkippingContractTest<TContract extends ContractDefinit
       if (state === "INITIALIZED") {
         await rig.worker.raw.runUntil(Promise.resolve());
       } else if (state === "RUNNING") {
+        // `shutdown()` only *starts* the stop, so returning here would race
+        // the environment teardown that follows. `createContractTest` awaits
+        // the `run()` promise it owns; this fixture never starts the worker
+        // (the test does, via `runUntil` or its own `run()`), so there is no
+        // such promise to await — wait for the state instead.
         rig.worker.shutdown();
+        await vi.waitFor(() => rig.worker.raw.getState() === "STOPPED", { interval: 100 });
       }
     },
     worker: async ({ rig }, use) => {
