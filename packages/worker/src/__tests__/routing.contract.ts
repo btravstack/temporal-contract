@@ -16,7 +16,7 @@ const reportQueue = defineActivity({
 const routedFlow = defineWorkflow({
   input: z.object({}),
   output: z.object({ handledBy: z.string() }),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
   activities: { reportQueue },
 });
 

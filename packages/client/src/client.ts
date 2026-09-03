@@ -187,13 +187,26 @@ type WorkflowArgsField<TWorkflow extends AnyWorkflowDefinition> =
     ? { args?: ClientInferInput<TWorkflow> }
     : { args: ClientInferInput<TWorkflow> };
 
+export type WorkflowIdField<TWorkflow extends AnyWorkflowDefinition> =
+  TWorkflow["workflowId"] extends (input: never) => string
+    ? {
+        /**
+         * Derived from the payload by the contract — passing one here is a
+         * type error, because a caller-supplied ID is exactly what defeats a
+         * `startPolicy` of `"once-per-id"`.
+         */
+        readonly workflowId?: never;
+      }
+    : { readonly workflowId: string };
+
 export type TypedWorkflowStartOptions<
   TContract extends ContractDefinition,
   TWorkflowName extends keyof TContract["workflows"] & string,
 > = Omit<
   WorkflowStartOptions,
-  "taskQueue" | "args" | "searchAttributes" | "typedSearchAttributes"
+  "taskQueue" | "args" | "searchAttributes" | "typedSearchAttributes" | "workflowId"
 > &
+  WorkflowIdField<TContract["workflows"][TWorkflowName]> &
   WorkflowArgsField<TContract["workflows"][TWorkflowName]> & {
     /**
      * Indexed search attributes for the started workflow. Keys and value types
@@ -462,6 +475,15 @@ export type TypedWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = {
 type ResolvedWorkflow<TWorkflow extends AnyWorkflowDefinition> = {
   definition: TWorkflow;
   typedSearchAttributes: TypedSearchAttributes | undefined;
+  /**
+   * The input as the schema produced it. The caller's ORIGINAL value still
+   * crosses the wire (D1 — the worker parses on receive); this is here so a
+   * contract-declared `workflowId` derivation runs against the post-transform
+   * value, the way an activity's `idempotencyKey` does. Deriving from the raw
+   * payload would give `"  ORD-1  "` and `"ORD-1"` two different workflow
+   * IDs, which is exactly the collision the derivation exists to force.
+   */
+  validatedInput: unknown;
 };
 
 /**
@@ -499,7 +521,7 @@ function resolveDefinitionAndValidateInput<
 >(
   contract: TContract,
   workflowName: TWorkflowName,
-  workflowId: string,
+  workflowId: string | undefined,
   args: unknown,
   searchAttributes: Record<string, unknown> | undefined,
 ): AsyncResult<
@@ -525,8 +547,31 @@ function resolveDefinitionAndValidateInput<
     return Ok({
       definition: definition as TContract["workflows"][TWorkflowName],
       typedSearchAttributes,
+      validatedInput: inputResult.value,
     });
   });
+}
+
+/**
+ * The workflow ID a start should use: the contract's derivation applied to the
+ * validated input when the workflow declares one, and the caller's ID
+ * otherwise.
+ *
+ * A workflow that derives its ID also forbids `workflowId` in the start
+ * options at the type level, so the two can never disagree.
+ */
+function resolveWorkflowId(
+  definition: AnyWorkflowDefinition,
+  validatedInput: unknown,
+  callerWorkflowId: string | undefined,
+): string {
+  // The structural slot types its parameter `never` so plain-object contracts
+  // stay assignable (see `WorkflowDefinition`); the value passed here is the
+  // validated input the derivation was written against.
+  const derive = definition.workflowId as ((input: unknown) => string) | undefined;
+  if (derive) return derive(validatedInput);
+  // Non-derived workflows type `workflowId` as required, so this is set.
+  return callerWorkflowId as string;
 }
 
 /**
@@ -833,17 +878,18 @@ export class ContractClient<TContract extends ContractDefinition> {
         temporalOptions.workflowId,
         currentInput,
         searchAttributes as Record<string, unknown> | undefined,
-      ).flatMap(({ definition, typedSearchAttributes }) =>
+      ).flatMap(({ definition, typedSearchAttributes, validatedInput }) =>
         // Transmit the caller's ORIGINAL args — the input was validated
         // above (fail early), but the worker parses on receive, so the
         // parsed value must not cross the wire (D1). An omitted payload
         // travels as empty args, not `[undefined]`.
         fromPromise(
           this.client.workflow.start(workflowName, {
-            ...(definition.idempotency
-              ? { workflowIdReusePolicy: _internal_reusePolicyFor(definition.idempotency) }
+            ...(definition.startPolicy
+              ? { workflowIdReusePolicy: _internal_reusePolicyFor(definition.startPolicy) }
               : {}),
             ...temporalOptions,
+            workflowId: resolveWorkflowId(definition, validatedInput, temporalOptions.workflowId),
             taskQueue: this.contract.taskQueue,
             args: currentInput === undefined ? [] : [currentInput],
             ...(typedSearchAttributes ? { typedSearchAttributes } : {}),
@@ -980,13 +1026,14 @@ export class ContractClient<TContract extends ContractDefinition> {
                 : Ok(resolved),
           );
         })
-        .flatMap(({ definition, typedSearchAttributes }) =>
+        .flatMap(({ definition, typedSearchAttributes, validatedInput }) =>
           fromPromise(
             this.client.workflow.signalWithStart(workflowName, {
-              ...(definition.idempotency
-                ? { workflowIdReusePolicy: _internal_reusePolicyFor(definition.idempotency) }
+              ...(definition.startPolicy
+                ? { workflowIdReusePolicy: _internal_reusePolicyFor(definition.startPolicy) }
                 : {}),
               ...temporalOptions,
+              workflowId: resolveWorkflowId(definition, validatedInput, temporalOptions.workflowId),
               taskQueue: this.contract.taskQueue,
               args: currentInput === undefined ? [] : [currentInput],
               signal: signalName,
@@ -1081,15 +1128,16 @@ export class ContractClient<TContract extends ContractDefinition> {
         temporalOptions.workflowId,
         currentInput,
         searchAttributes as Record<string, unknown> | undefined,
-      ).flatMap(({ definition, typedSearchAttributes }) =>
+      ).flatMap(({ definition, typedSearchAttributes, validatedInput }) =>
         // Transmit the caller's ORIGINAL args (validated above, parsed by
         // the worker on receive — D1).
         fromPromise(
           this.client.workflow.execute(workflowName, {
-            ...(definition.idempotency
-              ? { workflowIdReusePolicy: _internal_reusePolicyFor(definition.idempotency) }
+            ...(definition.startPolicy
+              ? { workflowIdReusePolicy: _internal_reusePolicyFor(definition.startPolicy) }
               : {}),
             ...temporalOptions,
+            workflowId: resolveWorkflowId(definition, validatedInput, temporalOptions.workflowId),
             taskQueue: this.contract.taskQueue,
             args: currentInput === undefined ? [] : [currentInput],
             ...(typedSearchAttributes ? { typedSearchAttributes } : {}),

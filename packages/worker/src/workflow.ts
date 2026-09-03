@@ -758,7 +758,7 @@ export type WorkflowContext<
    *
    * The `contract` argument is always required — it identifies the task
    * queue and workflow definition the child runs against, and supplies the
-   * `workflowIdReusePolicy` from the target workflow's declared `idempotency`
+   * `workflowIdReusePolicy` from the target workflow's declared `startPolicy`
    * mode:
    * - Same-contract child: pass this worker's own contract and one of its
    *   workflow names.
@@ -819,7 +819,7 @@ export type WorkflowContext<
    *
    * The `contract` argument is always required — it identifies the task
    * queue and workflow definition the child runs against, and supplies the
-   * `workflowIdReusePolicy` from the target workflow's declared `idempotency`
+   * `workflowIdReusePolicy` from the target workflow's declared `startPolicy`
    * mode:
    * - Same-contract child: pass this worker's own contract and one of its
    *   workflow names.

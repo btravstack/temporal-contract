@@ -58,7 +58,7 @@ const slowActivity = defineActivity({
 const swallowsCancellation = defineWorkflow({
   input: z.object({}),
   output: z.object({ status: z.string() }),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
 });
 
 /**
@@ -70,7 +70,7 @@ const swallowsCancellation = defineWorkflow({
 const honorsCancellation = defineWorkflow({
   input: z.object({}),
   output: z.object({ status: z.string() }),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
 });
 
 /**
@@ -81,7 +81,7 @@ const honorsCancellation = defineWorkflow({
 const nonCancellableWorkflow = defineWorkflow({
   input: z.object({}),
   output: z.object({ status: z.string() }),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
 });
 
 /**
@@ -103,7 +103,7 @@ const scopeMode = z.enum([
 const scopeMechanics = defineWorkflow({
   input: z.object({ mode: scopeMode }),
   output: z.object({ outcome: z.string() }),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
 });
 
 export const cancellationContract = defineContract({

@@ -56,7 +56,7 @@ const contractWithSignal = defineContract({
     hasSignal: defineWorkflow({
       input: z.object({ a: z.string() }),
       output: z.string(),
-      idempotency: "allow-duplicate",
+      startPolicy: "allow-duplicate",
       signals: {
         cancel: defineSignal({ input: z.object({ reason: z.string() }) }),
       },
@@ -70,7 +70,7 @@ const contractNoSignals = defineContract({
     bare: defineWorkflow({
       input: z.object({ a: z.string() }),
       output: z.string(),
-      idempotency: "allow-duplicate",
+      startPolicy: "allow-duplicate",
     }),
   },
 });
@@ -81,7 +81,7 @@ const richContract = defineContract({
     processOrder: defineWorkflow({
       input: z.object({ orderId: z.string() }),
       output: z.object({ status: z.string() }),
-      idempotency: "allow-duplicate",
+      startPolicy: "allow-duplicate",
       signals: {
         // Payload-less signal — `defineSignal()` materializes an
         // UndefinedInputSchema, so the client-side payload is omittable.

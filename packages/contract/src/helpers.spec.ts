@@ -148,7 +148,7 @@ describe("Helper Functions", () => {
       const workflow = defineWorkflow({
         input: z.object({ orderId: z.string() }),
         output: z.object({ status: z.string() }),
-        idempotency: "allow-duplicate",
+        startPolicy: "allow-duplicate",
       });
 
       expect(workflow).toEqual(
@@ -163,7 +163,7 @@ describe("Helper Functions", () => {
       const workflow = defineWorkflow({
         input: z.object({ orderId: z.string() }),
         output: z.object({ status: z.string() }),
-        idempotency: "allow-duplicate",
+        startPolicy: "allow-duplicate",
         activities: {
           processPayment: {
             input: z.object({ amount: z.number() }),

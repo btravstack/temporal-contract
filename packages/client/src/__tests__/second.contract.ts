@@ -17,7 +17,7 @@ export const secondContract = defineContract({
       output: z.object({
         echoed: z.string(),
       }),
-      idempotency: "allow-duplicate",
+      startPolicy: "allow-duplicate",
     }),
   },
 });

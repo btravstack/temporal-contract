@@ -48,7 +48,7 @@ const refund = defineActivity({
 const fulfil = defineWorkflow({
   input: z.object({ mode: z.enum(["declared", "unmodelled"]) }),
   output: z.object({ failedWith: z.string() }),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
   activities: { ship, refund },
 });
 
@@ -60,7 +60,7 @@ const fulfil = defineWorkflow({
 const fulfilUntilCancelled = defineWorkflow({
   input: z.object({}),
   output: z.object({ failedWith: z.string() }),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
   activities: {},
 });
 

@@ -80,7 +80,7 @@ describe("Core Types", () => {
       const workflowDef: AnyWorkflowDefinition = {
         input: z.object({ orderId: z.string() }),
         output: z.object({ success: z.boolean() }),
-        idempotency: "allow-duplicate",
+        startPolicy: "allow-duplicate",
         activities: {
           processPayment: {
             input: z.object({ amount: z.number() }),
@@ -107,7 +107,7 @@ describe("Core Types", () => {
       const workflowDef: AnyWorkflowDefinition = {
         input: z.object({ orderId: z.string() }),
         output: z.object({ success: z.boolean() }),
-        idempotency: "allow-duplicate",
+        startPolicy: "allow-duplicate",
         signals: {
           cancel: {
             input: z.object({ reason: z.string() }),
@@ -128,7 +128,7 @@ describe("Core Types", () => {
       const workflowDef: AnyWorkflowDefinition = {
         input: z.object({ orderId: z.string() }),
         output: z.object({ success: z.boolean() }),
-        idempotency: "allow-duplicate",
+        startPolicy: "allow-duplicate",
         queries: {
           getStatus: {
             input: z.object({ detailed: z.boolean() }),
@@ -153,7 +153,7 @@ describe("Core Types", () => {
       const workflowDef: AnyWorkflowDefinition = {
         input: z.object({ orderId: z.string() }),
         output: z.object({ success: z.boolean() }),
-        idempotency: "allow-duplicate",
+        startPolicy: "allow-duplicate",
         updates: {
           changeQuantity: {
             input: z.object({ quantity: z.number() }),
@@ -183,7 +183,7 @@ describe("Core Types", () => {
           processOrder: {
             input: z.object({ orderId: z.string() }),
             output: z.object({ success: z.boolean() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
       };
@@ -208,7 +208,7 @@ describe("Core Types", () => {
           processOrder: {
             input: z.object({ orderId: z.string() }),
             output: z.object({ success: z.boolean() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
         activities: {
@@ -237,12 +237,12 @@ describe("Core Types", () => {
           processOrder: {
             input: z.object({ orderId: z.string() }),
             output: z.object({ success: z.boolean() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
           sendNotification: {
             input: z.object({ userId: z.string() }),
             output: z.void(),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
       } satisfies ContractDefinition;
@@ -286,7 +286,7 @@ describe("Core Types", () => {
           processOrder: {
             input: z.object({ orderId: z.string() }),
             output: z.object({ success: z.boolean() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
       } satisfies ContractDefinition;

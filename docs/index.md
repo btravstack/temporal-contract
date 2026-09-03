@@ -59,7 +59,7 @@ const processOrder = defineWorkflow({
   // Payment already moved money on success — block a second successful
   // run per order. A start is still retryable after a genuinely failed
   // attempt (e.g. a declined payment, where no charge went through).
-  idempotency: "retry-if-failed",
+  startPolicy: "retry-if-failed",
   activities: { chargeCard },
 });
 

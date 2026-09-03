@@ -19,7 +19,7 @@ describe("Contract Builder", () => {
           processOrder: {
             input: z.object({ orderId: z.string() }),
             output: z.object({ status: z.string() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
       });
@@ -44,7 +44,7 @@ describe("Contract Builder", () => {
           simpleWorkflow: {
             input: z.object({ value: z.string() }),
             output: z.object({ result: z.string() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
         activities: {
@@ -74,7 +74,7 @@ describe("Contract Builder", () => {
           processOrder: {
             input: z.object({ orderId: z.string() }),
             output: z.object({ status: z.string() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
             activities: {
               validateInventory: {
                 input: z.object({ orderId: z.string() }),
@@ -116,7 +116,7 @@ describe("Contract Builder", () => {
           processOrder: {
             input: z.object({ orderId: z.string() }),
             output: z.object({ status: z.string() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
             signals: {
               cancel: {
                 input: z.object({ reason: z.string() }),
@@ -154,7 +154,7 @@ describe("Contract Builder", () => {
           processOrder: {
             input: z.object({ orderId: z.string() }),
             output: z.object({ status: z.string() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
             queries: {
               getStatus: {
                 input: z.object({}),
@@ -196,7 +196,7 @@ describe("Contract Builder", () => {
           processOrder: {
             input: z.object({ orderId: z.string() }),
             output: z.object({ status: z.string() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
             updates: {
               updateDiscount: {
                 input: z.object({ percentage: z.number() }),
@@ -238,17 +238,17 @@ describe("Contract Builder", () => {
           processOrder: {
             input: z.object({ orderId: z.string() }),
             output: z.object({ status: z.string() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
           cancelOrder: {
             input: z.object({ orderId: z.string(), reason: z.string() }),
             output: z.object({ cancelled: z.boolean() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
           refundOrder: {
             input: z.object({ orderId: z.string(), amount: z.number() }),
             output: z.object({ refunded: z.boolean(), transactionId: z.string() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
       });
@@ -271,7 +271,7 @@ describe("Contract Builder", () => {
           simpleWorkflow: {
             input: z.string(), // Single primitive
             output: z.object({ result: z.string() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
           complexWorkflow: {
             input: z.object({
@@ -281,7 +281,7 @@ describe("Contract Builder", () => {
               amount: z.number(),
             }),
             output: z.object({ success: z.boolean() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
           arrayWorkflow: {
             input: z.array(
@@ -292,7 +292,7 @@ describe("Contract Builder", () => {
               }),
             ),
             output: z.object({ processed: z.number() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
       });
@@ -315,7 +315,7 @@ describe("Contract Builder", () => {
           myWorkflow: {
             input: z.object({ id: z.string() }),
             output: z.object({ success: z.boolean() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
       });
@@ -337,7 +337,7 @@ describe("Contract Builder", () => {
             test: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
             },
           },
         }),
@@ -352,7 +352,7 @@ describe("Contract Builder", () => {
             test: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
             },
           },
         }),
@@ -392,7 +392,7 @@ describe("Contract Builder", () => {
             "invalid-name": {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
             },
           },
         }),
@@ -407,7 +407,7 @@ describe("Contract Builder", () => {
             test: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
             },
           },
           activities: {
@@ -428,7 +428,7 @@ describe("Contract Builder", () => {
             processOrder: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
               activities: {
                 sendEmail: {
                   input: z.object({}),
@@ -457,7 +457,7 @@ describe("Contract Builder", () => {
             processOrder: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
               activities: {
                 charge: {
                   input: z.object({}),
@@ -468,7 +468,7 @@ describe("Contract Builder", () => {
             processRefund: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
               activities: {
                 charge: {
                   input: z.object({}),
@@ -496,13 +496,13 @@ describe("Contract Builder", () => {
             processOrder: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
               activities: { charge },
             },
             processRefund: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
               activities: { charge },
             },
           },
@@ -523,7 +523,7 @@ describe("Contract Builder", () => {
             processOrder: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
               activities: { sendEmail },
             },
           },
@@ -540,7 +540,7 @@ describe("Contract Builder", () => {
             processOrder: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
             },
           },
           activities: {
@@ -565,12 +565,12 @@ describe("Contract Builder", () => {
             aWorkflow: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
             },
             sendEmail: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
             },
           },
           activities: {
@@ -596,7 +596,7 @@ describe("Contract Builder", () => {
             processOrder: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
               activities: {
                 processOrder: {
                   input: z.object({}),
@@ -619,7 +619,7 @@ describe("Contract Builder", () => {
             global: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
               activities: {
                 send: {
                   input: z.object({}),
@@ -630,7 +630,7 @@ describe("Contract Builder", () => {
             other: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
               activities: {
                 send: {
                   input: z.object({}),
@@ -653,7 +653,7 @@ describe("Contract Builder", () => {
             test: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
               signals: {
                 "cancel-order": {
                   input: z.object({}),
@@ -673,7 +673,7 @@ describe("Contract Builder", () => {
             test: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
               queries: {
                 "get-status": {
                   input: z.object({}),
@@ -694,7 +694,7 @@ describe("Contract Builder", () => {
             test: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
               updates: {
                 "update-amount": {
                   input: z.object({}),
@@ -715,7 +715,7 @@ describe("Contract Builder", () => {
             processOrder: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
               activities: {
                 sendEmail: {
                   input: z.object({}),
@@ -753,12 +753,12 @@ describe("Contract Builder", () => {
             process_order: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
             },
             $process: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
             },
           },
           activities: {
@@ -783,7 +783,7 @@ describe("Contract Builder", () => {
             test: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
             },
           },
           // Deliberate typo of `activities` — TypeScript's generic inference
@@ -804,7 +804,7 @@ describe("Contract Builder", () => {
             wf: defineWorkflow({
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
               signals: { shutdown: defineSignal() },
               queries: { getStatus: defineQuery({ output: z.string() }) },
               updates: { bump: defineUpdate({ output: z.number() }) },
@@ -823,7 +823,7 @@ describe("Contract Builder", () => {
           empty: {
             input: z.object({}),
             output: z.object({}),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
       });
@@ -846,7 +846,7 @@ describe("Contract Builder", () => {
           noInput: {
             input: z.void(),
             output: z.object({ result: z.string() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
       });
@@ -869,7 +869,7 @@ describe("Contract Builder", () => {
           simple: {
             input: z.string(),
             output: z.string(),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
       });
@@ -890,7 +890,7 @@ describe("Contract Builder", () => {
           test: {
             input: z.object({}),
             output: z.object({}),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
       });
@@ -906,7 +906,7 @@ describe("Contract Builder", () => {
             // @ts-expect-error - Testing validation with missing input
             test: {
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
             },
           },
         }),
@@ -921,14 +921,14 @@ describe("Contract Builder", () => {
             // @ts-expect-error - Testing validation with missing output
             test: {
               input: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
             },
           },
         }),
       ).toThrow("Contract validation failed");
     });
 
-    it("should throw when workflow idempotency is an invalid string", () => {
+    it("should throw when workflow startPolicy is an invalid string", () => {
       expect(() =>
         defineContract({
           taskQueue: "test",
@@ -936,17 +936,17 @@ describe("Contract Builder", () => {
             test: {
               input: z.object({}),
               output: z.object({}),
-              // @ts-expect-error - Testing validation with an invalid idempotency literal
-              idempotency: "sometimes",
+              // @ts-expect-error - Testing validation with an invalid startPolicy literal
+              startPolicy: "sometimes",
             },
           },
         }),
       ).toThrow(
-        'Contract validation failed: workflow "test": idempotency must be "once-per-id", "retry-if-failed", or "allow-duplicate"',
+        'Contract validation failed: workflow "test": startPolicy must be "once-per-id", "retry-if-failed", or "allow-duplicate"',
       );
     });
 
-    it("should throw when workflow idempotency is not a string", () => {
+    it("should throw when workflow startPolicy is not a string", () => {
       expect(() =>
         defineContract({
           taskQueue: "test",
@@ -954,8 +954,8 @@ describe("Contract Builder", () => {
             test: {
               input: z.object({}),
               output: z.object({}),
-              // @ts-expect-error - Testing validation with a non-string idempotency
-              idempotency: 42,
+              // @ts-expect-error - Testing validation with a non-string startPolicy
+              startPolicy: 42,
             },
           },
         }),
@@ -970,7 +970,7 @@ describe("Contract Builder", () => {
             test: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
             },
           },
           activities: {
@@ -991,7 +991,7 @@ describe("Contract Builder", () => {
             test: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
             },
           },
           activities: {
@@ -1012,7 +1012,7 @@ describe("Contract Builder", () => {
             test: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
               activities: {
                 "invalid-name": {
                   input: z.object({}),
@@ -1034,7 +1034,7 @@ describe("Contract Builder", () => {
               // @ts-expect-error - Testing validation with invalid input type
               input: "not a schema",
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
             },
           },
         }),
@@ -1050,7 +1050,7 @@ describe("Contract Builder", () => {
               input: z.object({}),
               // @ts-expect-error - Testing validation with invalid output type
               output: { invalid: true },
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
             },
           },
         }),
@@ -1068,7 +1068,7 @@ describe("Contract Builder", () => {
           processOrder: {
             input: v.object({ orderId: v.string() }),
             output: v.object({ status: v.string() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
         activities: {
@@ -1102,7 +1102,7 @@ describe("Contract Builder", () => {
           processOrder: {
             input: type({ orderId: "string" }),
             output: type({ status: "string" }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
         activities: {
@@ -1137,17 +1137,17 @@ describe("Contract Builder", () => {
           processZod: {
             input: z.object({ id: z.string() }),
             output: z.object({ result: z.string() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
           processValibot: {
             input: v.object({ id: v.string() }),
             output: v.object({ result: v.string() }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
           processArkType: {
             input: type({ id: "string" }),
             output: type({ result: "string" }),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
       });
@@ -1178,7 +1178,7 @@ describe("Contract Builder — typed errors and default options", () => {
         processOrder: {
           input: z.object({ orderId: z.string() }),
           output: z.object({ status: z.string() }),
-          idempotency: "allow-duplicate",
+          startPolicy: "allow-duplicate",
           errors: {
             EmptyOrder: { data: z.object({ orderId: z.string() }) },
           },
@@ -1214,7 +1214,7 @@ describe("Contract Builder — typed errors and default options", () => {
           processOrder: {
             input: z.object({}),
             output: z.object({}),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
             activities: {
               chargePayment: {
                 input: z.object({}),
@@ -1238,7 +1238,7 @@ describe("Contract Builder — typed errors and default options", () => {
         processOrder: {
           input: z.object({}),
           output: z.object({}),
-          idempotency: "allow-duplicate",
+          startPolicy: "allow-duplicate",
         },
       },
       activities: {
@@ -1265,7 +1265,7 @@ describe("Contract Builder — typed errors and default options", () => {
           processOrder: {
             input: z.object({}),
             output: z.object({}),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
         activities: {
@@ -1288,7 +1288,7 @@ describe("Contract Builder — typed errors and default options", () => {
           processOrder: {
             input: z.object({}),
             output: z.object({}),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
         activities: {
@@ -1375,7 +1375,7 @@ describe("Contract Builder — Temporal-reserved names", () => {
           __temporal_cleanup: {
             input: z.object({}),
             output: z.object({}),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
       }),
@@ -1391,7 +1391,7 @@ describe("Contract Builder — Temporal-reserved names", () => {
             wf: {
               input: z.object({}),
               output: z.object({}),
-              idempotency: "allow-duplicate",
+              startPolicy: "allow-duplicate",
               queries: {
                 [reserved]: { input: z.object({}), output: z.object({}) },
               },
@@ -1453,7 +1453,7 @@ describe("Contract Builder — Temporal-reserved names", () => {
           __internal_wf: {
             input: z.object({}),
             output: z.object({}),
-            idempotency: "allow-duplicate",
+            startPolicy: "allow-duplicate",
           },
         },
       }),

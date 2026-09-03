@@ -98,7 +98,7 @@ const asyncOutputUpdate = defineUpdate({
 const counter = defineWorkflow({
   input: z.object({}),
   output: z.object({ total: z.number() }),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
   signals: { bump, finish },
   queries: { peek, describe, brokenOutput },
   updates: { applyDelta, brokenOutputUpdate, asyncOutputUpdate },
@@ -112,7 +112,7 @@ const asyncCheckedQuery = defineQuery({
 const bindsAsyncQuerySchema = defineWorkflow({
   input: z.object({}),
   output: z.object({}),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
   queries: { asyncCheckedQuery },
 });
 
@@ -128,7 +128,7 @@ const asyncCheckedQueryOutput = defineQuery({ output: alwaysAsyncSchema });
 const bindsAsyncQueryOutputSchema = defineWorkflow({
   input: z.object({}),
   output: z.object({}),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
   queries: { asyncCheckedQueryOutput },
 });
 
@@ -146,7 +146,7 @@ const asyncCheckedUpdateInput = defineUpdate({
 const bindsAsyncUpdateSchema = defineWorkflow({
   input: z.object({}),
   output: z.object({}),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
   updates: { asyncCheckedUpdateInput },
 });
 
@@ -234,7 +234,7 @@ const thenableDodging = defineQuery({
 const probeEdgeCases = defineWorkflow({
   input: z.object({}),
   output: z.object({}),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
   queries: { syncThrowProbe, probeDodging, thenableDodging },
 });
 
@@ -257,7 +257,7 @@ const poke = defineUpdate({ input: transformingText, output: transformingOutput 
 const transformWorkflow = defineWorkflow({
   input: z.object({}),
   output: z.object({}),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
   signals: { note },
   queries: { peekNote, peekText },
   updates: { poke },

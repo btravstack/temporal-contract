@@ -874,9 +874,9 @@ contract-error wire round-trip) so a test fails exactly where production does.
 - `@temporalio/*` peer ranges tightened to `^1.16.0` (the real floor for the
   Schedule API and the search-attribute imports).
 
-## 13. Workflows must declare `idempotency`
+## 13. Workflows must declare `startPolicy`
 
-Every `defineWorkflow` now takes a required `idempotency` field. This is a
+Every `defineWorkflow` now takes a required `startPolicy` field. This is a
 breaking change every consumer hits — there is no default to inherit.
 
 Temporal's `workflowIdReusePolicy` defaults to `ALLOW_DUPLICATE`, which
@@ -884,7 +884,7 @@ permits starting a new run under a workflow ID whose previous run reached
 **any** Closed state — including Completed. For a workflow keyed
 `charge-${orderId}`, a client that retries a start after, say, a network
 timeout — not knowing the first attempt actually went through — starts a
-**second** charge under the same order ID. `idempotency` makes the answer to
+**second** charge under the same order ID. `startPolicy` makes the answer to
 "is this safe?" part of the workflow's own definition instead of something
 every call site has to get right on its own:
 
@@ -892,7 +892,7 @@ every call site has to get right on its own:
 defineWorkflow({
   input,
   output,
-  idempotency: "retry-if-failed", // re-runnable only if the last attempt didn't succeed
+  startPolicy: "retry-if-failed", // re-runnable only if the last attempt didn't succeed
 });
 ```
 
@@ -916,13 +916,13 @@ does not.
 that is exactly Temporal's pre-8.0 default, reproduced faithfully. The field
 is required specifically so that choice is made once, deliberately, per
 workflow, rather than inherited silently; treat a sweep of
-`idempotency: "allow-duplicate"` as a placeholder to revisit workflow by
+`startPolicy: "allow-duplicate"` as a placeholder to revisit workflow by
 workflow, not as the final answer.
 
 ::: warning TypeScript enforces the field; a plain JavaScript caller does not get an error
-Omitting `idempotency` is a compile error under TypeScript — `WorkflowDefinition`
+Omitting `startPolicy` is a compile error under TypeScript — `WorkflowDefinition`
 requires it. At runtime, though, `defineContract`'s validator deliberately
-still accepts a definition with `idempotency` **missing** (as opposed to
+still accepts a definition with `startPolicy` **missing** (as opposed to
 present-but-misspelled, which still throws) — this is what keeps an
 already-compiled artifact, or a contract assembled outside the type system,
 from failing validation. A plain-JS caller who skips the field gets no error
@@ -938,6 +938,49 @@ directions of `retry-if-failed`, and the per-call override) and
 worker-initiated child-workflow starts each have a dedicated integration
 suite that starts real executions and checks which ones the server actually
 accepts or rejects.
+
+### Let the contract derive the workflow ID
+
+`startPolicy` only bites if two starts of the same logical request actually
+collide on one workflow ID — and until now the ID was entirely the caller's:
+
+```typescript
+// compiles, and silently makes `once-per-id` inert: every start is a fresh ID
+client.startWorkflow("processOrder", { workflowId: crypto.randomUUID(), args: order });
+```
+
+Declare `workflowId` on the workflow and the ID moves into the contract.
+Passing one at the call site then becomes a **type error**, so the policy and
+the thing it keys on can no longer disagree:
+
+```typescript
+const processOrder = defineWorkflow({
+  input: OrderSchema,
+  output: OrderResultSchema,
+  workflowId: ({ orderId }) => `order-${orderId}`,
+  startPolicy: "once-per-id",
+});
+
+// ID derived from the payload — no `workflowId` accepted here
+await client.startWorkflow("processOrder", { args: order });
+```
+
+The derivation runs against the **validated** input (post-parse, so schema
+transforms have already applied) and must be pure. It is optional: a workflow
+that declares none keeps requiring `workflowId` from the caller, exactly as
+before.
+
+Not applied to `schedule.create`, which generates one ID per firing — a
+scheduled run wants a distinct execution, not deduplication.
+
+### `IdempotencyMode` is now `WorkflowStartPolicy`
+
+The type behind the field follows the field's own rename. `IdempotencyMode`
+remains as a deprecated alias. The name matters because the old one invited a
+real mistake: this governs `workflowIdReusePolicy` — whether a workflow ID may
+be reused after a Closed run — and it does **not** make a workflow idempotent.
+For an activity re-running under Temporal's at-least-once guarantee, see
+[an activity's `idempotencyKey`](/how-to/implement-activities).
 
 ## 14. Activity bounds and required `parentClosePolicy`
 
@@ -1143,7 +1186,7 @@ names the input.
       registered — a data-less contract error from a 7.x worker carries no wire
       marker and degrades to a generic failure until the workers are cut over
 - [ ] `@temporalio/*` resolve to `^1.16.0`; no CJS `require` of these packages
-- [ ] Every `defineWorkflow` declares `idempotency`; a migration wanting zero
+- [ ] Every `defineWorkflow` declares `startPolicy`; a migration wanting zero
       behavior change uses `"allow-duplicate"` everywhere, then revisits each
       workflow deliberately — remember plain-JS (non-type-checked) callers get
       no runtime error for an omitted field, only for a misspelled one

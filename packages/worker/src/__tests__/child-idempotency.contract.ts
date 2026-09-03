@@ -20,7 +20,7 @@ const childOutput = z.object({ ok: z.boolean() });
 const onceChild = defineWorkflow({
   input: childInput,
   output: childOutput,
-  idempotency: "once-per-id",
+  startPolicy: "once-per-id",
 });
 
 /**
@@ -53,7 +53,7 @@ const parent = defineWorkflow({
   // workflow ID (see the spec file), so `parent` itself is never re-run
   // under a reused ID — its own idempotency mode is not under test here.
   // `"allow-duplicate"` is Temporal's own default, chosen so it stays inert.
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
 });
 
 export const childIdempotencyContract = defineContract({

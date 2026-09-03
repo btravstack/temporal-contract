@@ -25,7 +25,7 @@ const charge = defineActivity({
 const quote = defineWorkflow({
   input: z.object({ mode: z.string() }),
   output: z.object({ classification: z.string() }),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
   errors: {
     QuoteExpired: {
       data: z.object({ quoteId: z.string() }),
@@ -49,7 +49,7 @@ export const rehydrationWorkerContract = defineContract({
 const quoteSkewed = defineWorkflow({
   input: z.object({ mode: z.string() }),
   output: z.object({ classification: z.string() }),
-  idempotency: "allow-duplicate",
+  startPolicy: "allow-duplicate",
   errors: {
     QuoteExpired: {
       data: z.object({ quoteId: z.string().startsWith("Q-") }),

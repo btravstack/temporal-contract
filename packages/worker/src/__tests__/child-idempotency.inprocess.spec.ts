@@ -13,7 +13,7 @@ import { childIdempotencyContract } from "./child-idempotency.contract.js";
  * Real-server (time-skipping) coverage of contract-declared idempotency at
  * the CHILD-WORKFLOW boundary — `context.startChildWorkflow` and
  * `context.executeChildWorkflow`, both of which now apply the contract's
- * declared `idempotency` mode as `workflowIdReusePolicy`
+ * declared `startPolicy` mode as `workflowIdReusePolicy`
  * (`child-workflow.ts`).
  *
  * This replaces an earlier version of this coverage that lived in
