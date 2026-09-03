@@ -275,7 +275,26 @@ export type ActivityImplementationHelpers<
   readonly errors: ActivityErrorConstructorsOf<TActivity>;
   readonly context: TContext;
   readonly input: WorkerInferInput<TActivity>;
+  /**
+   * The activity's idempotency key for this invocation — `string` when the
+   * contract declares `idempotencyKey`, and `undefined` when it does not, so
+   * reaching for a key that was never declared is a type error rather than a
+   * silent `undefined` reaching a payment gateway.
+   *
+   * Derived from the validated input, verbatim. Stable across retries of
+   * this activity, across worker crashes, and across a fresh workflow
+   * execution with the same input — see `idempotencyKey` on the contract's
+   * `defineActivity`.
+   */
+  readonly idempotencyKey: ActivityIdempotencyKeyOf<TActivity>;
 };
+
+/**
+ * `string` for an activity that declares `idempotencyKey`, `undefined` for
+ * one that does not.
+ */
+export type ActivityIdempotencyKeyOf<TActivity extends ActivityDefinition> =
+  TActivity["idempotencyKey"] extends (input: never) => string ? string : undefined;
 
 /**
  * Activity implementation using unthrown's `AsyncResult`.
@@ -888,6 +907,28 @@ export function declareActivitiesHandler<
   // Prepare Temporal-compatible activities with validation and Result unwrapping
   const wrappedActivities = {} as ActivitiesHandler<TContract>;
 
+  /**
+   * The declared idempotency key for one invocation, or `undefined` when the
+   * activity declares none.
+   *
+   * Handed over **verbatim** — no activity-name prefix. Prefixing would make
+   * the key the implementation sees differ from the one the derivation
+   * function returns, and `runActivity` (which has a definition but no runtime
+   * activity name) could not reproduce it, so a unit test would exercise a
+   * different key than production. An activity sharing a downstream keyspace
+   * with another should say so in its own derivation: `` `charge:${orderId}` ``.
+   */
+  function deriveIdempotencyKey(
+    activityDef: ActivityDefinition,
+    input: unknown,
+  ): string | undefined {
+    // The structural slot types its parameter `never` so plain-object contracts
+    // stay assignable (see `ActivityDefinition`); the value passed here is the
+    // validated input the derivation was written against.
+    const derive = activityDef.idempotencyKey as ((input: unknown) => string) | undefined;
+    return derive?.(input);
+  }
+
   // Helper to create a wrapped implementation from a definition and impl.
   // `label` is the diagnostic name used in validation errors (workflow-local
   // activities keep the historical `workflow.activity` format); `info` is the
@@ -897,7 +938,7 @@ export function declareActivitiesHandler<
     info: ActivityInvocationInfo,
     activityDef: ActivityDefinition,
     activityImpl: (
-      helpers: { errors: unknown; context: unknown; input: unknown },
+      helpers: { errors: unknown; context: unknown; input: unknown; idempotencyKey: unknown },
       args: unknown,
     ) => AsyncResult<unknown, ApplicationFailure | AnyContractError>,
   ) {
@@ -930,7 +971,16 @@ export function declareActivitiesHandler<
         stageContext: Record<string, unknown>,
       ): AsyncResult<unknown, ApplicationFailure | AnyContractError> =>
         activityImpl(
-          { errors: errorConstructors, context: stageContext, input: stageInput },
+          {
+            errors: errorConstructors,
+            context: stageContext,
+            input: stageInput,
+            // Derived from the input the implementation is about to see —
+            // `stageInput`, not the caller's original — so a middleware
+            // `next({ input })` substitution (already re-validated above)
+            // keys the downstream call on what actually ran.
+            idempotencyKey: deriveIdempotencyKey(activityDef, stageInput),
+          },
           stageInput,
         );
 
@@ -1024,7 +1074,7 @@ export function declareActivitiesHandler<
   }
 
   type ErasedImplementation = (
-    helpers: { errors: unknown; context: unknown; input: unknown },
+    helpers: { errors: unknown; context: unknown; input: unknown; idempotencyKey: unknown },
     args: unknown,
   ) => AsyncResult<unknown, ApplicationFailure | AnyContractError>;
 
