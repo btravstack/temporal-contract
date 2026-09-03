@@ -1,16 +1,11 @@
 import { extname } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { orderProcessingContract } from "@temporal-contract/sample-order-processing-contract";
-import { TypedWorker } from "@temporal-contract/worker/worker";
+import { TypedWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
 import { NativeConnection } from "@temporalio/worker";
 
 import { logger } from "../logger.js";
 import { activities } from "./activities.js";
-
-function workflowPath(filename: string): string {
-  return fileURLToPath(new URL(`./${filename}${extname(import.meta.url)}`, import.meta.url));
-}
 
 /**
  * Start the Temporal Worker
@@ -35,7 +30,11 @@ async function run() {
     contract: orderProcessingContract,
     connection,
     namespace: "default",
-    workflowsPath: workflowPath("workflows"),
+    // This sample runs straight from TypeScript source under `tsx`, so the
+    // sibling module is `workflows.ts` here and `workflows.js` once built —
+    // hence `extname(import.meta.url)` rather than a literal `.js`. An app
+    // that only ever runs built output writes `"./workflows.js"`.
+    workflowsPath: workflowsPathFromURL(import.meta.url, `./workflows${extname(import.meta.url)}`),
     activities,
   });
   if (workerResult.isDefect()) {

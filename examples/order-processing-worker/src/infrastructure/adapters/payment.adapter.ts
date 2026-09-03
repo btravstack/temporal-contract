@@ -9,9 +9,30 @@ import { logger } from "../../logger.js";
  * Concrete implementation of PaymentPort for testing/demo purposes
  */
 export class MockPaymentAdapter implements PaymentPort {
-  async processPayment(customerId: string, amount: number): Promise<PaymentOutcome> {
+  /**
+   * Charges already settled, by idempotency key. A real gateway keeps this
+   * ledger on its side; the mock keeps it here so the example actually
+   * demonstrates the guarantee instead of just passing the key around.
+   */
+  private readonly settled = new Map<string, PaymentOutcome>();
+
+  async processPayment(
+    customerId: string,
+    amount: number,
+    idempotencyKey: string,
+  ): Promise<PaymentOutcome> {
+    const alreadySettled = this.settled.get(idempotencyKey);
+    if (alreadySettled) {
+      // This is the at-least-once case: the activity ran before (a retry, a
+      // worker crash, a completion Temporal never recorded) — or the whole
+      // workflow was restarted under the same order. Same key, same answer,
+      // one charge.
+      logger.info({ idempotencyKey }, `↩️  Replayed settled charge for ${idempotencyKey}`);
+      return alreadySettled;
+    }
+
     logger.info(
-      { customerId, amount },
+      { customerId, amount, idempotencyKey },
       `💳 Processing payment of $${amount} for customer ${customerId}`,
     );
 
@@ -31,6 +52,10 @@ export class MockPaymentAdapter implements PaymentPort {
         `✅ Payment processed: ${result.transactionId}`,
       );
 
+      // Only an approval is recorded: a decline settled nothing, so a later
+      // attempt with the same key is free to be approved.
+      this.settled.set(idempotencyKey, result);
+
       return result;
     } else {
       // A decline is a modeled business outcome, not an exception — the
@@ -47,8 +72,11 @@ export class MockPaymentAdapter implements PaymentPort {
     }
   }
 
-  async refundPayment(transactionId: string): Promise<void> {
-    logger.info({ transactionId }, `💰 Processing refund for transaction ${transactionId}`);
+  async refundPayment(transactionId: string, idempotencyKey: string): Promise<void> {
+    logger.info(
+      { transactionId, idempotencyKey },
+      `💰 Processing refund for transaction ${transactionId}`,
+    );
 
     // Simulate refund processing with 99% success rate
     const success = Math.random() > 0.01;

@@ -1,15 +1,15 @@
 import {
-  SCHEDULE_NOT_FOUND_ERROR_TAG,
+  SCHEDULE_CREATE_PATTERNS,
   SCHEDULE_ALREADY_EXISTS_ERROR_TAG,
-  SIGNAL_VALIDATION_ERROR_TAG,
+  SCHEDULE_NOT_FOUND_ERROR_TAG,
+  SIGNAL_PATTERNS,
   TypedClient,
   WORKFLOW_ALREADY_STARTED_ERROR_TAG,
-  WORKFLOW_CANCELLED_ERROR_TAG,
+  WORKFLOW_EXECUTE_PATTERNS,
   WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG,
   WORKFLOW_FAILED_ERROR_TAG,
-  WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG,
-  WORKFLOW_TERMINATED_ERROR_TAG,
-  WORKFLOW_TIMEOUT_ERROR_TAG,
+  WORKFLOW_RESULT_PATTERNS,
+  WORKFLOW_STOPPED_PATTERNS,
   WORKFLOW_VALIDATION_ERROR_TAG,
 } from "@temporal-contract/client";
 import {
@@ -81,10 +81,10 @@ async function run() {
     totalAmount: 149.97, // above the worker's $100 approval threshold
   };
 
-  const startResult = await orders.startWorkflow("processOrder", {
-    workflowId: approvalOrder.orderId,
-    args: approvalOrder,
-  });
+  // No `workflowId` here: the contract derives it (`order-${orderId}`), so a
+  // caller cannot accidentally defeat the workflow's `startPolicy` by passing
+  // a fresh ID per attempt. Supplying one is a type error.
+  const startResult = await orders.startWorkflow("processOrder", { args: approvalOrder });
   if (!startResult.isOk()) {
     logger.error(
       { err: startResult.isErr() ? startResult.error : startResult.cause },
@@ -109,14 +109,12 @@ async function run() {
   });
   approvalSent.match({
     ok: () => logger.info("✍️  Approval signal sent"),
+    // One group instead of every signal tag by hand — still exhaustive: a
+    // member missing from the arm is a compile error naming it.
     errCases: (matcher) =>
-      matcher
-        .with(P.tag(SIGNAL_VALIDATION_ERROR_TAG), (err) =>
-          logger.error({ error: err }, "❌ Signal payload rejected by the contract"),
-        )
-        .with(P.tag(WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG), (err) =>
-          logger.error({ error: err }, "❌ Workflow execution not found"),
-        ),
+      matcher.with(...SIGNAL_PATTERNS, (err) =>
+        logger.error({ error: err }, "❌ Signal could not be delivered"),
+      ),
     defect: (cause) => logger.error({ cause }, "❌ Unexpected failure sending signal"),
   });
 
@@ -142,14 +140,8 @@ async function run() {
         // Everything else the result phase can surface — validation, generic
         // failure, the first-class outcome trio (cancelled/terminated/timed
         // out), and a missing execution.
-        .with(
-          P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
-          P.tag(WORKFLOW_FAILED_ERROR_TAG),
-          P.tag(WORKFLOW_CANCELLED_ERROR_TAG),
-          P.tag(WORKFLOW_TERMINATED_ERROR_TAG),
-          P.tag(WORKFLOW_TIMEOUT_ERROR_TAG),
-          P.tag(WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG),
-          (err) => logger.error({ error: err }, "❌ Workflow did not complete successfully"),
+        .with(...WORKFLOW_RESULT_PATTERNS, (err) =>
+          logger.error({ error: err }, "❌ Workflow did not complete successfully"),
         ),
     defect: (cause) => logger.error({ cause }, "❌ Unexpected failure awaiting result"),
   });
@@ -166,10 +158,7 @@ async function run() {
     totalAmount: 119.97, // above the threshold — waits for approval, giving us time to cancel
   };
 
-  const cancelStart = await orders.startWorkflow("processOrder", {
-    workflowId: cancelOrder.orderId,
-    args: cancelOrder,
-  });
+  const cancelStart = await orders.startWorkflow("processOrder", { args: cancelOrder });
   if (!cancelStart.isOk()) {
     logger.error(
       { err: cancelStart.isErr() ? cancelStart.error : cancelStart.cause },
@@ -181,7 +170,10 @@ async function run() {
   // `getHandle` is synchronous: the only failure mode is a workflow name
   // missing from the contract, surfaced as a sync `Result` Err. Whether the
   // *execution* exists is answered lazily by the handle's methods.
-  const fetchedHandle = orders.getHandle("processOrder", cancelOrder.orderId);
+  // The ID came from the contract's derivation, so read it off the start
+  // result rather than re-deriving it here — the derivation lives in one
+  // place on purpose.
+  const fetchedHandle = orders.getHandle("processOrder", cancelStart.value.workflowId);
   if (!fetchedHandle.isOk()) {
     logger.error(
       { err: fetchedHandle.isErr() ? fetchedHandle.error : fetchedHandle.cause },
@@ -198,14 +190,12 @@ async function run() {
   const cancelSent = await cancelHandle.signals.cancelRequested();
   cancelSent.match({
     ok: () => logger.info("🛑 Cancellation signal sent"),
+    // One group instead of every signal tag by hand — still exhaustive: a
+    // member missing from the arm is a compile error naming it.
     errCases: (matcher) =>
-      matcher
-        .with(P.tag(SIGNAL_VALIDATION_ERROR_TAG), (err) =>
-          logger.error({ error: err }, "❌ Signal payload rejected by the contract"),
-        )
-        .with(P.tag(WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG), (err) =>
-          logger.error({ error: err }, "❌ Workflow execution not found"),
-        ),
+      matcher.with(...SIGNAL_PATTERNS, (err) =>
+        logger.error({ error: err }, "❌ Signal could not be delivered"),
+      ),
     defect: (cause) => logger.error({ cause }, "❌ Unexpected failure sending signal"),
   });
 
@@ -224,11 +214,8 @@ async function run() {
         // The first-class outcome errors get their own arm here: a
         // server-side cancel / terminate / timeout is a distinct outcome,
         // not a generic "failure" — no `err.cause instanceof ...` digging.
-        .with(
-          P.tag(WORKFLOW_CANCELLED_ERROR_TAG),
-          P.tag(WORKFLOW_TERMINATED_ERROR_TAG),
-          P.tag(WORKFLOW_TIMEOUT_ERROR_TAG),
-          (err) => logger.warn({ error: err }, `🛑 Workflow ${err.name}: execution was stopped`),
+        .with(...WORKFLOW_STOPPED_PATTERNS, (err) =>
+          logger.warn({ error: err }, `🛑 Workflow ${err.name}: execution was stopped`),
         )
         .with(P.tag(WORKFLOW_VALIDATION_ERROR_TAG), (err) =>
           logger.error({ error: err }, "❌ Workflow output validation failed"),
@@ -257,10 +244,7 @@ async function run() {
   // `executeWorkflow` combines start + result, so its error union is the
   // widest: every modeled tag (package-namespaced `@temporal-contract/...`)
   // plus `Ok` and `Defect` must be handled, or it is a compile error.
-  const executeResult = await orders.executeWorkflow("processOrder", {
-    workflowId: quickOrder.orderId,
-    args: quickOrder,
-  });
+  const executeResult = await orders.executeWorkflow("processOrder", { args: quickOrder });
 
   executeResult.match({
     ok: (output) => {
@@ -292,17 +276,12 @@ async function run() {
         .with(P.tag(WORKFLOW_ALREADY_STARTED_ERROR_TAG), (err) =>
           logger.warn({ error: err }, "⏭️  Workflow already started — skipping"),
         )
-        // Everything else executeWorkflow can err with — the remaining
-        // start-phase and result-phase members.
-        .with(
-          P.tag(WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG),
-          P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
-          P.tag(WORKFLOW_FAILED_ERROR_TAG),
-          P.tag(WORKFLOW_CANCELLED_ERROR_TAG),
-          P.tag(WORKFLOW_TERMINATED_ERROR_TAG),
-          P.tag(WORKFLOW_TIMEOUT_ERROR_TAG),
-          P.tag(WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG),
-          (err) => logger.error({ error: err }, "❌ Order processing failed"),
+        // Everything else executeWorkflow can err with. The group names both
+        // phases including `WorkflowAlreadyStartedError`; the arm above
+        // already subtracted that one, so listing it again matches nothing
+        // and costs nothing.
+        .with(...WORKFLOW_EXECUTE_PATTERNS, (err) =>
+          logger.error({ error: err }, "❌ Order processing failed"),
         ),
     // A defect is an unmodeled failure (a bug) — including technical/
     // infrastructure faults like a dropped connection (a `RuntimeClientError`
@@ -335,12 +314,9 @@ async function run() {
           logger.info({ scheduleId: err.scheduleId }, "⏭️  Schedule already exists — reusing it");
           return orders.schedule.getHandle(err.scheduleId);
         })
-        .with(P.tag(WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG), (err) => {
-          logger.error({ error: err }, "❌ Workflow not declared in the contract");
-          return undefined;
-        })
-        .with(P.tag(WORKFLOW_VALIDATION_ERROR_TAG), (err) => {
-          logger.error({ error: err }, "❌ Schedule args rejected by the contract");
+        // The rest of what `schedule.create` can produce, as one group.
+        .with(...SCHEDULE_CREATE_PATTERNS, (err) => {
+          logger.error({ error: err }, "❌ Schedule could not be created");
           return undefined;
         }),
     defect: (cause) => {

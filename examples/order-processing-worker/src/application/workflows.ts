@@ -5,6 +5,7 @@ import {
 import {
   ACTIVITY_CANCELLED_ERROR_TAG,
   ACTIVITY_ERROR_TAG,
+  bestEffort,
   declareWorkflow,
   propagateFailure,
   rethrowCancellation,
@@ -155,7 +156,7 @@ export const processOrder = declareWorkflow({
     const paymentOutcome = await activities
       .processPayment({ customerId: order.customerId, amount: order.totalAmount })
       .match({
-        ok: (payment) => payment,
+        ok: (payment) => ({ kind: "paid" as const, payment }),
         errCases: (matcher) =>
           matcher
             // The only declared error on `processPayment` — the object
@@ -165,36 +166,20 @@ export const processOrder = declareWorkflow({
               status = "failed";
               log.error(`Payment declined for order ${order.orderId}: ${failure.data.reason}`);
 
-              // Best-effort notification: the declined-payment outcome below
-              // is what matters, so an undeclared notification failure only
-              // gets a warning — it must not swallow (or block) the rethrow.
-              // Real cancellation is the exception: it must still propagate.
-              await activities
-                .sendNotification({
+              // Best-effort: the declined-payment outcome below is what
+              // matters, so a failed notification only earns a warning. It
+              // must not swallow the rethrow — and `bestEffort` keeps real
+              // cancellation propagating, which a hand-written fold has to
+              // remember not to absorb.
+              await bestEffort(
+                activities.sendNotification({
                   customerId: order.customerId,
                   subject: "Order Failed",
                   message: `We're sorry, but your order ${order.orderId} could not be processed. Your payment was declined (${failure.data.reason}).`,
-                })
-                .match({
-                  ok: () => undefined,
-                  errCases: (matcher) =>
-                    matcher
-                      .with(P.tag(ACTIVITY_CANCELLED_ERROR_TAG), (cancelled) =>
-                        rethrowCancellation(cancelled),
-                      )
-                      .with(P.tag(ACTIVITY_ERROR_TAG), (notifyFailure) => {
-                        log.warn(
-                          `Failed to notify customer of declined payment: ${notifyFailure.message}`,
-                        );
-                      }),
-                  // A defect here is still just a failed email — the
-                  // PaymentDeclined outcome about to be rethrown below is
-                  // already authoritative and must not be blocked by a
-                  // notification bug.
-                  defect: (cause) => {
-                    log.warn(`Failed to notify customer of declined payment: ${cause}`);
-                  },
-                });
+                }),
+                (notifyFailure) =>
+                  log.warn(`Failed to notify customer of declined payment: ${notifyFailure}`),
+              );
 
               // Rethrow as this workflow's own declared contract error: the
               // execution fails with `ApplicationFailure(type: "PaymentDeclined")`
@@ -215,10 +200,13 @@ export const processOrder = declareWorkflow({
               status = "failed";
               log.error(`Payment activity failed for order ${order.orderId}: ${failure.message}`);
               return {
-                orderId: order.orderId,
-                status: "failed" as const,
-                failureReason: "Payment could not be processed",
-                errorCode: "PAYMENT_UNAVAILABLE",
+                kind: "aborted" as const,
+                output: {
+                  orderId: order.orderId,
+                  status: "failed" as const,
+                  failureReason: "Payment could not be processed",
+                  errorCode: "PAYMENT_UNAVAILABLE",
+                },
               };
             }),
         // Unmodeled failure (a bug, not an anticipated outcome) — rethrow at
@@ -229,12 +217,14 @@ export const processOrder = declareWorkflow({
         },
       });
 
-    if ("status" in paymentOutcome) {
-      // The fold produced the workflow's failed output — return it as-is.
-      return paymentOutcome;
+    // Discriminated by a tag the fold set, not by sniffing for a `status`
+    // field: the two arms mean different things ("here is the payment" vs
+    // "here is the workflow's output"), so they say so.
+    if (paymentOutcome.kind === "aborted") {
+      return paymentOutcome.output;
     }
 
-    const payment = paymentOutcome;
+    const { payment } = paymentOutcome;
     log.info(`Payment successful: ${payment.transactionId}`);
 
     // ------------------------------------------------------------------
@@ -305,29 +295,14 @@ export const processOrder = declareWorkflow({
         ? `We're sorry, but your order ${order.orderId} could not be processed. Our inventory service is temporarily unavailable. Any charges have been refunded.`
         : `We're sorry, but your order ${order.orderId} could not be processed. One or more items are out of stock. Any charges have been refunded.`;
 
-      await activities
-        .sendNotification({
+      await bestEffort(
+        activities.sendNotification({
           customerId: order.customerId,
           subject: "Order Failed",
           message: rollbackMessage,
-        })
-        .match({
-          ok: () => undefined,
-          errCases: (matcher) =>
-            matcher
-              .with(P.tag(ACTIVITY_CANCELLED_ERROR_TAG), (cancelled) =>
-                rethrowCancellation(cancelled),
-              )
-              .with(P.tag(ACTIVITY_ERROR_TAG), (failure) => {
-                log.warn(`Failed to notify customer of out-of-stock order: ${failure.message}`);
-              }),
-          // A defect here is still just a failed email — the order outcome
-          // above (and about to be returned below) is already authoritative
-          // and must not be blocked by a notification bug.
-          defect: (cause) => {
-            log.warn(`Failed to notify customer of out-of-stock order: ${cause}`);
-          },
-        });
+        }),
+        (failure) => log.warn(`Failed to notify customer of out-of-stock order: ${failure}`),
+      );
 
       return {
         orderId: order.orderId,
@@ -363,32 +338,16 @@ export const processOrder = declareWorkflow({
     // now returns an `AsyncResult` — including cancellation, via
     // `ActivityCancelledError` — so narrowing the call's own result is enough
     // and no longer needs a wrapping `cancellableScope` just to observe it.
-    await activities
-      .sendNotification({
+    // Step 5: confirmation, best-effort — the order already shipped, so a
+    // failed email is a warning. Cancellation still propagates.
+    await bestEffort(
+      activities.sendNotification({
         customerId: order.customerId,
         subject: "Order Confirmed",
         message: `Your order ${order.orderId} has been confirmed and will be shipped. Tracking: ${shippingResult.trackingNumber}`,
-      })
-      .match({
-        ok: () => undefined,
-        // Cancellation must propagate — absorbing it here would complete the
-        // workflow after a cancel request instead of ending it `Cancelled`.
-        errCases: (matcher) =>
-          matcher
-            .with(P.tag(ACTIVITY_CANCELLED_ERROR_TAG), (cancelled) =>
-              rethrowCancellation(cancelled),
-            )
-            // Non-critical: the order is already shipped, so even an
-            // undeclared notification failure is only worth a warning.
-            .with(P.tag(ACTIVITY_ERROR_TAG), (failure) => {
-              log.warn(`Failed to send confirmation notification: ${failure.message}`);
-            }),
-        // A defect here is still just a failed email — the order already
-        // completed successfully above, and that outcome is authoritative.
-        defect: (cause) => {
-          log.warn(`Failed to send confirmation notification: ${cause}`);
-        },
-      });
+      }),
+      (failure) => log.warn(`Failed to send confirmation notification: ${failure}`),
+    );
 
     // Success!
     status = "completed";

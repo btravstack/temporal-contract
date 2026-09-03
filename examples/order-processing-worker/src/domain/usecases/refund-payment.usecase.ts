@@ -9,7 +9,7 @@ import type { PaymentPort } from "../ports/payment.port.js";
 export class RefundPaymentUseCase {
   constructor(private readonly paymentPort: PaymentPort) {}
 
-  async execute(transactionId: string): Promise<void> {
+  async execute(transactionId: string, idempotencyKey: string): Promise<void> {
     // Business validation
     if (!transactionId || transactionId.trim() === "") {
       // oxlint-disable-next-line unthrown/no-throw -- known-technical precondition throw in a plain (non-Result) domain helper, wrapped once at the activity boundary via fromPromise(..., qualifyFailure(...))
@@ -17,6 +17,6 @@ export class RefundPaymentUseCase {
     }
 
     // Delegate to payment port
-    return this.paymentPort.refundPayment(transactionId);
+    return this.paymentPort.refundPayment(transactionId, idempotencyKey);
   }
 }
