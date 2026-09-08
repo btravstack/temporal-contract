@@ -70,8 +70,8 @@ catalogs:
       specifier: 5.7.0
       version: 5.7.0
     '@unthrown/vitest':
-      specifier: 5.5.0
-      version: 5.5.0
+      specifier: 5.7.0
+      version: 5.7.0
     '@vitest/coverage-v8':
       specifier: 4.1.10
       version: 4.1.10
@@ -344,7 +344,7 @@ importers:
         version: 26.4.0
       '@unthrown/vitest':
         specifier: 'catalog:'
-        version: 5.5.0(unthrown@5.7.0)(vitest@4.1.10)
+        version: 5.7.0(unthrown@5.7.0)(vitest@4.1.10)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(vitest@4.1.10)
@@ -396,7 +396,7 @@ importers:
         version: 26.4.0
       '@unthrown/vitest':
         specifier: 'catalog:'
-        version: 5.5.0(unthrown@5.7.0)(vitest@4.1.10)
+        version: 5.7.0(unthrown@5.7.0)(vitest@4.1.10)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(vitest@4.1.10)
@@ -445,7 +445,7 @@ importers:
         version: 26.4.0
       '@unthrown/vitest':
         specifier: 'catalog:'
-        version: 5.5.0(unthrown@5.7.0)(vitest@4.1.10)
+        version: 5.7.0(unthrown@5.7.0)(vitest@4.1.10)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(vitest@4.1.10)
@@ -508,7 +508,7 @@ importers:
         version: 26.4.0
       '@unthrown/vitest':
         specifier: 'catalog:'
-        version: 5.5.0(unthrown@5.7.0)(vitest@4.1.10)
+        version: 5.7.0(unthrown@5.7.0)(vitest@4.1.10)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(vitest@4.1.10)
@@ -587,7 +587,7 @@ importers:
         version: 26.4.0
       '@unthrown/vitest':
         specifier: 'catalog:'
-        version: 5.5.0(unthrown@5.7.0)(vitest@4.1.10)
+        version: 5.7.0(unthrown@5.7.0)(vitest@4.1.10)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(vitest@4.1.10)
@@ -2980,11 +2980,11 @@ packages:
     peerDependencies:
       unthrown: ^5.7.0
 
-  '@unthrown/vitest@5.5.0':
-    resolution: {integrity: sha512-ZDGw9fIJsYDieZRC3BidtgsCPYj6ZNdVdfrPro90RDgwmwMn2y6dAJDdpoWjAPQhKryUSbz5HAlx8+aUVFBmPQ==}
+  '@unthrown/vitest@5.7.0':
+    resolution: {integrity: sha512-3ZftxPnpgVB5qWB9QxrbXWOIQmlDz7gsDub9iwoy0PlEUaywS+hOX0Lref1zKJKSLgw7rIaUnzCvnRyQc25slw==}
     engines: {node: '>=20'}
     peerDependencies:
-      unthrown: ^5.5.0
+      unthrown: ^5.7.0
       vitest: ^4
 
   '@upsetjs/venn.js@2.0.0':
@@ -7895,7 +7895,7 @@ snapshots:
     dependencies:
       unthrown: 5.7.0
 
-  '@unthrown/vitest@5.5.0(unthrown@5.7.0)(vitest@4.1.10)':
+  '@unthrown/vitest@5.7.0(unthrown@5.7.0)(vitest@4.1.10)':
     dependencies:
       unthrown: 5.7.0
       vitest: 4.1.10(@types/node@26.4.0)(@vitest/coverage-v8@4.1.10)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.9.0)
