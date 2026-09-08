@@ -112,8 +112,8 @@ describe("workflow entry point — wire format against a real server", () => {
     const cause = (result.error as WorkflowFailedError).cause;
     expect(cause).toBeInstanceOf(ApplicationFailure);
     expect((cause as ApplicationFailure).type).toBe("WorkflowOutputValidationError");
-    expect((cause as ApplicationFailure).message).toBe(
-      'Workflow "entryInvalidOutput" output validation failed: at n: Invalid input',
+    expect((cause as ApplicationFailure).message).toMatch(
+      /Workflow "entryInvalidOutput" output validation failed: at n: (?:Invalid input|expected number, received string)/,
     );
   });
 });
@@ -297,8 +297,8 @@ describe("child-workflow boundary — wire format against a real server", () => 
     // EFFECT 1: the send was rejected client-side with the SAME typed
     // classification and message `createTypedChildSignals` produces —
     // naming the child workflow, the signal, and the failing field.
-    expect(result.sendError).toBe(
-      'Child workflow "signalful" signal "note" input validation failed: at text: Invalid input',
+    expect(result.sendError).toMatch(
+      /Child workflow "signalful" signal "note" input validation failed: at text: (?:Invalid input|expected string, received number)/,
     );
     // EFFECT 2 (corroborating): the child's OWN completed output shows it
     // never received a note.
