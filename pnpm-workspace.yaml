@@ -35,7 +35,7 @@ catalog:
   "@vitest/coverage-v8": 4.1.10
   arktype: 2.2.3
   knip: 6.33.0
-  lefthook: 2.1.10
+  lefthook: 2.1.12
   mermaid: 11.17.2
   oxfmt: 0.65.0
   oxlint: 1.80.0
