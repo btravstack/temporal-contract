@@ -17,6 +17,10 @@ updates:
         patterns:
           - "vitest"
           - "@vitest/*"
+      unthrown:
+        patterns:
+          - "unthrown"
+          - "@unthrown/*"
       dev-dependencies:
         dependency-type: "development"
     ignore:
