@@ -54,7 +54,7 @@ catalog:
   vitepress: 1.6.4
   vitepress-plugin-mermaid: 2.0.17
   vitest: 4.1.10
-  zod: 4.4.3
+  zod: 4.5.4
 
 peerDependencyRules:
   ignoreMissing:

@@ -139,8 +139,8 @@ catalogs:
       specifier: 4.1.10
       version: 4.1.10
     zod:
-      specifier: 4.4.3
-      version: 4.4.3
+      specifier: 4.5.4
+      version: 4.5.4
 
 overrides:
   fast-uri@<3.1.6: 3.1.6
@@ -263,7 +263,7 @@ importers:
         version: 5.7.0
       zod:
         specifier: 'catalog:'
-        version: 4.4.3
+        version: 4.5.4
     devDependencies:
       '@btravstack/tsconfig':
         specifier: 'catalog:'
@@ -285,7 +285,7 @@ importers:
         version: link:../../packages/contract
       zod:
         specifier: 'catalog:'
-        version: 4.4.3
+        version: 4.5.4
     devDependencies:
       '@btravstack/tsconfig':
         specifier: 'catalog:'
@@ -325,7 +325,7 @@ importers:
         version: 5.7.0
       zod:
         specifier: 'catalog:'
-        version: 4.4.3
+        version: 4.5.4
     devDependencies:
       '@btravstack/tsconfig':
         specifier: 'catalog:'
@@ -423,7 +423,7 @@ importers:
         version: 4.1.10(@types/node@26.4.0)(@vitest/coverage-v8@4.1.10)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.13)(yaml@2.9.0)
       zod:
         specifier: 'catalog:'
-        version: 4.4.3
+        version: 4.5.4
 
   packages/contract:
     dependencies:
@@ -478,7 +478,7 @@ importers:
         version: 4.1.10(@types/node@26.4.0)(@vitest/coverage-v8@4.1.10)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.13)(yaml@2.9.0)
       zod:
         specifier: 'catalog:'
-        version: 4.4.3
+        version: 4.5.4
 
   packages/testing:
     devDependencies:
@@ -538,7 +538,7 @@ importers:
         version: 4.1.10(@types/node@26.4.0)(@vitest/coverage-v8@4.1.10)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.13)(yaml@2.9.0)
       zod:
         specifier: 'catalog:'
-        version: 4.4.3
+        version: 4.5.4
 
   packages/worker:
     dependencies:
@@ -614,7 +614,7 @@ importers:
         version: 4.1.10(@types/node@26.4.0)(@vitest/coverage-v8@4.1.10)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.13)(yaml@2.9.0)
       zod:
         specifier: 'catalog:'
-        version: 4.4.3
+        version: 4.5.4
 
 packages:
 
@@ -5715,6 +5715,9 @@ packages:
 
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
+
+  zod@4.5.4:
+    resolution: {integrity: sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==}
 
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
@@ -10865,5 +10868,7 @@ snapshots:
   zod@3.25.76: {}
 
   zod@4.4.3: {}
+
+  zod@4.5.4: {}
 
   zwitch@2.0.4: {}
