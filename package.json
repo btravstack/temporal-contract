@@ -13,7 +13,7 @@
     "format": "oxfmt .",
     "knip": "knip",
     "lint": "oxlint .",
-    "prepare": "lefthook install",
+    "prepare": "lefthook install --reset-hooks-path",
     "release": "pnpm build && changeset publish",
     "test": "turbo run test",
     "test:integration": "turbo run test:integration",
