@@ -118,8 +118,8 @@ catalogs:
       specifier: 0.28.20
       version: 0.28.20
     typedoc-plugin-markdown:
-      specifier: 4.12.0
-      version: 4.12.0
+      specifier: 4.13.0
+      version: 4.13.0
     typescript:
       specifier: 6.0.3
       version: 6.0.3
@@ -375,7 +375,7 @@ importers:
         version: 0.2.0
       '@btravstack/typedoc':
         specifier: 'catalog:'
-        version: 0.1.0(typedoc-plugin-markdown@4.12.0(typedoc@0.28.20(typescript@6.0.3)))(typedoc@0.28.20(typescript@6.0.3))
+        version: 0.1.0(typedoc-plugin-markdown@4.13.0(typedoc@0.28.20(typescript@6.0.3)))(typedoc@0.28.20(typescript@6.0.3))
       '@temporal-contract/testing':
         specifier: workspace:*
         version: link:../testing
@@ -411,7 +411,7 @@ importers:
         version: 0.28.20(typescript@6.0.3)
       typedoc-plugin-markdown:
         specifier: 'catalog:'
-        version: 4.12.0(typedoc@0.28.20(typescript@6.0.3))
+        version: 4.13.0(typedoc@0.28.20(typescript@6.0.3))
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -439,7 +439,7 @@ importers:
         version: 0.2.0
       '@btravstack/typedoc':
         specifier: 'catalog:'
-        version: 0.1.0(typedoc-plugin-markdown@4.12.0(typedoc@0.28.20(typescript@6.0.3)))(typedoc@0.28.20(typescript@6.0.3))
+        version: 0.1.0(typedoc-plugin-markdown@4.13.0(typedoc@0.28.20(typescript@6.0.3)))(typedoc@0.28.20(typescript@6.0.3))
       '@types/node':
         specifier: 'catalog:'
         version: 26.4.0
@@ -463,7 +463,7 @@ importers:
         version: 0.28.20(typescript@6.0.3)
       typedoc-plugin-markdown:
         specifier: 'catalog:'
-        version: 4.12.0(typedoc@0.28.20(typescript@6.0.3))
+        version: 4.13.0(typedoc@0.28.20(typescript@6.0.3))
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -490,7 +490,7 @@ importers:
         version: 0.2.0
       '@btravstack/typedoc':
         specifier: 'catalog:'
-        version: 0.1.0(typedoc-plugin-markdown@4.12.0(typedoc@0.28.20(typescript@6.0.3)))(typedoc@0.28.20(typescript@6.0.3))
+        version: 0.1.0(typedoc-plugin-markdown@4.13.0(typedoc@0.28.20(typescript@6.0.3)))(typedoc@0.28.20(typescript@6.0.3))
       '@temporalio/client':
         specifier: 'catalog:'
         version: 1.23.0
@@ -526,7 +526,7 @@ importers:
         version: 0.28.20(typescript@6.0.3)
       typedoc-plugin-markdown:
         specifier: 'catalog:'
-        version: 4.12.0(typedoc@0.28.20(typescript@6.0.3))
+        version: 4.13.0(typedoc@0.28.20(typescript@6.0.3))
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -560,7 +560,7 @@ importers:
         version: 0.2.0
       '@btravstack/typedoc':
         specifier: 'catalog:'
-        version: 0.1.0(typedoc-plugin-markdown@4.12.0(typedoc@0.28.20(typescript@6.0.3)))(typedoc@0.28.20(typescript@6.0.3))
+        version: 0.1.0(typedoc-plugin-markdown@4.13.0(typedoc@0.28.20(typescript@6.0.3)))(typedoc@0.28.20(typescript@6.0.3))
       '@temporal-contract/client':
         specifier: workspace:*
         version: link:../client
@@ -602,7 +602,7 @@ importers:
         version: 0.28.20(typescript@6.0.3)
       typedoc-plugin-markdown:
         specifier: 'catalog:'
-        version: 4.12.0(typedoc@0.28.20(typescript@6.0.3))
+        version: 4.13.0(typedoc@0.28.20(typescript@6.0.3))
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -5378,8 +5378,8 @@ packages:
     resolution: {integrity: sha512-Nel9aPbgSzRxfs1+4GoSB4wexCF+4Axlk7OSGVQCMa+4fWcyxIsN/YNmkp0xTT2iQzMD98h8yFLav/cNaULmRA==}
     engines: {node: '>= 16.0.0'}
 
-  typedoc-plugin-markdown@4.12.0:
-    resolution: {integrity: sha512-eJDEMAfxCmede22c/Jw7d0FA13ggAQv+KkwQYKYCdqI02cin6Rc9QRwbG/7XvvHWinuFejySnZVUWDtvGk3Vbg==}
+  typedoc-plugin-markdown@4.13.0:
+    resolution: {integrity: sha512-OHaOLoMTS0wL2ud73WXvxv486mrUEtgXxW4iKiTOGJVipT/VBWY76rlVRMQGes7aVonoIf5roWRe1UvHbufLlQ==}
     engines: {node: '>= 18'}
     peerDependencies:
       typedoc: 0.28.x
@@ -6135,10 +6135,10 @@ snapshots:
 
   '@btravstack/tsconfig@0.2.0': {}
 
-  '@btravstack/typedoc@0.1.0(typedoc-plugin-markdown@4.12.0(typedoc@0.28.20(typescript@6.0.3)))(typedoc@0.28.20(typescript@6.0.3))':
+  '@btravstack/typedoc@0.1.0(typedoc-plugin-markdown@4.13.0(typedoc@0.28.20(typescript@6.0.3)))(typedoc@0.28.20(typescript@6.0.3))':
     dependencies:
       typedoc: 0.28.20(typescript@6.0.3)
-      typedoc-plugin-markdown: 4.12.0(typedoc@0.28.20(typescript@6.0.3))
+      typedoc-plugin-markdown: 4.13.0(typedoc@0.28.20(typescript@6.0.3))
 
   '@changesets/apply-release-plan@8.0.0':
     dependencies:
@@ -10417,7 +10417,7 @@ snapshots:
       tunnel: 0.0.6
       underscore: 1.13.8
 
-  typedoc-plugin-markdown@4.12.0(typedoc@0.28.20(typescript@6.0.3)):
+  typedoc-plugin-markdown@4.13.0(typedoc@0.28.20(typescript@6.0.3)):
     dependencies:
       typedoc: 0.28.20(typescript@6.0.3)
 
