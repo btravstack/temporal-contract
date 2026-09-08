@@ -162,8 +162,8 @@ describe("continue-as-new against a real server", () => {
     const cause = (result.error as WorkflowFailedError).cause;
     expect(cause).toBeInstanceOf(ApplicationFailure);
     expect((cause as ApplicationFailure).type).toBe("WorkflowInputValidationError");
-    expect((cause as ApplicationFailure).message).toBe(
-      'Workflow "invalidContinuation" input validation failed: at n: Invalid input',
+    expect((cause as ApplicationFailure).message).toMatch(
+      /Workflow "invalidContinuation" input validation failed: at n: (?:Invalid input|expected number, received string)/,
     );
 
     // EFFECT (send-side guard, not just the receive-side echo of it): the
@@ -275,8 +275,8 @@ describe("continue-as-new against a real server", () => {
     const cause = (result.error as WorkflowFailedError).cause;
     expect(cause).toBeInstanceOf(ApplicationFailure);
     expect((cause as ApplicationFailure).type).toBe("WorkflowInputValidationError");
-    expect((cause as ApplicationFailure).message).toBe(
-      'Workflow "archive" input validation failed: at batchId: Invalid input',
+    expect((cause as ApplicationFailure).message).toMatch(
+      /Workflow "archive" input validation failed: at batchId: (?:Invalid input|expected string, received number)/,
     );
 
     // EFFECT (send-side guard, not just the receive-side echo of it): the

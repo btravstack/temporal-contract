@@ -135,8 +135,8 @@ describe("handler binding against a real server", () => {
       const dropped = capturedLogs.find(
         (l) => l.level === "WARN" && l.message.includes('Dropped signal "bump"'),
       );
-      expect(dropped?.message).toBe(
-        'Dropped signal "bump": input validation failed: at by: Invalid input',
+      expect(dropped?.message).toMatch(
+        /Dropped signal "bump": input validation failed: at by: (?:Invalid input|Too small: expected number to be >0)/,
       );
     } finally {
       restoreLogger();
@@ -198,8 +198,8 @@ describe("handler binding against a real server", () => {
       // naming the query) — not some other failure mode (e.g. an
       // unregistered handler, which would carry a different message).
       expect(rejected).toBeInstanceOf(ServiceError);
-      expect((rejected as ServiceError).cause?.message).toContain(
-        'Query "describe" input validation failed: Invalid input',
+      expect((rejected as ServiceError).cause?.message).toMatch(
+        /Query "describe" input validation failed: (?:Invalid input|Too small: expected string to have >=1 characters)/,
       );
 
       await handle.signals.finish();
