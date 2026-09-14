@@ -14,7 +14,7 @@ catalog:
   "@btravstack/commitlint": 0.1.0
   "@btravstack/lefthook": 0.1.1
   "@btravstack/oxlint": 0.2.1
-  "@unthrown/oxlint": 5.7.0
+  "@unthrown/oxlint": 5.8.0
   "@unthrown/saga": 5.7.0
   "@btravstack/theme": 2.0.0
   "@btravstack/tsconfig": 0.2.0
@@ -49,7 +49,7 @@ catalog:
   typedoc: 0.28.20
   typedoc-plugin-markdown: 4.13.0
   typescript: 6.0.3
-  unthrown: 5.7.0
+  unthrown: 5.8.0
   valibot: 1.4.2
   vitepress: 1.6.4
   vitepress-plugin-mermaid: 2.0.17

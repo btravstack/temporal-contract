@@ -64,8 +64,8 @@ catalogs:
       specifier: 26.4.0
       version: 26.4.0
     '@unthrown/oxlint':
-      specifier: 5.7.0
-      version: 5.7.0
+      specifier: 5.8.0
+      version: 5.8.0
     '@unthrown/saga':
       specifier: 5.7.0
       version: 5.7.0
@@ -124,8 +124,8 @@ catalogs:
       specifier: 6.0.3
       version: 6.0.3
     unthrown:
-      specifier: 5.7.0
-      version: 5.7.0
+      specifier: 5.8.0
+      version: 5.8.0
     valibot:
       specifier: 1.4.2
       version: 1.4.2
@@ -184,7 +184,7 @@ importers:
         version: 9.2.0(@stryker-mutator/core@9.2.0(@types/node@26.3.0))(vitest@4.1.10)
       '@unthrown/oxlint':
         specifier: 'catalog:'
-        version: 5.7.0(oxlint@1.80.0)
+        version: 5.8.0(oxlint@1.80.0)
       knip:
         specifier: 'catalog:'
         version: 6.34.0
@@ -221,7 +221,7 @@ importers:
     devDependencies:
       '@btravstack/theme':
         specifier: 'catalog:'
-        version: 2.0.0(vitepress@1.6.4(@algolia/client-search@5.53.0)(@types/node@26.4.0)(jiti@2.7.0)(postcss@8.5.26)(terser@5.48.0)(tsx@4.23.13)(typescript@6.0.3)(yaml@2.9.0))(vue@3.5.35(typescript@6.0.3))
+        version: 2.0.0(vitepress@1.6.4(@algolia/client-search@5.53.0)(@types/node@26.4.0)(jiti@2.7.0)(postcss@8.5.28)(terser@5.48.0)(tsx@4.23.13)(typescript@6.0.3)(yaml@2.9.0))(vue@3.5.35(typescript@6.0.3))
       '@btravstack/tsconfig':
         specifier: 'catalog:'
         version: 0.2.0
@@ -236,10 +236,10 @@ importers:
         version: 4.23.13
       vitepress:
         specifier: 'catalog:'
-        version: 1.6.4(@algolia/client-search@5.53.0)(@types/node@26.4.0)(jiti@2.7.0)(postcss@8.5.26)(terser@5.48.0)(tsx@4.23.13)(typescript@6.0.3)(yaml@2.9.0)
+        version: 1.6.4(@algolia/client-search@5.53.0)(@types/node@26.4.0)(jiti@2.7.0)(postcss@8.5.28)(terser@5.48.0)(tsx@4.23.13)(typescript@6.0.3)(yaml@2.9.0)
       vitepress-plugin-mermaid:
         specifier: 'catalog:'
-        version: 2.0.17(mermaid@11.17.2)(vitepress@1.6.4(@algolia/client-search@5.53.0)(@types/node@26.4.0)(jiti@2.7.0)(postcss@8.5.26)(terser@5.48.0)(tsx@4.23.13)(typescript@6.0.3)(yaml@2.9.0))
+        version: 2.0.17(mermaid@11.17.2)(vitepress@1.6.4(@algolia/client-search@5.53.0)(@types/node@26.4.0)(jiti@2.7.0)(postcss@8.5.28)(terser@5.48.0)(tsx@4.23.13)(typescript@6.0.3)(yaml@2.9.0))
 
   examples/order-processing-client:
     dependencies:
@@ -260,7 +260,7 @@ importers:
         version: 13.1.3
       unthrown:
         specifier: 'catalog:'
-        version: 5.7.0
+        version: 5.8.0
       zod:
         specifier: 'catalog:'
         version: 4.5.4
@@ -322,7 +322,7 @@ importers:
         version: 13.1.3
       unthrown:
         specifier: 'catalog:'
-        version: 5.7.0
+        version: 5.8.0
       zod:
         specifier: 'catalog:'
         version: 4.5.4
@@ -344,7 +344,7 @@ importers:
         version: 26.4.0
       '@unthrown/vitest':
         specifier: 'catalog:'
-        version: 5.7.0(unthrown@5.7.0)(vitest@4.1.10)
+        version: 5.7.0(unthrown@5.8.0)(vitest@4.1.10)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(vitest@4.1.10)
@@ -396,7 +396,7 @@ importers:
         version: 26.4.0
       '@unthrown/vitest':
         specifier: 'catalog:'
-        version: 5.7.0(unthrown@5.7.0)(vitest@4.1.10)
+        version: 5.7.0(unthrown@5.8.0)(vitest@4.1.10)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(vitest@4.1.10)
@@ -417,7 +417,7 @@ importers:
         version: 6.0.3
       unthrown:
         specifier: 'catalog:'
-        version: 5.7.0
+        version: 5.8.0
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@types/node@26.4.0)(@vitest/coverage-v8@4.1.10)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.13)(yaml@2.9.0)
@@ -445,7 +445,7 @@ importers:
         version: 26.4.0
       '@unthrown/vitest':
         specifier: 'catalog:'
-        version: 5.7.0(unthrown@5.7.0)(vitest@4.1.10)
+        version: 5.7.0(unthrown@5.8.0)(vitest@4.1.10)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(vitest@4.1.10)
@@ -469,7 +469,7 @@ importers:
         version: 6.0.3
       unthrown:
         specifier: 'catalog:'
-        version: 5.7.0
+        version: 5.8.0
       valibot:
         specifier: 'catalog:'
         version: 1.4.2(typescript@6.0.3)
@@ -508,7 +508,7 @@ importers:
         version: 26.4.0
       '@unthrown/vitest':
         specifier: 'catalog:'
-        version: 5.7.0(unthrown@5.7.0)(vitest@4.1.10)
+        version: 5.7.0(unthrown@5.8.0)(vitest@4.1.10)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(vitest@4.1.10)
@@ -532,7 +532,7 @@ importers:
         version: 6.0.3
       unthrown:
         specifier: 'catalog:'
-        version: 5.7.0
+        version: 5.8.0
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@types/node@26.4.0)(@vitest/coverage-v8@4.1.10)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.13)(yaml@2.9.0)
@@ -550,7 +550,7 @@ importers:
         version: link:../contract
       '@unthrown/saga':
         specifier: 'catalog:'
-        version: 5.7.0(unthrown@5.7.0)
+        version: 5.7.0(unthrown@5.8.0)
     devDependencies:
       '@arethetypeswrong/cli':
         specifier: 'catalog:'
@@ -587,7 +587,7 @@ importers:
         version: 26.4.0
       '@unthrown/vitest':
         specifier: 'catalog:'
-        version: 5.7.0(unthrown@5.7.0)(vitest@4.1.10)
+        version: 5.7.0(unthrown@5.8.0)(vitest@4.1.10)
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(vitest@4.1.10)
@@ -608,7 +608,7 @@ importers:
         version: 6.0.3
       unthrown:
         specifier: 'catalog:'
-        version: 5.7.0
+        version: 5.8.0
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@types/node@26.4.0)(@vitest/coverage-v8@4.1.10)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.13)(yaml@2.9.0)
@@ -2281,8 +2281,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@oxlint/plugins@1.80.0':
-    resolution: {integrity: sha512-QRgH1XqQEYNHa4f1vvPQ5fAdNdncHGIUG1ZWLlGIZHky3qwCEeAKYitZNbZMtaXtAQAAFFTOwqUfzESvimqZNA==}
+  '@oxlint/plugins@1.82.0':
+    resolution: {integrity: sha512-IDF4UXBNOaCeLoEpVxf5Bg85KOWdeuBEkbo1rGzS2vXcbD+GT1asBSeeTC+5BgW6NFTHVByd6N5giHsFPGtwAA==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
 
   '@pinojs/redact@0.4.0':
@@ -2968,8 +2968,8 @@ packages:
   '@ungap/structured-clone@1.3.1':
     resolution: {integrity: sha512-mUFwbeTqrVgDQxFveS+df2yfap6iuP20NAKAsBt5jDEoOTDew+zwLAOilHCeQJOVSvmgCX4ogqIrA0mnyr08yQ==}
 
-  '@unthrown/oxlint@5.7.0':
-    resolution: {integrity: sha512-we1NJui9oo1O0ztndqOPk1QuTupYaIUrcsdI8KjWmAg35wH9t2vEE7wTkR+rVk8wn9T12v+VehmC2ovKTMRFMQ==}
+  '@unthrown/oxlint@5.8.0':
+    resolution: {integrity: sha512-bQWhRqwZpcqGH3ShglwRqBZOO79zbOg6v5CW4S9zSS3AbWX68woJPkmmnhC2nW3Edqau5Sy2Km0FlSdsQ4fTxg==}
     engines: {node: '>=20'}
     peerDependencies:
       oxlint: ^1.69.0
@@ -3375,8 +3375,8 @@ packages:
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
 
-  argue-cli@3.1.0:
-    resolution: {integrity: sha512-DhBpBfXL4SS2uC0N922MMajKR3CdrTG0u2or1PNYgXMsrSzViJrbtvT0nCLlLGUI0plam/ZZCs7aAauHtW9thw==}
+  argue-cli@3.2.0:
+    resolution: {integrity: sha512-VipTB0gXgGIFO2Rg9yEVN5wLt2AurJcZqDbgmYSwPwsykhLrQhs240/bfceev4w68lI8JshoOJIk9uW7tFzROw==}
     engines: {node: '>=22'}
 
   arkregex@0.0.8:
@@ -3392,8 +3392,8 @@ packages:
     resolution: {integrity: sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==}
     engines: {node: '>=12'}
 
-  ast-v8-to-istanbul@1.0.5:
-    resolution: {integrity: sha512-UPAgKJFSEGMWSDr3LX4tqnAb4f7KGT8O40Tyx8wbYmmZ/yn58lNCm8h3svs3eXgiGd5AXxz8NDOvXWvicq+rJA==}
+  ast-v8-to-istanbul@1.0.6:
+    resolution: {integrity: sha512-fvpl29helSO2w/z7utIbrkNXILdrLwDwAMH2I/zPKlGf5244+gf+B4cyS1sANcrPY2h+hWCGSgC8N61s/+AF9A==}
 
   async-lock@1.4.1:
     resolution: {integrity: sha512-Az2ZTpuytrtqENulXwO3GGv1Bztugx6TT37NIo7imr/Qo0gsYiGtSdBa2B6fsXhTpVZDNfu1Qn3pk531e3q+nQ==}
@@ -3464,8 +3464,8 @@ packages:
   base64-js@1.5.1:
     resolution: {integrity: sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==}
 
-  baseline-browser-mapping@2.11.20:
-    resolution: {integrity: sha512-H0ulySigv6icDJ1F7SjtdCD6PrhTpdYCmP0CactWy1+ekh0AFd0o1Wn5T8b+hnTmdBx19u9yhL6wvCylXMY7zw==}
+  baseline-browser-mapping@2.11.21:
+    resolution: {integrity: sha512-uh8vpY/1/YyFkunIDFH/12p7/7VdPKA1hejMVEbdkEaWnUz0Hesvx5EbiU6XxjyHZIOju+ZMbQJkRh+es3/spQ==}
     engines: {node: '>=6.0.0'}
     hasBin: true
 
@@ -3923,8 +3923,8 @@ packages:
   eastasianwidth@0.2.0:
     resolution: {integrity: sha512-I88TYZWc9XiYHRQ4/3c5rjjfgkjhLyW2luGIheGERbNQ6OY7yTybanSpDXZa8y7VUP9YmDcYa+eyq4ca7iLqWA==}
 
-  electron-to-chromium@1.5.417:
-    resolution: {integrity: sha512-4T+DTDWuMPM4aHlHwWdAVCVWwp7LDilnhzkj+c/Lbj91XSQrLuOmZSLtS9Q4iIqjlPUbPOnC624zDVVHCHaolQ==}
+  electron-to-chromium@1.5.422:
+    resolution: {integrity: sha512-UvA/32XqrLDdZSn7Jllo1AYNcWji/G0d5M0GTViE7KoGBiMunw3a34Sb2KO4ZZyrSEhqsxFoVhWWJshdyfKqJA==}
 
   emoji-regex-xs@1.0.0:
     resolution: {integrity: sha512-LRlerrMYoIDrT6jgpeZ2YYl/L8EulRTt5hQcYjy5AInh7HWXKimpqx68aknBFpGL2+/IcogTcaydJEgaTmOpDg==}
@@ -4674,8 +4674,8 @@ packages:
   nan@2.27.0:
     resolution: {integrity: sha512-hC+0LidcL3XE4rp1C4H54KujgXKzbfyTngZTwBByQxsOxCEKZT0MPQ4hOKUH2jU1OYstqdDH4onyHPDzcV0XdQ==}
 
-  nanoid@3.3.18:
-    resolution: {integrity: sha512-DTg4MJbGMWkfi6VZFdNt2/caMbQy4Ou+Op/hJQvGEWcnVfoA1QA+xzRKAzw9jD6+GVOOeYr/mIcuDSdug6F6+w==}
+  nanoid@3.3.19:
+    resolution: {integrity: sha512-Y2tUNy4ouw6tq5oDSKeQYGOyhkUBhNOcGV/02KC+6kd9eDGqdZd++mjMiIDilrBYvjEnCYvVtsuHCuP+okSfug==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
@@ -4839,8 +4839,8 @@ packages:
   points-on-path@0.2.1:
     resolution: {integrity: sha512-25ClnWWuw7JbWZcgqY/gJ4FQWadKxGWk+3kR/7kD0tCaDtPPMj7oHu2ToLaVhfpnHrZzYby2w6tUA0eOIuUg8g==}
 
-  postcss@8.5.26:
-    resolution: {integrity: sha512-u82N74LFzG8ca+dD8puPnplTXoGH4fTPpVGuIbt36G3qvNlkvfD0lEAZSxaly3KX8TS/L1A1gsCEmvKmBcVbkQ==}
+  postcss@8.5.28:
+    resolution: {integrity: sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A==}
     engines: {node: ^10 || ^12 || >=14}
 
   preact@10.29.2:
@@ -5450,8 +5450,8 @@ packages:
   unist-util-visit@5.1.0:
     resolution: {integrity: sha512-m+vIdyeCOpdr/QeQCu2EzxX/ohgS8KbnPDgFni4dQsfSCtpz8UqDyY5GjRru8PDKuYn7Fq19j1CQ+nJSsGKOzg==}
 
-  unthrown@5.7.0:
-    resolution: {integrity: sha512-/MmNlhpqncrfeE+iMbP0SusLR63AOIJNYcwDEAHBaQGL+zSNQpLQdyqBG+2/FQmozHXPrtlROvY6ie7xmCDuLw==}
+  unthrown@5.8.0:
+    resolution: {integrity: sha512-9P0e9paWeEH7CihzXBdtHQKPytxKAfDZGYfyYos2Jjlfk8aCyOEeiUaCckbUjVpZZ+7oG0kYq3RrbrXz3AmQuA==}
     engines: {node: '>=20'}
 
   update-browserslist-db@1.3.2:
@@ -6130,9 +6130,9 @@ snapshots:
     dependencies:
       oxlint: 1.80.0
 
-  '@btravstack/theme@2.0.0(vitepress@1.6.4(@algolia/client-search@5.53.0)(@types/node@26.4.0)(jiti@2.7.0)(postcss@8.5.26)(terser@5.48.0)(tsx@4.23.13)(typescript@6.0.3)(yaml@2.9.0))(vue@3.5.35(typescript@6.0.3))':
+  '@btravstack/theme@2.0.0(vitepress@1.6.4(@algolia/client-search@5.53.0)(@types/node@26.4.0)(jiti@2.7.0)(postcss@8.5.28)(terser@5.48.0)(tsx@4.23.13)(typescript@6.0.3)(yaml@2.9.0))(vue@3.5.35(typescript@6.0.3))':
     dependencies:
-      vitepress: 1.6.4(@algolia/client-search@5.53.0)(@types/node@26.4.0)(jiti@2.7.0)(postcss@8.5.26)(terser@5.48.0)(tsx@4.23.13)(typescript@6.0.3)(yaml@2.9.0)
+      vitepress: 1.6.4(@algolia/client-search@5.53.0)(@types/node@26.4.0)(jiti@2.7.0)(postcss@8.5.28)(terser@5.48.0)(tsx@4.23.13)(typescript@6.0.3)(yaml@2.9.0)
     optionalDependencies:
       vue: 3.5.35(typescript@6.0.3)
 
@@ -7205,7 +7205,7 @@ snapshots:
   '@oxlint/binding-win32-x64-msvc@1.80.0':
     optional: true
 
-  '@oxlint/plugins@1.80.0': {}
+  '@oxlint/plugins@1.82.0': {}
 
   '@pinojs/redact@0.4.0': {}
 
@@ -7889,18 +7889,18 @@ snapshots:
 
   '@ungap/structured-clone@1.3.1': {}
 
-  '@unthrown/oxlint@5.7.0(oxlint@1.80.0)':
+  '@unthrown/oxlint@5.8.0(oxlint@1.80.0)':
     dependencies:
-      '@oxlint/plugins': 1.80.0
+      '@oxlint/plugins': 1.82.0
       oxlint: 1.80.0
 
-  '@unthrown/saga@5.7.0(unthrown@5.7.0)':
+  '@unthrown/saga@5.7.0(unthrown@5.8.0)':
     dependencies:
-      unthrown: 5.7.0
+      unthrown: 5.8.0
 
-  '@unthrown/vitest@5.7.0(unthrown@5.7.0)(vitest@4.1.10)':
+  '@unthrown/vitest@5.7.0(unthrown@5.8.0)(vitest@4.1.10)':
     dependencies:
-      unthrown: 5.7.0
+      unthrown: 5.8.0
       vitest: 4.1.10(@types/node@26.4.0)(@vitest/coverage-v8@4.1.10)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.13)(yaml@2.9.0)
 
   '@upsetjs/venn.js@2.0.0':
@@ -7917,7 +7917,7 @@ snapshots:
     dependencies:
       '@bcoe/v8-coverage': 1.0.2
       '@vitest/utils': 4.1.10
-      ast-v8-to-istanbul: 1.0.5
+      ast-v8-to-istanbul: 1.0.6
       istanbul-lib-coverage: 3.2.2
       istanbul-lib-report: 3.0.1
       istanbul-reports: 3.2.0
@@ -7990,7 +7990,7 @@ snapshots:
       '@vue/shared': 3.5.35
       estree-walker: 2.0.2
       magic-string: 0.30.21
-      postcss: 8.5.26
+      postcss: 8.5.28
       source-map-js: 1.2.1
 
   '@vue/compiler-ssr@3.5.35':
@@ -8306,7 +8306,7 @@ snapshots:
 
   argparse@2.0.1: {}
 
-  argue-cli@3.1.0: {}
+  argue-cli@3.2.0: {}
 
   arkregex@0.0.8:
     dependencies:
@@ -8324,7 +8324,7 @@ snapshots:
 
   assertion-error@2.0.1: {}
 
-  ast-v8-to-istanbul@1.0.5:
+  ast-v8-to-istanbul@1.0.6:
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
       estree-walker: 3.0.3
@@ -8377,7 +8377,7 @@ snapshots:
 
   base64-js@1.5.1: {}
 
-  baseline-browser-mapping@2.11.20: {}
+  baseline-browser-mapping@2.11.21: {}
 
   bcrypt-pbkdf@1.0.2:
     dependencies:
@@ -8401,9 +8401,9 @@ snapshots:
 
   browserslist@4.28.7:
     dependencies:
-      baseline-browser-mapping: 2.11.20
+      baseline-browser-mapping: 2.11.21
       caniuse-lite: 1.0.30001810
-      electron-to-chromium: 1.5.417
+      electron-to-chromium: 1.5.422
       node-releases: 2.0.54
       update-browserslist-db: 1.3.2(browserslist@4.28.7)
 
@@ -8547,7 +8547,7 @@ snapshots:
   conventional-commits-parser@7.1.2:
     dependencies:
       '@simple-libs/stream-utils': 2.0.0
-      argue-cli: 3.1.0
+      argue-cli: 3.2.0
 
   convert-source-map@2.0.0: {}
 
@@ -8853,7 +8853,7 @@ snapshots:
 
   eastasianwidth@0.2.0: {}
 
-  electron-to-chromium@1.5.417: {}
+  electron-to-chromium@1.5.422: {}
 
   emoji-regex-xs@1.0.0: {}
 
@@ -9569,7 +9569,7 @@ snapshots:
   nan@2.27.0:
     optional: true
 
-  nanoid@3.3.18: {}
+  nanoid@3.3.19: {}
 
   neo-async@2.6.2: {}
 
@@ -9793,9 +9793,9 @@ snapshots:
       path-data-parser: 0.1.0
       points-on-curve: 0.2.0
 
-  postcss@8.5.26:
+  postcss@8.5.28:
     dependencies:
-      nanoid: 3.3.18
+      nanoid: 3.3.19
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
@@ -10481,7 +10481,7 @@ snapshots:
       unist-util-is: 6.0.1
       unist-util-visit-parents: 6.0.2
 
-  unthrown@5.7.0: {}
+  unthrown@5.8.0: {}
 
   update-browserslist-db@1.3.2(browserslist@4.28.7):
     dependencies:
@@ -10518,7 +10518,7 @@ snapshots:
       esbuild: 0.25.12
       fdir: 6.5.0(picomatch@4.0.7)
       picomatch: 4.0.7
-      postcss: 8.5.26
+      postcss: 8.5.28
       rollup: 4.63.1
       tinyglobby: 0.2.17
     optionalDependencies:
@@ -10534,7 +10534,7 @@ snapshots:
       esbuild: 0.25.12
       fdir: 6.5.0(picomatch@4.0.7)
       picomatch: 4.0.7
-      postcss: 8.5.26
+      postcss: 8.5.28
       rollup: 4.63.1
       tinyglobby: 0.2.17
     optionalDependencies:
@@ -10545,14 +10545,14 @@ snapshots:
       tsx: 4.23.13
       yaml: 2.9.0
 
-  vitepress-plugin-mermaid@2.0.17(mermaid@11.17.2)(vitepress@1.6.4(@algolia/client-search@5.53.0)(@types/node@26.4.0)(jiti@2.7.0)(postcss@8.5.26)(terser@5.48.0)(tsx@4.23.13)(typescript@6.0.3)(yaml@2.9.0)):
+  vitepress-plugin-mermaid@2.0.17(mermaid@11.17.2)(vitepress@1.6.4(@algolia/client-search@5.53.0)(@types/node@26.4.0)(jiti@2.7.0)(postcss@8.5.28)(terser@5.48.0)(tsx@4.23.13)(typescript@6.0.3)(yaml@2.9.0)):
     dependencies:
       mermaid: 11.17.2
-      vitepress: 1.6.4(@algolia/client-search@5.53.0)(@types/node@26.4.0)(jiti@2.7.0)(postcss@8.5.26)(terser@5.48.0)(tsx@4.23.13)(typescript@6.0.3)(yaml@2.9.0)
+      vitepress: 1.6.4(@algolia/client-search@5.53.0)(@types/node@26.4.0)(jiti@2.7.0)(postcss@8.5.28)(terser@5.48.0)(tsx@4.23.13)(typescript@6.0.3)(yaml@2.9.0)
     optionalDependencies:
       '@mermaid-js/mermaid-mindmap': 9.3.0
 
-  vitepress@1.6.4(@algolia/client-search@5.53.0)(@types/node@26.4.0)(jiti@2.7.0)(postcss@8.5.26)(terser@5.48.0)(tsx@4.23.13)(typescript@6.0.3)(yaml@2.9.0):
+  vitepress@1.6.4(@algolia/client-search@5.53.0)(@types/node@26.4.0)(jiti@2.7.0)(postcss@8.5.28)(terser@5.48.0)(tsx@4.23.13)(typescript@6.0.3)(yaml@2.9.0):
     dependencies:
       '@docsearch/css': 3.8.2
       '@docsearch/js': 3.8.2(@algolia/client-search@5.53.0)
@@ -10573,7 +10573,7 @@ snapshots:
       vite: 6.4.3(@types/node@26.4.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.13)(yaml@2.9.0)
       vue: 3.5.35(typescript@6.0.3)
     optionalDependencies:
-      postcss: 8.5.26
+      postcss: 8.5.28
     transitivePeerDependencies:
       - '@algolia/client-search'
       - '@types/node'
