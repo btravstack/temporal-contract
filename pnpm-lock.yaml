@@ -180,8 +180,8 @@ catalogs:
       specifier: 2.0.0
       version: 2.0.0
     '@btravstack/tsconfig':
-      specifier: 0.2.0
-      version: 0.2.0
+      specifier: 0.4.0
+      version: 0.4.0
     '@btravstack/typedoc':
       specifier: 0.1.0
       version: 0.1.0
@@ -382,7 +382,7 @@ importers:
         version: 2.0.0(vitepress@1.6.4(@algolia/client-search@5.53.0)(@types/node@26.4.0)(jiti@2.7.0)(postcss@8.5.26)(terser@5.48.0)(tsx@4.23.13)(typescript@6.0.3)(yaml@2.9.0))(vue@3.5.35(typescript@6.0.3))
       '@btravstack/tsconfig':
         specifier: 'catalog:'
-        version: 0.2.0
+        version: 0.4.0
       '@types/node':
         specifier: 'catalog:'
         version: 26.4.0
@@ -425,7 +425,7 @@ importers:
     devDependencies:
       '@btravstack/tsconfig':
         specifier: 'catalog:'
-        version: 0.2.0
+        version: 0.4.0
       '@types/node':
         specifier: 'catalog:'
         version: 26.4.0
@@ -447,7 +447,7 @@ importers:
     devDependencies:
       '@btravstack/tsconfig':
         specifier: 'catalog:'
-        version: 0.2.0
+        version: 0.4.0
       '@types/node':
         specifier: 'catalog:'
         version: 26.4.0
@@ -487,7 +487,7 @@ importers:
     devDependencies:
       '@btravstack/tsconfig':
         specifier: 'catalog:'
-        version: 0.2.0
+        version: 0.4.0
       '@temporal-contract/client':
         specifier: workspace:*
         version: link:../../packages/client
@@ -530,7 +530,7 @@ importers:
         version: 0.18.5
       '@btravstack/tsconfig':
         specifier: 'catalog:'
-        version: 0.2.0
+        version: 0.4.0
       '@btravstack/typedoc':
         specifier: 'catalog:'
         version: 0.1.0(typedoc-plugin-markdown@4.13.0(typedoc@0.28.20(typescript@6.0.3)))(typedoc@0.28.20(typescript@6.0.3))
@@ -594,7 +594,7 @@ importers:
         version: 0.18.5
       '@btravstack/tsconfig':
         specifier: 'catalog:'
-        version: 0.2.0
+        version: 0.4.0
       '@btravstack/typedoc':
         specifier: 'catalog:'
         version: 0.1.0(typedoc-plugin-markdown@4.13.0(typedoc@0.28.20(typescript@6.0.3)))(typedoc@0.28.20(typescript@6.0.3))
@@ -645,7 +645,7 @@ importers:
         version: 0.18.5
       '@btravstack/tsconfig':
         specifier: 'catalog:'
-        version: 0.2.0
+        version: 0.4.0
       '@btravstack/typedoc':
         specifier: 'catalog:'
         version: 0.1.0(typedoc-plugin-markdown@4.13.0(typedoc@0.28.20(typescript@6.0.3)))(typedoc@0.28.20(typescript@6.0.3))
@@ -715,7 +715,7 @@ importers:
         version: 0.18.5
       '@btravstack/tsconfig':
         specifier: 'catalog:'
-        version: 0.2.0
+        version: 0.4.0
       '@btravstack/typedoc':
         specifier: 'catalog:'
         version: 0.1.0(typedoc-plugin-markdown@4.13.0(typedoc@0.28.20(typescript@6.0.3)))(typedoc@0.28.20(typescript@6.0.3))
@@ -1087,8 +1087,8 @@ packages:
       vue:
         optional: true
 
-  '@btravstack/tsconfig@0.2.0':
-    resolution: {integrity: sha512-0VZt4DNJlY+XgAeCS4HybgsG0kdWDGjRwBiDdQZ6pYPUo1ayjM4AIH1oPatL5+YQvICTqrSaXTHSa8DnP+GXbg==}
+  '@btravstack/tsconfig@0.4.0':
+    resolution: {integrity: sha512-7ebYccuf8LoGQEyBwh/tclv/5E4ywZ+r3k9MFwxjguqMmCUQv/4H8pftMx98nS+ZDsHZ3DEWxpGkUyjxW6gduQ==}
     engines: {node: '>=20'}
 
   '@btravstack/typedoc@0.1.0':
@@ -6296,7 +6296,7 @@ snapshots:
     optionalDependencies:
       vue: 3.5.35(typescript@6.0.3)
 
-  '@btravstack/tsconfig@0.2.0': {}
+  '@btravstack/tsconfig@0.4.0': {}
 
   '@btravstack/typedoc@0.1.0(typedoc-plugin-markdown@4.13.0(typedoc@0.28.20(typescript@6.0.3)))(typedoc@0.28.20(typescript@6.0.3))':
     dependencies:
