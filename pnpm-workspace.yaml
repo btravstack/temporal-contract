@@ -14,8 +14,8 @@ catalog:
   "@btravstack/commitlint": 0.1.0
   "@btravstack/lefthook": 0.1.1
   "@btravstack/oxlint": 0.2.1
-  "@unthrown/oxlint": 5.10.0
-  "@unthrown/saga": 5.10.0
+  "@unthrown/oxlint": 5.11.0
+  "@unthrown/saga": 5.11.0
   "@btravstack/theme": 2.0.0
   "@btravstack/tsconfig": 0.4.0
   "@btravstack/typedoc": 0.1.0
@@ -31,7 +31,7 @@ catalog:
   "@temporalio/worker": 1.24.0
   "@temporalio/workflow": 1.24.0
   "@types/node": 26.6.2
-  "@unthrown/vitest": 5.10.0
+  "@unthrown/vitest": 5.11.0
   "@vitest/coverage-v8": 5.0.1
   arktype: 2.2.3
   knip: 6.37.0
@@ -49,7 +49,7 @@ catalog:
   typedoc: 0.28.20
   typedoc-plugin-markdown: 4.13.1
   typescript: 7.0.2
-  unthrown: 5.10.0
+  unthrown: 5.11.0
   valibot: 1.5.0
   vitepress: 1.6.4
   vitepress-plugin-mermaid: 2.0.17
@@ -62,9 +62,6 @@ peerDependencyRules:
   # Peer ranges that lag a major we run on. Each is verified by the suite that
   # exercises it; drop the entry once upstream widens its range.
   allowedVersions:
-    # @unthrown/vitest 5.10.0 still declares `vitest ^4`; its matchers run
-    # under every package's unit and integration tests on vitest 5.
-    "@unthrown/vitest>vitest": "5"
     # vitepress-plugin-mermaid (last release 2024) declares `mermaid 10 || 11`;
     # a flowchart renders with mermaid 12 in both `vitepress dev` (given the
     # `optimizeDeps` entry in docs/.vitepress/config.ts) and the built site.
