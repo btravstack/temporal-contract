@@ -1,5 +1,11 @@
 # @temporal-contract/contract
 
+## 8.0.0-beta.11
+
+### Patch Changes
+
+- 47a4bfe: Clarify why `ContractActivityOptions` excludes `taskQueue`: the reason is that no worker built from the contract would poll a per-activity queue, not that queue names are deployment-specific. The JSDoc now points to the supported routing pattern: an `activityOptionsByName` override plus an activity-only contract on the dedicated queue.
+
 ## 8.0.0-beta.10
 
 No changes in this release.
