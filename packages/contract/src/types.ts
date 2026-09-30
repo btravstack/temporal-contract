@@ -109,9 +109,20 @@ export type ActivityRetryPolicy = {
  * contract author)
  * → `activityOptionsByName` (explicit per-workflow, per-activity override).
  *
- * Deployment-specific concerns (`taskQueue` routing, cancellation type) are
- * deliberately excluded — those belong to the worker's
- * `activityOptionsByName`, not the portable contract.
+ * Two options are deliberately excluded and belong to the worker's
+ * `activityOptionsByName` instead:
+ *
+ * - `taskQueue` — not because queue names are deployment-specific (the
+ *   contract's own `taskQueue` is one), but because a per-activity queue here
+ *   would name a queue no worker built from this contract polls: a
+ *   `TypedWorker` only ever binds to its contract's `taskQueue`. Nothing would
+ *   check that some worker serves it, and a mismatch fails silently — the task
+ *   sits unpolled until a `scheduleToStartTimeout`/`scheduleToCloseTimeout`
+ *   fires, or indefinitely without one. To route an activity to a dedicated
+ *   pool, pair an `activityOptionsByName` `taskQueue` override with an
+ *   activity-only contract on that queue, sharing the queue name as a
+ *   constant.
+ * - `cancellationType` — how a deployment wants in-flight work torn down.
  */
 export type ContractActivityOptions = {
   readonly startToCloseTimeout?: DurationValue;
