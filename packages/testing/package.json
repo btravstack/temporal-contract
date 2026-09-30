@@ -96,7 +96,7 @@
     "@temporalio/worker": "^1.16.0",
     "testcontainers": "^12",
     "unthrown": "^5.0.0",
-    "vitest": "^4"
+    "vitest": "^4 || ^5"
   },
   "peerDependenciesMeta": {
     "testcontainers": {

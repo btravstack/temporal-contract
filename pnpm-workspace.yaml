@@ -32,11 +32,11 @@ catalog:
   "@temporalio/workflow": 1.24.0
   "@types/node": 26.6.2
   "@unthrown/vitest": 5.10.0
-  "@vitest/coverage-v8": 4.1.10
+  "@vitest/coverage-v8": 5.0.1
   arktype: 2.2.3
   knip: 6.37.0
   lefthook: 2.1.14
-  mermaid: 11.17.2
+  mermaid: 12.0.0
   oxfmt: 0.70.0
   oxlint: 1.85.0
   pino: 10.3.1
@@ -48,17 +48,27 @@ catalog:
   turbo: 2.11.3
   typedoc: 0.28.20
   typedoc-plugin-markdown: 4.13.1
-  typescript: 6.0.3
+  typescript: 7.0.2
   unthrown: 5.10.0
   valibot: 1.5.0
   vitepress: 1.6.4
   vitepress-plugin-mermaid: 2.0.17
-  vitest: 4.1.10
+  vitest: 5.0.1
   zod: 4.6.5
 
 peerDependencyRules:
   ignoreMissing:
     - search-insights
+  # Peer ranges that lag a major we run on. Each is verified by the suite that
+  # exercises it; drop the entry once upstream widens its range.
+  allowedVersions:
+    # @unthrown/vitest 5.10.0 still declares `vitest ^4`; its matchers run
+    # under every package's unit and integration tests on vitest 5.
+    "@unthrown/vitest>vitest": "5"
+    # vitepress-plugin-mermaid (last release 2024) declares `mermaid 10 || 11`;
+    # a flowchart renders with mermaid 12 in both `vitepress dev` (given the
+    # `optimizeDeps` entry in docs/.vitepress/config.ts) and the built site.
+    "vitepress-plugin-mermaid>mermaid": "12"
 
 # Force patched versions of vulnerable transitive dependencies. Each override
 # pulls a transitive dep to its first fixed release without disturbing unrelated
@@ -146,6 +156,11 @@ overrides:
   # green audit, so main is affected too. GHSA-55q2-fjhq-7xh7 (moderate) then
   # moved the patched floor to 3.4.13, so the override moves with it.
   "dompurify@<3.4.13": "3.4.13"
+  # GHSA-r5fr-rjxr-66jc (High): lodash-es <=4.17.23. Reaches us only through
+  # the docs build — docs > mermaid 12 > chevrotain > lodash-es, which pins
+  # 4.17.23 exactly — never a shipped package. 4.18.1 is the first patched
+  # release and is already what mermaid's other lodash-es consumer resolves.
+  "lodash-es@<4.18.1": "4.18.1"
 
 allowBuilds:
   "@swc/core": true

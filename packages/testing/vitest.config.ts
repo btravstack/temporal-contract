@@ -45,6 +45,11 @@ export default defineConfig({
           include: ["src/**/*.spec.ts"],
           exclude: ["src/**/__tests__/*.spec.ts"],
           setupFiles: ["./src/vitest.setup.ts"],
+          // Vitest 5 defaults `clearMocks` to true. `extension.spec.ts` counts
+          // the fixture's `close()` calls across a describe's tests in
+          // `afterAll` (teardown runs after the test body, so it can't be
+          // asserted per test), which needs the call history to accumulate.
+          clearMocks: false,
           // The unit specs exercise `extension.ts` with mocked Temporal
           // connections, so the address normally provided by the
           // testcontainers global setup is stubbed statically here.
