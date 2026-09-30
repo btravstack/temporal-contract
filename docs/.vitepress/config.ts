@@ -128,6 +128,14 @@ export default withMermaid(
       ssr: {
         noExternal: ["@btravstack/theme"],
       },
+      // vitepress-plugin-mermaid pre-bundles mermaid's CommonJS deps (`dayjs`,
+      // `@braintree/sanitize-url`, ...) by bare name, which pnpm's strict
+      // layout only exposes through mermaid. With mermaid 12 the dev server
+      // then serves them raw and the page dies on "does not provide an export
+      // named 'default'". Pre-bundling mermaid itself converts them all.
+      optimizeDeps: {
+        include: ["mermaid"],
+      },
     },
 
     ignoreDeadLinks: [
