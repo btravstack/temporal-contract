@@ -1,5 +1,20 @@
 # @temporal-contract/testing
 
+## 8.0.0-beta.10
+
+### Minor Changes
+
+- 06df2a1: Accept Vitest 5 alongside Vitest 4: the `vitest` peer range widens from `^4`
+  to `^4 || ^5`. The fixtures and `globalSetup` hook run unchanged on both; this
+  repo's own suites now run on Vitest 5.
+
+### Patch Changes
+
+- Updated dependencies [7bce4b2]
+  - @temporal-contract/worker@8.0.0-beta.10
+  - @temporal-contract/client@8.0.0-beta.10
+  - @temporal-contract/contract@8.0.0-beta.10
+
 ## 8.0.0-beta.9
 
 ### Minor Changes

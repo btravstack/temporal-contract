@@ -1,5 +1,19 @@
 # @temporal-contract/worker
 
+## 8.0.0-beta.10
+
+### Patch Changes
+
+- 7bce4b2: Bump `@unthrown/saga` to `5.11.0` (a runtime dependency of the worker).
+
+  The rest of the catalog bump is dev-only: `unthrown` 5.11.0 and
+  `@temporalio/*` 1.24.0 are dev dependencies here, and the peer ranges
+  (`unthrown ^5.0.0`, `@temporalio/* ^1.16.0`) already admit them, so nothing
+  changes for consumers. Verified against build, typecheck, unit and the full
+  integration tier.
+
+- @temporal-contract/contract@8.0.0-beta.10
+
 ## 8.0.0-beta.9
 
 ### Minor Changes
