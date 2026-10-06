@@ -54,7 +54,7 @@ await result.get().run().get();
 
 `.get()` is the terse form — on a defect it rethrows the original cause with
 its stack intact, which is usually what you want at process startup. It
-compiles only because the error channel is `never`; `.get()` does not
+compiles only because the error channel is `never`; `.getOrThrow()` does not
 compile here (unthrown rejects it when there is no `Err` to throw).
 
 `run()` has the same shape: it returns `AsyncResult<void, never>`, so a worker
