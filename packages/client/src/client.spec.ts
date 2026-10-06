@@ -10,9 +10,12 @@ import { ContractError, TechnicalError } from "@temporal-contract/contract/error
 import {
   type Client,
   QueryNotRegisteredError as TemporalQueryNotRegisteredError,
+  QueryRejectedError as TemporalQueryRejectedError,
+  type WithStartWorkflowOperation,
   WorkflowExecutionAlreadyStartedError,
   WorkflowFailedError as TemporalWorkflowFailedError,
   WorkflowUpdateFailedError as TemporalWorkflowUpdateFailedError,
+  WorkflowUpdateRPCTimeoutOrCancelledError as TemporalWorkflowUpdateRPCTimeoutOrCancelledError,
 } from "@temporalio/client";
 import {
   ApplicationFailure,
@@ -34,7 +37,6 @@ import {
   WORKFLOW_CANCELLED_ERROR_TAG,
   WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG,
   WORKFLOW_FAILED_ERROR_TAG,
-  WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG,
   WORKFLOW_TERMINATED_ERROR_TAG,
   WORKFLOW_TIMEOUT_ERROR_TAG,
   WORKFLOW_VALIDATION_ERROR_TAG,
@@ -46,12 +48,12 @@ import {
   SignalValidationError,
   UpdateFailedError,
   UpdateRejectedError,
+  UpdateRpcTimeoutOrCancelledError,
   UpdateValidationError,
   WorkflowAlreadyStartedError,
   WorkflowCancelledError,
   WorkflowExecutionNotFoundError,
   WorkflowFailedError,
-  WorkflowNotInContractError,
   WorkflowTerminatedError,
   WorkflowTimeoutError,
   WorkflowValidationError,
@@ -73,14 +75,12 @@ async function bindContract<TContract extends Parameters<TypedClient["for"]>[0]>
 // Create mock workflow object
 const createMockWorkflow = () => ({
   start: vi.fn(),
-  execute: vi.fn(),
   getHandle: vi.fn(),
   signalWithStart: vi.fn(),
+  executeUpdateWithStart: vi.fn(),
 });
 
-// Mock schedule client — TypedClient's constructor wires this up via
-// `client.schedule`, and bails with a clear error if it's absent (since the
-// Schedule API was added in @temporalio/client 1.16).
+// Mock schedule client — ContractClient wires this up via `client.schedule`.
 const mockSchedule = {
   create: vi.fn(),
   getHandle: vi.fn(),
@@ -89,6 +89,19 @@ const mockSchedule = {
 
 // Mock Temporal Client
 const mockWorkflow = createMockWorkflow();
+
+/**
+ * `executeWorkflow` is `startWorkflow` then `handle.result()`: stub the start
+ * to hand back a handle (for the requested workflowId) whose `result()`
+ * settles as given.
+ */
+const stubExecute = (result: () => Promise<unknown>) =>
+  mockWorkflow.start.mockImplementation(async (_type: string, options: { workflowId: string }) => ({
+    workflowId: options.workflowId,
+    firstExecutionRunId: "run-1",
+    result: vi.fn(result),
+  }));
+const stubExecuteRejection = (error: unknown) => stubExecute(() => Promise.reject(error));
 
 // The Temporal error classes are mocked here as constructable stand-ins:
 // the typed client uses `instanceof` to discriminate them, so the mock must
@@ -158,14 +171,32 @@ vi.mock("@temporalio/client", () => {
       super(message);
     }
   }
+  // Mirrors Temporal's `QueryRejectedError` (the execution's status).
+  class QueryRejectedError extends Error {
+    constructor(public readonly status: number) {
+      super("Query rejected");
+    }
+  }
+  // Mirrors Temporal's `WorkflowUpdateRPCTimeoutOrCancelledError`.
+  class WorkflowUpdateRPCTimeoutOrCancelledError extends Error {}
+  // Records what `executeUpdateWithStart` was asked to start.
+  class WithStartWorkflowOperation {
+    constructor(
+      public readonly workflowTypeOrFunc: string,
+      public readonly options: Record<string, unknown>,
+    ) {}
+  }
   return {
     WorkflowHandle: vi.fn(),
     WorkflowExecutionAlreadyStartedError,
     WorkflowFailedError,
     WorkflowUpdateFailedError,
+    WorkflowUpdateRPCTimeoutOrCancelledError,
     QueryNotRegisteredError,
+    QueryRejectedError,
     ScheduleAlreadyRunning,
     ScheduleNotFoundError,
+    WithStartWorkflowOperation,
   };
 });
 
@@ -242,18 +273,6 @@ describe("TypedClient", () => {
       const rawClient = { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client;
       const created = (await TypedClient.create({ client: rawClient })).get();
       expect(created.raw).toBe(rawClient);
-    });
-
-    it("surfaces a missing Schedule API as a Defect(TechnicalError) instead of throwing", async () => {
-      const oldClient = { workflow: mockWorkflow } as unknown as Client;
-      const created = await TypedClient.create({ client: oldClient });
-      expect(created).toBeDefect();
-      if (created.isDefect()) {
-        const cause = created.cause;
-        expect(cause).toBeInstanceOf(TechnicalError);
-        expect((cause as TechnicalError)._tag).toBe("@temporal-contract/TechnicalError");
-        expect((cause as TechnicalError).message).toMatch(/requires @temporalio\/client >= 1\.16/);
-      }
     });
 
     it("surfaces an eager-connection failure as a Defect(TechnicalError)", async () => {
@@ -403,7 +422,8 @@ describe("TypedClient", () => {
       }
     });
 
-    it("should return Error result for non-existent workflow", async () => {
+    it("surfaces an undeclared workflow name as a Defect(TechnicalError), not a modeled Err", async () => {
+      // The types only admit declared names, so this is a caller bug.
       const result = await typedClient.startWorkflow(
         "nonExistentWorkflow" as unknown as "testWorkflow",
         {
@@ -412,16 +432,18 @@ describe("TypedClient", () => {
         },
       );
 
-      expect(result).toBeErr();
-      if (result.isErr()) {
-        expect(result.error).toBeInstanceOf(WorkflowNotInContractError);
+      expect(result).toBeDefect();
+      if (result.isDefect()) {
+        expect(result.cause).toBeInstanceOf(TechnicalError);
+        expect((result.cause as TechnicalError).message).toContain('"nonExistentWorkflow"');
       }
+      expect(mockWorkflow.start).not.toHaveBeenCalled();
     });
   });
 
   describe("executeWorkflow", () => {
     it("should execute a workflow with valid input and return Ok result", async () => {
-      mockWorkflow.execute.mockResolvedValue({ result: "success" });
+      stubExecute(() => Promise.resolve({ result: "success" }));
 
       const result = await typedClient.executeWorkflow("testWorkflow", {
         workflowId: "test-123",
@@ -433,7 +455,7 @@ describe("TypedClient", () => {
         expect(result.value).toEqual({ result: "success" });
       }
 
-      expect(mockWorkflow.execute).toHaveBeenCalledWith("testWorkflow", {
+      expect(mockWorkflow.start).toHaveBeenCalledWith("testWorkflow", {
         workflowId: "test-123",
         taskQueue: "test-queue",
         workflowIdReusePolicy: "ALLOW_DUPLICATE",
@@ -442,7 +464,7 @@ describe("TypedClient", () => {
     });
 
     it("should return Error result for invalid output", async () => {
-      mockWorkflow.execute.mockResolvedValue({ wrong: "output" });
+      stubExecute(() => Promise.resolve({ wrong: "output" }));
 
       const result = await typedClient.executeWorkflow("testWorkflow", {
         workflowId: "test-123",
@@ -456,7 +478,7 @@ describe("TypedClient", () => {
     });
 
     it("surfaces a Defect(RuntimeClientError) when workflow execution throws an unrecognized error", async () => {
-      mockWorkflow.execute.mockRejectedValue(new Error("Workflow execution failed"));
+      stubExecuteRejection(new Error("Workflow execution failed"));
 
       const result = await typedClient.executeWorkflow("testWorkflow", {
         workflowId: "test-123",
@@ -466,7 +488,7 @@ describe("TypedClient", () => {
       expect(result).toBeDefect();
       if (result.isDefect()) {
         expect(result.cause).toBeInstanceOf(RuntimeClientError);
-        expect((result.cause as RuntimeClientError).operation).toBe("executeWorkflow");
+        expect((result.cause as RuntimeClientError).operation).toBe("result");
       }
     });
   });
@@ -523,7 +545,7 @@ describe("TypedClient", () => {
       });
     });
 
-    it("returns WorkflowNotInContractError when the workflow isn't declared", async () => {
+    it("surfaces an undeclared workflow name as a Defect(TechnicalError)", async () => {
       const result = await typedClient.signalWithStart(
         // @ts-expect-error testing runtime validation
         "nonExistent",
@@ -535,9 +557,27 @@ describe("TypedClient", () => {
         },
       );
 
-      expect(result).toBeErr();
-      if (result.isErr()) {
-        expect(result.error).toBeInstanceOf(WorkflowNotInContractError);
+      expect(result).toBeDefect();
+      if (result.isDefect()) {
+        expect(result.cause).toBeInstanceOf(TechnicalError);
+      }
+      expect(mockWorkflow.signalWithStart).not.toHaveBeenCalled();
+    });
+
+    it("surfaces an undeclared signal name as a Defect(TechnicalError) with a direct message", async () => {
+      const result = await typedClient.signalWithStart("testWorkflow", {
+        workflowId: "test-123",
+        args: { name: "hello", value: 42 },
+        signalName: "nope" as unknown as "updateProgress",
+        signalArgs: [50],
+      });
+
+      expect(result).toBeDefect();
+      if (result.isDefect()) {
+        expect(result.cause).toBeInstanceOf(TechnicalError);
+        expect((result.cause as TechnicalError).message).toBe(
+          'Signal "nope" is not declared on workflow "testWorkflow". Declared: updateProgress.',
+        );
       }
       expect(mockWorkflow.signalWithStart).not.toHaveBeenCalled();
     });
@@ -608,24 +648,15 @@ describe("TypedClient", () => {
 
       mockWorkflow.getHandle.mockReturnValue(mockHandle);
 
-      const result = typedClient.getHandle("testWorkflow", "test-123");
+      const handle = typedClient.getHandle("testWorkflow", "test-123");
 
-      expect(result).toBeOk();
-      if (result.isOk()) {
-        expect(result.value).toEqual(expect.objectContaining({ workflowId: "test-123" }));
-      }
+      expect(handle).toEqual(expect.objectContaining({ workflowId: "test-123" }));
     });
 
-    it("should return Error result for non-existent workflow", async () => {
-      const result = typedClient.getHandle(
-        "nonExistentWorkflow" as unknown as "testWorkflow",
-        "test-123",
-      );
-
-      expect(result).toBeErr();
-      if (result.isErr()) {
-        expect(result.error).toBeInstanceOf(WorkflowNotInContractError);
-      }
+    it("throws a TechnicalError for an undeclared workflow name, like any sync misuse", () => {
+      expect(() =>
+        typedClient.getHandle("nonExistentWorkflow" as unknown as "testWorkflow", "test-123"),
+      ).toThrow(TechnicalError);
     });
   });
 
@@ -951,7 +982,7 @@ describe("TypedClient", () => {
 
   describe("Result pattern matching", () => {
     it("should support match() on results", async () => {
-      mockWorkflow.execute.mockResolvedValue({ result: "success" });
+      stubExecute(() => Promise.resolve({ result: "success" }));
 
       const result = await typedClient.executeWorkflow("testWorkflow", {
         workflowId: "test-123",
@@ -968,7 +999,6 @@ describe("TypedClient", () => {
           // Covers executeWorkflow's full error union (start phase +
           // result phase, outcome trio included).
           matcher.with(
-            P.tag(WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG),
             P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
             P.tag(WORKFLOW_ALREADY_STARTED_ERROR_TAG),
             P.tag(WORKFLOW_FAILED_ERROR_TAG),
@@ -989,7 +1019,7 @@ describe("TypedClient", () => {
     });
 
     it("should support map() on Ok results", async () => {
-      mockWorkflow.execute.mockResolvedValue({ result: "success" });
+      stubExecute(() => Promise.resolve({ result: "success" }));
 
       const result = await typedClient.executeWorkflow("testWorkflow", {
         workflowId: "test-123",
@@ -1099,7 +1129,7 @@ describe("TypedClient", () => {
     });
 
     it("works on executeWorkflow too", async () => {
-      mockWorkflow.execute.mockResolvedValue({ status: "ok" });
+      stubExecute(() => Promise.resolve({ status: "ok" }));
 
       await searchClient.executeWorkflow("processOrder", {
         workflowId: "order-1",
@@ -1107,7 +1137,7 @@ describe("TypedClient", () => {
         searchAttributes: { customerId: "CUST-1" },
       });
 
-      const passed = mockWorkflow.execute.mock.calls[0]?.[1] as {
+      const passed = mockWorkflow.start.mock.calls[0]?.[1] as {
         typedSearchAttributes?: TypedSearchAttributes;
       };
       expect(passed.typedSearchAttributes).toBeInstanceOf(TypedSearchAttributes);
@@ -1286,7 +1316,7 @@ describe("TypedClient", () => {
     });
 
     it("executeWorkflow surfaces WorkflowAlreadyStartedError when start collides", async () => {
-      mockWorkflow.execute.mockRejectedValue(
+      mockWorkflow.start.mockRejectedValue(
         new WorkflowExecutionAlreadyStartedError("already started", "test-123", "testWorkflow"),
       );
 
@@ -1308,7 +1338,7 @@ describe("TypedClient", () => {
       // consumers can match `err.cause` in one step instead of unwrapping
       // through Temporal's wrapper.
       const innerFailure = new Error("application failure: payment_declined");
-      mockWorkflow.execute.mockRejectedValue(
+      stubExecuteRejection(
         new TemporalWorkflowFailedError("workflow failed", innerFailure, "NON_RETRYABLE_FAILURE"),
       );
 
@@ -1325,13 +1355,13 @@ describe("TypedClient", () => {
         // Cause should be the *inner* failure, not Temporal's wrapper.
         expect(err.cause).toBe(innerFailure);
         expect(err.cause).not.toBeInstanceOf(TemporalWorkflowFailedError);
+        // Temporal's retry state rides along instead of being dropped.
+        expect(err.retryState).toBe("NON_RETRYABLE_FAILURE");
       }
     });
 
     it("executeWorkflow surfaces WorkflowExecutionNotFoundError on missing exec", async () => {
-      mockWorkflow.execute.mockRejectedValue(
-        new TemporalWorkflowNotFoundError("not found", "test-123", "run-1"),
-      );
+      stubExecuteRejection(new TemporalWorkflowNotFoundError("not found", "test-123", "run-1"));
 
       const result = await typedClient.executeWorkflow("testWorkflow", {
         workflowId: "test-123",
@@ -1366,9 +1396,8 @@ describe("TypedClient", () => {
       };
       mockWorkflow.getHandle.mockReturnValue(handle);
 
-      const handleResult = typedClient.getHandle("testWorkflow", "test-123");
-      if (!handleResult.isOk()) throw new Error("getHandle should succeed");
-      const result = await handleResult.value.result();
+      const typedHandle = typedClient.getHandle("testWorkflow", "test-123");
+      const result = await typedHandle.result();
 
       expect(result).toBeErr();
       if (result.isErr()) {
@@ -1383,7 +1412,7 @@ describe("TypedClient", () => {
 
     it("executeWorkflow classifies a CancelledFailure cause into WorkflowCancelledError", async () => {
       const cancelled = new CancelledFailure("cancel requested");
-      mockWorkflow.execute.mockRejectedValue(
+      stubExecuteRejection(
         new TemporalWorkflowFailedError("failed", cancelled, "NON_RETRYABLE_FAILURE"),
       );
 
@@ -1410,9 +1439,7 @@ describe("TypedClient", () => {
         undefined,
         TimeoutType.START_TO_CLOSE,
       );
-      mockWorkflow.execute.mockRejectedValue(
-        new TemporalWorkflowFailedError("failed", timedOut, "TIMEOUT"),
-      );
+      stubExecuteRejection(new TemporalWorkflowFailedError("failed", timedOut, "TIMEOUT"));
 
       const result = await typedClient.executeWorkflow("testWorkflow", {
         workflowId: "test-123",
@@ -1445,9 +1472,8 @@ describe("TypedClient", () => {
       };
       mockWorkflow.getHandle.mockReturnValue(handle);
 
-      const handleResult = typedClient.getHandle("testWorkflow", "test-123");
-      if (!handleResult.isOk()) throw new Error("getHandle should succeed");
-      const result = await handleResult.value.result();
+      const typedHandle = typedClient.getHandle("testWorkflow", "test-123");
+      const result = await typedHandle.result();
 
       expect(result).toBeErr();
       if (result.isErr()) {
@@ -1481,9 +1507,8 @@ describe("TypedClient", () => {
       };
       mockWorkflow.getHandle.mockReturnValue(handle);
 
-      const handleResult = typedClient.getHandle("testWorkflow", "test-123");
-      if (!handleResult.isOk()) throw new Error("getHandle should succeed");
-      const result = await handleResult.value.cancel();
+      const typedHandle = typedClient.getHandle("testWorkflow", "test-123");
+      const result = await typedHandle.cancel();
 
       expect(result).toBeErr();
       if (result.isErr()) {
@@ -1511,9 +1536,8 @@ describe("TypedClient", () => {
       };
       mockWorkflow.getHandle.mockReturnValue(handle);
 
-      const handleResult = typedClient.getHandle("testWorkflow", "test-123");
-      if (!handleResult.isOk()) throw new Error("getHandle should succeed");
-      const result = await handleResult.value.terminate("done");
+      const typedHandle = typedClient.getHandle("testWorkflow", "test-123");
+      const result = await typedHandle.terminate("done");
 
       expect(result).toBeErr();
       if (result.isErr()) {
@@ -1537,9 +1561,8 @@ describe("TypedClient", () => {
       };
       mockWorkflow.getHandle.mockReturnValue(handle);
 
-      const handleResult = typedClient.getHandle("testWorkflow", "test-123");
-      if (!handleResult.isOk()) throw new Error("getHandle should succeed");
-      const result = await handleResult.value.signals.updateProgress([50]);
+      const typedHandle = typedClient.getHandle("testWorkflow", "test-123");
+      const result = await typedHandle.signals.updateProgress([50]);
 
       expect(result).toBeErr();
       if (result.isErr()) {
@@ -1563,9 +1586,8 @@ describe("TypedClient", () => {
       };
       mockWorkflow.getHandle.mockReturnValue(handle);
 
-      const handleResult = typedClient.getHandle("testWorkflow", "test-123");
-      if (!handleResult.isOk()) throw new Error("getHandle should succeed");
-      const result = await handleResult.value.describe();
+      const typedHandle = typedClient.getHandle("testWorkflow", "test-123");
+      const result = await typedHandle.describe();
 
       expect(result).toBeErr();
       if (result.isErr()) {
@@ -1578,7 +1600,7 @@ describe("TypedClient", () => {
 });
 
 describe("TypedClient — wire format (validate on send, parse on receive)", () => {
-  // D1: each payload boundary parses exactly once, on the receiving side.
+  // Each payload boundary parses exactly once, on the receiving side.
   // The client validates what it sends (failing early with the typed
   // validation error) but transmits the caller's ORIGINAL value; parsed
   // results are only used on the receive side (workflow/query/update
@@ -1652,14 +1674,14 @@ describe("TypedClient — wire format (validate on send, parse on receive)", () 
   it("executeWorkflow transmits the ORIGINAL args and parses the result exactly once", async () => {
     // The wire carries the producer's original (pre-transform) value; the
     // client applies the output transform on receive.
-    mockWorkflow.execute.mockResolvedValue(21);
+    stubExecute(() => Promise.resolve(21));
 
     const result = await wireClient.executeWorkflow("transformer", {
       workflowId: "wf-2",
       args: "hello",
     });
 
-    expect(mockWorkflow.execute).toHaveBeenCalledWith("transformer", {
+    expect(mockWorkflow.start).toHaveBeenCalledWith("transformer", {
       workflowId: "wf-2",
       taskQueue: "wire-q",
       workflowIdReusePolicy: "ALLOW_DUPLICATE",
@@ -1705,9 +1727,8 @@ describe("TypedClient — wire format (validate on send, parse on receive)", () 
     };
     mockWorkflow.getHandle.mockReturnValue(rawHandle);
 
-    const handleResult = wireClient.getHandle("transformer", "wf-4");
-    if (!handleResult.isOk()) throw new Error("expected Ok");
-    const result = await handleResult.value.result();
+    const typedHandle = wireClient.getHandle("transformer", "wf-4");
+    const result = await typedHandle.result();
 
     expect(result).toBeOk();
     if (result.isOk()) {
@@ -1725,9 +1746,8 @@ describe("TypedClient — wire format (validate on send, parse on receive)", () 
     };
     mockWorkflow.getHandle.mockReturnValue(rawHandle);
 
-    const handleResult = wireClient.getHandle("transformer", "wf-5");
-    if (!handleResult.isOk()) throw new Error("expected Ok");
-    const result = await handleResult.value.signals.ping("hey");
+    const typedHandle = wireClient.getHandle("transformer", "wf-5");
+    const result = await typedHandle.signals.ping("hey");
 
     expect(result).toBeOk();
     expect(rawHandle.signal).toHaveBeenCalledWith("ping", "hey");
@@ -1743,9 +1763,8 @@ describe("TypedClient — wire format (validate on send, parse on receive)", () 
     };
     mockWorkflow.getHandle.mockReturnValue(rawHandle);
 
-    const handleResult = wireClient.getHandle("transformer", "wf-6");
-    if (!handleResult.isOk()) throw new Error("expected Ok");
-    const result = await handleResult.value.queries.peek("hey");
+    const typedHandle = wireClient.getHandle("transformer", "wf-6");
+    const result = await typedHandle.queries.peek("hey");
 
     expect(rawHandle.query).toHaveBeenCalledWith("peek", "hey");
     expect(result).toBeOk();
@@ -1764,9 +1783,8 @@ describe("TypedClient — wire format (validate on send, parse on receive)", () 
     };
     mockWorkflow.getHandle.mockReturnValue(rawHandle);
 
-    const handleResult = wireClient.getHandle("transformer", "wf-7");
-    if (!handleResult.isOk()) throw new Error("expected Ok");
-    const result = await handleResult.value.updates.poke("hey");
+    const typedHandle = wireClient.getHandle("transformer", "wf-7");
+    const result = await typedHandle.updates.poke("hey");
 
     expect(rawHandle.executeUpdate).toHaveBeenCalledWith("poke", { args: ["hey"] });
     expect(result).toBeOk();
@@ -1811,7 +1829,7 @@ describe("TypedClient — workflow contract errors", () => {
       nonRetryable: true,
       details: [{ orderId: "ORD-1" }],
     });
-    mockWorkflow.execute.mockRejectedValue(
+    stubExecuteRejection(
       new TemporalWorkflowFailedError("failed", failure, "NON_RETRYABLE_FAILURE"),
     );
 
@@ -1834,7 +1852,7 @@ describe("TypedClient — workflow contract errors", () => {
 
   it("executeWorkflow falls back to WorkflowFailedError for undeclared failure types", async () => {
     const failure = ApplicationFailure.create({ type: "SOMETHING_ELSE", message: "boom" });
-    mockWorkflow.execute.mockRejectedValue(
+    stubExecuteRejection(
       new TemporalWorkflowFailedError("failed", failure, "NON_RETRYABLE_FAILURE"),
     );
 
@@ -1856,7 +1874,7 @@ describe("TypedClient — workflow contract errors", () => {
       type: "EmptyOrder",
       details: [{ orderId: 42 }],
     });
-    mockWorkflow.execute.mockRejectedValue(
+    stubExecuteRejection(
       new TemporalWorkflowFailedError("failed", failure, "NON_RETRYABLE_FAILURE"),
     );
 
@@ -1871,6 +1889,27 @@ describe("TypedClient — workflow contract errors", () => {
     if (result.isErr()) {
       expect(result.error).toBeInstanceOf(WorkflowFailedError);
     }
+  });
+
+  it("reports a declared error that fails to rehydrate to the root's onRehydrationMiss", async () => {
+    const failure = ApplicationFailure.create({ type: "EmptyOrder", details: [{ orderId: 42 }] });
+    stubExecuteRejection(
+      new TemporalWorkflowFailedError("failed", failure, "NON_RETRYABLE_FAILURE"),
+    );
+    const onRehydrationMiss = vi.fn();
+    const root = await TypedClient.create({
+      client: { workflow: mockWorkflow, schedule: mockSchedule } as unknown as Client,
+      onRehydrationMiss,
+    }).get();
+
+    const result = await root
+      .for(erroredContract)
+      .executeWorkflow("processOrder", { workflowId: "order-1", args: { orderId: "ORD-1" } });
+
+    expect(result.isErr() && result.error).toBeInstanceOf(WorkflowFailedError);
+    expect(onRehydrationMiss).toHaveBeenCalledWith(
+      expect.objectContaining({ errorName: "EmptyOrder", reason: "data-validation-failed" }),
+    );
   });
 
   it("handle.result() rehydrates a declared failure into a typed ContractError", async () => {
@@ -1892,11 +1931,9 @@ describe("TypedClient — workflow contract errors", () => {
     };
     mockWorkflow.getHandle.mockReturnValue(rawHandle);
 
-    const handleResult = (await createClient()).getHandle("processOrder", "order-2");
-    expect(handleResult).toBeOk();
-    if (!handleResult.isOk()) return;
+    const typedHandle = (await createClient()).getHandle("processOrder", "order-2");
 
-    const result = await handleResult.value.result();
+    const result = await typedHandle.result();
     expect(result).toBeErr();
     if (result.isErr()) {
       expect(result.error).toBeInstanceOf(ContractError);
@@ -1929,7 +1966,7 @@ describe("ContractClient — handle identifiers and validation-error identity", 
       schedule: mockSchedule,
     } as unknown as Client);
 
-  it("startWorkflow handles carry runId and firstExecutionRunId from the started run", async () => {
+  it("startWorkflow handles carry firstExecutionRunId but are not pinned to that run", async () => {
     mockWorkflow.start.mockResolvedValue({
       workflowId: "wf-1",
       firstExecutionRunId: "run-first",
@@ -1945,41 +1982,34 @@ describe("ContractClient — handle identifiers and validation-error identity", 
     expect(handleResult).toBeOk();
     if (handleResult.isOk()) {
       expect(handleResult.value.firstExecutionRunId).toBe("run-first");
-      expect(handleResult.value.runId).toBe("run-first");
+      // The handle follows its chain: after a continue-as-new the first run
+      // is no longer the one it targets, so it must not claim it.
+      expect(handleResult.value.runId).toBeUndefined();
     }
   });
 
-  it("getHandle is synchronous, forwards runId + GetWorkflowHandleOptions, and carries the ids", async () => {
+  it("getHandle is synchronous, forwards runId + firstExecutionRunId, and carries the ids", async () => {
     const rawHandle = { workflowId: "wf-2", result: vi.fn() };
     mockWorkflow.getHandle.mockReturnValue(rawHandle);
 
-    const handleResult = (await createClient()).getHandle("identityWorkflow", "wf-2", {
+    const handle = (await createClient()).getHandle("identityWorkflow", "wf-2", {
       runId: "run-9",
       firstExecutionRunId: "run-0",
-      followRuns: false,
     });
 
-    expect(handleResult).toBeOk();
-    if (handleResult.isOk()) {
-      expect(handleResult.value.runId).toBe("run-9");
-      expect(handleResult.value.firstExecutionRunId).toBe("run-0");
-    }
+    expect(handle.runId).toBe("run-9");
+    expect(handle.firstExecutionRunId).toBe("run-0");
     expect(mockWorkflow.getHandle).toHaveBeenCalledWith("wf-2", "run-9", {
       firstExecutionRunId: "run-0",
-      followRuns: false,
     });
   });
 
-  it("getHandle returns a sync Err(WorkflowNotInContractError) for unknown workflow names", async () => {
-    const handleResult = (await createClient()).getHandle(
-      "nonExistent" as unknown as "identityWorkflow",
-      "wf-3",
-    );
+  it("getHandle throws a TechnicalError for unknown workflow names, before touching Temporal", async () => {
+    const client = await createClient();
 
-    expect(handleResult.isErr()).toBe(true);
-    if (handleResult.isErr()) {
-      expect(handleResult.error).toBeInstanceOf(WorkflowNotInContractError);
-    }
+    expect(() => client.getHandle("nonExistent" as unknown as "identityWorkflow", "wf-3")).toThrow(
+      TechnicalError,
+    );
     expect(mockWorkflow.getHandle).not.toHaveBeenCalled();
   });
 
@@ -1992,9 +2022,8 @@ describe("ContractClient — handle identifiers and validation-error identity", 
     };
     mockWorkflow.getHandle.mockReturnValue(rawHandle);
 
-    const handleResult = (await createClient()).getHandle("identityWorkflow", "wf-4");
-    if (!handleResult.isOk()) throw new Error("expected Ok");
-    const result = await handleResult.value.result();
+    const typedHandle = (await createClient()).getHandle("identityWorkflow", "wf-4");
+    const result = await typedHandle.result();
 
     expect(result).toBeErr();
     if (result.isErr()) {
@@ -2019,7 +2048,7 @@ describe("ContractClient — handle identifiers and validation-error identity", 
       expect((inputError.error as WorkflowValidationError).direction).toBe("input");
     }
 
-    mockWorkflow.execute.mockResolvedValue({ ok: "nope" });
+    stubExecute(() => Promise.resolve({ ok: "nope" }));
     const outputError = await client.executeWorkflow("identityWorkflow", {
       workflowId: "wf-6",
       args: { id: "a" },
@@ -2060,9 +2089,7 @@ describe("ContractClient — startUpdate", () => {
       workflow: mockWorkflow,
       schedule: mockSchedule,
     } as unknown as Client);
-    const handleResult = client.getHandle("updatable", "wf-up");
-    if (!handleResult.isOk()) throw new Error("expected Ok");
-    return handleResult.value;
+    return client.getHandle("updatable", "wf-up");
   };
 
   it("starts the update with options passthrough and returns a typed update handle", async () => {
@@ -2091,7 +2118,7 @@ describe("ContractClient — startUpdate", () => {
       expect(updateHandle.workflowId).toBe("wf-up");
       expect(updateHandle.workflowRunId).toBe("run-1");
 
-      // result() parses on receive (D1): the transform applies exactly once.
+      // result() parses on receive: the transform applies exactly once.
       const result = await updateHandle.result();
       expect(result).toBeOk();
       if (result.isOk()) {
@@ -2142,6 +2169,79 @@ describe("ContractClient — startUpdate", () => {
       expect((updateHandleResult.cause as RuntimeClientError).operation).toBe("startUpdate");
     }
   });
+
+  it("classifies a timed-out/cancelled update call as UpdateRpcTimeoutOrCancelledError", async () => {
+    const rpcError = new TemporalWorkflowUpdateRPCTimeoutOrCancelledError("deadline exceeded");
+    const startUpdate = vi.fn().mockRejectedValue(rpcError);
+    const handle = await getUpdatableHandle({ workflowId: "wf-up", startUpdate });
+
+    const updateHandleResult = await handle.startUpdate("adjust", { args: { delta: 1 } });
+
+    expect(updateHandleResult).toBeErr();
+    if (updateHandleResult.isErr()) {
+      expect(updateHandleResult.error).toBeInstanceOf(UpdateRpcTimeoutOrCancelledError);
+      expect((updateHandleResult.error as UpdateRpcTimeoutOrCancelledError).cause).toBe(rpcError);
+    }
+  });
+
+  it("surfaces an undeclared update name as a Defect(TechnicalError) with a direct message", async () => {
+    const startUpdate = vi.fn();
+    const handle = await getUpdatableHandle({ workflowId: "wf-up", startUpdate });
+
+    const updateHandleResult = await handle.startUpdate("nope" as unknown as "adjust", {
+      args: { delta: 1 },
+    });
+
+    expect(updateHandleResult).toBeDefect();
+    if (updateHandleResult.isDefect()) {
+      expect(updateHandleResult.cause).toBeInstanceOf(TechnicalError);
+      expect((updateHandleResult.cause as TechnicalError).message).toBe(
+        'Update "nope" is not declared on workflow "updatable". Declared: adjust.',
+      );
+    }
+    expect(startUpdate).not.toHaveBeenCalled();
+  });
+
+  it("updates.* forwards the per-call updateId", async () => {
+    const executeUpdate = vi.fn().mockResolvedValue(21);
+    const handle = await getUpdatableHandle({ workflowId: "wf-up", executeUpdate });
+
+    const result = await handle.updates.adjust({ delta: 3 }, { updateId: "upd-7" });
+
+    expect(result).toBeOk();
+    expect(executeUpdate).toHaveBeenCalledWith("adjust", {
+      args: [{ delta: 3 }],
+      updateId: "upd-7",
+    });
+  });
+
+  it("getUpdateHandle reattaches by updateId and parses the result against the contract", async () => {
+    const getUpdateHandle = vi.fn().mockReturnValue({
+      updateId: "upd-9",
+      workflowId: "wf-up",
+      workflowRunId: "run-1",
+      result: vi.fn().mockResolvedValue(21),
+    });
+    const handle = await getUpdatableHandle({ workflowId: "wf-up", getUpdateHandle });
+
+    const updateHandle = handle.getUpdateHandle("adjust", "upd-9");
+    const result = await updateHandle.result();
+
+    expect(getUpdateHandle).toHaveBeenCalledWith("upd-9");
+    expect(updateHandle.updateId).toBe("upd-9");
+    expect(result).toBeOk();
+    if (result.isOk()) {
+      expect(result.value).toBe(42); // output transform applied once
+    }
+  });
+
+  it("getUpdateHandle throws a TechnicalError for an undeclared update name", async () => {
+    const handle = await getUpdatableHandle({ workflowId: "wf-up", getUpdateHandle: vi.fn() });
+
+    expect(() => handle.getUpdateHandle("nope" as unknown as "adjust", "upd-1")).toThrow(
+      TechnicalError,
+    );
+  });
 });
 
 describe("ContractClient — update/query operational errors", () => {
@@ -2175,9 +2275,7 @@ describe("ContractClient — update/query operational errors", () => {
       workflow: mockWorkflow,
       schedule: mockSchedule,
     } as unknown as Client);
-    const handleResult = client.getHandle("opWorkflow", "wf-op");
-    if (!handleResult.isOk()) throw new Error("expected Ok");
-    return handleResult.value;
+    return client.getHandle("opWorkflow", "wf-op");
   };
 
   // The wire shape of a worker-side admission rejection: the worker's
@@ -2242,18 +2340,44 @@ describe("ContractClient — update/query operational errors", () => {
     }
   });
 
-  it("startUpdate classifies WorkflowUpdateFailedError (rejection at admission)", async () => {
+  it("startUpdate hands back a handle for a rejected update; the rejection surfaces on result()", async () => {
+    // SDK 1.24's startUpdate resolves once the update is accepted OR
+    // rejected; the outcome (here an admission rejection) is only thrown by
+    // the update handle's result().
     const inner = rejectionFailure();
-    const startUpdate = vi
-      .fn()
-      .mockRejectedValue(new TemporalWorkflowUpdateFailedError("Workflow Update failed", inner));
+    const startUpdate = vi.fn().mockResolvedValue({
+      updateId: "upd-r",
+      workflowId: "wf-op",
+      workflowRunId: "run-1",
+      result: vi
+        .fn()
+        .mockRejectedValue(new TemporalWorkflowUpdateFailedError("Workflow Update failed", inner)),
+    });
     const handle = await getOpHandle({ workflowId: "wf-op", startUpdate });
 
-    const result = await handle.startUpdate("adjust", { args: { delta: 1 } });
+    const started = await handle.startUpdate("adjust", { args: { delta: 1 } });
+    expect(started).toBeOk();
+    if (!started.isOk()) return;
 
+    const result = await started.value.result();
     expect(result).toBeErr();
     if (result.isErr()) {
       expect(result.error).toBeInstanceOf(UpdateRejectedError);
+      expect((result.error as UpdateRejectedError).cause).toBe(inner);
+    }
+  });
+
+  it("updates.* classifies a timed-out/cancelled update call", async () => {
+    const executeUpdate = vi
+      .fn()
+      .mockRejectedValue(new TemporalWorkflowUpdateRPCTimeoutOrCancelledError("cancelled"));
+    const handle = await getOpHandle({ workflowId: "wf-op", executeUpdate });
+
+    const result = await handle.updates.adjust({ delta: 1 });
+
+    expect(result).toBeErr();
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(UpdateRpcTimeoutOrCancelledError);
     }
   });
 
@@ -2303,6 +2427,20 @@ describe("ContractClient — update/query operational errors", () => {
     }
   });
 
+  it("queries.* classifies QueryRejectedError (queryRejectCondition matched) into QueryFailedError", async () => {
+    const inner = new TemporalQueryRejectedError(2);
+    const query = vi.fn().mockRejectedValue(inner);
+    const handle = await getOpHandle({ workflowId: "wf-op", query });
+
+    const result = await handle.queries.peek([]);
+
+    expect(result).toBeErr();
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(QueryFailedError);
+      expect((result.error as QueryFailedError).cause).toBe(inner);
+    }
+  });
+
   it("queries.* still routes unrecognized rejections to the defect channel", async () => {
     const query = vi.fn().mockRejectedValue(new Error("network down"));
     const handle = await getOpHandle({ workflowId: "wf-op", query });
@@ -2341,11 +2479,7 @@ describe("ContractClient — raw escape hatch and accessors", () => {
       schedule: mockSchedule,
     } as unknown as Client);
 
-    const handleResult = client.getHandle("plain", "wf-raw");
-    expect(handleResult).toBeOk();
-    if (handleResult.isOk()) {
-      expect(handleResult.value.raw).toBe(rawHandle);
-    }
+    expect(client.getHandle("plain", "wf-raw").raw).toBe(rawHandle);
   });
 
   it("startWorkflow handles carry raw too", async () => {
@@ -2411,9 +2545,7 @@ describe("ContractClient — omittable input-less payloads (runtime)", () => {
       workflow: mockWorkflow,
       schedule: mockSchedule,
     } as unknown as Client);
-    const handleResult = client.getHandle("omittable", "wf-omit");
-    if (!handleResult.isOk()) throw new Error("expected Ok");
-    return handleResult.value;
+    return client.getHandle("omittable", "wf-omit");
   };
 
   it("payload-less signals send NO payload argument", async () => {
@@ -2517,6 +2649,32 @@ describe("ContractClient — search attribute VALUE validation (runtime)", () =>
     vi.clearAllMocks();
   });
 
+  it.each([
+    ["an INT given a string", { priority: "high" }, "declared INT"],
+    ["an INT given a fraction", { priority: 1.5 }, "declared INT"],
+    ["a DATETIME given an ISO string", { placedAt: "2026-01-01" }, "declared DATETIME"],
+    ["a KEYWORD_LIST given a non-string member", { tags: ["a", 1] }, "declared KEYWORD_LIST"],
+  ])("rejects %s as a Defect before dispatch", async (_label, searchAttributes, expected) => {
+    const client = await bindContract(kindContract, {
+      workflow: mockWorkflow,
+      schedule: mockSchedule,
+    } as unknown as Client);
+
+    const result = await client.startWorkflow("kinds", {
+      workflowId: "k-1",
+      args: { id: "a" },
+      searchAttributes: searchAttributes as never,
+    });
+
+    expect(result).toBeDefect();
+    if (result.isDefect()) {
+      expect(result.cause).toBeInstanceOf(RuntimeClientError);
+      expect((result.cause as RuntimeClientError).operation).toBe("searchAttributes");
+      expect((result.cause as RuntimeClientError).message).toContain(expected);
+    }
+    expect(mockWorkflow.start).not.toHaveBeenCalled();
+  });
+
   it("accepts values matching their declared kinds", async () => {
     mockWorkflow.start.mockResolvedValue({ workflowId: "k-2" });
     const client = await bindContract(kindContract, {
@@ -2552,28 +2710,10 @@ describe("contract-declared idempotency", () => {
     },
   });
 
-  // Simulates a definition that reaches the client without `startPolicy` at
-  // runtime despite the field now being required at the type level (e.g. a
-  // contract assembled dynamically outside the type system, or an older
-  // compiled artifact) — the `as unknown as typeof onceWorkflow` cast is the
-  // point, not a mistake; it keeps every other generic (notably the `ping`
-  // signal's literal name and tuple schema) intact so the calls below stay
-  // precisely typed. `client.ts`'s `definition.startPolicy ? {
-  // workflowIdReusePolicy: … } : {}` guard must stay defensive for exactly
-  // this case.
-  const plainWorkflow = {
-    input: z.object({ id: z.string() }),
-    output: z.object({ ok: z.boolean() }),
-    signals: {
-      ping: { input: z.tuple([]) },
-    },
-  } as unknown as typeof onceWorkflow;
-
   const idempotencyContract = defineContract({
     taskQueue: "idempotency-queue",
     workflows: {
       onceWorkflow,
-      plainWorkflow,
     },
   });
 
@@ -2629,14 +2769,14 @@ describe("contract-declared idempotency", () => {
   });
 
   it("applies it on executeWorkflow", async () => {
-    mockWorkflow.execute.mockResolvedValue({ ok: true });
+    stubExecute(() => Promise.resolve({ ok: true }));
 
     await idempotencyClient.executeWorkflow("onceWorkflow", {
       workflowId: "id-3",
       args: { id: "a" },
     });
 
-    expect(mockWorkflow.execute).toHaveBeenCalledWith("onceWorkflow", {
+    expect(mockWorkflow.start).toHaveBeenCalledWith("onceWorkflow", {
       workflowId: "id-3",
       taskQueue: "idempotency-queue",
       workflowIdReusePolicy: "REJECT_DUPLICATE",
@@ -2644,112 +2784,129 @@ describe("contract-declared idempotency", () => {
     });
   });
 
-  it("lets an explicit per-call workflowIdReusePolicy override the contract on startWorkflow", async () => {
-    // This is the test that catches a contract-after-spread mistake: the
-    // three "applies" tests above only prove the field is set to SOMETHING,
-    // not that a caller can still win. One instance of this test per start
-    // path — precedence is expressed independently at each call site's own
-    // spread, so a mistake at one site is invisible to the other two's
-    // tests (see the fix-round-1 note in the report for why this matters).
+  it("keeps the contract's policy even when a per-call workflowIdReusePolicy is smuggled past the types", async () => {
+    // The typed options forbid `workflowIdReusePolicy` (the contract owns it
+    // via `startPolicy`). All start paths share one options builder, which
+    // writes the contract-owned fields last, so neither an override nor an
+    // explicit `undefined` can clear it.
     mockWorkflow.start.mockResolvedValue({ workflowId: "id-4" });
 
-    await idempotencyClient.startWorkflow("onceWorkflow", {
-      workflowId: "id-4",
-      args: { id: "a" },
-      workflowIdReusePolicy: "ALLOW_DUPLICATE",
+    for (const smuggled of ["ALLOW_DUPLICATE", undefined]) {
+      await idempotencyClient.startWorkflow("onceWorkflow", {
+        workflowId: "id-4",
+        args: { id: "a" },
+        ...({ workflowIdReusePolicy: smuggled } as object),
+      });
+    }
+
+    expect(mockWorkflow.start).toHaveBeenCalledTimes(2);
+    for (const [, options] of mockWorkflow.start.mock.calls) {
+      expect(options).toEqual(
+        expect.objectContaining({ workflowIdReusePolicy: "REJECT_DUPLICATE" }),
+      );
+    }
+  });
+});
+
+describe("ContractClient — executeUpdateWithStart", () => {
+  const uwsContract = defineContract({
+    taskQueue: "uws-q",
+    workflows: {
+      cart: defineWorkflow({
+        input: z.object({ cartId: z.string() }),
+        output: z.object({ ok: z.boolean() }),
+        startPolicy: "allow-duplicate",
+        updates: {
+          addItem: {
+            input: z.object({ sku: z.string() }),
+            output: z.number().transform((n) => n * 2),
+          },
+        },
+      }),
+    },
+  });
+
+  let client: ContractClient<typeof uwsContract>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    client = await bindContract(uwsContract, {
+      workflow: mockWorkflow,
+      schedule: mockSchedule,
+    } as unknown as Client);
+  });
+
+  const call = () =>
+    client.executeUpdateWithStart("cart", {
+      workflowId: "cart-1",
+      args: { cartId: "c-1" },
+      workflowIdConflictPolicy: "USE_EXISTING",
+      updateName: "addItem",
+      updateArgs: { sku: "SKU-1" },
+      updateId: "add-1",
     });
 
-    expect(mockWorkflow.start).toHaveBeenCalledWith("onceWorkflow", {
-      workflowId: "id-4",
-      taskQueue: "idempotency-queue",
+  it("sends the contract's start options with the original update args and parses the result", async () => {
+    mockWorkflow.executeUpdateWithStart.mockResolvedValue(21);
+
+    const result = await call();
+
+    expect(result).toBeOk();
+    expect(result.isOk() && result.value).toBe(42);
+    const [updateName, options] = mockWorkflow.executeUpdateWithStart.mock.calls[0] ?? [];
+    expect(updateName).toBe("addItem");
+    expect(options).toEqual(
+      expect.objectContaining({ args: [{ sku: "SKU-1" }], updateId: "add-1" }),
+    );
+    const operation = (options as { startWorkflowOperation: WithStartWorkflowOperation<never> })
+      .startWorkflowOperation;
+    expect(operation.workflowTypeOrFunc).toBe("cart");
+    expect(operation.options).toEqual({
+      workflowId: "cart-1",
+      workflowIdConflictPolicy: "USE_EXISTING",
       workflowIdReusePolicy: "ALLOW_DUPLICATE",
-      args: [{ id: "a" }],
+      taskQueue: "uws-q",
+      args: [{ cartId: "c-1" }],
     });
   });
 
-  it("lets an explicit per-call workflowIdReusePolicy override the contract on signalWithStart", async () => {
-    mockWorkflow.signalWithStart.mockResolvedValue({
-      workflowId: "id-4b",
-      signaledRunId: "run-4b",
+  it("validates the update input before anything is sent", async () => {
+    const result = await client.executeUpdateWithStart("cart", {
+      workflowId: "cart-1",
+      args: { cartId: "c-1" },
+      workflowIdConflictPolicy: "USE_EXISTING",
+      updateName: "addItem",
+      updateArgs: { sku: 1 } as unknown as { sku: string },
     });
 
-    await idempotencyClient.signalWithStart("onceWorkflow", {
-      workflowId: "id-4b",
-      args: { id: "a" },
-      signalName: "ping",
-      signalArgs: [],
-      workflowIdReusePolicy: "ALLOW_DUPLICATE",
-    });
-
-    expect(mockWorkflow.signalWithStart).toHaveBeenCalledWith("onceWorkflow", {
-      workflowId: "id-4b",
-      taskQueue: "idempotency-queue",
-      workflowIdReusePolicy: "ALLOW_DUPLICATE",
-      args: [{ id: "a" }],
-      signal: "ping",
-      signalArgs: [[]],
-    });
+    expect(result.isErr() && result.error).toBeInstanceOf(UpdateValidationError);
+    expect(mockWorkflow.executeUpdateWithStart).not.toHaveBeenCalled();
   });
 
-  it("lets an explicit per-call workflowIdReusePolicy override the contract on executeWorkflow", async () => {
-    mockWorkflow.execute.mockResolvedValue({ ok: true });
+  it.each([
+    [
+      "a start collision",
+      new WorkflowExecutionAlreadyStartedError("already started", "cart-1", "cart"),
+      WorkflowAlreadyStartedError,
+    ],
+    [
+      "an admission rejection",
+      new TemporalWorkflowUpdateFailedError(
+        "Workflow Update failed",
+        ApplicationFailure.create({ type: "UpdateInputValidationError", nonRetryable: true }),
+      ),
+      UpdateRejectedError,
+    ],
+    [
+      "a timed-out call",
+      new TemporalWorkflowUpdateRPCTimeoutOrCancelledError("deadline exceeded"),
+      UpdateRpcTimeoutOrCancelledError,
+    ],
+  ])("classifies %s", async (_label, thrown, expected) => {
+    mockWorkflow.executeUpdateWithStart.mockRejectedValue(thrown);
 
-    await idempotencyClient.executeWorkflow("onceWorkflow", {
-      workflowId: "id-4c",
-      args: { id: "a" },
-      workflowIdReusePolicy: "ALLOW_DUPLICATE",
-    });
+    const result = await call();
 
-    expect(mockWorkflow.execute).toHaveBeenCalledWith("onceWorkflow", {
-      workflowId: "id-4c",
-      taskQueue: "idempotency-queue",
-      workflowIdReusePolicy: "ALLOW_DUPLICATE",
-      args: [{ id: "a" }],
-    });
-  });
-
-  it("sends no policy when the contract declares none, on startWorkflow", async () => {
-    // `plainWorkflow` is missing `startPolicy` at runtime (see its
-    // definition above) — no `workflowIdReusePolicy` key at all should be
-    // sent (not even `undefined`, which differs under
-    // exactOptionalPropertyTypes).
-    mockWorkflow.start.mockResolvedValue({ workflowId: "id-5" });
-
-    await idempotencyClient.startWorkflow("plainWorkflow", {
-      workflowId: "id-5",
-      args: { id: "a" },
-    });
-
-    const passed = mockWorkflow.start.mock.calls[0]?.[1] as Record<string, unknown>;
-    expect(passed).not.toHaveProperty("workflowIdReusePolicy");
-  });
-
-  it("sends no policy when the contract declares none, on signalWithStart", async () => {
-    mockWorkflow.signalWithStart.mockResolvedValue({
-      workflowId: "id-5b",
-      signaledRunId: "run-5b",
-    });
-
-    await idempotencyClient.signalWithStart("plainWorkflow", {
-      workflowId: "id-5b",
-      args: { id: "a" },
-      signalName: "ping",
-      signalArgs: [],
-    });
-
-    const passed = mockWorkflow.signalWithStart.mock.calls[0]?.[1] as Record<string, unknown>;
-    expect(passed).not.toHaveProperty("workflowIdReusePolicy");
-  });
-
-  it("sends no policy when the contract declares none, on executeWorkflow", async () => {
-    mockWorkflow.execute.mockResolvedValue({ ok: true });
-
-    await idempotencyClient.executeWorkflow("plainWorkflow", {
-      workflowId: "id-5c",
-      args: { id: "a" },
-    });
-
-    const passed = mockWorkflow.execute.mock.calls[0]?.[1] as Record<string, unknown>;
-    expect(passed).not.toHaveProperty("workflowIdReusePolicy");
+    expect(result.isErr() && result.error).toBeInstanceOf(expected);
   });
 });

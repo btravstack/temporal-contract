@@ -6,8 +6,17 @@
 
 ## Installation
 
+> **8.0 is currently a prerelease** — npm's `latest` tag still resolves 7.x.
+
 ```bash
-pnpm add @temporal-contract/client @temporal-contract/contract @temporalio/client zod
+# Core packages (8.0 beta — `latest` still resolves 7.x)
+pnpm add @temporal-contract/client@beta @temporal-contract/contract@beta
+
+# Peer dependencies (stable releases)
+pnpm add unthrown @temporalio/client @temporalio/common
+
+# Plus one Standard Schema validator of your choice — zod, valibot, arktype, …
+pnpm add zod
 ```
 
 ## Quick Example

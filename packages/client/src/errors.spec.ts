@@ -38,7 +38,7 @@ describe("validation error message formatting", () => {
       issue("expected string", ["customerId"]),
     ]);
     expect(error.message).toBe(
-      `Validation failed for workflow "processOrder" input: at customerId: expected string`,
+      `Validation failed for workflow "processOrder" input: at customerId`,
     );
   });
 
@@ -47,7 +47,7 @@ describe("validation error message formatting", () => {
       issue("expected number", ["items", 3, "quantity"]),
     ]);
     expect(error.message).toBe(
-      `Validation failed for query "getOrderItems" output: at items[3].quantity: expected number`,
+      `Validation failed for query "getOrderItems" output: at items[3].quantity`,
     );
   });
 
@@ -57,7 +57,7 @@ describe("validation error message formatting", () => {
       issue("expected string", ["userId"]),
     ]);
     expect(error.message).toBe(
-      `Validation failed for signal "updateProgress": at progress: expected number; at userId: expected string`,
+      `Validation failed for signal "updateProgress": at progress; at userId`,
     );
   });
 
@@ -65,16 +65,20 @@ describe("validation error message formatting", () => {
     const error = new UpdateValidationError("setConfig", "input", [
       issue("expected boolean", [{ key: "config" }, { key: "enabled" }]),
     ]);
-    expect(error.message).toBe(
-      `Validation failed for update "setConfig" input: at config.enabled: expected boolean`,
-    );
+    expect(error.message).toBe(`Validation failed for update "setConfig" input: at config.enabled`);
   });
 
-  it("falls back to just the message when no path is present", () => {
+  it("renders a path-less issue as `at root`", () => {
     const error = new WorkflowValidationError("processOrder", "input", [issue("invalid input")]);
-    expect(error.message).toBe(
-      `Validation failed for workflow "processOrder" input: invalid input`,
-    );
+    expect(error.message).toBe(`Validation failed for workflow "processOrder" input: at root`);
+  });
+
+  it("never copies schema messages (which may embed input values) into the message", () => {
+    const error = new WorkflowValidationError("processOrder", "input", [
+      issue('Invalid email: Received "jane@x"', ["email"]),
+    ]);
+    expect(error.message).toBe(`Validation failed for workflow "processOrder" input: at email`);
+    expect(error.issues[0]?.message).toBe('Invalid email: Received "jane@x"');
   });
 
   it("preserves the typed `issues` property for programmatic access", () => {
@@ -86,24 +90,21 @@ describe("validation error message formatting", () => {
   });
 
   describe("non-identifier and symbol path segments", () => {
-    // The client keeps its own copy of the formatter (intentional, per
-    // package boundaries), so these edge cases need their own coverage —
-    // the worker-side tests can't catch regressions here.
+    // The formatter is shared from `@temporal-contract/contract`; these pin
+    // its rendering as seen through the client's error messages.
 
     it("bracket-quotes string keys that aren't valid JS identifiers", () => {
       const error = new WorkflowValidationError("processOrder", "input", [
         issue("invalid", ["foo.bar"]),
       ]);
       expect(error.message).toBe(
-        `Validation failed for workflow "processOrder" input: at ["foo.bar"]: invalid`,
+        `Validation failed for workflow "processOrder" input: at ["foo.bar"]`,
       );
     });
 
     it("bracket-quotes the empty-string key", () => {
       const error = new WorkflowValidationError("processOrder", "input", [issue("invalid", [""])]);
-      expect(error.message).toBe(
-        `Validation failed for workflow "processOrder" input: at [""]: invalid`,
-      );
+      expect(error.message).toBe(`Validation failed for workflow "processOrder" input: at [""]`);
     });
 
     it('disambiguates the literal string "0" from the numeric index 0', () => {
@@ -114,10 +115,10 @@ describe("validation error message formatting", () => {
         issue("invalid", [0]),
       ]);
       expect(stringKey.message).toBe(
-        `Validation failed for workflow "processOrder" input: at ["0"]: invalid`,
+        `Validation failed for workflow "processOrder" input: at ["0"]`,
       );
       expect(numericKey.message).toBe(
-        `Validation failed for workflow "processOrder" input: at [0]: invalid`,
+        `Validation failed for workflow "processOrder" input: at [0]`,
       );
     });
 
@@ -127,7 +128,7 @@ describe("validation error message formatting", () => {
         issue("invalid", [symbolKey]),
       ]);
       expect(error.message).toBe(
-        `Validation failed for workflow "processOrder" input: at [Symbol(hidden)]: invalid`,
+        `Validation failed for workflow "processOrder" input: at [Symbol(hidden)]`,
       );
     });
   });

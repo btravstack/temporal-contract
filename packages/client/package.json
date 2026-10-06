@@ -44,13 +44,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@standard-schema/spec": "catalog:",
-    "@temporal-contract/contract": "workspace:*"
+    "@standard-schema/spec": "catalog:"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "catalog:",
     "@btravstack/tsconfig": "catalog:",
     "@btravstack/typedoc": "catalog:",
+    "@temporal-contract/contract": "workspace:*",
     "@temporal-contract/testing": "workspace:*",
     "@temporalio/client": "catalog:",
     "@temporalio/common": "catalog:",
@@ -69,9 +69,10 @@
     "zod": "catalog:"
   },
   "peerDependencies": {
-    "@temporalio/client": "^1.16.0",
-    "@temporalio/common": "^1.16.0",
-    "unthrown": "^5.0.0"
+    "@temporal-contract/contract": "^8.0.0-beta.11",
+    "@temporalio/client": "^1.24.0",
+    "@temporalio/common": "^1.24.0",
+    "unthrown": "^5.11.0"
   },
   "engines": {
     "node": ">=22.22.0"

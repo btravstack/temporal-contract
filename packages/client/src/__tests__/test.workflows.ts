@@ -59,7 +59,7 @@ export async function interactiveWorkflow(args: { initialValue: number }) {
 }
 
 // Mirrors what `@temporal-contract/worker`'s `declareWorkflow` does at the
-// D1 wire boundary: the client transmits the caller's ORIGINAL args, the
+// Wire boundary: the client transmits the caller's ORIGINAL args, the
 // receiving side parses them exactly once, and the return value is handed to
 // Temporal untransformed (the client parses the output on receive).
 export async function transformWorkflow(args: { text: string }) {

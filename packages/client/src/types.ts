@@ -3,7 +3,11 @@ import type {
   QueryDefinition,
   UpdateDefinition,
   AnyWorkflowDefinition,
+  ErrorDefinition,
+  SearchAttributeDefinition,
+  SearchAttributeKindToType,
 } from "@temporal-contract/contract";
+import type { ContractErrorUnion } from "@temporal-contract/contract/errors";
 import type { AsyncResult } from "unthrown";
 
 import type {
@@ -12,8 +16,14 @@ import type {
   SignalValidationError,
   UpdateFailedError,
   UpdateRejectedError,
+  UpdateRpcTimeoutOrCancelledError,
   UpdateValidationError,
+  WorkflowCancelledError,
   WorkflowExecutionNotFoundError,
+  WorkflowFailedError,
+  WorkflowTerminatedError,
+  WorkflowTimeoutError,
+  WorkflowValidationError,
 } from "./errors.js";
 
 // The direction-aware schema inference primitives live in
@@ -66,22 +76,40 @@ export type ClientInferQuery<TQuery extends QueryDefinition> = (
 >;
 
 /**
+ * Per-call options of an update proxy call — the second argument of
+ * `handle.updates.*`.
+ */
+type UpdateCallOptions = {
+  /**
+   * Unique ID for this update request (passthrough of Temporal's
+   * `updateId`). Meaningful business IDs enable deduplication, and let a
+   * caller reattach with `handle.getUpdateHandle(name, updateId)`.
+   */
+  readonly updateId?: string;
+};
+
+/**
  * Infer update handler signature from client perspective.
  * Client sends the update input type and receives the output type wrapped in
  * an `AsyncResult`; the payload argument is omittable when the schema
- * accepts `undefined` (e.g. argument-less `defineUpdate({ output })`).
+ * accepts `undefined` (e.g. argument-less `defineUpdate({ output })`), and an
+ * optional second argument carries the `updateId`.
  * The error union names exactly what the handle's update proxy produces:
  * input/output-validation failure, a worker-side admission rejection
  * (`UpdateRejectedError`), a failed admitted handler (`UpdateFailedError`),
- * or a missing execution.
+ * a timed-out or cancelled update call, or a missing execution.
  */
 export type ClientInferUpdate<TUpdate extends UpdateDefinition> = (
   ...args: undefined extends ClientInferInput<TUpdate>
-    ? [input?: ClientInferInput<TUpdate>]
-    : [input: ClientInferInput<TUpdate>]
+    ? [input?: ClientInferInput<TUpdate>, options?: UpdateCallOptions]
+    : [input: ClientInferInput<TUpdate>, options?: UpdateCallOptions]
 ) => AsyncResult<
   ClientInferOutput<TUpdate>,
-  UpdateValidationError | UpdateRejectedError | UpdateFailedError | WorkflowExecutionNotFoundError
+  | UpdateValidationError
+  | UpdateRejectedError
+  | UpdateFailedError
+  | UpdateRpcTimeoutOrCancelledError
+  | WorkflowExecutionNotFoundError
 >;
 
 /**
@@ -113,3 +141,54 @@ export type ClientInferWorkflowUpdates<T extends AnyWorkflowDefinition> =
         [K in keyof T["updates"]]: ClientInferUpdate<T["updates"][K]>;
       }
     : Record<never, never>;
+
+/**
+ * Union of typed {@link ContractError}s declared on a workflow's `errors`
+ * map, or `never` when the workflow declares none — in which case the member
+ * simply vanishes from the surfaced error union.
+ *
+ * Surfaced by `executeWorkflow` and `handle.result()` when the execution
+ * failed with a matching `ApplicationFailure` (`type` = declared error name,
+ * `details[0]` validating against the declared `data` schema).
+ */
+export type WorkflowContractErrorsOf<TWorkflow extends AnyWorkflowDefinition> = TWorkflow extends {
+  errors: infer TErrors extends Record<string, ErrorDefinition>;
+}
+  ? ContractErrorUnion<TErrors>
+  : never;
+
+/**
+ * Union of the modeled errors a result-awaiting call can surface for a
+ * workflow — the shared tail of `executeWorkflow` and `handle.result()`: any
+ * contract error declared on the workflow, plus output validation, the
+ * generic completion failure, the three first-class workflow outcomes
+ * (cancelled / terminated / timed out), and a missing execution.
+ */
+export type WorkflowResultErrorsOf<TWorkflow extends AnyWorkflowDefinition> =
+  | WorkflowContractErrorsOf<TWorkflow>
+  | WorkflowValidationError
+  | WorkflowFailedError
+  | WorkflowCancelledError
+  | WorkflowTerminatedError
+  | WorkflowTimeoutError
+  | WorkflowExecutionNotFoundError;
+
+/**
+ * Typed `searchAttributes` map for a workflow, derived from the workflow's
+ * declared `searchAttributes`. Each key is constrained to a declared
+ * attribute name; each value's type is determined by the attribute's `kind`
+ * (e.g. `KEYWORD` → `string`, `INT` → `number`, `DATETIME` → `Date`,
+ * `KEYWORD_LIST` → `string[]`).
+ *
+ * If the workflow declares no search attributes, this resolves to `never`,
+ * meaning the `searchAttributes` field is effectively absent from the start
+ * options for that workflow.
+ */
+export type TypedSearchAttributeMap<TWorkflow extends AnyWorkflowDefinition> =
+  TWorkflow["searchAttributes"] extends Record<string, SearchAttributeDefinition>
+    ? {
+        [K in keyof TWorkflow["searchAttributes"]]?: SearchAttributeKindToType<
+          TWorkflow["searchAttributes"][K]["kind"]
+        >;
+      }
+    : never;

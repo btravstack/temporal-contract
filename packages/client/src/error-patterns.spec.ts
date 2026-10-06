@@ -32,12 +32,12 @@ import type {
   SignalValidationError,
   UpdateFailedError,
   UpdateRejectedError,
+  UpdateRpcTimeoutOrCancelledError,
   UpdateValidationError,
   WorkflowAlreadyStartedError,
   WorkflowCancelledError,
   WorkflowExecutionNotFoundError,
   WorkflowFailedError,
-  WorkflowNotInContractError,
   WorkflowTerminatedError,
   WorkflowTimeoutError,
   WorkflowValidationError,
@@ -45,10 +45,7 @@ import type {
 
 // The unions the client's own signatures produce, restated here so a change
 // to either side has to be made deliberately on both.
-type StartErrors =
-  | WorkflowNotInContractError
-  | WorkflowValidationError
-  | WorkflowAlreadyStartedError;
+type StartErrors = WorkflowValidationError | WorkflowAlreadyStartedError;
 
 type ResultErrors =
   | WorkflowValidationError
@@ -66,11 +63,9 @@ type UpdateErrors =
   | UpdateValidationError
   | UpdateRejectedError
   | UpdateFailedError
+  | UpdateRpcTimeoutOrCancelledError
   | WorkflowExecutionNotFoundError;
-type ScheduleCreateErrors =
-  | ScheduleAlreadyExistsError
-  | WorkflowNotInContractError
-  | WorkflowValidationError;
+type ScheduleCreateErrors = ScheduleAlreadyExistsError | WorkflowValidationError;
 
 /**
  * Compile-time pins. Never invoked — `.exhaustive()` failing to typecheck is
@@ -134,7 +129,6 @@ const tagsOf = (patterns: readonly { readonly _tag: string }[]) => patterns.map(
 describe("client error pattern groups", () => {
   it("WORKFLOW_START_PATTERNS names exactly the start-phase errors", () => {
     expect(tagsOf(WORKFLOW_START_PATTERNS)).toEqual([
-      "@temporal-contract/WorkflowNotInContractError",
       "@temporal-contract/WorkflowValidationError",
       "@temporal-contract/WorkflowAlreadyStartedError",
     ]);
@@ -191,6 +185,7 @@ describe("client error pattern groups", () => {
       "@temporal-contract/UpdateValidationError",
       "@temporal-contract/UpdateRejectedError",
       "@temporal-contract/UpdateFailedError",
+      "@temporal-contract/UpdateRpcTimeoutOrCancelledError",
       "@temporal-contract/WorkflowExecutionNotFoundError",
     ]);
   });
@@ -198,7 +193,6 @@ describe("client error pattern groups", () => {
   it("SCHEDULE_CREATE_PATTERNS names exactly what schedule.create produces", () => {
     expect(tagsOf(SCHEDULE_CREATE_PATTERNS)).toEqual([
       "@temporal-contract/ScheduleAlreadyExistsError",
-      "@temporal-contract/WorkflowNotInContractError",
       "@temporal-contract/WorkflowValidationError",
     ]);
   });

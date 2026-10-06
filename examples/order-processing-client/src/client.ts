@@ -165,21 +165,12 @@ async function run() {
     process.exit(1);
   }
 
-  // `getHandle` is synchronous: the only failure mode is a workflow name
-  // missing from the contract, surfaced as a sync `Result` Err. Whether the
+  // `getHandle` is synchronous and infallible, like Temporal's: whether the
   // *execution* exists is answered lazily by the handle's methods.
   // The ID came from the contract's derivation, so read it off the start
-  // result rather than re-deriving it here — the derivation lives in one
-  // place on purpose.
-  const fetchedHandle = orders.getHandle("processOrder", cancelStart.value.workflowId);
-  if (!fetchedHandle.isOk()) {
-    logger.error(
-      { err: fetchedHandle.isErr() ? fetchedHandle.error : fetchedHandle.cause },
-      "❌ Workflow not in contract",
-    );
-    process.exit(1);
-  }
-  const cancelHandle = fetchedHandle.value;
+  // result rather than re-deriving it here (`orders.workflowIdFor` derives
+  // it from a payload when there is no start result to hand).
+  const cancelHandle = orders.getHandle("processOrder", cancelStart.value.workflowId);
 
   // Payload-less signal — `defineSignal()` in the contract, sent with no
   // arguments. Narrow the Result like every other client call in this file —

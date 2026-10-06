@@ -32,22 +32,22 @@ import { describe, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 
 import { ContractClient, type TypedClient } from "./client.js";
-import type { TypedSignalWithStartOptions, TypedWorkflowStartOptions } from "./client.js";
 import type {
   QueryFailedError,
   QueryValidationError,
   UpdateFailedError,
   UpdateRejectedError,
+  UpdateRpcTimeoutOrCancelledError,
   UpdateValidationError,
   WorkflowAlreadyStartedError,
   WorkflowCancelledError,
   WorkflowExecutionNotFoundError,
   WorkflowFailedError,
-  WorkflowNotInContractError,
   WorkflowTerminatedError,
   WorkflowTimeoutError,
   WorkflowValidationError,
 } from "./errors.js";
+import type { TypedSignalWithStartOptions, TypedWorkflowStartOptions } from "./options.js";
 import { TypedScheduleClient } from "./schedule.js";
 
 const contractWithSignal = defineContract({
@@ -193,10 +193,7 @@ describe("method-level pins", () => {
         // `bare` declares no contract errors, so the union is exactly the
         // client-side kinds — no ContractError member, no widening to Error.
         expectTypeOf(result.error).toMatchTypeOf<
-          | WorkflowNotInContractError
-          | WorkflowValidationError
-          | WorkflowAlreadyStartedError
-          | { workflowId: string }
+          WorkflowValidationError | WorkflowAlreadyStartedError | { workflowId: string }
         >();
         expectTypeOf(result.error).not.toBeAny();
         expectTypeOf<(typeof result)["error"]>().not.toEqualTypeOf<Error>();
@@ -210,7 +207,7 @@ describe("method-level pins", () => {
       const result = await bound.startWorkflow("bare", { workflowId: "x", args: { a: "s" } });
       if (result.isErr()) {
         expectTypeOf(result.error).toEqualTypeOf<
-          WorkflowNotInContractError | WorkflowValidationError | WorkflowAlreadyStartedError
+          WorkflowValidationError | WorkflowAlreadyStartedError
         >();
       }
     };
@@ -244,9 +241,7 @@ describe("method-level pins", () => {
 
   it("input-less signal/query/update payloads are omittable on the typed handle", () => {
     const _pin = async (bound: ContractClient<typeof richContract>) => {
-      const handleResult = bound.getHandle("processOrder", "id-1");
-      if (!handleResult.isOk()) return;
-      const handle = handleResult.value;
+      const handle = bound.getHandle("processOrder", "id-1");
 
       // Payload-less definitions: the argument can be omitted entirely.
       void handle.signals.stop();
@@ -306,7 +301,6 @@ describe("method-level pins", () => {
         // cancellation/termination/timeout are first-class members, not
         // `WorkflowFailedError.cause` variants.
         expectTypeOf(result.error).toEqualTypeOf<
-          | WorkflowNotInContractError
           | WorkflowValidationError
           | WorkflowAlreadyStartedError
           | WorkflowFailedError
@@ -322,9 +316,8 @@ describe("method-level pins", () => {
 
   it("handle.result() surfaces the same outcome-aware union", () => {
     const _pin = async (bound: ContractClient<typeof contractNoSignals>) => {
-      const handleResult = bound.getHandle("bare", "id-1");
-      if (!handleResult.isOk()) return;
-      const result = await handleResult.value.result();
+      const typedHandle = bound.getHandle("bare", "id-1");
+      const result = await typedHandle.result();
       if (result.isErr()) {
         expectTypeOf(result.error).toEqualTypeOf<
           | WorkflowValidationError
@@ -341,9 +334,8 @@ describe("method-level pins", () => {
 
   it("queries err with QueryFailedError beside validation and not-found", () => {
     const _pin = async (bound: ContractClient<typeof richContract>) => {
-      const handleResult = bound.getHandle("processOrder", "id-1");
-      if (!handleResult.isOk()) return;
-      const result = await handleResult.value.queries.progress();
+      const typedHandle = bound.getHandle("processOrder", "id-1");
+      const result = await typedHandle.queries.progress();
       if (result.isErr()) {
         expectTypeOf(result.error).toEqualTypeOf<
           QueryValidationError | QueryFailedError | WorkflowExecutionNotFoundError
@@ -355,27 +347,25 @@ describe("method-level pins", () => {
 
   it("updates err with UpdateRejectedError/UpdateFailedError beside validation and not-found", () => {
     const _pin = async (bound: ContractClient<typeof richContract>) => {
-      const handleResult = bound.getHandle("processOrder", "id-1");
-      if (!handleResult.isOk()) return;
-      const handle = handleResult.value;
+      const handle = bound.getHandle("processOrder", "id-1");
 
-      const executed = await handle.updates.refresh();
+      const executed = await handle.updates.refresh(undefined, { updateId: "u-1" });
       if (executed.isErr()) {
         expectTypeOf(executed.error).toEqualTypeOf<
           | UpdateValidationError
           | UpdateRejectedError
           | UpdateFailedError
+          | UpdateRpcTimeoutOrCancelledError
           | WorkflowExecutionNotFoundError
         >();
       }
 
+      // Starting never surfaces the outcome: a rejection or a failed
+      // handler is only visible on the update handle's result().
       const started = await handle.startUpdate("refresh");
       if (started.isErr()) {
         expectTypeOf(started.error).toEqualTypeOf<
-          | UpdateValidationError
-          | UpdateRejectedError
-          | UpdateFailedError
-          | WorkflowExecutionNotFoundError
+          UpdateValidationError | UpdateRpcTimeoutOrCancelledError | WorkflowExecutionNotFoundError
         >();
       }
       if (started.isOk()) {
@@ -385,10 +375,67 @@ describe("method-level pins", () => {
             | UpdateValidationError
             | UpdateRejectedError
             | UpdateFailedError
+            | UpdateRpcTimeoutOrCancelledError
             | WorkflowExecutionNotFoundError
           >();
         }
       }
+
+      const reattached = await handle.getUpdateHandle("adjust", "u-2").result();
+      if (reattached.isOk()) {
+        expectTypeOf(reattached.value).toEqualTypeOf<number>();
+      }
+      // @ts-expect-error — only declared updates can be reattached.
+      handle.getUpdateHandle("nope", "u-3");
+    };
+    void _pin;
+  });
+
+  it("the contract owns workflowIdReusePolicy and followRuns on every start path", () => {
+    const _pin = async (bound: ContractClient<typeof richContract>) => {
+      await bound.startWorkflow("processOrder", {
+        workflowId: "x",
+        args: { orderId: "o" },
+        // @ts-expect-error — the contract's startPolicy owns the reuse policy.
+        workflowIdReusePolicy: "ALLOW_DUPLICATE",
+      });
+      await bound.startWorkflow("processOrder", {
+        workflowId: "x",
+        args: { orderId: "o" },
+        // @ts-expect-error — handles always follow the run chain.
+        followRuns: false,
+      });
+      await bound.signalWithStart("processOrder", {
+        workflowId: "x",
+        args: { orderId: "o" },
+        signalName: "stop",
+        // @ts-expect-error — the contract's startPolicy owns the reuse policy.
+        workflowIdReusePolicy: "ALLOW_DUPLICATE",
+      });
+    };
+    void _pin;
+  });
+
+  it("executeUpdateWithStart types the update payload and result", () => {
+    const _pin = async (bound: ContractClient<typeof richContract>) => {
+      const result = await bound.executeUpdateWithStart("processOrder", {
+        workflowId: "x",
+        args: { orderId: "o" },
+        workflowIdConflictPolicy: "USE_EXISTING",
+        updateName: "adjust",
+        updateArgs: { delta: 1 },
+      });
+      if (result.isOk()) {
+        expectTypeOf(result.value).toEqualTypeOf<number>();
+      }
+      await bound.executeUpdateWithStart("processOrder", {
+        workflowId: "x",
+        args: { orderId: "o" },
+        workflowIdConflictPolicy: "USE_EXISTING",
+        updateName: "adjust",
+        // @ts-expect-error — adjust requires { delta: number }.
+        updateArgs: { delta: "1" },
+      });
     };
     void _pin;
   });
@@ -405,20 +452,16 @@ describe("method-level pins", () => {
     void _pin;
   });
 
-  it("getHandle is synchronous and Err-narrows to WorkflowNotInContractError", () => {
+  it("getHandle returns the handle directly and offers no followRuns", () => {
     const _pin = (bound: ContractClient<typeof richContract>) => {
-      const handleResult = bound.getHandle("processOrder", "id-1", {
+      const handle = bound.getHandle("processOrder", "id-1", {
         runId: "run-1",
         firstExecutionRunId: "run-0",
-        followRuns: true,
       });
-      if (handleResult.isErr()) {
-        expectTypeOf(handleResult.error).toEqualTypeOf<WorkflowNotInContractError>();
-      }
-      if (handleResult.isOk()) {
-        expectTypeOf(handleResult.value.runId).toEqualTypeOf<string | undefined>();
-        expectTypeOf(handleResult.value.firstExecutionRunId).toEqualTypeOf<string | undefined>();
-      }
+      expectTypeOf(handle.runId).toEqualTypeOf<string | undefined>();
+      expectTypeOf(handle.firstExecutionRunId).toEqualTypeOf<string | undefined>();
+      // @ts-expect-error — the handle always follows the run chain.
+      bound.getHandle("processOrder", "id-1", { followRuns: false });
     };
     void _pin;
   });
