@@ -121,18 +121,7 @@ export const processOrder = declareWorkflow({
 ```
 
 ```typescript [4. Client]
-import {
-  TypedClient,
-  WORKFLOW_ALREADY_STARTED_ERROR_TAG,
-  WORKFLOW_CANCELLED_ERROR_TAG,
-  WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG,
-  WORKFLOW_FAILED_ERROR_TAG,
-  WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG,
-  WORKFLOW_TERMINATED_ERROR_TAG,
-  WORKFLOW_TIMEOUT_ERROR_TAG,
-  WORKFLOW_VALIDATION_ERROR_TAG,
-} from "@temporal-contract/client";
-import { P } from "unthrown";
+import { TypedClient, WORKFLOW_EXECUTE_PATTERNS } from "@temporal-contract/client";
 import { Client, Connection } from "@temporalio/client";
 
 import { orderContract } from "./contract.js";
@@ -151,17 +140,7 @@ const result = await client.for(orderContract).executeWorkflow("processOrder", {
 result.match({
   ok: (output) => console.log(output.transactionId), // ✅ typed
   errCases: (matcher) =>
-    matcher.with(
-      P.tag(WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG),
-      P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
-      P.tag(WORKFLOW_ALREADY_STARTED_ERROR_TAG),
-      P.tag(WORKFLOW_FAILED_ERROR_TAG),
-      P.tag(WORKFLOW_CANCELLED_ERROR_TAG),
-      P.tag(WORKFLOW_TERMINATED_ERROR_TAG),
-      P.tag(WORKFLOW_TIMEOUT_ERROR_TAG),
-      P.tag(WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG),
-      (error) => console.error("failed:", error.message),
-    ),
+    matcher.with(...WORKFLOW_EXECUTE_PATTERNS, (error) => console.error("failed:", error.message)),
   defect: (cause) => console.error("unexpected:", cause),
 });
 ```

@@ -82,9 +82,33 @@ might want to fail fast. Splitting the two means the safety question gets
 asked once, on the contract, instead of re-litigated — or forgotten — at
 every call site.
 
-An explicit per-call `workflowIdReusePolicy` still overrides the contract's
-mode, for the rare case where a specific call site genuinely needs to depart
-from the contract's default.
+There is no per-call override: the typed client's start options and the
+worker's child-workflow options do not accept `workflowIdReusePolicy`. To
+change the behavior, change the contract.
+
+## Derive the workflow ID
+
+A start policy only works if two starts of the same logical request share an
+ID. A caller free to pass `crypto.randomUUID()` defeats `"once-per-id"`
+silently — every start gets a fresh ID and the policy never fires. Declare
+`workflowId` to move the ID onto the contract:
+
+```typescript
+const chargeOrder = defineWorkflow({
+  input: OrderSchema,
+  output: OrderResultSchema,
+  workflowId: ({ orderId }) => `charge-${orderId}`,
+  startPolicy: "retry-if-failed",
+  activities: { chargeCard },
+});
+```
+
+The function receives the **validated** input and must be pure. The client
+computes the ID on every start (and passing `workflowId` becomes a type
+error), the worker does the same for a child-workflow start, and
+`workflowIdFor("chargeOrder", input)` on the contract client computes it
+without starting anything, to `getHandle` the execution later. Schedules are
+the exception: `schedule.create` generates one ID per firing.
 
 ## Scope activities globally or per workflow
 
@@ -116,9 +140,9 @@ points at two **different** definitions — whether the collision is
 workflow-vs-global or between two different workflows:
 
 ```
-Contract validation failed: workflow "cancelOrder" has activity "chargeCard"
-that conflicts with a different same-named activity in workflow
-"processOrder". Activities share a single flat namespace at runtime — hoist
+Contract validation failed at workflows.cancelOrder.activities.chargeCard:
+workflow "cancelOrder" has activity "chargeCard" that conflicts with a
+different same-named activity in workflow "processOrder". Activities share a single flat namespace at runtime — hoist
 the shared activity to the contract's global "activities" block, or rename
 one of them.
 ```
@@ -308,85 +332,52 @@ Workflows in different contracts still call each other — see
 
 ## What `defineContract` checks
 
-It validates at call time and throws on:
+It validates at call time and throws a `ContractDefinitionError` (exported
+from the package root; `path` names the offending slot, e.g.
+`workflows.processOrder.activities.charge`) on:
 
-- a missing or empty `taskQueue`;
+- a missing or empty `taskQueue`, one with leading/trailing whitespace, or one
+  longer than 1000 characters (Temporal's default limit);
 - a contract that declares nothing — at least one workflow **or** one global
   activity is required (`workflows: {}` with global `activities` is valid: an
   activity-only contract models a dedicated activity-pool task queue);
-- an unknown top-level key (e.g. a misspelled `workflow`);
-- any name that is not a valid JavaScript identifier;
+- an unknown key anywhere — on the contract root or on any workflow, activity,
+  signal, query, update, error, or search-attribute definition (e.g. a
+  misspelled `workflow`, or a leftover `defaultOptions` / `idempotency`);
+- a workflow without a valid `startPolicy`, or a `workflowId` /
+  `idempotencyKey` that is not a function;
+- any name that is not a valid JavaScript identifier, or that is an
+  `Object.prototype` member (`constructor`, `toString`, …);
 - a name Temporal reserves for its SDK internals — anything starting with
   `__temporal_`, plus the exact query names `__stack_trace` and
-  `__enhanced_stack_trace` — **also a `tsc` error** when the name is written
-  as a literal in the contract source;
+  `__enhanced_stack_trace`;
+- an error name the worker uses for its own failures
+  (`WorkflowInputValidationError`, `ContractMisuseError`, …), or a search
+  attribute named like a Temporal system attribute (`WorkflowId`,
+  `ExecutionStatus`, …) or declared with two different kinds across workflows;
 - an `input`, `output`, or error `data` that is not Standard Schema compatible;
 - duplicate activity names across the flat namespace that point at
-  **different** definitions (sharing one `defineActivity` result is allowed)
-  — **also a `tsc` error** when the two definitions are structurally
-  distinguishable;
-- unknown keys or malformed duration strings in `activityOptions` — a
-  malformed literal duration like `"5 minutos"` is **also a `tsc` error**; a
-  duration built from a computed `string` (read from config, etc.) has no
-  literal to inspect, so only the runtime check catches it.
+  **different** definitions (sharing one `defineActivity` result is allowed);
+- unknown keys, malformed duration strings, or a retry policy Temporal would
+  reject in `activityOptions` (`backoffCoefficient` below 1, a non-integer or
+  non-positive `maximumAttempts`, a zero interval, or `maximumInterval` below
+  `initialInterval`).
 
 ```
-Contract validation failed: taskQueue cannot be empty
+Contract validation failed at taskQueue: taskQueue cannot be empty
 ```
 
 Because this runs at import time, a malformed contract fails when the process
-starts rather than when a workflow first executes. The three checks called
-out above also run at `tsc` time, ahead of import, for whatever a literal in
-the contract source lets the type checker prove — the runtime check still
-runs unconditionally and remains authoritative.
-
-::: warning A contract assembled inside a generic helper won't compile
-
-```typescript
-function makeContract<W extends Record<string, AnyWorkflowDefinition>>(workflows: W) {
-  return defineContract({ taskQueue: "tq", workflows }); // TS2322
-}
-```
-
-TypeScript cannot check a generic argument against `defineContract`'s
-computed parameter type, so `tsc` reports the raw, unresolved conditional
-type instead of a readable diagnostic. The same happens for a generic global
-`activities` map and a generic workflow-scoped `activities` map — i.e.
-contract-factory and multi-tenant-builder helpers. The runtime is unaffected:
-it still accepts and validates a contract assembled this way.
-
-Make the whole contract the generic parameter instead, so the argument _is_
-the type parameter rather than an object literal containing one:
-
-```typescript
-function makeContract<const T extends ContractDefinition>(contract: T): T {
-  return defineContract(contract as never) as T;
-}
-```
-
-Three details here are load-bearing, and getting any of them wrong fails
-silently:
-
-- **`as never`** is what opts the helper out of the compile-time checks. That
-  is unavoidable — validating through a generic is precisely what cannot work.
-  **`defineContract`'s runtime validation still runs and still throws**, so a
-  contract built this way is still fully checked; the check simply happens at
-  call time instead of at `tsc` time.
-- **`const T`** preserves literal types. Without it, workflow and activity
-  names widen to `string`.
-- **The explicit `: T` return type** is what propagates your contract's type to
-  the caller. Omit it — writing just
-  `function makeContract<T extends ContractDefinition>(contract: T)` — and the
-  helper returns bare `ContractDefinition`: `InferWorkflowNames` becomes
-  `string`, every workflow and activity name is erased, and **nothing anywhere
-  reports an error**. Every typed API downstream of that contract silently
-  loses its types.
-
-:::
+starts rather than when a workflow first executes. TypeScript additionally
+rejects a misspelled key on a `defineActivity` / `defineWorkflow` /
+`defineSignal` / `defineQuery` / `defineUpdate` literal; everything else is a
+runtime check only.
 
 ## Next
 
 - [Implement activities](/how-to/implement-activities)
+- [Evolve a contract](/how-to/evolve-a-contract) — changing it once executions
+  are in flight
 - [Contract surface](/reference/contract-surface) — every option, exhaustively
 - [Validation boundaries](/explanation/validation-boundaries) — where and why
   schemas run

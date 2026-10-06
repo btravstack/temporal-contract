@@ -153,8 +153,13 @@ The guard's real value is **at declaration time, in development and CI**: it
 turns a missing bound into an immediate, readable error the first time the
 workflow module loads — in a unit test, in a bundling step, in a worker
 starting up — rather than a silently-`Running` execution discovered only in
-production. It is not a production runtime safety net, and nothing in this
-codebase should be read as claiming otherwise.
+production. `TypedWorker.create` makes the startup case concrete: with a
+`workflowsPath` and `verifyWorkflowRegistration` left on (the default), it
+imports the workflows module in the main thread first, and a
+`ContractMisuseError` thrown there fails worker creation (a `TechnicalError`
+defect) instead of reaching the sandbox. A prebuilt `workflowBundle`, or the
+check turned off, skips that import — and then the stall described above is
+what you get.
 
 ### `WorkflowContext`
 
@@ -182,7 +187,9 @@ exported too, for helpers generic over an activity's error type.
 #### `info`
 
 Temporal's `WorkflowInfo`: `workflowId`, `runId`, `attempt`,
-`continueAsNewSuggested`, and the rest.
+`continueAsNewSuggested`, and the rest. A getter over `workflowInfo()`, so it
+is always the current activation's view — `continueAsNewSuggested` and
+`historyLength` update as the workflow runs.
 
 #### `errors`
 
@@ -194,7 +201,9 @@ throw context.errors.EmptyOrder({ orderId: args.orderId });
 ```
 
 An error with a `data` schema takes the payload first, then options; a data-less
-error takes only options (`{ message?, cause? }`).
+error takes only options (`{ message?, cause? }`). Throwing a `ContractError`
+whose name the workflow does not declare (built elsewhere, or from untyped
+code) fails the execution with `ContractMisuseError`.
 
 Empty object when the workflow declares no errors.
 
@@ -206,7 +215,9 @@ Empty object when the workflow declares no errors.
 ```
 
 An incoming signal whose payload fails the schema is **dropped and logged**
-(`log.warn` with the signal name and issues) — it never fails the execution.
+(`log.warn` with the signal name and the failing paths) — it never fails the
+execution. A library error the handler throws fails the workflow with the
+Temporal failure it carries, as in the implementation.
 A signal is fire-and-forget; any stale client can send one.
 
 #### `handleQuery(name, handler)`
@@ -217,8 +228,10 @@ A signal is fire-and-forget; any stale client can send one.
 ```
 
 Must be synchronous. Both query schemas (input and output) must validate
-synchronously — an async-validating schema (e.g. a zod async refinement)
-trips a `ContractMisuseError` at bind time, not at first request.
+synchronously — every call checks, and an async-validating schema (e.g. a zod
+async refinement) fails that query with a `ContractMisuseError`. There is no
+bind-time check: a schema may go async only for some inputs, so only the real
+payload tells.
 
 #### `handleUpdate(name, handler)`
 
@@ -229,7 +242,13 @@ trips a `ContractMisuseError` at bind time, not at first request.
 
 The update's **input** schema must validate synchronously (it feeds Temporal's
 synchronous validator slot); the output schema may be async. An async input
-schema trips a `ContractMisuseError` at bind time.
+schema rejects that update with a `ContractMisuseError`, checked per call like
+queries.
+
+A handler that throws — `throw context.errors.X(...)`, `throw result.error`,
+`.getOrThrow()` — rejects the update with the Temporal failure the thrown
+value carries, the same mapping `declareWorkflow` applies to the
+implementation (see `propagateFailure` below).
 
 Names are constrained to what the contract declares. Register handlers inside
 the implementation so they can close over workflow state. For an input-less
@@ -259,19 +278,28 @@ The `handle*` verb keeps the in-workflow binding tier distinct from the
    >
 ```
 
+When the child's definition declares `workflowId`, the ID is derived from the
+validated `args` — as on the client — and passing `options.workflowId` is a
+type error. Otherwise it stays Temporal's optional field.
+
 `TypedChildWorkflowHandle` exposes:
 
-| Member                | Type                                                                                                 |
-| --------------------- | ---------------------------------------------------------------------------------------------------- |
-| `workflowId`          | `string`                                                                                             |
-| `firstExecutionRunId` | `string` — anchor of the child's execution chain, stable across continue-as-new                      |
-| `signals`             | `Record<SignalName, (args) => AsyncResult<void, ChildWorkflowError \| ChildWorkflowCancelledError>>` |
-| `result()`            | `AsyncResult<Output, ChildWorkflowError \| ChildWorkflowCancelledError>`                             |
+| Member                | Type                                                                                                                 |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `workflowId`          | `string`                                                                                                             |
+| `firstExecutionRunId` | `string` — anchor of the child's execution chain, stable across continue-as-new                                      |
+| `signals`             | `Record<SignalName, (args) => AsyncResult<void, ChildWorkflowError \| ChildWorkflowCancelledError>>`                 |
+| `result()`            | `AsyncResult<Output, ChildWorkflowError \| ChildWorkflowCancelledError \| ChildWorkflowContractErrorsOf<TWorkflow>>` |
 
 The `signals` map (type `TypedChildWorkflowSignals`, exported) mirrors the
 client handle's: one sender per signal declared on the child's contract entry.
 The payload is validated before sending — an invalid payload fails early as
 `Err(ChildWorkflowError)` — and the child parses it on receive.
+
+A failure whose `type` names one of the child's declared `errors` is
+rehydrated into a typed `ContractError` on `result()` (and on
+`executeChildWorkflow`); `ChildWorkflowContractErrorsOf<TWorkflow>` (exported)
+is that union, `never` when the child declares none.
 
 `ChildWorkflowError`, `ChildWorkflowCancelledError`, and
 `ChildWorkflowNotFoundError` each carry the child's `workflowName` as a
@@ -282,8 +310,10 @@ are exported for annotating stored handles.
 
 `TypedChildWorkflowOptions` — the `options` argument shared by both
 `startChildWorkflow` and `executeChildWorkflow` — is Temporal's
-`ChildWorkflowOptions` without `taskQueue` and `args`, plus a typed `args`,
-and with `parentClosePolicy` **required** rather than optional. Temporal's
+`ChildWorkflowOptions` without `taskQueue`, `args`, and
+`workflowIdReusePolicy` (the child's contract `startPolicy` owns it, with no
+per-call override), plus a typed `args`, `workflowId` typed as above, and
+with `parentClosePolicy` **required** rather than optional. Temporal's
 own field accepts `undefined` (via the deprecated
 `PARENT_CLOSE_POLICY_UNSPECIFIED` union member), so this type `Exclude`s
 `undefined` explicitly; without that, a "required" field that still accepts
@@ -301,15 +331,21 @@ Starts and waits.
 ```typescript
 => AsyncResult<
      Output,
-     ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError
+     | ChildWorkflowError
+     | ChildWorkflowCancelledError
+     | ChildWorkflowNotFoundError
+     | ChildWorkflowContractErrorsOf<TWorkflow>
    >
 ```
 
 #### `cancellableScope(fn)` / `nonCancellableScope(fn)`
 
 ```typescript
-<T>(fn: () => T | Promise<T>) => AsyncResult<T, WorkflowCancelledError>;
+<T>(fn: () => T | Promise<T>) => AsyncResult<Awaited<T>, WorkflowCancelledError>;
 ```
+
+`fn`'s return value is awaited, so returning an un-awaited `AsyncResult`
+yields its settled `Result`, not a nested `AsyncResult`.
 
 `cancellableScope` surfaces cancellation as `Err(WorkflowCancelledError)`.
 `nonCancellableScope` ignores outside cancellation for its duration — the way
@@ -345,8 +381,9 @@ const fulfilled = await context
 ```
 
 **Which failures compensate is the decision this makes for you.** The undos run
-on a **declared contract error** — a permanent domain answer, where what the
-step did before saying no is knowable. They do **not** run on an
+on a **declared contract error** — an activity's or a child workflow's, a
+permanent domain answer, where what the step did before saying no is
+knowable. They do **not** run on an
 `ActivityError`, a `ChildWorkflowError` or a defect: a step that failed
 unmodelled left state nobody can see, and un-deciding what you cannot see is a
 second bug. That failure propagates untouched, so
@@ -384,7 +421,9 @@ its steps in a helper.
 ```
 
 Args are validated against the destination workflow's input schema before
-Temporal is called; on failure it throws `WorkflowInputValidationError`.
+Temporal is called; on failure it throws `WorkflowInputValidationError`. A
+target workflow the given contract does not declare (reachable only from
+untyped code) throws `ContractMisuseError`.
 `TypedContinueAsNewOptions` (exported) is Temporal's `ContinueAsNewOptions`
 without `workflowType` and `taskQueue` — the validated target wins, so a
 `workflowType`/`taskQueue` slipped through untyped code is ignored. There is
@@ -408,7 +447,11 @@ dropped and logged, never thrown (see `handleSignal` above).
 
 Each `ValidationError` subclass carries a readonly `direction: "input" |
 "output"` field (the class names are unchanged; they remain
-`ApplicationFailure` subclasses discriminated by `failure.type`).
+`ApplicationFailure` subclasses discriminated by `failure.type`). Its
+`message` lists only the failing paths (`summarizeIssues`), because it is
+stored in history unencrypted; the full issues — schema messages included —
+ride `details[0]` as `{ message, path }` records, which payload codecs do
+encrypt, and stay on the `issues` property in process.
 
 #### `propagateFailure(result)`
 
@@ -428,13 +471,13 @@ const { transactionId } = await propagateFailure(
 );
 ```
 
-**Do not use unthrown's `.getOrThrow()` for this.** It throws the
-`ActivityError`/`ActivityCancelledError` wrapper — a `TaggedError`, not a
-`TemporalFailure` — which Temporal treats as a workflow-_task_ failure and
-retries indefinitely, stalling the workflow until its execution timeout
-instead of failing it. `propagateFailure` re-raises the preserved
-original failure instead — see [The result
-model](/explanation/the-result-model).
+**Prefer it to unthrown's `.getOrThrow()` / `throw result.error`.** Those
+throw the `ActivityError`/`ActivityCancelledError` wrapper — a `TaggedError`,
+not a `TemporalFailure`. `declareWorkflow`, signal handlers, and update
+handlers catch such a throw and map it to the same failure `propagateFailure`
+would raise, so the outcome is the same when it reaches them; but anything
+that catches it in between — a `try`, a library — sees the wrapper, not the
+failure. See [The result model](/explanation/the-result-model).
 
 `E` is intentionally unconstrained, so this also accepts the `AsyncResult`
 returned by `context.executeChildWorkflow` / `context.startChildWorkflow`
@@ -444,7 +487,10 @@ returned by `context.executeChildWorkflow` / `context.startChildWorkflow`
 way. `ChildWorkflowNotFoundError` (no Temporal call ever happened — the
 target contract doesn't declare the child workflow name) is converted to a
 `ContractMisuseError` instead, since there is no prior Temporal failure to
-re-raise.
+re-raise — as is a `ChildWorkflowError` from a local validation failure (no
+`cause`). A cancellation error without a `cause` becomes a fresh
+`CancelledFailure`, and a rehydrated `ContractError` re-raises the
+`ApplicationFailure` it was read from.
 
 #### `rethrowCancellation(error): never`
 
@@ -508,17 +554,17 @@ TContext, TInjected>` (exported).
 
 TypeScript requires every activity in the contract to be implemented, and the
 declaration **fails fast** at runtime too: a declared activity with no
-implementation throws at declaration time (listing the missing names), and a
-stray key — an implementation the contract never declared — throws
-`ActivityDefinitionNotFoundError`.
+implementation throws a `ContractMisuseError` at declaration time (listing the
+missing names), and a stray key — an implementation the contract never
+declared — throws `ActivityDefinitionNotFoundError`.
 
 **Shared activity across scopes.** One `defineActivity` object may be
 referenced from several workflow scopes. Because Temporal has a single flat
 activity namespace, every scope must supply the **same function reference**
 (the duplicate is deduped, first registration wins) or the activity must be
 hoisted to the contract's global `activities` map. Supplying two _different_
-implementations for the same flat name throws at declaration time, naming the
-activity and both scopes.
+implementations for the same flat name throws a `ContractMisuseError` at
+declaration time, naming the activity and both scopes.
 
 #### Standalone implementation types
 
@@ -550,7 +596,9 @@ const validateOrder: ActivityImplementationFor<
   helpers: {
     errors: ContractErrorConstructors;
     context: TContext;
-    args: WorkerInferInput<TActivity>;
+    input: WorkerInferInput<TActivity>;
+    // `string` when the contract declares `idempotencyKey`, else `undefined`
+    idempotencyKey: string | undefined;
   },
   args: WorkerInferInput<TActivity>,
 ) => AsyncResult<WorkerInferOutput<TActivity>, ApplicationFailure | ContractError>;
@@ -558,8 +606,8 @@ const validateOrder: ActivityImplementationFor<
 
 **Helpers first, input second** — oRPC's shape, which this family converged on:
 its `ProcedureHandlerOptions` carries `input` and the handler still takes it
-positionally, so `args` is on the record AND in the second parameter. Both
-spellings are the same call:
+positionally, so the input is on the record (as `input`) AND in the second
+parameter. Both spellings are the same call:
 
 ```typescript
 place: ({ errors, input }) => …  // the spelling to reach for
@@ -624,6 +672,11 @@ qualifyFailure("CARD_DECLINED", {
 
 Prefer a class or predicate for `expected`; `"any"` is a deliberate, greppable
 escape hatch that restores the pre-8.0 blanket-wrap behavior.
+
+A **cancellation** (`CancelledFailure`, or the `AbortError` an
+abort-signal-aware API rejects with) is never wrapped, whatever `expected`
+says — `"any"` included. It rides the defect channel and reaches Temporal as a
+cancellation, not as a failed (possibly retried) attempt.
 
 For a matched `Error` cause the wrapper keeps its message and preserves it as
 `cause`; a matched non-`Error` cause falls back to `options.message`, then
@@ -694,7 +747,7 @@ than the anything-goes `{}`.
 
 `ActivityDefinitionNotFoundError`, `ActivityInputValidationError`,
 `ActivityOutputValidationError`, `ContractErrorDataValidationError`,
-`ValidationError`, plus the `ContractError` surface. The `/activity` entry also
+`ContractMisuseError`, `ValidationError`, plus the `ContractError` surface. The `/activity` entry also
 re-exports the worker error-tag constants (`ACTIVITY_ERROR_TAG`,
 `ACTIVITY_CANCELLED_ERROR_TAG`, and the rest — see the workflow entry's
 [error-tag constants](#worker-error-tag-constants)).
@@ -711,7 +764,7 @@ class TypedWorker {
 
   readonly raw: Worker;
   run(): AsyncResult<void, never>;
-  shutdown(): void;
+  shutdown(): Result<void, never>;
 }
 ```
 
@@ -736,8 +789,12 @@ from its `workflowName` (Temporal registers workflows by _export_ name, so the
 mismatch would register the wrong workflow type). The check only runs when
 `workflowsPath` is a string (prebuilt `workflowBundle`s are skipped) and a
 module that cannot be imported in the main thread is skipped silently — the
-`Worker.create` bundling step is the authority on load failures. Set to `false`
-to opt out.
+`Worker.create` bundling step is the authority on load failures — **except**
+when the import throws a `ContractMisuseError` (or another worker
+`ValidationError`) from `declareWorkflow`: an unknown `workflowName`, an
+unbounded activity. That fails creation too, since inside the sandbox it would
+stall every workflow task. The module is evaluated in the main thread, so keep
+it free of module-scope side effects. Set to `false` to opt out.
 
 **No modeled error.** Bundling failures, bad connections, and invalid options are
 technical faults on the **defect** channel with a `TechnicalError` cause.
@@ -747,7 +804,9 @@ Inspect with `isDefect()` / `match({ defect })` / `recoverDefect`, or use
 **Lifecycle.** `run()` starts the worker loop and resolves `Ok` after a clean
 shutdown; a worker that fails while running surfaces as a defect (a
 `TechnicalError` cause), and the underlying promise never rejects. `shutdown()`
-initiates a graceful drain. Everything else Temporal offers — `runUntil`,
+initiates a graceful drain and returns `Result<void, never>`: calling it on a
+worker that is not running is a defect with a `TechnicalError` cause, not a
+throw (`.get()` rethrows it). Everything else Temporal offers — `runUntil`,
 `getState`, tuning introspection — lives on the `raw` escape hatch.
 
 ### `workflowsPathFromURL(baseURL, relativePath)`

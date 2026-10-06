@@ -179,6 +179,11 @@ exhausted, a timeout, an undeclared `ApplicationFailure` type. Its `cause` is
 the unwrapped actionable failure, with Temporal's `ActivityFailure` wrapper
 already seen through.
 
+Child workflows work the same way: a child that declares `errors` surfaces them
+as typed `ContractError`s on `executeChildWorkflow` / `handle.result()`
+(`ChildWorkflowContractErrorsOf`), beside `ChildWorkflowError` and
+`ChildWorkflowCancelledError`. See [Run child workflows](/how-to/run-child-workflows).
+
 ::: tip This is a deliberate trade
 Every activity call is already a `Result` — declaring errors doesn't add a
 result fold, it adds typed members to the one you already have. Declare errors
@@ -194,7 +199,7 @@ A workflow whose declared error caused the failure surfaces it as a
 `WorkflowFailedError`:
 
 ```typescript
-import { CONTRACT_ERROR_TAG } from "@temporal-contract/contract";
+import { CONTRACT_ERROR_TAG, WORKFLOW_EXECUTE_PATTERNS } from "@temporal-contract/client";
 import { P } from "unthrown";
 
 const result = await client.executeWorkflow("processOrder", {
@@ -214,14 +219,8 @@ result.match({
             return console.error("contract error:", error.errorName);
         }
       })
-      .with(
-        P.tag("@temporal-contract/WorkflowNotInContractError"),
-        P.tag("@temporal-contract/WorkflowValidationError"),
-        P.tag("@temporal-contract/WorkflowAlreadyStartedError"),
-        P.tag("@temporal-contract/WorkflowFailedError"),
-        P.tag("@temporal-contract/WorkflowExecutionNotFoundError"),
-        (error) => console.error("failed:", error.message),
-      ),
+      // Every other error `executeWorkflow` can produce.
+      .with(...WORKFLOW_EXECUTE_PATTERNS, (error) => console.error("failed:", error.message)),
   defect: (cause) => console.error("unexpected:", cause),
 });
 ```
@@ -231,8 +230,8 @@ Two levels of discrimination are at work:
 - the unthrown `_tag` — the exported `CONTRACT_ERROR_TAG` constant, whose value
   is `"@temporal-contract/ContractError"` — separates a contract error from the
   client's other error classes. Prefer the constant to a hand-typed string: it
-  is greppable and immune to typos. It is exported from the package root and
-  from `@temporal-contract/contract/errors`;
+  is greppable and immune to typos. It is exported from the contract package
+  root, from `@temporal-contract/contract/errors`, and from the client;
 - `errorName` then narrows to the specific declared error, with `data` typed
   accordingly. Because every declared error shares that one `_tag`, matching a
   single error by tag alone is impossible — discriminate on `errorName`,
@@ -273,16 +272,26 @@ rehydrated, so a schema change that breaks compatibility surfaces as a clear
 validation error rather than a silently wrong object. When a failure does not
 correspond to a declared error — unknown `type`, a payload that no longer
 validates, or a data-less name without the marker — rehydration degrades to
-the generic failure classification instead of producing a wrong typed error,
-and reports the miss through the `onRehydrationMiss` diagnostic hook.
+the generic failure classification instead of producing a wrong typed error.
+The worker logs each miss through the workflow logger (`log.warn`, error name
+and reason only); on the client, pass `onRehydrationMiss` to
+`TypedClient.create` to observe them — a sign of schema drift between client
+and worker:
+
+```typescript
+const client = await TypedClient.create({
+  client: temporalClient,
+  onRehydrationMiss: (miss) => logger.warn({ miss }, "contract error degraded"),
+}).get();
+```
 
 ## Failure modes
 
 **Raising an undeclared error** — a name not in the contract's `errors` map
-throws `ContractErrorDataValidationError`:
+throws `ContractMisuseError`:
 
 ```
-Error "CardExpired" is not declared on activity "processOrder.chargeCard".
+Contract error "CardExpired" is not declared on activity "processOrder.chargeCard".
 Declared errors: CardDeclined, GatewayUnavailable.
 ```
 
@@ -290,9 +299,10 @@ The activity is named by its flat label — a workflow-scoped activity appears a
 `workflowName.activityName` (here `processOrder.chargeCard`), a global activity
 as its bare name.
 
-**Payload fails its schema** — same terminal error, with the schema issues
-attached. Both are deterministic contract-misuse bugs, so they fail loudly
-rather than letting a malformed failure cross the wire.
+**Payload fails its schema** — `ContractErrorDataValidationError`, with the
+schema issues attached. Both are non-retryable `ApplicationFailure`s: they are
+deterministic bugs, so they fail loudly rather than letting a malformed failure
+cross the wire.
 
 ## When not to use this
 

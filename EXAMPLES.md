@@ -41,7 +41,7 @@ root is a unit test.
 | [signals-queries](https://github.com/temporalio/samples-typescript/tree/main/signals-queries)         | ✅     | `defineSignal` / `defineQuery` + `context.handleSignal` / `handleQuery`, validated both sides. `packages/worker/src/__tests__/handlers.inprocess.spec.ts` |
 | [message-passing](https://github.com/temporalio/samples-typescript/tree/main/message-passing)         | ✅     | Updates too: `defineUpdate` + `context.handleUpdate`, with worker-side admission rejection typed as `UpdateRejectedError`. Same file.                     |
 | [query-subscriptions](https://github.com/temporalio/samples-typescript/tree/main/query-subscriptions) | ⚠️     | Polling a typed query from the client works; the sample's streaming shape is app code.                                                                    |
-| [early-return](https://github.com/temporalio/samples-typescript/tree/main/early-return)               | ⚠️     | Expressible with `startUpdate` + a later `result()`. No test here.                                                                                        |
+| [early-return](https://github.com/temporalio/samples-typescript/tree/main/early-return)               | ⚠️     | Expressible with `executeUpdateWithStart` (update-with-start), or `startUpdate` + a later `result()`. No test here.                                       |
 | [state](https://github.com/temporalio/samples-typescript/tree/main/state)                             | ✅     | Workflow-local state read by a query. `packages/worker/src/__tests__/handlers.inprocess.spec.ts`                                                          |
 
 ## Client, scheduling, and indexing

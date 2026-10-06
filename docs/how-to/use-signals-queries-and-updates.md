@@ -77,10 +77,10 @@ refinements (`z.string().refine(async ...)`) are not. An update's `output`
 schema may be async, because the update handler itself runs asynchronously.
 
 Standard Schema does not expose the sync/async distinction at the type level,
-so this is checked at **bind time** — when the workflow first binds its
-handlers, not on the first request. A schema whose `validate()` returns a
-`Promise` in one of those slots fails there with a `ContractMisuseError` (a
-non-retryable `ApplicationFailure`).
+and a schema may go async only for some inputs (an async `.refine` runs after
+the synchronous base check passes), so this is checked **per call**: the first
+query or update whose `validate()` returns a `Promise` in one of those slots
+fails with a `ContractMisuseError` (a non-retryable `ApplicationFailure`).
 :::
 
 ## Handle them in the workflow
@@ -135,6 +135,14 @@ export const importCatalog = declareWorkflow({
 Handler names are checked against the contract — a typo is a compile error, and
 argument and return types come from the schemas.
 
+A signal or update handler that throws one of the library's own workflow-side
+errors — `throw result.error` or `.getOrThrow()` on an `ActivityError`,
+`ChildWorkflowError`, or a `*CancelledError` — is mapped to the Temporal
+failure that error carries, exactly as `propagateFailure` would: a signal
+handler's throw fails the workflow, and an update handler's throw fails that
+update (`UpdateFailedError` for the caller) instead of retrying the workflow
+task forever.
+
 ## Wait for a signal
 
 Never poll and never `setTimeout`. Use Temporal's `condition`, which is
@@ -168,7 +176,8 @@ const started = await catalog.startWorkflow("importCatalog", {
 
 // `.getOrThrow()` unwraps the `Ok` and rethrows a modeled error or a defect —
 // narrowing with `isErr()` alone would leave the defect variant, which has no
-// `.value`.
+// `.value`. The handle follows the run chain, so its `runId` is `undefined`;
+// `firstExecutionRunId` is the run just started.
 const handle = started.getOrThrow();
 
 // Query — the payload argument is omittable for an input-less definition
@@ -177,8 +186,12 @@ if (progress.isOk()) {
   console.log(`${progress.value.completed}/${progress.value.total}`);
 }
 
-// Update — waits for the workflow to process it
-const updated = await handle.updates.addItems({ skus: ["SKU-9", "SKU-10"] });
+// Update — waits for the workflow to process it. The optional second
+// argument carries an `updateId` (dedupe key, and the ID to reattach with).
+const updated = await handle.updates.addItems(
+  { skus: ["SKU-9", "SKU-10"] },
+  { updateId: "add-sku-9-10" },
+);
 console.log(updated.getOrThrow().total);
 
 // Signal — returns as soon as it is delivered.
@@ -192,11 +205,16 @@ const result = await handle.result();
 
 Every call returns an `AsyncResult`. Their error channels are narrow:
 
-| Call          | Error channel                                             |
-| ------------- | --------------------------------------------------------- |
-| `queries.x()` | `QueryValidationError \| WorkflowExecutionNotFoundError`  |
-| `signals.x()` | `SignalValidationError \| WorkflowExecutionNotFoundError` |
-| `updates.x()` | `UpdateValidationError \| WorkflowExecutionNotFoundError` |
+| Call          | Error channel                                                                                                                             |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `queries.x()` | `QueryValidationError \| QueryFailedError \| WorkflowExecutionNotFoundError`                                                              |
+| `signals.x()` | `SignalValidationError \| WorkflowExecutionNotFoundError`                                                                                 |
+| `updates.x()` | `UpdateValidationError \| UpdateRejectedError \| UpdateFailedError \| UpdateRpcTimeoutOrCancelledError \| WorkflowExecutionNotFoundError` |
+
+`QUERY_PATTERNS`, `SIGNAL_PATTERNS`, and `UPDATE_PATTERNS` cover each union in
+one matcher arm. `UpdateRpcTimeoutOrCancelledError` means the update _call_
+timed out or was cancelled — the update itself may still be admitted and run,
+so retry with the same `updateId` or reattach (below).
 
 ::: warning `await` does not throw on failure
 `AsyncResult` is a success-only thenable — awaiting it collapses it to a
@@ -236,17 +254,49 @@ if (startedUpdate.isOk()) {
 The handle carries `updateId`, `workflowId`, and `workflowRunId`; `options`
 is omittable for an argument-less update (`defineUpdate({ output })`).
 
+`startUpdate` returns once the update is accepted **or rejected**, so its own
+error channel is only `UpdateValidationError`,
+`UpdateRpcTimeoutOrCancelledError`, or `WorkflowExecutionNotFoundError`. A
+worker-side rejection (`UpdateRejectedError`) or a failed handler
+(`UpdateFailedError`) surfaces on the update handle's `result()`.
+
+To reattach to an update sent earlier — from another process, or after a
+timed-out call — use its `updateId`. `getUpdateHandle` is synchronous; nothing
+is sent until `result()`:
+
+```typescript
+const reattached = handle.getUpdateHandle("addItems", "add-sku-11");
+console.log((await reattached.result()).getOrThrow().total);
+```
+
+## Update-with-start
+
+`executeUpdateWithStart` starts the workflow (or, under
+`workflowIdConflictPolicy: "USE_EXISTING"`, reuses the running one) and sends
+it an update in one request, waiting for the update's result:
+
+```typescript
+const added = await catalog.executeUpdateWithStart("importCatalog", {
+  workflowId: "import-2024",
+  args: { catalogId: "cat-1" },
+  workflowIdConflictPolicy: "USE_EXISTING",
+  updateName: "addItems",
+  updateArgs: { skus: ["SKU-12"] },
+});
+```
+
+Both `args` and `updateArgs` are validated before anything is sent. To reach
+the workflow afterwards, `getHandle` it by ID.
+
 ## Reach an existing workflow
 
 You do not need to have started it. `getHandle` binds to a running execution
-by id. It is **synchronous** — no I/O is involved — and returns a `Result`
-whose error channel covers a workflow name that is not on the contract:
+by id. It is **synchronous and infallible**, like Temporal's — no I/O is
+involved, so it returns the handle itself. Whether the execution exists is
+answered by the handle's methods, as `WorkflowExecutionNotFoundError`:
 
 ```typescript
-const bound = catalog.getHandle("importCatalog", "import-2024");
-// Unwrap the sync `Result`: `.getOrThrow()` raises the modeled error (a
-// workflow name not on the contract) or a defect, and hands back the handle.
-const handle = bound.getOrThrow();
+const handle = catalog.getHandle("importCatalog", "import-2024");
 
 const progress = await handle.queries.getProgress();
 console.log(progress.getOrThrow());
@@ -258,6 +308,17 @@ Pass options to pin a run or interlock the chain:
 `catalog.getHandle("importCatalog", "import-2024", { runId })` binds a
 specific execution; `{ firstExecutionRunId }` makes mutating methods refuse
 to cross into another execution chain.
+
+For a workflow whose contract derives its ID (`defineWorkflow({ workflowId })`),
+compute the ID with `workflowIdFor` rather than rebuilding the format by hand.
+It is only callable for such workflows — say an `orders` contract whose
+`processOrder` declares `` workflowId: (input) => `order-${input.orderId}` ``:
+
+```typescript
+const handle = await orders
+  .workflowIdFor("processOrder", { orderId: "ORD-1" })
+  .map((workflowId) => orders.getHandle("processOrder", workflowId));
+```
 
 ## Signal-with-start
 
@@ -279,8 +340,9 @@ if (result.isOk()) {
 }
 ```
 
-This is the standard way to build "create or update" semantics on top of a
-workflow.
+`workflowId` follows the same rule as `startWorkflow`: required, or forbidden
+for a workflow whose contract derives it. This is the standard way to build
+"create or update" semantics on top of a workflow.
 
 ## Drain handlers before returning
 

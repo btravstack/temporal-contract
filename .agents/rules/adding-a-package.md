@@ -23,7 +23,7 @@ Copy from an existing peer (e.g. `packages/contract/package.json`) and adjust:
 - `"type": "module"`
 - `"exports"` map — declare every subpath you intend to expose. Don't add a root `.` entry unless the package has a single canonical entry; multi-entry packages (like `worker` with `./activity`/`./worker`/`./workflow`) should leave it off so subpath imports are the only valid form.
 - `"files": ["dist"]` — only the build output ships.
-- `"scripts.build"` uses `tsdown ... --format cjs,esm --dts --clean` matching siblings.
+- `"scripts.build"` uses `tsdown <entries> --format esm --dts --clean` matching siblings (ESM only — no CJS output).
 - `"dependencies"` / `"devDependencies"` — reference the catalog (`"catalog:"`) and workspace siblings (`"workspace:*"`).
 - **Peer-dep policy:** anything that appears in your public `.d.ts` types must go in `peerDependencies` _and_ `devDependencies`. See [dependencies.md](./dependencies.md).
 
@@ -31,13 +31,13 @@ Copy from an existing peer (e.g. `packages/contract/package.json`) and adjust:
 
 ```json
 {
-  "extends": "@temporal-contract/tsconfig/base.json",
+  "extends": "@btravstack/tsconfig/base.json",
   "include": ["src/**/*"],
   "exclude": ["dist", "node_modules"]
 }
 ```
 
-Inherits the strict-mode + `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes` flags from `tools/tsconfig/base.json`.
+Inherits the strict-mode + `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes` flags from `@btravstack/tsconfig/base.json` (add `"@btravstack/tsconfig": "catalog:"` to `devDependencies`).
 
 ## 4. `vitest.config.ts` (if you have tests)
 

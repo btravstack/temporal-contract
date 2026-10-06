@@ -133,13 +133,18 @@ continues untouched. Client-side, a malformed signal still fails early with
 `SignalValidationError` before dispatch.
 
 All of them carry `issues` — the raw Standard Schema issue array — for
-programmatic inspection, and a human-readable summary in `message`:
+programmatic inspection, and a **redacted** summary in `message`: the failing
+paths only (`at items[0].quantity; at email`, capped at five), never the
+schema's own message text. The message becomes the `ApplicationFailure`
+message in Temporal history, which payload codecs do not encrypt, and schema
+libraries embed raw input values in their messages (`Invalid email: Received
+"jane@x"`). Read `issues` in process when you need the detail; on the worker
+side the full issues also ride the failure's `details[0]` as `{ message, path }`
+records, which a payload codec does encrypt:
 
 ```typescript
-import { summarizeIssues } from "@temporal-contract/contract";
-
 if (result.isErr() && result.error instanceof WorkflowValidationError) {
-  console.error(summarizeIssues(result.error.issues));
+  console.error(result.error.issues);
 }
 ```
 
@@ -149,15 +154,19 @@ if (result.isErr() && result.error instanceof WorkflowValidationError) {
 _shape_ (a hand-rolled structural check; the contract package has no runtime
 schema-library dependency):
 
-- `taskQueue` present and non-empty
+- `taskQueue` present, non-empty, trimmed, and at most 1000 characters
 - at least one workflow _or_ global activity (activity-only contracts are valid
   — a dedicated activity-pool worker needs no workflows)
-- no unknown keys at the contract root (strict — only `taskQueue`,
-  `workflows`, `activities`)
-- every name a valid JavaScript identifier, and not a Temporal-reserved name
-  (the `__temporal_` prefix, `__stack_trace`, `__enhanced_stack_trace`)
+- no unknown keys on the contract root or on any definition in it
+- every workflow declares a valid `startPolicy`
+- every name a valid JavaScript identifier, not an `Object.prototype` member,
+  and not a Temporal-reserved name (the `__temporal_` prefix,
+  `__stack_trace`, `__enhanced_stack_trace`); error names don't reuse the
+  worker's own failure types, search attributes don't reuse Temporal system
+  attribute names or change kind between workflows
 - every duration option a valid `ms` string (`"5 minutes"`, `"30s"`) — a typo
-  like `"5 minutos"` fails here, not at the worker
+  like `"5 minutos"` fails here, not at the worker — and every retry policy
+  one Temporal accepts
 - every schema slot Standard Schema compatible
 - no activity-name collisions in the flat runtime namespace — reusing the
   _same_ definition object across workflows is fine (that is one activity, not
@@ -174,13 +183,15 @@ Inside the workflow sandbox, contract misuse throws `ContractMisuseError`, a
 non-retryable `ApplicationFailure` — but what that buys depends on **when**
 the throw happens, not just what class it is.
 
-Binding a handler for an undeclared signal/query/update, or using an
-async-validating query/update-input schema, is caught from inside the
-running `implementation` — `handleSignal`/`handleQuery`/`handleUpdate`
-execute there, after Temporal has already invoked the workflow function. A
-throw at that point fails the execution terminally instead of hanging it in
+Binding a handler for an undeclared signal/query/update, throwing a
+`ContractError` the workflow does not declare, or continuing as new into a
+workflow the contract does not declare is caught from inside the running
+`implementation` — after Temporal has already invoked the workflow function.
+A throw at that point fails the execution terminally instead of hanging it in
 an infinite Workflow Task retry loop, the same way `throw
-context.errors.X(...)` does.
+context.errors.X(...)` does. An async-validating query or update-input schema
+is caught later still, per call: it fails that query, or rejects that update,
+and leaves the execution running.
 
 An activity no options cover is different — as are an undeclared workflow name
 and an `activityOptionsByName` key matching no declared activity, which share
@@ -190,9 +201,12 @@ invokes the workflow function. A throw there is a Workflow Task failure
 regardless of the error class — `nonRetryable` has no effect on a failure
 that never reaches a `FailWorkflowExecution` command — so it stalls the
 workflow via indefinite workflow-task retry rather than failing the
-execution. See [Worker surface → Activity
+execution. `TypedWorker.create` catches these before the sandbox does: with
+a `workflowsPath` and `verifyWorkflowRegistration` on (the default), it
+imports the workflows module at startup and fails worker creation on the
+`ContractMisuseError`. See [Worker surface → Activity
 bounds](/reference/worker-surface#activity-bounds) for the full explanation
-of why that is deliberate.
+of why the in-sandbox stall is deliberate.
 
 ## Where middleware sits
 
@@ -215,11 +229,14 @@ mixing them within one contract is fine.
 The one constraint: **query schemas must validate synchronously.** Temporal
 requires query handlers to complete synchronously, so async refinements cannot
 work. Standard Schema does not expose the sync/async distinction at the type
-level, so this is checked at runtime and throws if `~standard.validate` returns
-a `Promise`.
+level, so this is checked at runtime, on every call, and fails the query if
+`~standard.validate` returns a `Promise`. The same holds for an update's input
+schema, which feeds Temporal's synchronous update validator.
 
 ## Next
 
 - [The result model](/explanation/the-result-model)
 - [Errors reference](/reference/errors)
+- [Security](/explanation/security) — what validation failures leave in
+  Temporal history
 - [Define a contract](/how-to/define-a-contract)

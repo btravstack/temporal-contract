@@ -85,7 +85,9 @@ qualifyFailure("CARD_DECLINED", {
 ```
 
 ::: warning A matched cause is always wrapped
-Even when the matched rejection is _already_ an `ApplicationFailure`,
+The one exception is a cancellation (see [Handle
+cancellation](#handle-cancellation) below). Even when the matched rejection is
+_already_ an `ApplicationFailure`,
 `qualifyFailure` wraps it, so the resulting `type` is guaranteed to be the one
 you declared — retry policies keyed on `nonRetryableErrorTypes` can rely on
 that, and the original failure is preserved as `cause`.
@@ -222,24 +224,54 @@ processOrder: {
 A long-running activity that does not heartbeat within its `heartbeatTimeout`
 is considered dead and retried from the beginning.
 
+## Use the idempotency key
+
+Temporal runs an activity at least once: a worker crash after the side effect
+but before the result is recorded means a retry repeats it. When the
+downstream system deduplicates on a key, declare `idempotencyKey` on the
+activity's contract entry and pass `helpers.idempotencyKey` through:
+
+```typescript
+// contract
+const chargeCard = defineActivity({
+  input: z.object({ orderId: z.string(), customerId: z.string(), amount: z.number() }),
+  output: PaymentSchema,
+  idempotencyKey: ({ orderId }) => `charge:${orderId}`,
+});
+
+// implementation
+chargeCard: ({ input, idempotencyKey }) =>
+  fromPromise(
+    gateway.charge(input.customerId, input.amount, { idempotencyKey }),
+    qualifyFailure("CHARGE_FAILED", { expected: GatewayError }),
+  ),
+```
+
+The key is derived from the validated input, so it is the same on every retry,
+after a worker crash, and in a fresh execution with the same input. Key on what
+**identifies** the operation (`orderId`), not on what describes it (customer
+and amount). `helpers.idempotencyKey` is typed `undefined` for an activity that
+declares none.
+
 ## Handle cancellation
 
 When a workflow is cancelled, in-flight activities receive a cancellation
-signal. Let it propagate — do not swallow it:
+signal. Let it propagate — do not swallow it. `qualifyFailure` already does:
+a `CancelledFailure`, or the `AbortError` an abort-signal-aware API rejects
+with, is never wrapped — whatever `expected` says, `"any"` included — so it
+rides the defect channel and reaches Temporal as a cancellation rather than a
+failed, retried attempt:
 
 ```typescript
-import { CancelledFailure } from "@temporalio/common";
-
 processOrder: {
   longRunningExport: ({ input }) =>
-    fromPromise(runExport(input), (error) => {
-      if (error instanceof CancelledFailure) {
-        throw error; // must propagate, not become a modeled Err
-      }
-      return ApplicationFailure.create({ type: "EXPORT_FAILED", cause: error as Error });
-    }),
+    // A cancellation passes through untouched; only `ExportError` is modeled.
+    fromPromise(runExport(input), qualifyFailure("EXPORT_FAILED", { expected: ExportError })),
 }
 ```
+
+A hand-written qualifier gets no such guard: route a cancellation to the
+`defect` callback yourself, never into a modeled `ApplicationFailure`.
 
 See [Handle cancellation](/how-to/handle-cancellation) for the workflow side.
 

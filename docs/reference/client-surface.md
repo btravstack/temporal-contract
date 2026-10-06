@@ -16,14 +16,19 @@ the underlying `Client` and the escape hatch — and hands out
 // options: CreateClientOptions
 static create(options: {
   client: Client; // from @temporalio/client
+  onRehydrationMiss?: (miss: RehydrationMiss) => void;
 }): AsyncResult<TypedClient, never>;
 ```
 
-The options bag is the exported `CreateClientOptions`.
+The options bag is the exported `CreateClientOptions`. `onRehydrationMiss` is
+called when a failure whose `type` names a declared contract error does **not**
+rehydrate into it (its payload fails the declared schema, or a data-less error
+lacks the wire marker) and degrades to `WorkflowFailedError` — a sign of schema
+drift between client and worker. A throwing hook is swallowed; the library
+does not log on its own, so wire your logger here.
 
-**No modeled error.** Setup faults — a `Client` older than 1.16 (no Schedule
-API), a connection that cannot be established — ride the defect channel with a
-`TechnicalError` cause. `.get()` rethrows the original cause:
+**No modeled error.** A connection that cannot be established rides the defect
+channel with a `TechnicalError` cause. `.get()` rethrows the original cause:
 
 ```typescript
 import { TypedClient } from "@temporal-contract/client";
@@ -74,13 +79,13 @@ labels:
 
 ### `executeWorkflow(workflowName, options)`
 
-Starts and waits.
+Starts and waits — exactly `startWorkflow(...)` followed by `handle.result()`,
+so result-phase errors carry the started workflow ID (derived or passed).
 
 ```typescript
 => AsyncResult<
      Output,
      | ContractErrorUnion            // when the workflow declares errors
-     | WorkflowNotInContractError
      | WorkflowValidationError
      | WorkflowAlreadyStartedError
      | WorkflowFailedError
@@ -103,11 +108,13 @@ Returns a handle as soon as the workflow starts.
 ```typescript
 => AsyncResult<
      TypedWorkflowHandle<TWorkflow>,
-     | WorkflowNotInContractError
      | WorkflowValidationError
      | WorkflowAlreadyStartedError
    >
 ```
+
+The handle follows the run chain rather than pinning a run: its `runId` is
+`undefined`, and `firstExecutionRunId` is the run just started.
 
 ### `signalWithStart(workflowName, options)`
 
@@ -116,7 +123,6 @@ Starts the workflow if it does not exist, and delivers the signal either way.
 ```typescript
 => AsyncResult<
      TypedWorkflowHandleWithSignaledRunId<TWorkflow>,
-     | WorkflowNotInContractError
      | WorkflowValidationError
      | SignalValidationError
      | WorkflowAlreadyStartedError
@@ -124,24 +130,79 @@ Starts the workflow if it does not exist, and delivers the signal either way.
 ```
 
 The returned handle adds `signaledRunId` — the run that received the signal,
-which is not necessarily a newly started one.
+which is not necessarily a newly started one. `workflowId` is enforced as on
+`startWorkflow`: forbidden for a workflow whose contract derives it, required
+otherwise.
+
+### `executeUpdateWithStart(workflowName, options)`
+
+Starts the workflow (or, under `workflowIdConflictPolicy: "USE_EXISTING"`,
+reuses the running one) and sends it an update in one request, waiting for the
+update's result — Temporal's `executeUpdateWithStart`. Both the workflow
+`args` and the `updateArgs` are validated before anything is sent; the
+update's result is parsed against its output schema.
+
+```typescript
+=> AsyncResult<
+     UpdateOutput,
+     | WorkflowValidationError
+     | UpdateValidationError
+     | WorkflowAlreadyStartedError
+     | UpdateRejectedError
+     | UpdateFailedError
+     | UpdateRpcTimeoutOrCancelledError
+   >
+```
+
+The options are `TypedUpdateWithStartOptions`: the start options plus
+`workflowIdConflictPolicy` (required by Temporal), `updateName`, `updateArgs`
+(omittable when the update's input schema accepts `undefined`), and an optional
+`updateId`. To reach the workflow afterwards, `getHandle` it by ID.
+
+### `workflowIdFor(workflowName, input)`
+
+```typescript
+=> AsyncResult<string, WorkflowValidationError>
+```
+
+The workflow ID the contract derives for `input` — the same validation and
+derivation a start runs, without starting anything. Only callable for
+workflows whose contract declares `workflowId` (the exported
+`DerivedIdWorkflowName<TContract>`):
+
+```typescript
+const handle = await orders
+  .workflowIdFor("processOrder", { orderId: "ORD-1" })
+  .map((workflowId) => orders.getHandle("processOrder", workflowId));
+```
 
 ### `getHandle(workflowName, workflowId, options?)`
 
-Binds to an existing execution. **Synchronous** — no I/O is involved, so it
-returns a plain `Result`:
+Binds to an existing execution. **Synchronous and infallible**, like
+Temporal's `getHandle` — no I/O is involved, so it returns the handle itself:
 
 ```typescript
-=> Result<TypedWorkflowHandle<TWorkflow>, WorkflowNotInContractError>
+=> TypedWorkflowHandle<TWorkflow>
 ```
 
-`TypedGetHandleOptions` extends Temporal's `GetWorkflowHandleOptions`:
+Whether the execution exists is answered lazily, by the handle's methods, as
+`WorkflowExecutionNotFoundError`.
 
-| Field                 | Effect                                                                    |
-| --------------------- | ------------------------------------------------------------------------- |
-| `runId`               | Bind to a specific execution instead of the latest                        |
-| `firstExecutionRunId` | Chain interlock — mutating methods refuse to cross into another chain     |
-| `followRuns`          | Whether `result()` follows continue-as-new / retries (Temporal's default) |
+`TypedGetHandleOptions` is Temporal's `GetWorkflowHandleOptions` (minus
+`followRuns` — the handle always follows the run chain, so `result()` never
+meets an unmodeled `WorkflowContinuedAsNewError`) plus `runId`:
+
+| Field                 | Effect                                                                |
+| --------------------- | --------------------------------------------------------------------- |
+| `runId`               | Bind to a specific execution instead of the latest                    |
+| `firstExecutionRunId` | Chain interlock — mutating methods refuse to cross into another chain |
+
+::: tip Undeclared names are defects
+Workflow, signal, and update names are constrained to the contract's
+declarations at the type level. A name that slips past the types (a cast, an
+untyped call) is a **defect** carrying a `TechnicalError` with a direct
+message — `getHandle` and `getUpdateHandle` throw it — not a modeled `Err`.
+:::
 
 ### `schedule`
 
@@ -151,17 +212,24 @@ A `TypedScheduleClient<TContract>`. See below.
 
 ### `TypedWorkflowStartOptions`
 
-Temporal's `WorkflowStartOptions` without `taskQueue`, `args`,
-`searchAttributes`, and `typedSearchAttributes`, plus:
+Temporal's `WorkflowStartOptions` without the fields the contract owns —
+`taskQueue`, `args`, `searchAttributes`, `typedSearchAttributes`, `workflowId`,
+`workflowIdReusePolicy` (set from the workflow's `startPolicy`), and
+`followRuns` (handles always follow the run chain) — plus:
 
-| Field              | Type                                            |
-| ------------------ | ----------------------------------------------- |
-| `args`             | `ClientInferInput<TWorkflow>`                   |
-| `searchAttributes` | `TypedSearchAttributeMap<TWorkflow>` (optional) |
+| Field              | Type                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------ |
+| `workflowId`       | `string` — required, or forbidden (`never`) when the contract derives it             |
+| `args`             | `ClientInferInput<TWorkflow>`                                                        |
+| `searchAttributes` | `TypedSearchAttributeMap<TWorkflow>` (optional; value kinds also checked at runtime) |
 
-`workflowId`, `workflowExecutionTimeout`, `workflowRunTimeout`, `retry`, `memo`,
-and the rest pass through. `args` is omittable when the workflow's input
-schema accepts `undefined`.
+`workflowExecutionTimeout`, `workflowRunTimeout`, `retry`, `memo`, and the rest
+pass through. `args` is omittable when the workflow's input schema accepts
+`undefined`. The contract-owned fields are applied last, so not even an
+explicit `undefined` smuggled past the types overrides them. A search
+attribute that is undeclared, or whose value does not match its declared
+`kind`, is a defect (`RuntimeClientError` cause) rather than a silently
+mis-indexed workflow.
 
 ### `TypedSignalWithStartOptions`
 
@@ -190,21 +258,22 @@ For `handle.startUpdate`:
 
 ## `TypedWorkflowHandle`
 
-| Member                     | Type                                                                                                                                                                                                       |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `workflowId`               | `string`                                                                                                                                                                                                   |
-| `runId`                    | `string \| undefined` — the bound run, when known                                                                                                                                                          |
-| `firstExecutionRunId`      | `string \| undefined` — first run of the chain, when known                                                                                                                                                 |
-| `raw`                      | the underlying `@temporalio/client` `WorkflowHandle` — escape hatch; bypasses validation                                                                                                                   |
-| `queries`                  | `Record<QueryName, (args) => AsyncResult<Output, QueryValidationError \| QueryFailedError \| WorkflowExecutionNotFoundError>>`                                                                             |
-| `signals`                  | `Record<SignalName, (args) => AsyncResult<void, SignalValidationError \| WorkflowExecutionNotFoundError>>`                                                                                                 |
-| `updates`                  | `Record<UpdateName, (args) => AsyncResult<Output, UpdateValidationError \| UpdateRejectedError \| UpdateFailedError \| WorkflowExecutionNotFoundError>>`                                                   |
-| `startUpdate(name, opts?)` | `AsyncResult<TypedWorkflowUpdateHandle<TUpdate>, UpdateValidationError \| UpdateRejectedError \| UpdateFailedError \| WorkflowExecutionNotFoundError>`                                                     |
-| `result()`                 | `AsyncResult<Output, ContractErrorUnion \| WorkflowValidationError \| WorkflowFailedError \| WorkflowCancelledError \| WorkflowTerminatedError \| WorkflowTimeoutError \| WorkflowExecutionNotFoundError>` |
-| `terminate(reason?)`       | `AsyncResult<void, WorkflowExecutionNotFoundError>`                                                                                                                                                        |
-| `cancel()`                 | `AsyncResult<void, WorkflowExecutionNotFoundError>`                                                                                                                                                        |
-| `describe()`               | `AsyncResult<WorkflowExecutionDescription, WorkflowExecutionNotFoundError>`                                                                                                                                |
-| `fetchHistory()`           | `AsyncResult<History, WorkflowExecutionNotFoundError>`                                                                                                                                                     |
+| Member                      | Type                                                                                                                                                                                                        |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workflowId`                | `string`                                                                                                                                                                                                    |
+| `runId`                     | `string \| undefined` — the run passed to `getHandle`; `undefined` on start handles, which follow the chain                                                                                                 |
+| `firstExecutionRunId`       | `string \| undefined` — first run of the chain, when known                                                                                                                                                  |
+| `raw`                       | the underlying `@temporalio/client` `WorkflowHandle` — escape hatch; bypasses validation                                                                                                                    |
+| `queries`                   | `Record<QueryName, (args) => AsyncResult<Output, QueryValidationError \| QueryFailedError \| WorkflowExecutionNotFoundError>>`                                                                              |
+| `signals`                   | `Record<SignalName, (args) => AsyncResult<void, SignalValidationError \| WorkflowExecutionNotFoundError>>`                                                                                                  |
+| `updates`                   | `Record<UpdateName, (args, { updateId }?) => AsyncResult<Output, UpdateValidationError \| UpdateRejectedError \| UpdateFailedError \| UpdateRpcTimeoutOrCancelledError \| WorkflowExecutionNotFoundError>>` |
+| `startUpdate(name, opts?)`  | `AsyncResult<TypedWorkflowUpdateHandle<TUpdate>, UpdateValidationError \| UpdateRpcTimeoutOrCancelledError \| WorkflowExecutionNotFoundError>`                                                              |
+| `getUpdateHandle(name, id)` | `TypedWorkflowUpdateHandle<TUpdate>` — synchronous; reattaches to an update already sent, by `updateId`                                                                                                     |
+| `result()`                  | `AsyncResult<Output, ContractErrorUnion \| WorkflowValidationError \| WorkflowFailedError \| WorkflowCancelledError \| WorkflowTerminatedError \| WorkflowTimeoutError \| WorkflowExecutionNotFoundError>`  |
+| `terminate(reason?)`        | `AsyncResult<void, WorkflowExecutionNotFoundError>`                                                                                                                                                         |
+| `cancel()`                  | `AsyncResult<void, WorkflowExecutionNotFoundError>`                                                                                                                                                         |
+| `describe()`                | `AsyncResult<WorkflowExecutionDescription, WorkflowExecutionNotFoundError>`                                                                                                                                 |
+| `fetchHistory()`            | `AsyncResult<History, WorkflowExecutionNotFoundError>`                                                                                                                                                      |
 
 `queries`, `signals`, and `updates` are generated from the contract — only the
 declared operations exist, with their schemas' types. Payloads are validated
@@ -212,12 +281,16 @@ before dispatch and parsed by the worker on receive; the payload argument is
 omittable for input-less definitions. Results (queries, updates, `result()`)
 are parsed on receive against the contract's output schema.
 
-The `updates` map executes and waits (Temporal's `executeUpdate`);
-`startUpdate` starts without waiting and returns a handle. An update
-distinguishes a worker-side admission rejection (`UpdateRejectedError`) from a
-failed admitted handler (`UpdateFailedError`); a query with no registered
-handler, or one whose handler threw, surfaces as `QueryFailedError`. All are
-modeled `Err`s — before 8.0 they leaked as defects.
+The `updates` map executes and waits (Temporal's `executeUpdate`); its
+optional second argument carries an `updateId` for deduplication and
+reattachment. `startUpdate` starts without waiting and returns a handle once
+the update is accepted **or rejected** — so its own error channel is only
+input validation, a timed-out/cancelled update call, or a missing execution; a
+worker-side admission rejection (`UpdateRejectedError`) or a failed admitted
+handler (`UpdateFailedError`) surfaces on the update handle's `result()`. A
+query with no registered handler, or one whose handler threw, surfaces as
+`QueryFailedError` (Temporal's `QueryRejectedError` included). All are modeled
+`Err`s — before 8.0 they leaked as defects.
 
 `result()` surfaces a declared contract error as a `ContractError` instead of a
 generic `WorkflowFailedError`, and a cancelled / terminated / timed-out
@@ -229,14 +302,14 @@ The failure-to-`ContractError` rehydration reads the wire failure through the
 
 ### `TypedWorkflowUpdateHandle`
 
-Returned by `startUpdate`:
+Returned by `startUpdate` and `getUpdateHandle`:
 
-| Member          | Type                                                                           |
-| --------------- | ------------------------------------------------------------------------------ |
-| `updateId`      | `string`                                                                       |
-| `workflowId`    | `string`                                                                       |
-| `workflowRunId` | `string \| undefined`                                                          |
-| `result()`      | `AsyncResult<Output, UpdateValidationError \| WorkflowExecutionNotFoundError>` |
+| Member          | Type                                                                                                                                                           |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `updateId`      | `string`                                                                                                                                                       |
+| `workflowId`    | `string`                                                                                                                                                       |
+| `workflowRunId` | `string \| undefined`                                                                                                                                          |
+| `result()`      | `AsyncResult<Output, UpdateValidationError \| UpdateRejectedError \| UpdateFailedError \| UpdateRpcTimeoutOrCancelledError \| WorkflowExecutionNotFoundError>` |
 
 ## Search attributes
 
@@ -276,22 +349,22 @@ Reached as `contractClient.schedule`. Not constructible directly.
 ```typescript
 => AsyncResult<
      TypedScheduleHandle,
-     WorkflowNotInContractError | WorkflowValidationError | ScheduleAlreadyExistsError
+     WorkflowValidationError | ScheduleAlreadyExistsError
    >
 ```
 
 `TypedScheduleCreateOptions`:
 
-| Field              | Type                                 | Required                         |
-| ------------------ | ------------------------------------ | -------------------------------- |
-| `scheduleId`       | `string`                             | yes                              |
-| `spec`             | `ScheduleSpec`                       | yes                              |
-| `args`             | `ClientInferInput<TWorkflow>`        | yes                              |
-| `policies`         | `ScheduleOptions["policies"]`        | no                               |
-| `state`            | `ScheduleOptions["state"]`           | no                               |
-| `memo`             | `Record<string, unknown>`            | no — metadata on the _schedule_  |
-| `searchAttributes` | `TypedSearchAttributeMap<TWorkflow>` | no — applied to each spawned run |
-| `action`           | `TypedScheduleActionOverrides`       | no — applied to each spawned run |
+| Field              | Type                                 | Required                                                              |
+| ------------------ | ------------------------------------ | --------------------------------------------------------------------- |
+| `scheduleId`       | `string`                             | yes                                                                   |
+| `spec`             | `ScheduleSpec`                       | yes                                                                   |
+| `args`             | `ClientInferInput<TWorkflow>`        | yes — unless the schema accepts `undefined` (then sent as empty args) |
+| `policies`         | `ScheduleOptions["policies"]`        | no                                                                    |
+| `state`            | `ScheduleOptions["state"]`           | no                                                                    |
+| `memo`             | `Record<string, unknown>`            | no — metadata on the _schedule_                                       |
+| `searchAttributes` | `TypedSearchAttributeMap<TWorkflow>` | no — applied to each spawned run                                      |
+| `action`           | `TypedScheduleActionOverrides`       | no — applied to each spawned run                                      |
 
 `workflowType` and `taskQueue` come from the contract and are not settable.
 
@@ -316,13 +389,17 @@ handle's methods.
 => AsyncIterable<ScheduleSummary>
 ```
 
-Passthrough of Temporal's `ScheduleClient.list`.
+Passthrough of Temporal's `ScheduleClient.list`, not filtered to this
+contract. The one method outside the Result discipline: a page fetch that fails
+**throws** from the `for await` loop, as Temporal's does — wrap the loop in your
+own boundary (`fromPromise`) when you need an `AsyncResult`.
 
 ### `TypedScheduleHandle`
 
 | Member              | Type                                                                  |
 | ------------------- | --------------------------------------------------------------------- |
 | `scheduleId`        | `string`                                                              |
+| `raw`               | the underlying `ScheduleHandle` — escape hatch; bypasses validation   |
 | `pause(note?)`      | `AsyncResult<void, ScheduleNotFoundError>`                            |
 | `unpause(note?)`    | `AsyncResult<void, ScheduleNotFoundError>`                            |
 | `trigger(overlap?)` | `AsyncResult<void, ScheduleNotFoundError>`                            |
@@ -337,10 +414,13 @@ modeled. Any other failure is a technical fault on the defect channel with a
 
 `update(updateFn)` is describe-modify-persist: the client fetches the current
 description, hands it to `updateFn`, and persists what it returns. When the
-updated action's `workflowType` is a declared workflow, its `args` **are**
-validated against that workflow's input schema first — a mismatch surfaces as
-`WorkflowValidationError` on the err channel and nothing is persisted. (An
-action whose `workflowType` is not on the contract stays a passthrough.)
+updated action's `workflowType` is a declared workflow, the action is
+re-checked the way `create` checks it before anything is persisted: its `args`
+against the workflow's input schema (a mismatch is `WorkflowValidationError` on
+the err channel), its search attributes against the declared names and kinds,
+and its `taskQueue` against the contract's (either of those is a
+misconfiguration, so a defect). (An action whose `workflowType` is not on the
+contract stays a passthrough.)
 `updateFn` runs exactly once per call; a server-side conflict retries the
 already-computed options rather than re-invoking it. `backfill` runs the
 schedule's action over historical time ranges.
@@ -349,10 +429,9 @@ schedule's action over historical time ranges.
 
 Setup / lifecycle: `RuntimeClientError`, `TechnicalError`.
 
-Start phase: `WorkflowNotInContractError`, `WorkflowValidationError`,
-`WorkflowAlreadyStartedError`.
+Start phase: `WorkflowValidationError`, `WorkflowAlreadyStartedError`.
 
-Result phase: `WorkflowFailedError`, plus the first-class outcome errors
+Result phase: `WorkflowFailedError` (with Temporal's `retryState`), plus the first-class outcome errors
 `WorkflowCancelledError`, `WorkflowTerminatedError`, `WorkflowTimeoutError`
 (each keeps the original `TemporalFailure` as `cause`), and
 `WorkflowExecutionNotFoundError`.
@@ -360,12 +439,14 @@ Result phase: `WorkflowFailedError`, plus the first-class outcome errors
 Interaction phase: `QueryValidationError`, `QueryFailedError`,
 `SignalValidationError`, `UpdateValidationError`, `UpdateRejectedError`
 (worker-side admission rejection), `UpdateFailedError` (admitted handler
-failed).
+failed), `UpdateRpcTimeoutOrCancelledError` (the update call timed out or was
+cancelled — Temporal's `WorkflowUpdateRPCTimeoutOrCancelledError`).
 
 Schedules: `ScheduleAlreadyExistsError`, `ScheduleNotFoundError`.
 
-Plus `ContractError` and the types `TemporalFailure`, `AnyContractError`,
-`ContractErrorUnion`, `WorkflowContractErrorsOf`, `WorkflowResultErrorsOf`.
+Plus `ContractError`, `CONTRACT_ERROR_TAG`, and the types `TemporalFailure`,
+`AnyContractError`, `ContractErrorUnion`, `RehydrationMiss`,
+`WorkflowContractErrorsOf`, `WorkflowResultErrorsOf`.
 
 ### Tag constants
 
@@ -394,6 +475,38 @@ result.match({
       P.tag(WORKFLOW_TIMEOUT_ERROR_TAG),
       (error) => report(error),
     ),
+  defect: (cause) => report(cause),
+});
+```
+
+### Pattern groups
+
+For the common unions, ready-made pattern arrays spread into one arm:
+
+| Constant                    | Covers                                                                    |
+| --------------------------- | ------------------------------------------------------------------------- |
+| `WORKFLOW_START_PATTERNS`   | `startWorkflow` (`signalWithStart` adds `SignalValidationError`)          |
+| `WORKFLOW_RESULT_PATTERNS`  | `handle.result()`, minus the workflow's declared errors                   |
+| `WORKFLOW_EXECUTE_PATTERNS` | `executeWorkflow`, minus the workflow's declared errors                   |
+| `WORKFLOW_STOPPED_PATTERNS` | the three first-class stopped outcomes (cancelled, terminated, timed out) |
+| `SIGNAL_PATTERNS`           | `handle.signals.*`                                                        |
+| `QUERY_PATTERNS`            | `handle.queries.*`                                                        |
+| `UPDATE_PATTERNS`           | `handle.updates.*` and an update handle's `result()`                      |
+| `SCHEDULE_CREATE_PATTERNS`  | `schedule.create`                                                         |
+
+A workflow's declared errors are deliberately left out, so the matcher still
+forces an arm for them (`P.tag(CONTRACT_ERROR_TAG)`, or one per name):
+
+```typescript
+import { CONTRACT_ERROR_TAG, WORKFLOW_EXECUTE_PATTERNS } from "@temporal-contract/client";
+import { P } from "unthrown";
+
+result.match({
+  ok: (output) => output,
+  errCases: (matcher) =>
+    matcher
+      .with(P.tag(CONTRACT_ERROR_TAG), (error) => report(error.errorName))
+      .with(...WORKFLOW_EXECUTE_PATTERNS, (error) => report(error)),
   defect: (cause) => report(cause),
 });
 ```

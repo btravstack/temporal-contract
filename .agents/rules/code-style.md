@@ -6,11 +6,11 @@
 - **No `interface`** — use `type` (enforced by oxlint `consistent-type-definitions`). One allowed exception: module augmentation / declaration merging requires `interface` (see `packages/testing/src/global-setup.ts:6` augmenting vitest's `ProvidedContext`). Disable the rule inline with a comment.
 - **Use `.js` extensions** in all imports (even for `.ts` files) — required by ESM module resolution.
 - **Prefer `type` imports** (`import type { ... }`) where possible — not currently lint-enforced, so use judgement.
-- All packages extend `@temporal-contract/tsconfig/base.json` (strict mode).
+- All packages extend `@btravstack/tsconfig/base.json` (strict mode; version pinned in the `pnpm-workspace.yaml` catalog).
 
 ### Strict-mode quirks worth knowing
 
-The shared tsconfig at `tools/tsconfig/base.json` enables three non-default flags that surprise people:
+The shared `@btravstack/tsconfig/base.json` enables three non-default flags that surprise people:
 
 | Flag                                 | What it does                                                                                                         |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |

@@ -192,7 +192,8 @@ packages and this works across teams.
 ## Control the child's lifecycle
 
 `TypedChildWorkflowOptions` is Temporal's `ChildWorkflowOptions` minus
-`taskQueue` and `args` (which come from the contract), plus the typed `args`:
+`taskQueue`, `args`, and `workflowIdReusePolicy` (which come from the
+contract), plus the typed `args`:
 
 ```typescript
 await context.executeChildWorkflow(orderContract, "collectPayment", {
@@ -206,13 +207,19 @@ await context.executeChildWorkflow(orderContract, "collectPayment", {
   workflowExecutionTimeout: "1 hour",
   workflowRunTimeout: "10 minutes",
   retry: { maximumAttempts: 3 },
-
-  // Reuse behaviour when the id already exists. The child's contract already
-  // supplies this from its `startPolicy` mode — set it here only to override
-  // that default for this one call.
-  workflowIdReusePolicy: "ALLOW_DUPLICATE_FAILED_ONLY",
 });
 ```
+
+There is no `workflowIdReusePolicy` option: the child's contract `startPolicy`
+supplies it on every call, as it does for the client. To change the reuse
+behavior, change the child's `startPolicy`.
+
+When the child's definition declares `workflowId` (see
+[Define a contract](/how-to/define-a-contract#derive-the-workflow-id)), the ID is derived from the
+validated `args` exactly as the client derives it, and passing `workflowId`
+here is a type error — a caller-chosen ID is what would defeat a
+`"once-per-id"` start policy. Without one, `workflowId` stays optional, and
+Temporal picks a deterministic UUID when it is omitted.
 
 `parentClosePolicy` is required — there is no default to inherit, so every
 call has to state what happens to the child when the parent closes:
@@ -237,11 +244,20 @@ for one where an activity suffices.
 
 ## Error channel
 
-| Error                         | When                                           |
-| ----------------------------- | ---------------------------------------------- |
-| `ChildWorkflowNotFoundError`  | The name is not on the contract you passed     |
-| `ChildWorkflowError`          | The child failed, timed out, or was terminated |
-| `ChildWorkflowCancelledError` | The child was cancelled                        |
+| Error                         | When                                                     |
+| ----------------------------- | -------------------------------------------------------- |
+| `ChildWorkflowNotFoundError`  | The name is not on the contract you passed               |
+| a declared `ContractError`    | The child failed with one of its own declared `errors`   |
+| `ChildWorkflowError`          | The child failed otherwise, timed out, or was terminated |
+| `ChildWorkflowCancelledError` | The child was cancelled                                  |
+
+A child that declares an `errors` map has each declared failure rehydrated into
+a typed `ContractError` on `executeChildWorkflow` and `handle.result()` —
+`ChildWorkflowContractErrorsOf<TWorkflow>` is that union, `never` when the
+child declares none — so an exhaustive matcher needs a
+`P.tag(CONTRACT_ERROR_TAG)` arm for it (the constant is exported from
+`@temporal-contract/contract`). Those are also the child failures
+`context.saga()` compensates on; a `ChildWorkflowError` is not.
 
 `result()` narrows further — it cannot return `ChildWorkflowNotFoundError`,
 because resolution already succeeded.

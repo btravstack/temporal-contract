@@ -7,20 +7,15 @@ for completed steps, and record why it ended.
 ## Request cancellation from the client
 
 ```typescript
-const bound = client.getHandle("processOrder", "order-123"); // synchronous Result
-if (!bound.isOk()) {
-  // Narrow positively: after ruling out Ok, the value is Err or Defect, so
-  // reading `bound.value` would not compile — a defect rides `bound.cause`.
-  throw bound.isErr() ? bound.error : bound.cause;
-}
+const handle = client.getHandle("processOrder", "order-123"); // synchronous, no I/O
 
 // Cooperative: the workflow observes the request and exits on its own terms.
 // `.getOrThrow()` surfaces a WorkflowExecutionNotFoundError — a bare `await`
 // would collapse the AsyncResult to an ignored Result instead.
-await bound.value.cancel().getOrThrow();
+await handle.cancel().getOrThrow();
 
 // Forceful: Temporal stops the execution immediately. No cleanup runs.
-await bound.value.terminate("fraud detected").getOrThrow();
+await handle.terminate("fraud detected").getOrThrow();
 ```
 
 Prefer `cancel`. Reach for `terminate` only when the workflow is stuck or
@@ -40,15 +35,11 @@ export const processOrder = declareWorkflow({
   activityOptions: { startToCloseTimeout: "5 minutes", retry: { maximumAttempts: 3 } },
   implementation: async (context, order) => {
     const scoped = await context.cancellableScope(async () => {
-      // Narrow the activity's own AsyncResult INSIDE the scope's callback.
-      // `cancellableScope` is generic over whatever `fn` returns — `T` becomes
-      // whatever type `fn` resolves to, verbatim. `AsyncResult` is
-      // deliberately NOT a full `PromiseLike` (no `.catch`/`.finally`), so
-      // returning `context.activities.chargeCard(...)` un-awaited would make
-      // `T` the un-awaited `AsyncResult` itself — a type with no `isOk`/
-      // `isErr`/`.value` (those live only on the plain `Result` you get by
-      // awaiting). Await it here, and hand the scope a plain, narrowable
-      // value instead.
+      // Narrow the activity's own Result INSIDE the scope's callback. The
+      // scope awaits whatever `fn` returns (its value is `Awaited<T>`), so
+      // returning `context.activities.chargeCard(...)` as-is would hand you a
+      // `Result` nested inside the scope's own one. Narrow it here, and give
+      // the scope a plain domain value instead.
       const charged = await context.activities.chargeCard({
         customerId: order.customerId,
         amount: order.total,
@@ -115,8 +106,9 @@ if (charged.isErr()) {
 }
 ```
 
-`rethrowCancellation` throws the underlying `CancelledFailure`, so the workflow
-ends **Cancelled** the way the operator's `cancel()` intended. It only accepts
+`rethrowCancellation` throws the underlying `CancelledFailure` (a fresh one
+when the error carries no `cause`), so the workflow ends **Cancelled** the way
+the operator's `cancel()` intended. It only accepts
 a cancellation error (`ActivityCancelledError`,
 `ChildWorkflowCancelledError`, or `WorkflowCancelledError`) — narrow to one of
 those first, as above, rather than passing the whole error union.
@@ -183,7 +175,7 @@ Long-running activities receive cancellation through the Temporal activity
 runtime. Heartbeating is what makes an activity cancellable at all:
 
 ```typescript
-import { ApplicationFailure } from "@temporalio/common";
+import { qualifyFailure } from "@temporal-contract/worker/activity";
 import { Context } from "@temporalio/activity";
 import { CancelledFailure } from "@temporalio/common";
 import { fromPromise } from "unthrown";
@@ -206,22 +198,18 @@ processOrder: {
         }
         return { exported: true };
       })(),
-      (error) => {
-        // Cancellation must propagate — never fold it into a modeled Err.
-        if (error instanceof CancelledFailure) {
-          throw error;
-        }
-        return ApplicationFailure.create({
-          type: "EXPORT_FAILED",
-          // `exactOptionalPropertyTypes` rejects an explicit `cause: undefined`
-          // (the field's type is `Error`, not `Error | undefined`) — spread it
-          // in only when there is one.
-          ...(error instanceof Error ? { cause: error } : {}),
-        });
-      },
+      // Cancellation must propagate — never fold it into a modeled Err.
+      // `qualifyFailure` guarantees that: a `CancelledFailure` or `AbortError`
+      // always rides the defect channel and reaches Temporal as a
+      // cancellation, even with `expected: "any"`.
+      qualifyFailure("EXPORT_FAILED", { expected: "any" }),
     ),
 }
 ```
+
+A hand-written qualifier must make the same exception itself — wrapping a
+cancellation in an `ApplicationFailure` turns a cancelled attempt into a failed
+(and possibly retried) one.
 
 For the activity to be cancellable, its options need a `heartbeatTimeout`:
 

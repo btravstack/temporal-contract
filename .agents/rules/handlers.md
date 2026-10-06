@@ -89,7 +89,7 @@ export const processOrder = declareWorkflow({
   activityOptions: { startToCloseTimeout: "1 minute", retry: { maximumAttempts: 3 } },
   implementation: async (context, args) => {
     // context.activities — typed, validated activities
-    // context.info — WorkflowInfo
+    // context.info — WorkflowInfo (a live getter: historyLength etc. update)
     // context.handleSignal/handleQuery/handleUpdate — handler binding
     // context.executeChildWorkflow / context.startChildWorkflow
     // context.cancellableScope / context.nonCancellableScope — see below
@@ -118,9 +118,11 @@ including the shallow-merge trap and the `maximumAttempts` edge cases.
 The two are enforced by different machinery, and the difference matters:
 `parentClosePolicy` is **type-only** — omitting it (or passing `undefined`) is
 a compile error, and there is no runtime check. The activity bounds are a
-**runtime** check inside `declareWorkflow`, which runs at module top level, so
-a violation stalls the workflow via workflow-task retry rather than failing it
-— see that reference for why that is deliberate.
+**runtime** check inside `declareWorkflow`, which runs at module top level and
+throws `ContractMisuseError`. Inside the sandbox that would stall the workflow
+via workflow-task retry, so `TypedWorker.create`'s registration check
+(`verifyWorkflowRegistration`, on by default with `workflowsPath`) imports the
+module first and fails worker startup on it instead — see that reference.
 
 Workflow code is deterministic — see [workflow-determinism.md](./workflow-determinism.md) for the banned APIs and replacements.
 
@@ -128,14 +130,16 @@ Typed-error semantics inside the workflow context:
 
 - **Every** activity call returns `AsyncResult` — declared `errors` map or
   not. There is no throwing `Promise<Output>` shape anymore; narrow the
-  result with `isOk()`/`isErr()`, or use `propagateActivityFailure` to let
+  result with `isOk()`/`isErr()`, or use `propagateFailure` to let
   the failure escape and have Temporal decide the workflow's outcome. A bare
   `await context.activities.x(...)` compiles either way — it's easy to
   discard the `AsyncResult` by accident and silently swallow a failure.
-  **Never** use unthrown's `.getOrThrow()` here: it throws the
-  `ActivityError`/`ActivityCancelledError` wrapper, which is a `TaggedError`
-  and not a `TemporalFailure` — Temporal retries that as a workflow-_task_
-  failure indefinitely instead of failing the workflow.
+  Prefer `propagateFailure` to `.getOrThrow()` / `throw result.error`: those
+  throw the `ActivityError`/`ActivityCancelledError` wrapper, a `TaggedError`
+  rather than a `TemporalFailure`. `declareWorkflow` (and signal/update
+  handlers) map such a throw to the Temporal failure it carries
+  (`toTemporalFailure` in `activity-failure.ts`), but anything that catches
+  it in between — a `try`, a library — sees the wrapper, not the failure.
 - Activities **with** a declared `errors` map return
   `AsyncResult<Output, ContractError union | ActivityError | ActivityCancelledError>`
   (mirroring the child-workflow API): declared failures rehydrate into typed
@@ -148,7 +152,15 @@ Typed-error semantics inside the workflow context:
   errors; `throw context.errors.X(data)` fails the execution as an
   `ApplicationFailure` the typed client rehydrates. Never throw a bare
   `ContractError` constructed by hand — only the context/helpers constructors
-  are validated against the declaring contract entry.
+  are validated against the declaring contract entry. An undeclared name is a
+  `ContractMisuseError`.
+- Child workflows follow the contract: a child whose definition declares
+  `workflowId` gets it derived from the validated `args` (passing
+  `workflowId` is a type error), `workflowIdReusePolicy` comes from the
+  child's `startPolicy` (no per-call override), and the child's declared
+  errors rehydrate into typed `ContractError`s
+  (`ChildWorkflowContractErrorsOf`) alongside `ChildWorkflowError` /
+  `ChildWorkflowCancelledError`.
 
 ## Worker Setup
 
@@ -168,7 +180,8 @@ synchronous, infallible `typedClient.for(contract)`, which returns a
 `TypedWorker` owns the unthrown-disciplined lifecycle: `run()` returns
 `AsyncResult<void, never>` (a mid-run crash is a `TechnicalError`-caused
 defect; the internal promise never rejects) and `shutdown()` initiates a
-graceful drain. Everything else Temporal offers (`runUntil`, `getState`)
+graceful drain, returning `Result<void, never>` (calling it on a worker that
+is not running is a `TechnicalError`-caused defect, not a throw). Everything else Temporal offers (`runUntil`, `getState`)
 lives on the raw escape hatch `worker.raw`.
 
 ```typescript
@@ -194,10 +207,8 @@ Workflows opt into cancellation control via `context.cancellableScope` / `contex
 
 ```typescript
 implementation: async (context, args) => {
-  // `fn`'s return value becomes the scope's `T` verbatim, so await and
-  // narrow the activity's own AsyncResult HERE, inside the callback —
-  // returning it un-awaited would make `T` the AsyncResult itself, which
-  // has no `isOk`/`isErr`/`.value`.
+  // `fn`'s return value is awaited; narrow the activity's own Result HERE so
+  // the scope's value is a plain domain value, not a nested `Result`.
   const result = await context.cancellableScope(async () => {
     const step = await context.activities.processStep(args);
     if (step.isDefect()) {
@@ -212,8 +223,7 @@ implementation: async (context, args) => {
   if (result.isErr()) {
     // Workflow was cancelled. Cleanup that must not be cancelled itself
     // goes inside `nonCancellableScope`. Capture ITS OWN AsyncResult too —
-    // a bare `await` would silently discard both a defect thrown during
-    // cleanup and the un-awaited activity result.
+    // a bare `await` would silently discard a defect thrown during cleanup.
     const released = await context.nonCancellableScope(async () => {
       const step = await context.activities.releaseResources(args);
       if (step.isErr()) {
@@ -230,15 +240,15 @@ implementation: async (context, args) => {
 };
 ```
 
-- `cancellableScope<T>(fn)` — returns `AsyncResult<T, WorkflowCancelledError>`. Cancels propagate from outside.
+- `cancellableScope<T>(fn)` — returns `AsyncResult<Awaited<T>, WorkflowCancelledError>`. Cancels propagate from outside.
 - `nonCancellableScope<T>(fn)` — same shape; _outside_ cancels are ignored. Cancels raised _inside_ still surface as `Err(...)`. Use for graceful-shutdown cleanup.
 - Non-cancellation errors thrown by `fn` are _unmodeled_ failures: they ride unthrown's **`defect`** channel (inspectable via `result.isDefect()` / `result.cause`, re-thrown at the edge), not the modeled `err` channel.
 
-Canonical implementation: `packages/worker/src/cancellation.ts:38` (`cancellableScope`), `:75` (`nonCancellableScope`). Error class: `packages/worker/src/errors.ts:193`.
+Canonical implementation: `cancellableScope` / `nonCancellableScope` in `packages/worker/src/cancellation.ts`. Error class: `WorkflowCancelledError` in `packages/worker/src/errors.ts`.
 
 ## ApplicationFailure semantics
 
-`ApplicationFailure` (re-exported from `@temporal-contract/worker/activity`) is Temporal's first-class failure type. The wrapper at `packages/worker/src/activity.ts:8-15` rethrows the `Err(...)` payload at the activity boundary, where Temporal recognizes it natively and applies the configured retry policy.
+`ApplicationFailure` (re-exported from `@temporal-contract/worker/activity`) is Temporal's first-class failure type. The wrapper `declareActivitiesHandler` builds (`makeWrapped` in `packages/worker/src/activity.ts`) rethrows the `Err(...)` payload at the activity boundary, where Temporal recognizes it natively and applies the configured retry policy.
 
 Fields that matter:
 
