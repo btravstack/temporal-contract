@@ -11,7 +11,7 @@ End-to-end type safety and runtime validation for workflows and activities
 [![CI](https://github.com/btravstack/temporal-contract/actions/workflows/ci.yml/badge.svg)](https://github.com/btravstack/temporal-contract/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/@temporal-contract/contract.svg?logo=npm)](https://www.npmjs.com/package/@temporal-contract/contract)
 [![npm downloads](https://img.shields.io/npm/dm/@temporal-contract/contract.svg)](https://www.npmjs.com/package/@temporal-contract/contract)
-[![TypeScript](https://img.shields.io/badge/TypeScript-6.0-blue?logo=typescript)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-7.0-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 [**Documentation**](https://btravstack.github.io/temporal-contract) · [**Tutorial**](https://btravstack.github.io/temporal-contract/tutorial/your-first-workflow) · [**Reference**](https://btravstack.github.io/temporal-contract/reference/contract-surface) · [**Sample coverage**](EXAMPLES.md)
@@ -55,7 +55,7 @@ const processOrder = defineWorkflow({
   // Payment already moved money on success — block a second successful
   // run per order. A start is still retryable after a genuinely failed
   // attempt (e.g. a declined payment, where no charge went through).
-  idempotency: "retry-if-failed",
+  startPolicy: "retry-if-failed",
   activities: { chargeCard },
 });
 
@@ -91,9 +91,15 @@ export const activities = declareActivitiesHandler({
 Call it — names, arguments, and results all typed, and validated at runtime:
 
 ```typescript
-import { P } from "unthrown";
+import { TypedClient, WORKFLOW_EXECUTE_PATTERNS } from "@temporal-contract/client";
+import { Client, Connection } from "@temporalio/client";
 
-const result = await client.executeWorkflow("processOrder", {
+// Once per process: the connection-scoped root, then a contract binding.
+const connection = await Connection.connect({ address: "localhost:7233" });
+const client = await TypedClient.create({ client: new Client({ connection }) }).get();
+const orders = client.for(orderContract);
+
+const result = await orders.executeWorkflow("processOrder", {
   workflowId: "order-123",
   args: { orderId: "ORD-1", customerId: "CUST-1", amount: 99.99 },
 });
@@ -101,12 +107,9 @@ const result = await client.executeWorkflow("processOrder", {
 result.match({
   ok: (output) => console.log(output.transactionId),
   errCases: (matcher) =>
-    matcher.with(
-      P.tag("@temporal-contract/WorkflowValidationError"),
-      P.tag("@temporal-contract/WorkflowFailedError"),
-      // ...exhaustive — a missing tag is a compile error
-      (error) => console.error(error.message),
-    ),
+    // Every error `executeWorkflow` can produce — exhaustive, so a missing
+    // arm (e.g. a declared domain error added later) is a compile error.
+    matcher.with(...WORKFLOW_EXECUTE_PATTERNS, (error) => console.error(error.message)),
   defect: (cause) => console.error("unexpected:", cause),
 });
 ```
@@ -142,11 +145,12 @@ partial state, nothing to unwind.
 > `pnpm add @temporal-contract/contract` gives you the previous major.
 
 ```bash
-# Core packages (8.0 beta — `latest` still resolves 7.x)
+# Core packages (8.0 beta — `latest` still resolves 7.x). `contract` is also
+# a peer of `worker` and `client`, so it must be installed alongside them.
 pnpm add @temporal-contract/contract@beta @temporal-contract/worker@beta \
          @temporal-contract/client@beta
 
-# Peer dependencies (stable releases)
+# Peer dependencies (stable releases): unthrown ^5.11, @temporalio/* ^1.24
 pnpm add unthrown \
   @temporalio/client @temporalio/common @temporalio/worker @temporalio/workflow
 
@@ -155,7 +159,7 @@ pnpm add zod
 ```
 
 Requires **Node.js ≥ 22.22**, ESM (`"type": "module"`), and TypeScript `strict`.
-Developed against **TypeScript 6.0**.
+Developed against **TypeScript 7.0**.
 
 > Install `unthrown` explicitly even if your package manager auto-installs
 > peers — your own code imports its `Result` / `AsyncResult` types, so it is a
@@ -191,11 +195,14 @@ describes a compatible set.
 
 ## Stability
 
-The contract API (`defineContract`, `declareWorkflow`, `declareActivitiesHandler`,
-`TypedClient`) is stable. Earlier major bumps were migrations of the underlying
-result library, now settled on [unthrown](https://github.com/btravstack/unthrown);
-there are no plans to switch again. The `unthrown` peer range tracks its current
-major line, and each raise is documented in the changelog with migration notes.
+8.0 is in **beta**: the API these docs describe can still take breaking changes
+between betas, each one recorded in the changelog with migration notes (see
+[Upgrade between 8.0 betas](https://btravstack.github.io/temporal-contract/how-to/upgrade-between-8-betas)).
+The shape of the contract API (`defineContract`, `declareWorkflow`,
+`declareActivitiesHandler`, `TypedClient`) is settled; earlier major bumps were
+migrations of the underlying result library, now settled on
+[unthrown](https://github.com/btravstack/unthrown). The `unthrown` peer range
+tracks its current major line.
 
 Upgrading from 7.x? See
 [Upgrade to v8](https://btravstack.github.io/temporal-contract/how-to/upgrade-to-v8).

@@ -127,11 +127,13 @@ into one branch is compact:
 
 ```typescript
 matcher.with(
-  P.tag("@temporal-contract/WorkflowNotInContractError"),
   P.tag("@temporal-contract/WorkflowValidationError"),
-  P.tag("@temporal-contract/WorkflowFailedError"),
+  P.tag("@temporal-contract/WorkflowAlreadyStartedError"),
   (error) => report(error),
 );
+
+// or spread a ready-made group from @temporal-contract/client
+matcher.with(...WORKFLOW_START_PATTERNS, (error) => report(error));
 ```
 
 ## `match` is an object with three channels

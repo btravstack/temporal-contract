@@ -90,7 +90,10 @@ and `toBeDefect` — prefer them over `expect(result.isOk()).toBe(true)`.
 declared schema, or an output the schema rejects, still looks green. When the
 test must fail exactly where production fails, use `runActivityHandler`: it wraps
 the implementation with the real `declareActivitiesHandler`, parses the input as
-a caller would send it (the pre-transform wire shape), validates the output, and
+a caller would send it (the pre-transform wire shape), validates the output,
+round-trips the input, output, and failure details through the payload
+converter (pass `payloadConverter` if your worker uses a custom one — a `Date`
+output, for instance, does not survive the default JSON converter), and
 round-trips a typed `Err` through its `ApplicationFailure` wire form and back:
 
 ```typescript
@@ -110,8 +113,9 @@ it("rehydrates a declared error across the wire", async () => {
   );
 
   // The declared error crossed the wire and rehydrated as a typed error;
-  // an undeclared error name or invalid error data would surface the
-  // production terminal `ContractErrorDataValidationError` instead.
+  // an undeclared error name would surface the production terminal
+  // `ContractMisuseError` instead, invalid error data
+  // `ContractErrorDataValidationError`.
   expect(result).toBeErrTagged("@temporal-contract/ContractError");
 });
 ```
@@ -204,13 +208,14 @@ implementation does not model surfaces on the defect channel.
 that fast-forwards timers. A workflow that sleeps 30 days finishes instantly.
 
 ```bash
-pnpm add -D @temporal-contract/testing @temporalio/testing
+pnpm add -D @temporal-contract/testing@beta @temporalio/testing
 ```
 
 ```typescript
 import { TypedClient } from "@temporal-contract/client";
 import { it } from "@temporal-contract/testing/time-skipping";
-import { TypedWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
+import { fixturePath } from "@temporal-contract/testing/workflow-bundle";
+import { TypedWorker } from "@temporal-contract/worker/worker";
 import { expect } from "vitest";
 
 import { activities } from "./activities.js";
@@ -220,7 +225,7 @@ it("processes an order", async ({ testEnv }) => {
   const worker = await TypedWorker.create({
     contract: orderContract,
     connection: testEnv.nativeConnection,
-    workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
+    workflowsPath: fixturePath(import.meta.url, "workflows"),
     activities,
   }).get();
 
@@ -241,6 +246,11 @@ it("processes an order", async ({ testEnv }) => {
 
 `worker.raw.runUntil` (on the underlying Temporal worker) starts the worker,
 runs the callback, and shuts down cleanly.
+
+`fixturePath(import.meta.url, "workflows")` resolves the sibling file with the
+spec's own extension. Under Vitest that is `workflows.ts`: the Temporal bundler
+checks `workflowsPath` on disk, so a hard-coded `"./workflows.js"` only works
+against compiled output.
 
 The environment is created once per Vitest worker process and torn down when it
 exits — spawning one per test would dominate the suite's runtime.
@@ -302,18 +312,57 @@ it("expires an unapproved order after 24 hours", async ({ testEnv }) => {
   // ... worker + client setup ...
 
   await worker.raw.runUntil(async () => {
-    const started = await client.for(orderContract).startWorkflow("processOrder", {
-      workflowId: "order-expiry",
-      args: { orderId: "ORD-1", customerId: "CUST-1", amount: 42 },
-    });
-
     // The workflow's `condition(..., "24 hours")` elapses immediately.
-    const result = await started.getOrThrow().result();
+    const result = await client
+      .for(orderContract)
+      .startWorkflow("processOrder", {
+        workflowId: "order-expiry",
+        args: { orderId: "ORD-1", customerId: "CUST-1", amount: 42 },
+      })
+      .flatMap((handle) => handle.result());
 
     expect(result).toBeOkWith({ status: "expired" });
   });
 });
 ```
+
+### Wire the whole stack with `createTimeSkippingContractTest`
+
+The time-skipping tier has a one-call fixture too, with no Docker and no server
+to run — reach for this one first, and drop to the Dockerized
+`createContractTest` below only for what needs a real cluster (visibility,
+search attributes, schedules, retention):
+
+```typescript
+import { createTimeSkippingContractTest } from "@temporal-contract/testing/time-skipping";
+import { fixturePath } from "@temporal-contract/testing/workflow-bundle";
+import { describe, expect } from "vitest";
+
+const it = createTimeSkippingContractTest({
+  contract: orderContract,
+  workflowsPath: fixturePath(import.meta.url, "workflows"),
+  activities,
+});
+
+describe("order processing", () => {
+  it("processes an order end-to-end", async ({ worker, client }) => {
+    const result = await worker.raw.runUntil(async () =>
+      client.executeWorkflow("processOrder", {
+        workflowId: `order-${Date.now()}`,
+        args: { orderId: "ORD-1", customerId: "CUST-1", amount: 42 },
+      }),
+    );
+
+    await expect(result).toBeOk();
+  });
+});
+```
+
+It owns the environment, the workflow bundle (built once per Vitest worker
+process), the worker, the `TypedClient` binding, and the replay-on-finish
+check — including workflows whose contract derives the workflow ID, and
+`executeUpdateWithStart` starts. `testRig` (`/test-rig`) remains the
+lower-level seam for suites that need to hold those pieces themselves.
 
 ## Tier 3 — a real server in Docker
 
@@ -327,7 +376,7 @@ Dockerized tier (`createGlobalSetup` / `createContractTest`) — the
 `@temporal-contract/testing` for tier 3:
 
 ```bash
-pnpm add -D @temporal-contract/testing testcontainers
+pnpm add -D @temporal-contract/testing@beta testcontainers
 ```
 
 ```typescript
@@ -352,49 +401,12 @@ progress logs, point `globalSetup` at your own module that default-exports
 import { createGlobalSetup } from "@temporal-contract/testing/global-setup";
 
 export default createGlobalSetup({
-  postgresImage: "postgres:18.1",
   temporalImage: "temporalio/auto-setup:1.28.0",
+  healthCheckRetries: 120, // one per second; default 60
   temporalEnv: { FRONTEND_GRPC_MAX_MESSAGE_SIZE: "10485760" },
   quiet: true,
 });
 ```
-
-### Wire the whole stack with `createTimeSkippingContractTest`
-
-The time-skipping tier has the same one-call fixture, with no Docker and no
-server to run — reach for this one first, and drop to the Dockerized
-`createContractTest` below only for what needs a real cluster (visibility,
-search attributes, schedules, retention):
-
-```typescript
-import { createTimeSkippingContractTest } from "@temporal-contract/testing/time-skipping";
-import { workflowsPathFromURL } from "@temporal-contract/worker/worker";
-import { describe, expect } from "vitest";
-
-const it = createTimeSkippingContractTest({
-  contract: orderContract,
-  workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
-  activities,
-});
-
-describe("order processing", () => {
-  it("processes an order end-to-end", async ({ worker, client }) => {
-    const result = await worker.raw.runUntil(async () =>
-      client.executeWorkflow("processOrder", {
-        workflowId: `order-${Date.now()}`,
-        args: { orderId: "ORD-1", customerId: "CUST-1", amount: 42 },
-      }),
-    );
-
-    await expect(result).toBeOk();
-  });
-});
-```
-
-It owns the environment, the workflow bundle (built once per Vitest worker
-process), the worker, the `TypedClient` binding, and the replay-on-finish
-check. `testRig` remains the lower-level seam for suites that need to hold
-those pieces themselves.
 
 ### Wire the whole stack with `createContractTest`
 
@@ -402,11 +414,16 @@ those pieces themselves.
 a contract against that server: a worker on the contract's task queue
 (started before each test, shut down after), the connection-scoped
 `TypedClient` root, and the contract-bound `ContractClient`. Destructure
-exactly what you use — `client`, `typedClient`, or `worker`:
+exactly what you use — `client`, `typedClient`, `worker`, or `namespace`.
+
+Each `createContractTest` call registers its own Temporal namespace for the
+worker and the clients. Test files run in parallel against one server and each
+worker polls the contract's real task queue, so without that isolation one
+file's worker would pick up another file's tasks:
 
 ```typescript
 import { createContractTest } from "@temporal-contract/testing/contract";
-import { workflowsPathFromURL } from "@temporal-contract/worker/worker";
+import { fixturePath } from "@temporal-contract/testing/workflow-bundle";
 import { describe, expect } from "vitest";
 
 import { activities } from "./activities.js";
@@ -414,7 +431,7 @@ import { orderContract } from "./contract.js";
 
 const it = createContractTest({
   contract: orderContract,
-  workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
+  workflowsPath: fixturePath(import.meta.url, "workflows"), // bundled once per file
   activities, // omit for a workflow-only worker
   // workerOptions: forwarded to TypedWorker.create (namespace, interceptors, tuning)
 });
@@ -439,7 +456,8 @@ container:
 ```typescript
 import { TypedClient } from "@temporal-contract/client";
 import { it } from "@temporal-contract/testing/extension";
-import { TypedWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
+import { fixturePath } from "@temporal-contract/testing/workflow-bundle";
+import { TypedWorker } from "@temporal-contract/worker/worker";
 import { Client } from "@temporalio/client";
 import { expect } from "vitest";
 
@@ -447,7 +465,7 @@ it("indexes the order by customer", async ({ clientConnection, workerConnection 
   const worker = await TypedWorker.create({
     contract: orderContract,
     connection: workerConnection,
-    workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
+    workflowsPath: fixturePath(import.meta.url, "workflows"),
     activities,
   }).get();
 
@@ -469,7 +487,10 @@ it("indexes the order by customer", async ({ clientConnection, workerConnection 
 
 The fixtures are `clientConnection` (a `Connection`, for the client) and
 `workerConnection` (a `NativeConnection`, for the worker). Docker must be
-running.
+running. They use the server's `default` namespace, which every test file
+shares — give a hand-wired worker its own queue with
+`withTaskQueue(orderContract, nextTaskQueueId("orders"))` from
+`@temporal-contract/testing/workflow-bundle` when files run in parallel.
 
 ## Split the tiers into projects
 

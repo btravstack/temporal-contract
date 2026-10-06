@@ -20,8 +20,9 @@ from the previous `neverthrow`-based version.
 - [@temporal-contract/testing](./testing/) - Testing utilities with testcontainers
 
 Each package is documented per **public entry point**: contract as `index`
-(the root) and `errors`; worker as `activity`, `worker`, and `workflow`; testing
-as `activity`, `contract`, `extension`, `global-setup`, and `time-skipping`. The
+(the root) and `errors`; client as its single root entry; worker as `activity`,
+`worker`, and `workflow`; testing as `activity`, `contract`, `extension`,
+`global-setup`, `test-rig`, `time-skipping`, and `workflow-bundle`. The
 internal `@temporal-contract/contract/internal` entry carries no semver
 guarantee and is intentionally excluded.
 

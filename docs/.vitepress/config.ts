@@ -66,7 +66,9 @@ const DOCS_SIDEBAR = [
       { text: "Schedule workflows", link: "/how-to/schedule-workflows" },
       { text: "Configure a worker", link: "/how-to/configure-a-worker" },
       { text: "Test workflows", link: "/how-to/test-workflows" },
+      { text: "Evolve a contract", link: "/how-to/evolve-a-contract" },
       { text: "Upgrade from 7.x to 8.0", link: "/how-to/upgrade-to-v8" },
+      { text: "Upgrade between 8.0 betas", link: "/how-to/upgrade-between-8-betas" },
       { text: "Migrate from neverthrow", link: "/how-to/migrate-from-neverthrow" },
       { text: "Troubleshoot", link: "/how-to/troubleshoot" },
     ],
@@ -90,6 +92,7 @@ const DOCS_SIDEBAR = [
       { text: "The result model", link: "/explanation/the-result-model" },
       { text: "Validation boundaries", link: "/explanation/validation-boundaries" },
       { text: "Workflow determinism", link: "/explanation/workflow-determinism" },
+      { text: "Security", link: "/explanation/security" },
       { text: "Architecture", link: "/explanation/architecture" },
       { text: "Nexus", link: "/explanation/nexus" },
     ],
@@ -141,8 +144,6 @@ export default withMermaid(
     ignoreDeadLinks: [
       // Ignore localhost links as they're for development examples
       /^http:\/\/localhost/,
-      // API docs are generated separately and may not exist during build
-      /^\/api\//,
       // Ignore relative links in API docs (typedoc-generated cross-references)
       /^\.\/index$/,
       /^\.\/[a-z-]+$/,

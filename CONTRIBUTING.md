@@ -5,7 +5,7 @@ Thanks for your interest! This file is a quick on-ramp; the agent rules in [`.ag
 ## Prerequisites
 
 - **Node.js** 22.22+ (the supported floor — CI and `.node-version` use 24)
-- **pnpm** 11+
+- **pnpm** 12 (the exact version is pinned in `package.json`'s `packageManager`)
 - **Docker** (for integration tests)
 
 ## Quick start

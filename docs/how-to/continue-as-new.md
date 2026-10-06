@@ -45,7 +45,9 @@ _before_ Temporal is called. An invalid payload throws
 ## Decide when to roll over
 
 Base the decision on something deterministic. `context.info` exposes Temporal's
-`WorkflowInfo`:
+`WorkflowInfo`. It is a getter over `workflowInfo()`, so reading it inside a
+loop sees the current values — `continueAsNewSuggested` and `historyLength`
+change as the run progresses:
 
 ```typescript
 implementation: async (context, args) => {
@@ -127,7 +129,9 @@ implementation: async (context, args) => {
 };
 ```
 
-Arguments are validated against the _destination_ workflow's schema.
+Arguments are validated against the _destination_ workflow's schema. A
+destination the contract you pass does not declare — reachable only from
+untyped code — fails the execution with `ContractMisuseError`.
 
 ## Options
 
@@ -164,7 +168,8 @@ if (context.info.continueAsNewSuggested) {
 
 The workflow id stays the same; the run id changes. A client that holds a
 handle and awaits `result()` transparently follows the chain and receives the
-value returned by the _final_ run.
+value returned by the _final_ run — typed handles always follow the run chain
+(there is no `followRuns` option to turn it off).
 
 Signals sent during the rollover window are delivered to the new run. Queries
 against a completed run see that run's final state — bind by workflow id rather

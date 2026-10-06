@@ -19,9 +19,9 @@ const worker = await TypedWorker.create({
   connection,
   workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
   activities,
-}).getOrThrow();
+}).get();
 
-await worker.run().getOrThrow();
+await worker.run().get();
 ```
 
 `taskQueue` comes from the contract, so you never repeat it. Everything else on
@@ -49,17 +49,17 @@ if (result.isDefect()) {
 
 // Past the guard the only remaining variant is `Ok` — the error channel is
 // `never` — so unwrap and run.
-await result.getOrThrow().run().getOrThrow();
+await result.get().run().get();
 ```
 
-`.getOrThrow()` is the terse form — on a defect it rethrows the original cause
-with its stack intact, which is usually what you want at process startup. (With
-a `never` error channel `.get()` would compile too, but `.getOrThrow()` is the
-one idiom that stays correct if a modeled error is ever added.)
+`.get()` is the terse form — on a defect it rethrows the original cause with
+its stack intact, which is usually what you want at process startup. It
+compiles only because the error channel is `never`; `.get()` does not
+compile here (unthrown rejects it when there is no `Err` to throw).
 
 `run()` has the same shape: it returns `AsyncResult<void, never>`, so a worker
 that fails while running surfaces as a defect (a `TechnicalError` cause) rather
-than a rejected promise — `await worker.run().getOrThrow()` rethrows it at the
+than a rejected promise — `await worker.run().get()` rethrows it at the
 edge. The underlying Temporal `Worker` stays available as `worker.raw` for
 anything the typed surface doesn't cover (`worker.raw.getState()`,
 `worker.raw.runUntil(...)`).
@@ -72,10 +72,14 @@ under its declared name. Creation fails (a `TechnicalError`-caused defect) when
 
 - a contract workflow is missing from the bundle — a forgotten
   `declareWorkflow` export that would otherwise surface only when the first
-  task for it was dispatched; or
+  task for it was dispatched;
 - a workflow is exported under a name that differs from its `workflowName` —
   Temporal registers workflows by export name, so the mismatch would register
-  it as the wrong workflow type.
+  it as the wrong workflow type; or
+- a `declareWorkflow` call throws a `ContractMisuseError` while the module
+  loads — an unknown `workflowName`, or an activity with no per-attempt or
+  total bound. Inside the sandbox that throw would stall every workflow task
+  in an endless retry loop; here it stops the worker from starting.
 
 Opt out with `verifyWorkflowRegistration: false`, for example when the
 workflows module intentionally exports helpers whose names shadow contract
@@ -88,13 +92,15 @@ const worker = await TypedWorker.create({
   workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
   activities,
   verifyWorkflowRegistration: false,
-}).getOrThrow();
+}).get();
 ```
 
-The check is best-effort: it only runs when `workflowsPath` is provided
-(prebuilt `workflowBundle`s are skipped), and a module that cannot be imported
-in the main thread is skipped silently — `Worker.create`'s bundler is the
-authority on whether the module loads at all.
+The check is best-effort otherwise: it only runs when `workflowsPath` is
+provided (prebuilt `workflowBundle`s are skipped), and a module that cannot be
+imported in the main thread for any other reason is skipped silently —
+`Worker.create`'s bundler is the authority on whether the module loads at all.
+Because the module is evaluated in the main thread, keep it free of
+module-scope side effects.
 
 ## Resolve the workflows path
 
@@ -146,9 +152,9 @@ const worker = await TypedWorker.create({
   connection,
   workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
   // no `activities`
-}).getOrThrow();
+}).get();
 
-await worker.run().getOrThrow();
+await worker.run().get();
 ```
 
 This is the split-deployment pattern: workflows are deterministic and
@@ -171,7 +177,7 @@ const worker = await TypedWorker.create({
 
   // Cap the rate at which this worker pulls new work.
   maxTaskQueueActivitiesPerSecond: 50,
-}).getOrThrow();
+}).get();
 ```
 
 Activity concurrency is the usual bottleneck. Raise it for I/O-bound work; keep
@@ -180,14 +186,16 @@ it low for CPU-bound or memory-hungry activities.
 ## Shut down gracefully
 
 ```typescript
-const worker = await TypedWorker.create({/* ... */}).getOrThrow();
+const worker = await TypedWorker.create({/* ... */}).get();
 
 process.on("SIGTERM", () => {
   console.log("draining...");
-  worker.shutdown();
+  // `Result<void, never>` — a defect (shutting down a worker that is not
+  // running) rethrows its cause here.
+  worker.shutdown().get();
 });
 
-await worker.run().getOrThrow(); // resolves once in-flight tasks finish
+await worker.run().get(); // resolves once in-flight tasks finish
 await connection.close();
 ```
 
@@ -217,16 +225,16 @@ const [orderWorker, shipmentWorker] = await Promise.all([
     connection,
     workflowsPath: workflowsPathFromURL(import.meta.url, "./order.workflows.js"),
     activities: orderActivities,
-  }).getOrThrow(),
+  }).get(),
   TypedWorker.create({
     contract: shipmentContract,
     connection,
     workflowsPath: workflowsPathFromURL(import.meta.url, "./shipment.workflows.js"),
     activities: shipmentActivities,
-  }).getOrThrow(),
+  }).get(),
 ]);
 
-await Promise.all([orderWorker.run().getOrThrow(), shipmentWorker.run().getOrThrow()]);
+await Promise.all([orderWorker.run().get(), shipmentWorker.run().get()]);
 ```
 
 They share the connection. Split them into separate processes when their
@@ -253,7 +261,7 @@ const worker = await TypedWorker.create({
   namespace: "my-namespace.a1b2c",
   workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
   activities,
-}).getOrThrow();
+}).get();
 ```
 
 ## Add logging

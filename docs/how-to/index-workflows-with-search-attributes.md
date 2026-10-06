@@ -50,6 +50,11 @@ and it cannot be used in `ORDER BY`. `KEYWORD` is stored verbatim and matches
 exactly. For an id, status, or enum you almost always want `KEYWORD`.
 :::
 
+`defineContract` rejects a name Temporal reserves for its own system
+attributes (`WorkflowId`, `ExecutionStatus`, `StartTime`, …), and one attribute
+declared with two different kinds across workflows — the namespace has one
+type per name.
+
 ## Register them on the server
 
 Declaring an attribute on the contract does not create it on the cluster.
@@ -89,11 +94,13 @@ const result = await client.executeWorkflow("processOrder", {
 ```
 
 Keys and value types are checked against the contract. An undeclared key, or a
-`Date` where the contract says `KEYWORD`, is a compile error. Every attribute
-is optional — set only the ones you have.
+`Date` where the contract says `KEYWORD`, is a compile error. The same check
+runs again at runtime, so a value that slips past the types (a cast, an
+untyped caller) is a defect rather than a silently mis-indexed workflow. Every
+attribute is optional — set only the ones you have.
 
-The same option works on `startWorkflow`, `signalWithStart`, and
-`schedule.create`.
+The same option works on `startWorkflow`, `signalWithStart`,
+`executeUpdateWithStart`, and `schedule.create`.
 
 ## Read them back
 
@@ -103,14 +110,9 @@ instance into a typed partial object:
 ```typescript
 import { readTypedSearchAttributes } from "@temporal-contract/client";
 
-const bound = client.getHandle("processOrder", "order-123"); // synchronous Result
-if (!bound.isOk()) {
-  // After ruling out Ok the value is Err or Defect, so `bound.value` would not
-  // compile — narrow positively and rethrow either channel.
-  throw bound.isErr() ? bound.error : bound.cause;
-}
+const handle = client.getHandle("processOrder", "order-123"); // synchronous, no I/O
 
-const described = await bound.value.describe();
+const described = await handle.describe();
 if (described.isOk()) {
   const attrs = readTypedSearchAttributes(
     orderContract.workflows.processOrder,

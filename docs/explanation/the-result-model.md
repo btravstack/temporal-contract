@@ -63,12 +63,13 @@ const client = await TypedClient.create({ client: temporalClient }).get();
 ## Setup calls have an empty Err channel
 
 `TypedClient.create` and `TypedWorker.create` return an `AsyncResult` whose
-error type is `never`, and `worker.run()` does the same. That is not an
-oversight: **nothing about creating a client or a worker is a modeled domain
-outcome.** A bad address, a namespace that does not exist, a server too old to
-serve the Schedule API — these are technical faults, and this library routes
-technical faults to the defect channel (see above). There is no `Err` case to
-name, so `E` is `never`.
+error type is `never`; `worker.run()` does the same, and the synchronous
+`worker.shutdown()` returns `Result<void, never>`. That is not an oversight:
+**nothing about creating, running, or stopping a client or a worker is a
+modeled domain outcome.** A bad address, a namespace that does not exist, a
+misdeclared workflows module, shutting down a worker that is not running —
+these are technical faults, and this library routes technical faults to the
+defect channel (see above). There is no `Err` case to name, so `E` is `never`.
 
 The practical consequence is that `.get()` is the right way to read them:
 
@@ -142,13 +143,15 @@ const charge = await propagateFailure(context.activities.chargeCard({ customerId
 const shipment = await propagateFailure(context.activities.createShipment({ orderId }));
 ```
 
-**Do not use unthrown's `.getOrThrow()` for this.** It throws the
+**Prefer `propagateFailure` to unthrown's `.getOrThrow()` here.**
+`.getOrThrow()` (like `throw result.error`) throws the
 `ActivityError`/`ActivityCancelledError` wrapper — a `TaggedError`, not a
-`TemporalFailure` — and Temporal treats a non-`TemporalFailure` thrown from
-workflow code as a workflow-_task_ failure, retrying it indefinitely rather
-than failing the execution. `propagateFailure` re-raises the
-_preserved original_ Temporal failure instead, which is what actually fails
-the workflow.
+`TemporalFailure`. Temporal would treat that as a workflow-_task_ failure and
+retry it forever, so `declareWorkflow` (and signal and update handlers) map a
+thrown library error to the Temporal failure it carries before it leaves your
+code. But anything that catches it in between — a `try`, a library — sees the
+wrapper, not the failure. `propagateFailure` re-raises the _preserved
+original_ Temporal failure at the call site, which is what you want.
 
 ### Why declaring errors still matters
 
@@ -276,10 +279,10 @@ if (sent.isErr()) {
 }
 ```
 
-This bites hardest on operations returning `AsyncResult<void, never>` — the
-schedule handle's `pause` / `unpause` / `trigger` / `delete`. An empty error
-channel reads like "cannot fail", but every failure there is a _defect_, and a
-bare `await` drops it silently. Chain `.get()`.
+This bites hardest on operations returning `AsyncResult<void, never>`, such
+as `worker.run()`. An empty error channel reads like "cannot fail", but every
+failure there is a _defect_, and a bare `await` drops it silently. Chain
+`.get()`.
 
 ## Next
 

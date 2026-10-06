@@ -66,9 +66,9 @@ const processOrder = defineWorkflow({
   // Required on every workflow — picks the workflowIdReusePolicy for a
   // retried start under the same workflow ID. `once-per-id` is the strict
   // default when a workflow's side effects aren't already known to be safe
-  // to repeat; see "Declare idempotency" in define-a-contract.md for the
-  // other two modes (`retry-if-failed`, `allow-duplicate`) and how to choose.
-  idempotency: "once-per-id",
+  // to repeat; see define-a-contract.md for the other two policies
+  // (`retry-if-failed`, `allow-duplicate`) and how to choose.
+  startPolicy: "once-per-id",
   activities: { validateInventory },
   signals: {
     cancel: defineSignal({ input: z.object({ reason: z.string() }) }),
@@ -114,7 +114,7 @@ Any Standard Schema compatible library works:
 
 - `taskQueue` — Temporal task queue name
 - `workflows` — named workflow definitions with input/output schemas and a
-  required `idempotency` mode (`once-per-id` | `retry-if-failed` |
+  required `startPolicy` (`WorkflowStartPolicy`: `once-per-id` | `retry-if-failed` |
   `allow-duplicate`) that sets the `workflowIdReusePolicy` used by the client
   (and, for child workflows, the worker) when starting under that workflow's ID
 - `activities` — global activities shared across all workflows
@@ -129,4 +129,4 @@ Any Standard Schema compatible library works:
   - `errors` — same shape as workflow errors; produced via the `errors` constructors in the implementation's helpers argument, and rehydrated as a typed `AsyncResult` error union on the workflow side
   - `activityOptions` — contract-level `ContractActivityOptions` defaults (timeouts, retry); renamed from `defaultOptions` in 8.0. Merge precedence at the worker, shallow so a later layer replaces the whole nested `retry` block: `declareWorkflow` `activityOptions` < this < `activityOptionsByName`. The **merged** result must carry both a per-attempt bound (`startToCloseTimeout` or `scheduleToCloseTimeout`) and a total bound (`scheduleToCloseTimeout`, or a finite positive `retry.maximumAttempts`), or `declareWorkflow` throws `ContractMisuseError` naming the activity
 
-`defineContract` validates the contract's structure at runtime with a hand-rolled structural validator (no zod runtime dependency) and throws a descriptive error: strict root keys (only `taskQueue`/`workflows`/`activities`), identifier-safe names, Standard Schema slots, and collision checks. Activities share a single flat namespace at the worker level, so two _different_ definitions can't share a name even across workflows — but reusing the **same definition object** across workflows is allowed (it's one activity), and the collision message recommends hoisting shared activities to the global `activities` block. A workflow name colliding with a global activity name is also rejected (they share the root of the worker implementations map). See `packages/contract/src/builder.ts` (`validateContractDefinition`).
+`defineContract` validates the contract's structure at runtime with a hand-rolled structural validator (no zod runtime dependency) and throws a `ContractDefinitionError` (plain `Error` subclass with a dotted `path`; first failure wins): strict keys on the root and on every definition, a required `startPolicy`, identifier-safe names (no `Object.prototype` members, Temporal-reserved names, worker failure types as error names, or Temporal system search attributes), Standard Schema slots, durations and retry policies Temporal accepts, and collision checks. Activities share a single flat namespace at the worker level, so two _different_ definitions can't share a name even across workflows — but reusing the **same definition object** across workflows is allowed (it's one activity), and the collision message recommends hoisting shared activities to the global `activities` block. A workflow name colliding with a global activity name is also rejected (they share the root of the worker implementations map). See `packages/contract/src/builder.ts` (`validateContractDefinition`).

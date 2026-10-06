@@ -203,8 +203,10 @@ redeployed with in-flight executions resuming, rather than terminally
 failing every in-flight execution on a bad deploy. See
 [Worker surface → Activity bounds](/reference/worker-surface#activity-bounds)
 for the full explanation, including the `maximumAttempts` edge cases. The
-value here is at declaration time, in development and CI — not as a
-production runtime safety net.
+value here is at declaration time, in development and CI — and at worker
+startup: `TypedWorker.create` imports the workflows module first (with
+`verifyWorkflowRegistration`, on by default) and refuses to start on this
+error, so it never reaches the sandbox.
 
 ## Next
 

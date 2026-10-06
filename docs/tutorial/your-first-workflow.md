@@ -291,6 +291,8 @@ the task queue named in the contract.
 Create `src/worker.ts`:
 
 ```typescript
+import { extname } from "node:path";
+
 import { TypedWorker, workflowsPathFromURL } from "@temporal-contract/worker/worker";
 import { NativeConnection } from "@temporalio/worker";
 
@@ -302,8 +304,11 @@ const connection = await NativeConnection.connect({ address: "localhost:7233" })
 const worker = await TypedWorker.create({
   contract: orderContract,
   connection,
-  // Workflows are bundled separately, so they are referenced by path.
-  workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js"),
+  // Workflows are bundled separately, so they are referenced by path. Under
+  // `tsx` the file on disk is `workflows.ts` (`workflows.js` once compiled),
+  // and Temporal's bundler needs the path of a file that exists — hence the
+  // extension taken from this module's own URL.
+  workflowsPath: workflowsPathFromURL(import.meta.url, `./workflows${extname(import.meta.url)}`),
   activities,
 }).get();
 
@@ -331,18 +336,7 @@ resolves one relative to the current file — the ESM-safe equivalent of
 Open a second terminal. Create `src/client.ts`:
 
 ```typescript
-import {
-  TypedClient,
-  WORKFLOW_ALREADY_STARTED_ERROR_TAG,
-  WORKFLOW_CANCELLED_ERROR_TAG,
-  WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG,
-  WORKFLOW_FAILED_ERROR_TAG,
-  WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG,
-  WORKFLOW_TERMINATED_ERROR_TAG,
-  WORKFLOW_TIMEOUT_ERROR_TAG,
-  WORKFLOW_VALIDATION_ERROR_TAG,
-} from "@temporal-contract/client";
-import { P } from "unthrown";
+import { TypedClient, WORKFLOW_EXECUTE_PATTERNS } from "@temporal-contract/client";
 import { Client, Connection } from "@temporalio/client";
 
 import { orderContract } from "./contract.js";
@@ -371,16 +365,9 @@ result.match({
   },
   errCases: (matcher) =>
     matcher.with(
-      // Tag bundles cover the start-phase and result-phase error unions in
-      // one arm — no hand-written list of tags to keep in sync.
-      P.tag(WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG),
-      P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
-      P.tag(WORKFLOW_ALREADY_STARTED_ERROR_TAG),
-      P.tag(WORKFLOW_FAILED_ERROR_TAG),
-      P.tag(WORKFLOW_CANCELLED_ERROR_TAG),
-      P.tag(WORKFLOW_TERMINATED_ERROR_TAG),
-      P.tag(WORKFLOW_TIMEOUT_ERROR_TAG),
-      P.tag(WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG),
+      // `WORKFLOW_EXECUTE_PATTERNS` covers the start-phase and result-phase
+      // error unions in one arm — no hand-written list of tags to keep in sync.
+      ...WORKFLOW_EXECUTE_PATTERNS,
       (error) => console.error("workflow failed:", error.message),
     ),
   defect: (cause) => console.error("unexpected:", cause),
@@ -418,7 +405,7 @@ args: {
 Run the client again:
 
 ```
-workflow failed: Validation failed for workflow "processOrder" input
+workflow failed: Validation failed for workflow "processOrder" input: at amount
 ```
 
 No workflow was started, no worker was involved, and no partial state exists.

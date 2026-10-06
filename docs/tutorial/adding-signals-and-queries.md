@@ -101,8 +101,8 @@ synchronously too — and so must an **update's input** schema, which feeds
 Temporal's synchronous update validator. Plain Zod, Valibot, or ArkType object
 schemas are fine; an async refinement (`z.string().refine(async ...)`) is not.
 Standard Schema doesn't expose sync-vs-async at the type level, so the worker
-probes the schema when the handler is bound and throws a `ContractMisuseError`
-at bind time.
+checks every call and fails that query (or rejects that update) with a
+`ContractMisuseError` when validation comes back as a `Promise`.
 :::
 
 ## Step 2 — Handle them in the workflow
@@ -307,10 +307,12 @@ if (rejected.isErr()) {
 ```
 
 ```
-Validation failed for update "changeAmount" input
+Validation failed for update "changeAmount" input: at amount
 ```
 
-The workflow never saw it. `z.number().positive()` on the contract rejected the
+The message names only the failing path — never the rejected value — because
+validation messages can end up in Temporal history; `rejected.error.issues`
+carries the full detail. The workflow never saw it. `z.number().positive()` on the contract rejected the
 call client-side, exactly as it did for workflow input in the first tutorial.
 
 ## What you learned

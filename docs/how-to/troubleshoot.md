@@ -95,10 +95,12 @@ matcher.with(P._, (error) => handle(error));
 
 ## Validation errors
 
-### `Validation failed for workflow "x" input`
+### `Validation failed for workflow "x" input: at …`
 
-The arguments do not satisfy the input schema. The issues array names the
-offending fields:
+The arguments do not satisfy the input schema. The message lists only the
+failing paths (`at email; at items[0].qty`) — never the schema's text, which
+can echo the rejected value into Temporal history. The issues array carries
+the detail:
 
 ```typescript
 if (result.isErr() && result.error instanceof WorkflowValidationError) {
@@ -117,19 +119,21 @@ value. Validation runs _after_ your implementation returns.
 
 ### `Contract validation failed: ...` at import time
 
-`defineContract` rejected the structure. The message names the problem:
+`defineContract` rejected the structure and threw a `ContractDefinitionError`.
+The message (and the error's `path`) names the offending slot:
 
 ```
-Contract validation failed: taskQueue cannot be empty
-Contract validation failed: at least one workflow is required
-Contract validation failed: input must be a Standard Schema compatible schema
+Contract validation failed at taskQueue: taskQueue cannot be empty
+Contract validation failed: at least one workflow or global activity is required
+Contract validation failed at workflows.processOrder.input: input must be a Standard Schema compatible schema
 ```
 
 For a duplicate activity name:
 
 ```
-workflow "cancelOrder" has activity "chargeCard" that conflicts with the
-same-named activity in workflow "processOrder".
+Contract validation failed at workflows.cancelOrder.activities.chargeCard:
+workflow "cancelOrder" has activity "chargeCard" that conflicts with a
+different same-named activity in workflow "processOrder". …
 ```
 
 Activities share one flat namespace at runtime. Rename one, or promote it to a
@@ -139,8 +143,10 @@ global activity.
 
 Query schemas must validate **synchronously**. An async refinement
 (`z.string().refine(async ...)`) cannot work — Temporal requires query handlers
-to complete synchronously, so the worker throws when a schema returns a
-`Promise`.
+to complete synchronously, so the worker checks every call and fails the query
+with a `ContractMisuseError` (the client sees `QueryFailedError`) when a schema
+returns a `Promise`. An update's input schema has the same constraint; there,
+the update is rejected.
 
 ## Worker problems
 
@@ -172,6 +178,16 @@ if (result.isDefect()) {
 The most common cause is a workflow file importing something that cannot be
 bundled — see below.
 
+### `Workflows module "…" failed to load` or `Workflow registration check failed`
+
+`TypedWorker.create` imports the `workflowsPath` module before bundling it
+(`verifyWorkflowRegistration`, on by default). The first message means a
+`declareWorkflow` call threw a `ContractMisuseError` at import — an unknown
+`workflowName`, or an activity with no per-attempt or total bound; the cause
+names it. The second means a contract workflow has no export under its
+declared name. Fix the declaration rather than disabling the check: inside the
+sandbox the same throw stalls every workflow task.
+
 ### Workflow bundling fails
 
 Workflow code runs in an isolated deterministic sandbox. It cannot import
@@ -199,6 +215,15 @@ workflowsPath: workflowsPathFromURL(import.meta.url, "./workflows.js");
 ```
 
 Also confirm your build actually emits `workflows.js` next to `worker.js`.
+
+Running from source (`tsx src/worker.ts`) is the opposite case: the bundler
+checks `workflowsPath` on disk before webpack's `.js` → `.ts` alias applies,
+and only `workflows.ts` exists there. Match the running file's extension
+instead, as the [tutorial](/tutorial/your-first-workflow) does:
+
+```typescript
+workflowsPath: workflowsPathFromURL(import.meta.url, `./workflows${extname(import.meta.url)}`);
+```
 
 ## Determinism
 
@@ -270,10 +295,11 @@ result.match({
 
 See [Upgrade to v8](/how-to/upgrade-to-v8).
 
-### `Error "X" is not declared on activity "y"`
+### `Contract error "X" is not declared on activity "y"`
 
-You raised a contract error whose name is not in that activity's `errors` map.
-The message lists what _is_ declared. Add it to the contract or fix the name.
+You raised a contract error whose name is not in that activity's (or
+workflow's) `errors` map. It fails terminally as a `ContractMisuseError`, and
+the message lists what _is_ declared. Add it to the contract or fix the name.
 
 ## Activity behaviour
 
@@ -323,6 +349,27 @@ catch (error) {
   log.warn(`non-critical step failed: ${error}`);
 }
 ```
+
+## Testing
+
+### A test passes alone but fails or times out alongside other files
+
+Test files run in parallel against one Temporal server. Two workers polling the
+same task queue in the same namespace steal each other's tasks: a workflow
+started by one file runs on the other file's worker, against the wrong
+activities or none. `createContractTest` avoids this by giving each call its
+own namespace. A worker you wire yourself on the `/extension` connections
+shares the `default` namespace — give it its own queue:
+
+```typescript
+import { nextTaskQueueId, withTaskQueue } from "@temporal-contract/testing/workflow-bundle";
+
+const contract = withTaskQueue(orderContract, nextTaskQueueId("orders"));
+```
+
+Use that `contract` for both the worker and `client.for(...)`. A workflow that
+continues as new into itself still lands on the contract's original queue,
+which this worker does not poll — keep those tests on `createContractTest`.
 
 ## Still stuck
 

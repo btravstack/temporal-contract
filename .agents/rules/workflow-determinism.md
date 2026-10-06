@@ -41,7 +41,7 @@ That's also why activity inputs/outputs must be serializable (validated through 
 
 ## Cancellation primitives are deterministic
 
-Use `context.cancellableScope` / `context.nonCancellableScope` (`packages/worker/src/cancellation.ts:38`, `:75`) — they wrap Temporal's `CancellationScope` and surface cancellation as `Err(WorkflowCancelledError)` in an `AsyncResult`. Don't `try/catch` `CancelledFailure` directly; that bypasses the project's `Result` discipline.
+Use `context.cancellableScope` / `context.nonCancellableScope` (`packages/worker/src/cancellation.ts`) — they wrap Temporal's `CancellationScope` and surface cancellation as `Err(WorkflowCancelledError)` in an `AsyncResult`. Don't `try/catch` `CancelledFailure` directly; that bypasses the project's `Result` discipline.
 
 ## Side-effect escape hatch
 
@@ -53,4 +53,4 @@ Logging via `console.log` is fine in workflow code (`@temporalio/workflow` patch
 
 - `examples/order-processing-worker/src/application/workflows.ts` — uses `context.activities.*` for every effectful call, never reaches for native primitives.
 - `packages/worker/src/__tests__/test.workflows.ts` — minimal workflows used in integration tests.
-- `packages/worker/src/cancellation.ts:38` — `cancellableScope` implementation showing the `AsyncResult` adapter pattern.
+- `packages/worker/src/cancellation.ts` — `cancellableScope` implementation showing the `AsyncResult` adapter pattern.

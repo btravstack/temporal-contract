@@ -32,11 +32,12 @@ if (created.isErr()) {
 }
 ```
 
-The `err` channel is narrow: `WorkflowNotInContractError` (the name is not on
-the contract), `WorkflowValidationError` (the args failed the schema), or
-`ScheduleAlreadyExistsError` (a running schedule already owns this id).
-Technical faults — a transport error, an unrecognized rejection — ride the
-defect channel with a `RuntimeClientError` cause.
+The `err` channel is narrow: `WorkflowValidationError` (the args failed the
+schema) or `ScheduleAlreadyExistsError` (a running schedule already owns this
+id). Technical faults — a transport error, an unrecognized rejection, a search
+attribute that is undeclared or of the wrong kind — ride the defect channel.
+`args` is omittable when the workflow's input schema accepts `undefined`; the
+schedule then starts each run with empty args.
 
 ## Create-if-absent
 
@@ -53,13 +54,9 @@ const schedule = created.match({
       .with(P.tag("@temporal-contract/ScheduleAlreadyExistsError"), () =>
         ledger.schedule.getHandle("nightly-reconcile"),
       )
-      .with(
-        P.tag("@temporal-contract/WorkflowNotInContractError"),
-        P.tag("@temporal-contract/WorkflowValidationError"),
-        (error) => {
-          throw error; // programming errors — fail loudly
-        },
-      ),
+      .with(P.tag("@temporal-contract/WorkflowValidationError"), (error) => {
+        throw error; // a programming error — fail loudly
+      }),
   defect: (cause) => {
     throw cause;
   },
@@ -270,10 +267,12 @@ await schedule
 ```
 
 When the returned action's `workflowType` names a workflow **declared on the
-bound contract**, the action's `args` are validated against that workflow's
-input schema before anything is persisted — a mismatch surfaces as
-`WorkflowValidationError` on the `err` channel and leaves the schedule
-untouched. `update` therefore returns
+bound contract**, the action is re-checked the way `create` checks it before
+anything is persisted: its `args` against that workflow's input schema (a
+mismatch surfaces as `WorkflowValidationError` on the `err` channel), its
+search attributes against the declared names and kinds, and its `taskQueue`
+against the contract's — moving a contract workflow off the contract's queue
+is refused as a defect. Any failure leaves the schedule untouched. `update` therefore returns
 `AsyncResult<void, ScheduleNotFoundError | WorkflowValidationError>`, which is
 why `.getOrThrow()` (not `.get()`) is the extractor here. An action whose
 `workflowType` is _not_ on the contract is persisted as-is (there is no schema
@@ -303,6 +302,10 @@ const handle = ledger.schedule.getHandle("nightly-reconcile");
 await handle.pause("manual intervention").getOrThrow();
 ```
 
+Every handle also exposes `raw`, the underlying `@temporalio/client`
+`ScheduleHandle`, for anything the typed surface does not cover — calls through
+it bypass contract validation.
+
 ## List schedules
 
 `list` is a passthrough of Temporal's `ScheduleClient.list` — an
@@ -314,6 +317,11 @@ for await (const summary of ledger.schedule.list()) {
   console.log(summary.scheduleId, summary.action);
 }
 ```
+
+It is the one method outside the Result discipline: a lazy, paginated iterable
+has no single outcome to carry, so a page fetch that fails **throws** from the
+`for await` loop, exactly as Temporal's does. Wrap the loop in your own
+boundary (`fromPromise`) when you need it as an `AsyncResult`.
 
 ## Schedules or `sleep`?
 

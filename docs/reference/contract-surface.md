@@ -16,22 +16,31 @@ runtime validation.
 function defineContract<T extends ContractDefinition>(definition: T): T;
 ```
 
-| Field        | Type                                 | Required | Description                                          |
-| ------------ | ------------------------------------ | -------- | ---------------------------------------------------- |
-| `taskQueue`  | `string`                             | yes      | Non-empty. The queue workers poll and clients target |
-| `workflows`  | `Record<string, WorkflowDefinition>` | yes      | At least one workflow **or** one global activity     |
-| `activities` | `Record<string, ActivityDefinition>` | no       | Global activities, reachable from every workflow     |
+| Field        | Type                                 | Required | Description                                        |
+| ------------ | ------------------------------------ | -------- | -------------------------------------------------- |
+| `taskQueue`  | `string`                             | yes      | Non-empty, trimmed, ≤ 1000 chars. The polled queue |
+| `workflows`  | `Record<string, WorkflowDefinition>` | yes      | At least one workflow **or** one global activity   |
+| `activities` | `Record<string, ActivityDefinition>` | no       | Global activities, reachable from every workflow   |
 
-**Throws** `Error` when the structure is invalid. The check is a hand-rolled
-structural validator — the contract package has no runtime schema-library
-dependency. Checked at call time:
+**Throws** `ContractDefinitionError` (exported from the package root, a plain
+`Error` subclass with a dotted `path` to the offending slot, `""` at the root)
+when the structure is invalid. The check is a hand-rolled structural validator
+— the contract package has no runtime schema-library dependency. Checked at
+call time (first failure wins):
 
-- `taskQueue` empty or missing
+- `taskQueue` empty, missing, with leading/trailing whitespace, or longer than
+  1000 characters
 - neither a workflow nor a global activity is declared (an empty `workflows`
   is fine when at least one global activity exists — see activity-only
   contracts below)
 - an unknown key at the contract root (strict — only the three fields above)
-- any key that is not a valid JavaScript identifier (`/^[a-zA-Z_$][a-zA-Z0-9_$]*$/`)
+  or on any workflow / activity / signal / query / update / error /
+  search-attribute definition; a leftover `defaultOptions` or `idempotency`
+  gets a rename hint
+- a workflow without a valid `startPolicy`; a `workflowId` or
+  `idempotencyKey` that is not a function
+- any key that is not a valid JavaScript identifier (`/^[a-zA-Z_$][a-zA-Z0-9_$]*$/`),
+  or that is an `Object.prototype` member (`constructor`, `toString`, …)
 - an `input`, `output`, or error `data` that is not Standard Schema compatible
 - an activity name that collides across the flat namespace — global vs
   workflow-scoped, or two _different_ definitions under one name across
@@ -41,15 +50,23 @@ dependency. Checked at call time:
 - a workflow name colliding with a global activity name (they share the root
   of the worker's implementations map)
 - unknown keys inside `activityOptions`
-- a **reserved name** — any workflow / activity / signal / query / update /
-  search-attribute / error name starting with `__temporal_`, or the exact
-  names `__stack_trace` / `__enhanced_stack_trace` (used internally by the
-  Temporal SDK)
+- a **reserved name** — any workflow / activity / signal / query / update
+  name starting with `__temporal_`, or the exact names `__stack_trace` /
+  `__enhanced_stack_trace` (used internally by the Temporal SDK); an error
+  name the worker uses for its own failures (`WorkflowInputValidationError`,
+  `ContractMisuseError`, …); a search attribute named like a Temporal system
+  attribute (`WorkflowId`, `ExecutionStatus`, …)
+- a search attribute declared with different `kind`s in two workflows
 - an **invalid duration** in an `activityOptions` timeout / retry-interval —
   strings are validated against the `ms` grammar (`"30s"`, `"5 minutes"`,
   `"1.5h"`, or a long-form unit), so `"5 minutos"`, `""`, and `"abc"` throw at
   definition; a numeric duration must be a non-negative finite number of
   milliseconds
+- an **invalid retry policy** — rejected exactly where Temporal would reject
+  it when the activity is scheduled: `backoffCoefficient` below 1,
+  `maximumAttempts` not a positive integer (`Infinity` means unlimited), a
+  zero `initialInterval` / `maximumInterval`, or `maximumInterval` below
+  `initialInterval` (Temporal's 1s default when unset)
 
 **Activity-only contracts are allowed.** `workflows` may be `{}` as long as at
 least one global activity is declared — the "at least one workflow" rule above
@@ -62,6 +79,7 @@ relaxes when the contract exists purely to serve activities.
 | `input`            | `AnySchema`                                 | yes      |
 | `output`           | `AnySchema`                                 | yes      |
 | `startPolicy`      | `WorkflowStartPolicy`                       | yes      |
+| `workflowId`       | `(input) => string`                         | no       |
 | `activities`       | `Record<string, ActivityDefinition>`        | no       |
 | `signals`          | `Record<string, SignalDefinition>`          | no       |
 | `queries`          | `Record<string, QueryDefinition>`           | no       |
@@ -75,9 +93,9 @@ after a previous run has **closed** — `"once-per-id"` (`REJECT_DUPLICATE`),
 Closed state other than Completed: Failed, Cancelled, Terminated, or
 TimedOut), or `"allow-duplicate"` (`ALLOW_DUPLICATE`, Temporal's own
 default). The client applies it to every `startWorkflow` / `executeWorkflow` /
-`signalWithStart`, and the worker applies it to every
-`context.startChildWorkflow` / `context.executeChildWorkflow` of that
-workflow; an explicit per-call `workflowIdReusePolicy` overrides it. It is
+`signalWithStart` / `executeUpdateWithStart`, and the worker applies it to
+every `context.startChildWorkflow` / `context.executeChildWorkflow` of that
+workflow; neither accepts a per-call `workflowIdReusePolicy`. It is
 **not** applied to `schedule.create` — the schedule action type has no
 `workflowIdReusePolicy` field, so a schedule action pinning a fixed
 `workflowId` gets Temporal's own default (`ALLOW_DUPLICATE`) regardless of
@@ -85,6 +103,15 @@ this mode; see [Schedule workflows](/how-to/schedule-workflows) for the
 implications. `workflowIdConflictPolicy` — what to do about a run that is
 already _open_ — stays a per-call client/worker option, untouched by this
 field. See [Define a contract](/how-to/define-a-contract#declare-a-start-policy).
+
+`workflowId` moves the workflow ID from the caller to the contract: it
+receives the **validated** input and must be pure. Every `startWorkflow` /
+`executeWorkflow` / `signalWithStart` / `executeUpdateWithStart`, and every
+child-workflow start from the worker, computes the ID from the payload, and
+passing one explicitly is a type error. `contractClient.workflowIdFor(name,
+input)` computes it without starting anything, to `getHandle` an existing
+execution. Not applied to `schedule.create`, which generates one ID per
+firing.
 
 ### `defineActivity(definition)`
 
@@ -94,6 +121,13 @@ field. See [Define a contract](/how-to/define-a-contract#declare-a-start-policy)
 | `output`          | `AnySchema`                       | yes      |
 | `errors`          | `Record<string, ErrorDefinition>` | no       |
 | `activityOptions` | `ContractActivityOptions`         | no       |
+| `idempotencyKey`  | `(input) => string`               | no       |
+
+`idempotencyKey` derives a key from the **validated** input; the worker hands
+it to the implementation as `helpers.idempotencyKey` (`string` when declared,
+`undefined` otherwise). Stable across activity retries, worker crashes, and a
+fresh execution with the same input — key it on the operation's identity
+(`` `charge:${orderId}` ``), not on its parameters.
 
 ::: info Renamed in 8.0
 The contract-level activity-options field is `activityOptions` (it was
@@ -125,7 +159,7 @@ receives `undefined`, and the client-side payload argument is omittable.
 Temporal requires query handlers to complete synchronously, so both schemas
 must validate synchronously. Async refinements are not supported. Standard
 Schema does not expose the distinction at the type level, so the worker checks
-at runtime and fails the execution with a `ContractMisuseError` if
+every call at runtime and fails that query with a `ContractMisuseError` if
 `~standard.validate` returns a `Promise`.
 :::
 
@@ -211,11 +245,17 @@ See [Tune activity options](/how-to/tune-activity-options).
 
 ### `formatIssue(issue)`
 
-Renders one Standard Schema issue as a single readable line.
+Renders one Standard Schema issue as a single readable line — path **and the
+schema's message verbatim**. Schema libraries embed raw input values in their
+messages, so use it for in-process diagnostics only.
 
 ### `summarizeIssues(issues)`
 
-Renders an array of issues as a compact summary, for error messages and logs.
+Renders an array of issues as a redacted summary — the failing paths only,
+capped at five (`at items[0].quantity; at email; …and 2 more`, `at root` for
+the value itself). This is what the client and worker validation errors put
+in `message`, which lands in Temporal history unencrypted; the full issues
+stay on the errors' `issues` property.
 
 ```typescript
 import { summarizeIssues } from "@temporal-contract/contract";
@@ -254,13 +294,15 @@ _constants_ below.)
   `ApplicationFailure` sharing a matching `type` was surfaced as the typed
   error.
 
-### `onRehydrationMiss(handler)`
+### Rehydration misses
 
-A diagnostic hook fired when an inbound `ApplicationFailure` matches a declared
-error's `type` but fails to rehydrate — data that does not validate, or a
-data-less error missing the wire marker — so it degrades to a generic failure
-instead. The handler receives a `RehydrationMiss` (exported) describing the
-miss. Use it to alert on contract/producer drift.
+When an inbound `ApplicationFailure` matches a declared error's `type` but
+fails to rehydrate — data that does not validate, or a data-less error missing
+the wire marker — it degrades to a generic failure. The worker logs each
+activity / child-workflow miss through the workflow logger (`log.warn`); the
+client reports its own to the `onRehydrationMiss` callback passed to
+`TypedClient.create`, which receives a `RehydrationMiss` (exported). Watch
+both to catch contract/producer drift.
 
 See the [errors reference](/reference/errors).
 

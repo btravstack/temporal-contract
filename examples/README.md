@@ -14,27 +14,26 @@ Worker with Clean Architecture; activities return `AsyncResult` from unthrown, t
 
 ### [order-processing-client](./order-processing-client)
 
-Standalone client demonstrating the `TypedClient.create({ client }).for(contract)` split: typed signals (with and without payload), an argument-less query, a typed `PaymentDeclined` contract error matched with `P.tag`, and a recurring schedule with the create-if-absent idiom
+Standalone client demonstrating the connection-scoped `TypedClient.create({ client })` / contract-bound `.for(contract)` split: typed signals (with and without payload), an argument-less query, a typed `PaymentDeclined` contract error matched with `P.tag`, and a recurring schedule with the create-if-absent idiom
 
 **Note**: The client example works with the worker implementation seamlessly through the shared contract (`orderProcessingContract`).
 
 ## Running Examples
 
+Run every command from the repository root:
+
 ```bash
-# Start Temporal server
+# Terminal 1 — start a local Temporal server
 temporal server start-dev
 
-# Install and build from repository root
-cd ../..
+# Install and build the packages the examples consume
 pnpm install && pnpm build
 
-# Run the worker
-cd examples/order-processing-worker
-pnpm dev  # Terminal 1
+# Terminal 2 — run the worker
+pnpm --filter @temporal-contract/sample-order-processing-worker dev
 
-# Run the client (in another terminal)
-cd examples/order-processing-client
-pnpm dev  # Terminal 2
+# Terminal 3 — run the client
+pnpm --filter @temporal-contract/sample-order-processing-client dev
 ```
 
 ## Documentation

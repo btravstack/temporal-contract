@@ -6,8 +6,8 @@
 | ------------- | -------------------------------------------------------------- |
 | Node.js       | ≥ 22.22.0                                                      |
 | Module system | ESM only (`"type": "module"`)                                  |
-| TypeScript    | Developed against 6.0; `strict` required for correct inference |
-| Temporal SDK  | `@temporalio/*` v1                                             |
+| TypeScript    | Developed against 7.0; `strict` required for correct inference |
+| Temporal SDK  | `@temporalio/*` `^1.24.0`                                      |
 
 ## Install the packages
 
@@ -62,18 +62,23 @@ describes a compatible set. Do not mix versions.
 These are peers, not dependencies, because they appear in the packages' public
 types. Your code and the library must resolve to the _same_ copy.
 
-| Peer                   | Required by                                  | Range     |
-| ---------------------- | -------------------------------------------- | --------- |
-| `unthrown`             | contract (optional), worker, client, testing | `^5.0.0`  |
-| `@temporalio/common`   | worker, client                               | `^1.16.0` |
-| `@temporalio/worker`   | worker, testing                              | `^1.16.0` |
-| `@temporalio/workflow` | worker                                       | `^1.16.0` |
-| `@temporalio/client`   | client, testing                              | `^1.16.0` |
-| `@temporalio/testing`  | testing                                      | `^1.16.0` |
-| `vitest`               | testing                                      | `^4`      |
-| `testcontainers`       | testing (optional)                           | `^12`     |
+| Peer                          | Required by                                  | Range        |
+| ----------------------------- | -------------------------------------------- | ------------ |
+| `@temporal-contract/contract` | worker, client, testing                      | same version |
+| `unthrown`                    | contract (optional), worker, client, testing | `^5.11.0`    |
+| `@temporalio/common`          | worker, client                               | `^1.24.0`    |
+| `@temporalio/worker`          | worker, testing                              | `^1.24.0`    |
+| `@temporalio/workflow`        | worker                                       | `^1.24.0`    |
+| `@temporalio/client`          | client, testing                              | `^1.24.0`    |
+| `@temporalio/testing`         | testing (optional)                           | `^1.24.0`    |
+| `vitest`                      | testing (optional)                           | `^4 \|\| ^5` |
+| `testcontainers`              | testing (optional)                           | `^12`        |
 
-Two of these are **optional**:
+The ranges are the floors that hold when the packages are installed together —
+the worker and client set the highest ones. Keep every `@temporalio/*` package
+at the same version.
+
+Some of these are **optional**:
 
 - `unthrown` is an optional peer of the _contract_ package: defining a
   contract needs no Result machinery, so the package root stays importable
@@ -85,15 +90,18 @@ Two of these are **optional**:
   by `createContractTest` and the `/global-setup` entry (the Dockerized
   Temporal server). The Docker-free entries (`/activity`, `/time-skipping`,
   `/extension`) work without it.
+- `@temporalio/testing` is an optional peer of the _testing_ package, needed
+  only by `/activity`, `/time-skipping`, and `/test-rig` (they run on
+  Temporal's `MockActivityEnvironment` / `TestWorkflowEnvironment`).
+- `vitest` is an optional peer of the _testing_ package, needed by every entry
+  except `/activity` and `/workflow-bundle` — those two work from any test
+  runner.
 
-The `@temporalio/*` floor is **1.16.0** — the typed client relies on the
-Schedule API wired into `Client` in that release.
-
-The testing package additionally peer-depends on the other three
-`@temporal-contract/*` packages — its contract-aware fixtures hand you a
-`TypedClient` and run a worker, so it must resolve to _your_ copies of
-contract, client, and worker. Installing all four packages (as the commands
-above do) satisfies it.
+`@temporal-contract/contract` is a peer of the worker and client (and the
+testing package additionally peer-depends on client and worker): they check
+contract errors and read your contract's types, so they must resolve to _your_
+copy. Installing the contract package in every process — as the commands above
+do — satisfies it.
 
 Plus a [Standard Schema](https://standardschema.dev/) library to write your
 schemas with — Zod, Valibot, or ArkType.
