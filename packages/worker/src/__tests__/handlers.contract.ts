@@ -12,14 +12,7 @@ import { z } from "zod";
 
 /**
  * A schema whose `validate()` returns a Promise unconditionally, regardless
- * of input. Standard Schema types the async signature as `Promise<Result>`,
- * and real async-validating libraries (e.g. Zod with `.refine(async ...)`)
- * only go async for *some* inputs — but for the bind-time probe (which feeds
- * an opaque sentinel), only an unconditionally-async schema reliably trips
- * it. A zod `.refine(async ...)` schema does NOT do this: fed the sentinel
- * (not a string), zod's synchronous base type check fails first and the
- * async refine never runs, so the probe sees a synchronous result and waves
- * it through — see `probeDodgingSchema` below for that exact case.
+ * of input. Standard Schema types the async signature as `Promise<Result>`.
  */
 const alwaysAsyncSchema: StandardSchemaV1<unknown, unknown> = {
   "~standard": {
@@ -50,7 +43,7 @@ const peek = defineQuery({ output: z.object({ total: z.number() }) });
 
 /**
  * A second, input-bearing query. Its only job is to prove the worker's
- * bind-time `bindQueryHandler` still enforces input validation for a query
+ * `bindQueryHandler` still enforces input validation for a query
  * that (unlike `peek`) takes a payload — `describe`'s handler is only
  * reachable via `handle.raw.query(...)` in the spec, bypassing the typed
  * client's own (identical-schema) client-side check, which would otherwise
@@ -87,8 +80,7 @@ const brokenOutputUpdate = defineUpdate({
  * schema slots must be synchronous) or an update's INPUT schema (gated by
  * Temporal's synchronous validator slot), an update's output validation runs
  * inside the async handler body — never admission-gated — so an async
- * output schema is explicitly *allowed*, not a bind-time
- * `ContractMisuseError`. This is the deliberate query/update asymmetry.
+ * output schema is explicitly *allowed*, not a `ContractMisuseError`. This is the deliberate query/update asymmetry.
  */
 const asyncOutputUpdate = defineUpdate({
   input: z.object({ text: z.string() }),
@@ -104,79 +96,11 @@ const counter = defineWorkflow({
   updates: { applyDelta, brokenOutputUpdate, asyncOutputUpdate },
 });
 
-const asyncCheckedQuery = defineQuery({
-  input: alwaysAsyncSchema,
-  output: z.object({ ok: z.boolean() }),
-});
-
-const bindsAsyncQuerySchema = defineWorkflow({
-  input: z.object({}),
-  output: z.object({}),
-  startPolicy: "allow-duplicate",
-  queries: { asyncCheckedQuery },
-});
-
 /**
- * Async-validating query OUTPUT schema (as opposed to `asyncCheckedQuery`'s
- * async INPUT). `bindQueryHandler` probes both schema slots at bind time —
- * this workflow exists to prove the *output* slot's probe fires
- * independently of the input slot's, i.e. that `bindQueryHandler` doesn't
- * just check input and skip output.
- */
-const asyncCheckedQueryOutput = defineQuery({ output: alwaysAsyncSchema });
-
-const bindsAsyncQueryOutputSchema = defineWorkflow({
-  input: z.object({}),
-  output: z.object({}),
-  startPolicy: "allow-duplicate",
-  queries: { asyncCheckedQueryOutput },
-});
-
-/**
- * Async-validating update INPUT schema — the update-side counterpart of
- * `asyncCheckedQuery`. `bindUpdateHandler` runs its own, separate
- * `assertSyncSchema(updateDef.input, ...)` call site; proving the query
- * side alone doesn't cover a regression that removes this specific call.
- */
-const asyncCheckedUpdateInput = defineUpdate({
-  input: alwaysAsyncSchema,
-  output: z.object({ ok: z.boolean() }),
-});
-
-const bindsAsyncUpdateSchema = defineWorkflow({
-  input: z.object({}),
-  output: z.object({}),
-  startPolicy: "allow-duplicate",
-  updates: { asyncCheckedUpdateInput },
-});
-
-/**
- * A schema whose `validate()` throws SYNCHRONOUSLY when fed the bind-time
- * probe's opaque sentinel (not a string), and validates normally for real
- * string payloads. The probe must treat a synchronous throw as "fine, it's
- * synchronous" (not a probe failure) — this is the schema that proves that,
- * end to end: bind must succeed, and a real query afterward must still work.
- */
-const syncThrowProbeSchema: StandardSchemaV1<string, string> = {
-  "~standard": {
-    version: 1,
-    vendor: "handlers-tests",
-    validate: (input: unknown) => {
-      if (typeof input !== "string") {
-        // oxlint-disable-next-line unthrown/no-throw -- test double: simulates a schema library that throws synchronously on garbage input
-        throw new TypeError("expected a string");
-      }
-      return { value: input, issues: undefined };
-    },
-  },
-};
-
-/**
- * A pathological schema that answers the bind-time probe SYNCHRONOUSLY
- * (fed the opaque sentinel, a symbol) but goes ASYNC for any real payload.
- * The bind-time probe cannot catch this — it only proves the PER-CALL guard
- * (defense-in-depth) still trips a `ContractMisuseError` instead of
- * corrupting query semantics.
+ * A schema that validates SYNCHRONOUSLY for some values (a symbol) but goes
+ * ASYNC for any real payload — the shape of a zod `.refine(async ...)`, whose
+ * async step only runs once the synchronous base check passes. Only a
+ * per-call check can catch it.
  */
 const probeDodgingSchema: StandardSchemaV1<string, string> = {
   "~standard": {
@@ -214,10 +138,6 @@ const thenableDodgingSchema: StandardSchemaV1<string, string> = {
   },
 };
 
-const syncThrowProbe = defineQuery({
-  input: syncThrowProbeSchema,
-  output: z.object({ echoed: z.string() }),
-});
 const probeDodging = defineQuery({
   input: probeDodgingSchema,
   output: z.object({ echoed: z.string() }),
@@ -227,15 +147,39 @@ const thenableDodging = defineQuery({
   output: z.object({ echoed: z.string() }),
 });
 
+const asyncCheckedQueryOutput = defineQuery({ output: alwaysAsyncSchema });
+
+const asyncCheckedUpdateInput = defineUpdate({
+  input: alwaysAsyncSchema,
+  output: z.object({ ok: z.boolean() }),
+});
+
 /**
- * Isolates the three schema-probe edge cases above from `counter` so each
- * workflow's failure/hang modes stay easy to reason about independently.
+ * Every sync-only schema slot fed an async schema — query input (twice: a
+ * conditionally-async schema and a bare thenable), query output, update
+ * input. Isolated from `counter` so its failure/hang modes stay easy to
+ * reason about independently.
  */
 const probeEdgeCases = defineWorkflow({
   input: z.object({}),
   output: z.object({}),
   startPolicy: "allow-duplicate",
-  queries: { syncThrowProbe, probeDodging, thenableDodging },
+  queries: { probeDodging, thenableDodging, asyncCheckedQueryOutput },
+  updates: { asyncCheckedUpdateInput },
+});
+
+/**
+ * Handlers that throw a contract error: the update must be rejected with it,
+ * the signal must fail the workflow with it — never a workflow-task retry
+ * loop.
+ */
+const rejecting = defineWorkflow({
+  input: z.object({}),
+  output: z.object({}),
+  startPolicy: "allow-duplicate",
+  errors: { Rejected: { nonRetryable: true } },
+  signals: { reject: defineSignal() },
+  updates: { rejectUpdate: defineUpdate({ input: z.object({}), output: z.object({}) }) },
 });
 
 // D1 wire format: the handler receives the PARSED (transformed) input —
@@ -267,10 +211,8 @@ export const handlersContract = defineContract({
   taskQueue: "handlers-tests",
   workflows: {
     counter,
-    bindsAsyncQuerySchema,
-    bindsAsyncQueryOutputSchema,
-    bindsAsyncUpdateSchema,
     probeEdgeCases,
+    rejecting,
     transformWorkflow,
   },
 });

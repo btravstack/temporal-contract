@@ -1,4 +1,3 @@
-import { ContractError } from "@temporal-contract/contract/errors";
 import { CancellationScope, inWorkflowContext } from "@temporalio/workflow";
 /**
  * A saga for workflow code: a sequence of steps whose compensations are
@@ -11,6 +10,7 @@ import { CancellationScope, inWorkflowContext } from "@temporalio/workflow";
 import { SagaAsync, type SagaAsyncBuilder } from "@unthrown/saga";
 import { type AsyncResult, fromSafePromise, OkAsync, type Result } from "unthrown";
 
+import { isContractError } from "./contract-errors.js";
 import {
   ActivityCancelledError,
   ChildWorkflowCancelledError,
@@ -81,7 +81,7 @@ export type WorkflowSagaBuilder<T, E> = {
  * Cancellation is the one case a caller may opt back in to.
  */
 const compensates = (error: unknown, onCancellation: boolean): boolean =>
-  error instanceof ContractError ||
+  isContractError(error) ||
   (onCancellation &&
     (error instanceof ActivityCancelledError ||
       error instanceof ChildWorkflowCancelledError ||

@@ -6,10 +6,12 @@
 import type {
   AnyWorkflowDefinition,
   ContractDefinition,
+  ErrorDefinition,
   InferSignalNames,
   SignalDefinition,
 } from "@temporal-contract/contract";
 import { summarizeIssues } from "@temporal-contract/contract";
+import type { ContractErrorUnion } from "@temporal-contract/contract/errors";
 import { _internal_reusePolicyFor } from "@temporal-contract/contract/internal";
 import {
   type ChildWorkflowHandle,
@@ -27,19 +29,43 @@ import {
   ChildWorkflowNotFoundError,
 } from "./errors.js";
 import {
-  assertNoDefect,
   classifyChildWorkflowError,
   formatChildWorkflowValidationMessage,
-  makeAsyncResult,
+  rehydrateChildWorkflowError,
 } from "./internal.js";
+import { assertNoDefect, makeAsyncResult } from "./shared.js";
 import type { ClientInferInput, ClientInferOutput, SignalDefOf } from "./types.js";
 
 /**
+ * The typed child-call error channel's declared members: the child
+ * workflow's own declared `errors`, rehydrated from the failure it ended with
+ * (`never` when it declares none). Mirrors `ActivityErrorsFor`.
+ */
+export type ChildWorkflowContractErrorsOf<TWorkflow extends AnyWorkflowDefinition> =
+  TWorkflow extends { errors: infer TErrors extends Record<string, ErrorDefinition> }
+    ? ContractErrorUnion<TErrors>
+    : never;
+
+/**
+ * The `workflowId` option of a child call. A child workflow that derives its
+ * ID on the contract (`defineWorkflow({ workflowId })`) forbids passing one —
+ * it is computed from the validated `args`, as the client does; otherwise it
+ * stays Temporal's optional field (a deterministic UUID when omitted).
+ */
+type ChildWorkflowIdField<TWorkflow extends AnyWorkflowDefinition> =
+  TWorkflow["workflowId"] extends (input: never) => string
+    ? {
+        /** Derived from `args` by the contract — passing one is a type error. */
+        workflowId?: never;
+      }
+    : { workflowId?: string };
+
+/**
  * Options for starting a child workflow. `taskQueue` and `args` come from
- * the contract, which also supplies a default `workflowIdReusePolicy`
- * derived from the target workflow's declared `startPolicy` mode; everything
- * else — including an explicit `workflowIdReusePolicy` here, which overrides
- * that default — is forwarded to Temporal's `startChild` / `executeChild`.
+ * the contract, as does `workflowIdReusePolicy` — derived from the target
+ * workflow's declared `startPolicy`, with no per-call override (as on the
+ * client) — and the `workflowId` when the target derives it; everything else
+ * is forwarded to Temporal's `startChild` / `executeChild`.
  *
  * `parentClosePolicy` is **required**. Temporal's default is `TERMINATE`: when
  * the parent closes, the child is killed — mid-payment included. That default
@@ -53,10 +79,14 @@ import type { ClientInferInput, ClientInferOutput, SignalDefOf } from "./types.j
 export type TypedChildWorkflowOptions<
   TChildContract extends ContractDefinition,
   TChildWorkflowName extends keyof TChildContract["workflows"] & string,
-> = Omit<ChildWorkflowOptions, "taskQueue" | "args" | "parentClosePolicy"> & {
-  args: ClientInferInput<TChildContract["workflows"][TChildWorkflowName]>;
-  parentClosePolicy: Exclude<ParentClosePolicy, undefined>;
-};
+> = Omit<
+  ChildWorkflowOptions,
+  "taskQueue" | "args" | "parentClosePolicy" | "workflowId" | "workflowIdReusePolicy"
+> &
+  ChildWorkflowIdField<TChildContract["workflows"][TChildWorkflowName]> & {
+    args: ClientInferInput<TChildContract["workflows"][TChildWorkflowName]>;
+    parentClosePolicy: Exclude<ParentClosePolicy, undefined>;
+  };
 
 /**
  * Typed signal senders for a child workflow, keyed by the signal names
@@ -84,7 +114,7 @@ export type TypedChildWorkflowHandle<TWorkflow extends AnyWorkflowDefinition> = 
    */
   result: () => AsyncResult<
     ClientInferOutput<TWorkflow>,
-    ChildWorkflowError | ChildWorkflowCancelledError
+    ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowContractErrorsOf<TWorkflow>
   >;
 
   /**
@@ -149,6 +179,7 @@ function getAndValidateChildWorkflow<
   {
     definition: TChildContract["workflows"][TChildWorkflowName];
     taskQueue: string;
+    workflowId: string | undefined;
   },
   ChildWorkflowError | ChildWorkflowNotFoundError
 > {
@@ -156,10 +187,13 @@ function getAndValidateChildWorkflow<
     {
       definition: TChildContract["workflows"][TChildWorkflowName];
       taskQueue: string;
+      workflowId: string | undefined;
     },
     ChildWorkflowError | ChildWorkflowNotFoundError
   >(async () => {
-    const childDefinition = childContract.workflows[childWorkflowName];
+    const childDefinition = Object.hasOwn(childContract.workflows, childWorkflowName)
+      ? childContract.workflows[childWorkflowName]
+      : undefined;
 
     if (!childDefinition) {
       return Err(
@@ -180,9 +214,14 @@ function getAndValidateChildWorkflow<
       );
     }
 
+    // The structural slot types its parameter `never` so plain-object
+    // contracts stay assignable; the derivation was written against the
+    // validated input, which is what it receives here.
+    const derive = childDefinition.workflowId as ((input: unknown) => string) | undefined;
     return Ok({
       definition: childDefinition as TChildContract["workflows"][TChildWorkflowName],
       taskQueue: childContract.taskQueue,
+      workflowId: derive?.(inputResult.value),
     });
   });
 }
@@ -243,22 +282,27 @@ function createTypedChildHandle<TChildWorkflow extends AnyWorkflowDefinition>(
     workflowId: handle.workflowId,
     firstExecutionRunId: handle.firstExecutionRunId,
     signals: createTypedChildSignals(handle, childDefinition, childWorkflowName),
-    result: (): AsyncResult<
-      ClientInferOutput<TChildWorkflow>,
-      ChildWorkflowError | ChildWorkflowCancelledError
-    > => {
+    result: () => {
+      type E =
+        | ChildWorkflowError
+        | ChildWorkflowCancelledError
+        | ChildWorkflowContractErrorsOf<TChildWorkflow>;
       const work = async () => {
         try {
           const result = await handle.result();
           return validateChildWorkflowOutput(childDefinition, result, childWorkflowName);
         } catch (error) {
-          return Err(classifyChildWorkflowError("result", error, childWorkflowName));
+          const declared = await rehydrateChildWorkflowError(
+            error,
+            childWorkflowName,
+            childDefinition.errors,
+          );
+          return Err(
+            (declared ?? classifyChildWorkflowError("result", error, childWorkflowName)) as E,
+          );
         }
       };
-      return makeAsyncResult<
-        ClientInferOutput<TChildWorkflow>,
-        ChildWorkflowError | ChildWorkflowCancelledError
-      >(work);
+      return makeAsyncResult<ClientInferOutput<TChildWorkflow>, E>(work);
     },
   };
 }
@@ -290,17 +334,26 @@ export function createStartChildWorkflow<
       return Err(validationResult.error);
     }
 
-    const { definition: childDefinition, taskQueue } = validationResult.value;
+    const { definition: childDefinition, taskQueue, workflowId } = validationResult.value;
 
     try {
       // Transmit the caller's ORIGINAL args — validated above, parsed by
       // the child workflow on receive (D1).
-      const { args: childArgs, ...temporalOptions } = options;
+      const { args: childArgs, workflowId: callerWorkflowId, ...temporalOptions } = options;
+      // A contract-derived ID wins: the type forbids a caller-supplied one,
+      // and this closes the cast escape hatch too.
+      const childWorkflowId = workflowId ?? (callerWorkflowId as string | undefined);
       const handle = await startChild(childWorkflowName, {
-        ...(childDefinition.startPolicy
-          ? { workflowIdReusePolicy: _internal_reusePolicyFor(childDefinition.startPolicy) }
-          : {}),
-        ...temporalOptions,
+        // The conditional `workflowId` field leaves the rest generic; it is
+        // exactly Temporal's options minus what the contract supplies.
+        ...(temporalOptions as Omit<
+          ChildWorkflowOptions,
+          "taskQueue" | "args" | "workflowId" | "workflowIdReusePolicy"
+        >),
+        // Contract-owned fields LAST, so neither a cast nor an explicit
+        // `undefined` in `options` can clear them.
+        workflowIdReusePolicy: _internal_reusePolicyFor(childDefinition.startPolicy),
+        ...(childWorkflowId !== undefined ? { workflowId: childWorkflowId } : {}),
         taskQueue,
         args: [childArgs],
       });
@@ -327,9 +380,17 @@ export function createExecuteChildWorkflow<
   options: TypedChildWorkflowOptions<TChildContract, TChildWorkflowName>,
 ): AsyncResult<
   ClientInferOutput<TChildContract["workflows"][TChildWorkflowName]>,
-  ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError
+  | ChildWorkflowError
+  | ChildWorkflowCancelledError
+  | ChildWorkflowNotFoundError
+  | ChildWorkflowContractErrorsOf<TChildContract["workflows"][TChildWorkflowName]>
 > {
   type Ok = ClientInferOutput<TChildContract["workflows"][TChildWorkflowName]>;
+  type E =
+    | ChildWorkflowError
+    | ChildWorkflowCancelledError
+    | ChildWorkflowNotFoundError
+    | ChildWorkflowContractErrorsOf<TChildContract["workflows"][TChildWorkflowName]>;
   const work = async () => {
     const validationResult = await getAndValidateChildWorkflow(
       childContract,
@@ -342,17 +403,20 @@ export function createExecuteChildWorkflow<
       return Err(validationResult.error);
     }
 
-    const { definition: childDefinition, taskQueue } = validationResult.value;
+    const { definition: childDefinition, taskQueue, workflowId } = validationResult.value;
 
     try {
       // Transmit the caller's ORIGINAL args — validated above, parsed by
       // the child workflow on receive (D1).
-      const { args: childArgs, ...temporalOptions } = options;
+      const { args: childArgs, workflowId: callerWorkflowId, ...temporalOptions } = options;
+      const childWorkflowId = workflowId ?? (callerWorkflowId as string | undefined);
       const result = await executeChild(childWorkflowName, {
-        ...(childDefinition.startPolicy
-          ? { workflowIdReusePolicy: _internal_reusePolicyFor(childDefinition.startPolicy) }
-          : {}),
-        ...temporalOptions,
+        ...(temporalOptions as Omit<
+          ChildWorkflowOptions,
+          "taskQueue" | "args" | "workflowId" | "workflowIdReusePolicy"
+        >),
+        workflowIdReusePolicy: _internal_reusePolicyFor(childDefinition.startPolicy),
+        ...(childWorkflowId !== undefined ? { workflowId: childWorkflowId } : {}),
         taskQueue,
         args: [childArgs],
       });
@@ -370,11 +434,16 @@ export function createExecuteChildWorkflow<
 
       return Ok(outputValidationResult.value as Ok);
     } catch (error) {
-      return Err(classifyChildWorkflowError("executeChild", error, String(childWorkflowName)));
+      const declared = await rehydrateChildWorkflowError(
+        error,
+        String(childWorkflowName),
+        childDefinition.errors,
+      );
+      return Err(
+        (declared ??
+          classifyChildWorkflowError("executeChild", error, String(childWorkflowName))) as E,
+      );
     }
   };
-  return makeAsyncResult<
-    Ok,
-    ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError
-  >(work);
+  return makeAsyncResult<Ok, E>(work);
 }

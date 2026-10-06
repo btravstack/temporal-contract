@@ -31,9 +31,11 @@ async function run() {
     connection,
     namespace: "default",
     // This sample runs straight from TypeScript source under `tsx`, so the
-    // sibling module is `workflows.ts` here and `workflows.js` once built —
-    // hence `extname(import.meta.url)` rather than a literal `.js`. An app
-    // that only ever runs built output writes `"./workflows.js"`.
+    // sibling module is `workflows.ts` here and `workflows.js` once built.
+    // Temporal's bundler `stat`s `workflowsPath` before bundling, so it must
+    // name a file that exists — hence `extname(import.meta.url)` rather than
+    // a literal `.js`. An app that only ever runs built output writes
+    // `"./workflows.js"`.
     workflowsPath: workflowsPathFromURL(import.meta.url, `./workflows${extname(import.meta.url)}`),
     activities,
   });

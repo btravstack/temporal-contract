@@ -33,10 +33,10 @@ import { WorkflowCancelledError } from "./errors.js";
  * import { P } from "unthrown";
  * import { propagateFailure } from "@temporal-contract/worker/workflow";
  *
- * // `fn`'s return value becomes the scope's `T` verbatim — an un-awaited
- * // `context.activities.processStep(...)` would make `T` the AsyncResult
- * // itself (it has no `isOk`/`isErr`/`.value`), not the activity's output.
- * // `propagateFailure` awaits it and hands the scope a plain value.
+ * // `fn`'s return value is awaited: returning the activity's AsyncResult
+ * // un-awaited makes the scope's value that activity's settled `Result`.
+ * // `propagateFailure` instead unwraps it to the plain output, re-raising
+ * // the failure.
  * const result = await context.cancellableScope(async () => {
  *   return await propagateFailure(context.activities.processStep(...));
  * });
@@ -56,15 +56,17 @@ import { WorkflowCancelledError } from "./errors.js";
  */
 export function cancellableScope<T>(
   fn: () => T | Promise<T>,
-): AsyncResult<T, WorkflowCancelledError> {
+): AsyncResult<Awaited<T>, WorkflowCancelledError> {
   return fromPromise(
     // THUNK form, not a bare promise: `fromPromise` also captures a
     // *synchronous* throw from the thunk itself, so a `CancellationScope`
     // constructed outside a workflow context still lands in `qualify` rather
-    // than escaping the AsyncResult. The inner `async () => fn()` wrapper
-    // satisfies `cancellable`'s `() => Promise<T>` signature without forcing
-    // every caller to write `async () => ...` for a synchronous body.
-    () => CancellationScope.cancellable(async () => fn()),
+    // than escaping the AsyncResult. The inner `async () => await fn()`
+    // wrapper satisfies `cancellable`'s `() => Promise<T>` signature without
+    // forcing every caller to write `async () => ...` for a synchronous body,
+    // and adopts a returned thenable (an `AsyncResult` included) — hence
+    // `Awaited<T>`.
+    () => CancellationScope.cancellable(async (): Promise<Awaited<T>> => await fn()),
     // The qualify callback IS the triage: cancellation is the one modeled
     // outcome; every other cause goes to the injected `defect` helper, which
     // subtracts it from `E` — so no rethrow, and `E` stays exactly
@@ -87,8 +89,7 @@ export function cancellableScope<T>(
  * @example
  * ```ts
  * // Capture the scope's OWN AsyncResult — a bare `await` would silently
- * // discard a defect thrown inside the callback, along with the activity's
- * // own un-awaited AsyncResult if `fn` returned it directly.
+ * // discard a defect thrown inside the callback.
  * const released = await context.nonCancellableScope(async () => {
  *   const result = await context.activities.releaseResources(...);
  *   if (result.isErr()) {
@@ -102,10 +103,10 @@ export function cancellableScope<T>(
  */
 export function nonCancellableScope<T>(
   fn: () => T | Promise<T>,
-): AsyncResult<T, WorkflowCancelledError> {
+): AsyncResult<Awaited<T>, WorkflowCancelledError> {
   return fromPromise(
     // Thunk form — see `cancellableScope` for why.
-    () => CancellationScope.nonCancellable(async () => fn()),
+    () => CancellationScope.nonCancellable(async (): Promise<Awaited<T>> => await fn()),
     (cause, defect) => (isCancellation(cause) ? new WorkflowCancelledError(cause) : defect(cause)),
   );
 }

@@ -4,7 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { type ContractDefinition } from "@temporal-contract/contract";
 import { TechnicalError } from "@temporal-contract/contract/errors";
 import { Worker, type WorkerOptions } from "@temporalio/worker";
-import { fromPromise, type AsyncResult } from "unthrown";
+import { fromPromise, fromThrowable, type AsyncResult, type Result } from "unthrown";
 
 import type { ActivitiesHandler } from "./activity.js";
 import { _internal_declaredWorkflowName } from "./workflow-brand.js";
@@ -65,7 +65,9 @@ export type CreateWorkerOptions<TContract extends ContractDefinition> = Omit<
    * provided (prebuilt `workflowBundle`s are skipped), and a module that
    * cannot be imported in the main thread is skipped silently — the
    * subsequent `Worker.create` bundling step is the authority on whether the
-   * module loads at all. Note the module *is* evaluated in the main thread,
+   * module loads at all. The exception is a `ContractMisuseError` (or other
+   * worker `ValidationError`) thrown by `declareWorkflow` at import: that
+   * fails creation, since inside the sandbox it would stall every task. Note the module *is* evaluated in the main thread,
    * so workflow modules should stay side-effect-free at module scope (they
    * should be anyway — the sandbox re-evaluates them constantly).
    *
@@ -91,10 +93,25 @@ async function verifyWorkflowRegistration(
   let moduleExports: Record<string, unknown>;
   try {
     moduleExports = (await import(pathToFileURL(workflowsPath).href)) as Record<string, unknown>;
-  } catch {
-    // Best-effort: the module may be main-thread hostile (sandbox-only
-    // imports, workflow-bundle-relative paths) or simply not resolvable
-    // outside the bundler. Skip — a genuinely broken module fails
+  } catch (error) {
+    // `declareWorkflow` throws a `ContractMisuseError` (a `ValidationError`)
+    // at import for a misdeclared workflow — an unknown workflowName, an
+    // unbounded activity. Inside the sandbox that is a workflow-task failure
+    // retried forever, so fail startup here instead. Matched by `name`: the
+    // module's copy of this package is not necessarily ours.
+    if (
+      error instanceof Error &&
+      (error.name === "ContractMisuseError" || error.name.endsWith("ValidationError"))
+    ) {
+      // oxlint-disable-next-line unthrown/no-throw -- declaration-time fail-fast config error inside the fromPromise boundary: surfaces as a TechnicalError-caused defect
+      throw new TechnicalError(
+        `Workflows module "${workflowsPath}" failed to load: ${error.message}`,
+        error,
+      );
+    }
+    // Otherwise best-effort: the module may be main-thread hostile
+    // (sandbox-only imports, workflow-bundle-relative paths) or simply not
+    // resolvable outside the bundler. Skip — a genuinely broken module fails
     // `Worker.create`'s bundling step with the bundler's own diagnostics.
     return;
   }
@@ -307,12 +324,25 @@ export class TypedWorker {
   /**
    * Initiate a graceful shutdown — delegates to the underlying
    * `Worker.shutdown()`. The worker stops polling, finishes in-flight tasks,
-   * and the {@link run} result resolves once draining completes. Calling it
-   * on a worker that is not running throws Temporal's `IllegalStateError` —
-   * a programming defect, not a modeled error.
+   * and the {@link run} result resolves once draining completes.
+   *
+   * Returns `Result<void, never>`, like the rest of the lifecycle: calling it
+   * on a worker that is not running (Temporal's `IllegalStateError`) is a
+   * programming defect, surfaced on the `Defect` channel with a
+   * {@link TechnicalError} cause instead of thrown. `.get()` at the edge
+   * rethrows it.
    */
-  shutdown(): void {
-    this.raw.shutdown();
+  shutdown(): Result<void, never> {
+    return fromThrowable(
+      () => this.raw.shutdown(),
+      (cause, defect) =>
+        defect(
+          new TechnicalError(
+            `Temporal worker for task queue "${this.taskQueue}" failed to shut down`,
+            cause,
+          ),
+        ),
+    )();
   }
 }
 
@@ -320,21 +350,24 @@ export class TypedWorker {
  * Helper to resolve a workflow file path relative to the current module's URL.
  *
  * Useful when using ES modules (`import.meta.url`) to locate workflow files.
- * The `relativePath` should include the file extension explicitly (e.g. `./workflows.js`)
- * to ensure the resolved path is unambiguous in both source and built contexts.
+ * The `relativePath` must include the extension of a file that exists on disk:
+ * Temporal's bundler `stat`s the path before webpack's `.js` → `.ts` alias
+ * applies, so `./workflows.js` fails when running TypeScript source directly
+ * (tsx, vitest). Derive the extension from the caller's own to cover both.
  *
  * @param baseURL - The base URL to resolve from, typically `import.meta.url`
  * @param relativePath - Relative path to the workflows file, **including extension**
  *
  * @example
  * ```ts
+ * import { extname } from 'node:path';
  * import { TypedWorker, workflowsPathFromURL } from '@temporal-contract/worker/worker';
  *
  * const worker = await TypedWorker.create({
  *   contract: myContract,
  *   connection,
- *   // Include the extension explicitly to work in both source (.ts) and build (.js) contexts
- *   workflowsPath: workflowsPathFromURL(import.meta.url, './workflows.js'),
+ *   // `.ts` when run from source, `.js` from the build
+ *   workflowsPath: workflowsPathFromURL(import.meta.url, `./workflows${extname(import.meta.url)}`),
  *   activities,
  * }).get();
  * ```

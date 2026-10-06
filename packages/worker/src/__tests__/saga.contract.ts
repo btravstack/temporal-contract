@@ -64,11 +64,32 @@ const fulfilUntilCancelled = defineWorkflow({
   activities: {},
 });
 
+/**
+ * A child that derives its workflow ID from its input and answers a declared
+ * error: the parent must see that error typed — and so compensate on it —
+ * and must start the child under the derived ID.
+ */
+const shipChild = defineWorkflow({
+  input: z.object({ sku: z.string() }),
+  output: z.object({}),
+  workflowId: ({ sku }) => `ship-${sku}`,
+  startPolicy: "allow-duplicate",
+  errors: {
+    OutOfStock: { data: z.object({ sku: z.string() }), nonRetryable: true },
+  },
+});
+
+const fulfilViaChild = defineWorkflow({
+  input: z.object({}),
+  output: z.object({ failedWith: z.string(), childWorkflowId: z.string() }),
+  startPolicy: "allow-duplicate",
+});
+
 export const sagaContract = defineContract({
   taskQueue: "saga-tests",
   // `reserve`, `charge` and `release` are global: both workflows use them, and
   // activities share one flat namespace at runtime, so a per-workflow copy
   // would be two implementations of one name.
   activities: { reserve, charge, release },
-  workflows: { fulfil, fulfilUntilCancelled },
+  workflows: { fulfil, fulfilUntilCancelled, shipChild, fulfilViaChild },
 });

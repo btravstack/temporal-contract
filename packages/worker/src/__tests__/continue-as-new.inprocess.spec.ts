@@ -163,7 +163,7 @@ describe("continue-as-new against a real server", () => {
     expect(cause).toBeInstanceOf(ApplicationFailure);
     expect((cause as ApplicationFailure).type).toBe("WorkflowInputValidationError");
     expect((cause as ApplicationFailure).message).toMatch(
-      /Workflow "invalidContinuation" input validation failed: at n: (?:Invalid input|expected number, received string)/,
+      /Workflow "invalidContinuation" input validation failed: at n$/,
     );
 
     // EFFECT (send-side guard, not just the receive-side echo of it): the
@@ -276,7 +276,7 @@ describe("continue-as-new against a real server", () => {
     expect(cause).toBeInstanceOf(ApplicationFailure);
     expect((cause as ApplicationFailure).type).toBe("WorkflowInputValidationError");
     expect((cause as ApplicationFailure).message).toMatch(
-      /Workflow "archive" input validation failed: at batchId: (?:Invalid input|expected string, received number)/,
+      /Workflow "archive" input validation failed: at batchId$/,
     );
 
     // EFFECT (send-side guard, not just the receive-side echo of it): the
@@ -316,9 +316,9 @@ describe("continue-as-new against a real server", () => {
     expect(result.error).toBeInstanceOf(WorkflowFailedError);
     const cause = (result.error as WorkflowFailedError).cause;
     expect(cause).toBeInstanceOf(ApplicationFailure);
-    expect((cause as ApplicationFailure).type).toBe("WorkflowInputValidationError");
-    expect((cause as ApplicationFailure).message).toBe(
-      'Workflow "ghost" input validation failed: continueAsNew target workflow "ghost" is not declared on the supplied contract.',
+    expect((cause as ApplicationFailure).type).toBe("ContractMisuseError");
+    expect((cause as ApplicationFailure).message).toContain(
+      'continueAsNew target workflow "ghost" is not declared on the supplied contract.',
     );
   });
 

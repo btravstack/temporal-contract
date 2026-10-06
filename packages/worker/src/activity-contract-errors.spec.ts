@@ -19,7 +19,7 @@ import {
   declareActivityMiddleware,
   type ActivityMiddleware,
 } from "./activity.js";
-import { ContractErrorDataValidationError } from "./errors.js";
+import { ContractErrorDataValidationError, ContractMisuseError } from "./errors.js";
 
 const contract = defineContract({
   taskQueue: "test-queue",
@@ -163,7 +163,7 @@ describe("declareActivitiesHandler — contract errors", () => {
     });
 
     const rejection = activities.chargePayment({ amount: 100 });
-    await expect(rejection).rejects.toBeInstanceOf(ContractErrorDataValidationError);
+    await expect(rejection).rejects.toBeInstanceOf(ContractMisuseError);
     await expect(rejection).rejects.toMatchObject({
       message: expect.stringContaining('"NotDeclaredHere" is not declared'),
     });

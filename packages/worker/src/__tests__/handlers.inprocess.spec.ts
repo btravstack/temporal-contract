@@ -1,4 +1,3 @@
-import { WorkflowFailedError } from "@temporal-contract/client";
 import { testRig } from "@temporal-contract/testing/test-rig";
 import { it } from "@temporal-contract/testing/time-skipping";
 import {
@@ -7,12 +6,7 @@ import {
   nextTaskQueueId,
   withTaskQueue,
 } from "@temporal-contract/testing/workflow-bundle";
-import {
-  ApplicationFailure,
-  QueryNotRegisteredError,
-  ServiceError,
-  WorkflowUpdateFailedError,
-} from "@temporalio/client";
+import { ApplicationFailure, ServiceError, WorkflowUpdateFailedError } from "@temporalio/client";
 import { Runtime, type Logger } from "@temporalio/worker";
 import { describe, expect } from "vitest";
 
@@ -135,9 +129,7 @@ describe("handler binding against a real server", () => {
       const dropped = capturedLogs.find(
         (l) => l.level === "WARN" && l.message.includes('Dropped signal "bump"'),
       );
-      expect(dropped?.message).toMatch(
-        /Dropped signal "bump": input validation failed: at by: (?:Invalid input|Too small: expected number to be >0)/,
-      );
+      expect(dropped?.message).toMatch(/Dropped signal "bump": input validation failed: at by$/);
     } finally {
       restoreLogger();
     }
@@ -199,7 +191,7 @@ describe("handler binding against a real server", () => {
       // unregistered handler, which would carry a different message).
       expect(rejected).toBeInstanceOf(ServiceError);
       expect((rejected as ServiceError).cause?.message).toMatch(
-        /Query "describe" input validation failed: (?:Invalid input|Too small: expected string to have >=1 characters)/,
+        /Query "describe" input validation failed: at root$/,
       );
 
       await handle.signals.finish();
@@ -403,112 +395,7 @@ describe("handler binding against a real server", () => {
     });
   });
 
-  it("trips ContractMisuseError at bind time for an async-validating query INPUT schema", async ({
-    testEnv,
-  }) => {
-    const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
-    const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
-
-    const { worker, client } = await testRig(testEnv, { contract, bundle });
-
-    await worker.raw.runUntil(async () => {
-      const handle = await client
-        .startWorkflow("bindsAsyncQuerySchema", {
-          workflowId: "handlers-async-schema-bind",
-          args: {},
-        })
-        .getOrThrow();
-
-      const result = await handle.result();
-
-      // EFFECT: the workflow fails terminally, on its very first Workflow
-      // Task, before ever serving a query — `context.handleQuery` throws
-      // `ContractMisuseError` (a non-retryable `ApplicationFailure`) the
-      // moment it probes the async-refining schema. If the bind-time probe
-      // were missing, this workflow would instead hang `Running` forever
-      // (the async validation would only be discovered — incorrectly — on
-      // the first live query).
-      expect(result.isErr()).toBe(true);
-      if (!result.isErr()) return;
-      expect(result.error).toBeInstanceOf(WorkflowFailedError);
-      const cause = (result.error as WorkflowFailedError).cause;
-      expect(cause).toBeInstanceOf(ApplicationFailure);
-      expect((cause as ApplicationFailure).type).toBe("ContractMisuseError");
-      expect((cause as ApplicationFailure).message).toContain(
-        "the input schema validates asynchronously",
-      );
-    });
-  });
-
-  it("trips ContractMisuseError at bind time for an async-validating query OUTPUT schema", async ({
-    testEnv,
-  }) => {
-    const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
-    const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
-
-    const { worker, client } = await testRig(testEnv, { contract, bundle });
-
-    await worker.raw.runUntil(async () => {
-      const handle = await client
-        .startWorkflow("bindsAsyncQueryOutputSchema", {
-          workflowId: "handlers-async-output-schema-bind",
-          args: {},
-        })
-        .getOrThrow();
-
-      const result = await handle.result();
-
-      // Same mechanism as the input-schema variant above, but proves the
-      // OUTPUT schema slot's bind-time probe fires independently — i.e.
-      // `bindQueryHandler` doesn't just probe input and skip output.
-      expect(result.isErr()).toBe(true);
-      if (!result.isErr()) return;
-      expect(result.error).toBeInstanceOf(WorkflowFailedError);
-      const cause = (result.error as WorkflowFailedError).cause;
-      expect(cause).toBeInstanceOf(ApplicationFailure);
-      expect((cause as ApplicationFailure).type).toBe("ContractMisuseError");
-      expect((cause as ApplicationFailure).message).toContain(
-        "the output schema validates asynchronously",
-      );
-    });
-  });
-
-  it("trips ContractMisuseError at bind time for an async-validating update INPUT schema", async ({
-    testEnv,
-  }) => {
-    const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
-    const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
-
-    const { worker, client } = await testRig(testEnv, { contract, bundle });
-
-    await worker.raw.runUntil(async () => {
-      const handle = await client
-        .startWorkflow("bindsAsyncUpdateSchema", {
-          workflowId: "handlers-async-update-schema-bind",
-          args: {},
-        })
-        .getOrThrow();
-
-      const result = await handle.result();
-
-      // `bindUpdateHandler` runs its own, separate `assertSyncSchema` call
-      // for the update's input schema — this is NOT the same code path as
-      // the query-input variant above (different call site in
-      // `handlers.ts`), so that test alone wouldn't catch a regression
-      // here specifically.
-      expect(result.isErr()).toBe(true);
-      if (!result.isErr()) return;
-      expect(result.error).toBeInstanceOf(WorkflowFailedError);
-      const cause = (result.error as WorkflowFailedError).cause;
-      expect(cause).toBeInstanceOf(ApplicationFailure);
-      expect((cause as ApplicationFailure).type).toBe("ContractMisuseError");
-      expect((cause as ApplicationFailure).message).toContain(
-        "the input schema validates asynchronously",
-      );
-    });
-  });
-
-  it("schema-probe edge cases: a synchronous throw passes the bind probe; probe-dodging and thenable-dodging schemas still trip the per-call guard", async ({
+  it("rejects every sync-only schema slot fed an async schema on use, via the per-call guard", async ({
     testEnv,
   }) => {
     const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
@@ -527,47 +414,83 @@ describe("handler binding against a real server", () => {
         .startWorkflow("probeEdgeCases", { workflowId: "handlers-probe-edge-cases", args: {} })
         .getOrThrow();
 
-      // `syncThrowProbe`'s schema throws SYNCHRONOUSLY when fed the
-      // bind-time probe's opaque (symbol) sentinel — that throw must count
-      // as "fine, it's synchronous", not a probe failure. EFFECT: bind
-      // succeeded (the workflow is alive to answer a real query below) and
-      // the schema still validates a real string payload correctly.
-      const echoed = await handle.queries.syncThrowProbe("hello").getOrThrow();
-      expect(echoed).toEqual({ echoed: "hello" });
+      // The messages down a rejection's `cause` chain — Temporal surfaces a
+      // failed query as `QueryNotRegisteredError` or a `ServiceError` wrapping
+      // the handler's failure, depending on timing; the guard's text is in
+      // the chain either way.
+      const rejectionOf = async (call: () => Promise<unknown>): Promise<string> => {
+        try {
+          await call();
+        } catch (error) {
+          const messages: string[] = [];
+          for (let current = error; current instanceof Error; current = current.cause) {
+            messages.push(current.message);
+          }
+          return messages.join("\n");
+        }
+        return "";
+      };
 
-      // `probeDodging` answers the bind-time probe SYNCHRONOUSLY (fed the
-      // sentinel) but validates any REAL payload ASYNCHRONOUSLY —
-      // undetectable at bind time. EFFECT: the PER-CALL guard (defense in
-      // depth) still trips instead of silently corrupting query semantics.
-      let probeDodgingRejected: unknown;
-      try {
-        await handle.raw.query("probeDodging", "hello");
-      } catch (error) {
-        probeDodgingRejected = error;
-      }
-      // Temporal classifies this failure mode as `QueryNotRegisteredError`
-      // (unlike `describe`'s `QueryInputValidationError` failure above,
-      // which stays a raw `ServiceError`) — the SDK's own message carries
-      // the per-call guard's exact text.
-      expect(probeDodgingRejected).toBeInstanceOf(QueryNotRegisteredError);
-      expect((probeDodgingRejected as QueryNotRegisteredError).message).toBe(
+      // Query input: a schema that only goes async for a real payload (the
+      // zod `.refine(async)` shape), and one whose async result is a bare
+      // `PromiseLike` — the structural `isThenable` check, not `instanceof
+      // Promise`, is what catches the second.
+      expect(await rejectionOf(() => handle.raw.query("probeDodging", "hello"))).toContain(
         'Query "probeDodging" validation must be synchronous. Use a schema library that supports synchronous validation for queries.',
       );
-
-      // `thenableDodging` is the same dodge, but its async result is a bare
-      // `PromiseLike` rather than a native `Promise`. Proves the per-call
-      // guard's structural `isThenable` check — not an `instanceof Promise`
-      // check, which this would defeat — is what actually catches it.
-      let thenableDodgingRejected: unknown;
-      try {
-        await handle.raw.query("thenableDodging", "hello");
-      } catch (error) {
-        thenableDodgingRejected = error;
-      }
-      expect(thenableDodgingRejected).toBeInstanceOf(QueryNotRegisteredError);
-      expect((thenableDodgingRejected as QueryNotRegisteredError).message).toBe(
+      expect(await rejectionOf(() => handle.raw.query("thenableDodging", "hello"))).toContain(
         'Query "thenableDodging" validation must be synchronous. Use a schema library that supports synchronous validation for queries.',
       );
+
+      // Query output.
+      expect(await rejectionOf(() => handle.raw.query("asyncCheckedQueryOutput"))).toContain(
+        'Query "asyncCheckedQueryOutput" output validation must be synchronous. Use a schema library that supports synchronous validation for queries.',
+      );
+
+      // Update input — rejected in Temporal's synchronous validator slot.
+      expect(
+        await rejectionOf(() =>
+          handle.raw.executeUpdate("asyncCheckedUpdateInput", { args: [{}] }),
+        ),
+      ).toContain(
+        'Update "asyncCheckedUpdateInput" input validation must be synchronous. Use a schema library that supports synchronous validation for update inputs (Temporal\'s update validator slot is synchronous).',
+      );
+    });
+  });
+
+  it("maps a contract error thrown by a handler: the update is rejected with it, the signal fails the workflow with it", async ({
+    testEnv,
+  }) => {
+    const contract = withTaskQueue(handlersContract, nextTaskQueueId("handlers"));
+    const bundle = await bundleFor(fixturePath(import.meta.url, "handlers.workflows"));
+
+    const { worker, client } = await testRig(testEnv, { contract, bundle });
+
+    await worker.raw.runUntil(async () => {
+      const handle = await client
+        .startWorkflow("rejecting", {
+          workflowId: "handlers-rejecting",
+          args: {},
+          // Bound: unmapped, the throw is a workflow-task failure retried
+          // forever.
+          workflowExecutionTimeout: "30 seconds",
+        })
+        .getOrThrow();
+
+      let rejected: unknown;
+      try {
+        await handle.raw.executeUpdate("rejectUpdate", { args: [{}] });
+      } catch (error) {
+        rejected = error;
+      }
+      expect(rejected).toBeInstanceOf(WorkflowUpdateFailedError);
+      const cause = (rejected as WorkflowUpdateFailedError).cause;
+      expect(cause).toBeInstanceOf(ApplicationFailure);
+      expect((cause as ApplicationFailure).type).toBe("Rejected");
+
+      await handle.signals.reject();
+      const result = await handle.result();
+      expect(result).toBeErrTagged("@temporal-contract/ContractError");
     });
   });
 

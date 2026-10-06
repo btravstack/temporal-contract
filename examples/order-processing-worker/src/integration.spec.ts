@@ -129,15 +129,10 @@ describe("Order Processing Workflow - Integration Tests", () => {
     expect(started).toBeOk();
     if (!started.isOk()) throw new Error("Expected Ok result");
 
-    // THEN — getHandle is synchronous: the only failure mode is a workflow
-    // name missing from the contract, surfaced as a sync Result Err. It
-    // addresses an execution by ID, so for a workflow whose ID the contract
-    // derives, read that ID off the start result rather than re-deriving it.
-    const handleResult = client.getHandle("processOrder", started.value.workflowId);
-
-    expect(handleResult).toBeOk();
-    if (!handleResult.isOk()) throw new Error("Expected Ok result");
-    const handle = handleResult.value;
+    // THEN — getHandle is synchronous and infallible. It addresses an
+    // execution by ID, so for a workflow whose ID the contract derives, read
+    // that ID off the start result (or derive it with `workflowIdFor`).
+    const handle = client.getHandle("processOrder", started.value.workflowId);
     // The contract derived it: `order-${orderId}`.
     expect(handle.workflowId).toBe(`order-${order.orderId}`);
 
@@ -300,10 +295,7 @@ describe("Order Processing Workflow - Integration Tests", () => {
 
     // The ID came from the contract's derivation — take it from the start
     // result instead of re-deriving it at the call site.
-    const handleResult = client.getHandle("processOrder", started.value.workflowId);
-    expect(handleResult).toBeOk();
-    if (!handleResult.isOk()) throw new Error("Expected Ok result");
-    const handle = handleResult.value;
+    const handle = client.getHandle("processOrder", started.value.workflowId);
 
     // WHEN — `cancelRequested` is declared with `defineSignal()` (no input
     // schema), so it is sent without arguments

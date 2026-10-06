@@ -7,7 +7,16 @@
 ## Installation
 
 ```bash
-pnpm add @temporal-contract/worker @temporal-contract/contract @temporalio/workflow zod
+# Core packages (8.0 beta — `latest` still resolves 7.x)
+pnpm add @temporal-contract/contract@beta @temporal-contract/worker@beta \
+         @temporal-contract/client@beta
+
+# Peer dependencies (stable releases)
+pnpm add unthrown \
+  @temporalio/client @temporalio/common @temporalio/worker @temporalio/workflow
+
+# Plus one Standard Schema validator of your choice — zod, valibot, arktype, …
+pnpm add zod
 ```
 
 ## Quick Example
@@ -37,7 +46,7 @@ export const activities = declareActivitiesHandler({
 
 ```typescript
 // workflows.ts
-import { declareWorkflow, propagateActivityFailure } from "@temporal-contract/worker/workflow";
+import { declareWorkflow, propagateFailure } from "@temporal-contract/worker/workflow";
 
 import { myContract } from "./contract.js";
 
@@ -47,9 +56,9 @@ export const processOrder = declareWorkflow({
   activityOptions: { startToCloseTimeout: "1 minute", retry: { maximumAttempts: 3 } },
   implementation: async ({ activities }, input) => {
     // Every activity call returns an AsyncResult — narrow it, or use
-    // `propagateActivityFailure` to let Temporal decide the workflow's fate.
+    // `propagateFailure` to let Temporal decide the workflow's fate.
     // A bare `await` here compiles but silently discards a failed call.
-    await propagateActivityFailure(activities.sendEmail({ to: "user@example.com", body: "Done!" }));
+    await propagateFailure(activities.sendEmail({ to: "user@example.com", body: "Done!" }));
     return { success: true };
   },
 });
@@ -126,6 +135,9 @@ export const parentWorkflow = declareWorkflow({
 
     childResult.match({
       ok: (output) => console.log("Payment processed:", output),
+      // Exhaustive while `processPayment` declares no `errors`. Declared child
+      // errors join this union as typed `ContractError`s — then add a
+      // `P.tag(CONTRACT_ERROR_TAG)` arm (from `@temporal-contract/contract`).
       errCases: (matcher) =>
         matcher.with(
           P.tag("@temporal-contract/ChildWorkflowError"),
@@ -211,9 +223,7 @@ export const extractLayout = declareWorkflow({
     // still returns an AsyncResult — propagate it to let a failure fail
     // the workflow instead of returning an AsyncResult where `{ layout }`
     // expects the unwrapped value.
-    const layout = await propagateActivityFailure(
-      activities.extractLayoutChunk({ docId: input.docId }),
-    );
+    const layout = await propagateFailure(activities.extractLayoutChunk({ docId: input.docId }));
     return { layout };
   },
 });

@@ -1,5 +1,6 @@
 import type { ErrorDefinition } from "@temporal-contract/contract";
 import {
+  CONTRACT_ERROR_TAG,
   CONTRACT_ERROR_WIRE_MARKER,
   type AnyContractError,
 } from "@temporal-contract/contract/errors";
@@ -13,7 +14,17 @@ import {
  */
 import { ApplicationFailure } from "@temporalio/common";
 
-import { ContractErrorDataValidationError } from "./errors.js";
+import { ContractErrorDataValidationError, ContractMisuseError } from "./errors.js";
+
+/**
+ * `_tag`-based `ContractError` check. Not `instanceof`: a second copy of
+ * `@temporal-contract/contract` in the install (or in the workflow bundle)
+ * has its own class, and an `instanceof` against the wrong one silently
+ * misses — leaving the error unconverted.
+ */
+export function isContractError(value: unknown): value is AnyContractError {
+  return value instanceof Error && (value as { _tag?: unknown })._tag === CONTRACT_ERROR_TAG;
+}
 
 /**
  * Convert a {@link ContractError} produced by an implementation into the
@@ -33,26 +44,26 @@ import { ContractErrorDataValidationError } from "./errors.js";
  * - `nonRetryable` = the contract's declaration (default retryable),
  * - `cause` = the constructor-supplied cause, so stack traces survive.
  *
- * An undeclared error name or a data payload that fails validation is a
- * deterministic contract-misuse bug — both throw the terminal
- * {@link ContractErrorDataValidationError} instead of letting a malformed
- * failure cross the wire.
+ * Both failure modes are deterministic contract-misuse bugs and throw a
+ * terminal failure instead of letting a malformed one cross the wire: an
+ * undeclared error name throws {@link ContractMisuseError}, a data payload
+ * that fails validation throws {@link ContractErrorDataValidationError}.
  */
 export async function contractErrorToApplicationFailure(
   error: AnyContractError,
   declaredErrors: Record<string, ErrorDefinition> | undefined,
   scopeLabel: string,
 ): Promise<ApplicationFailure> {
-  const definition = declaredErrors?.[error.errorName];
+  const definition =
+    declaredErrors && Object.hasOwn(declaredErrors, error.errorName)
+      ? declaredErrors[error.errorName]
+      : undefined;
   if (!definition) {
-    // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
-    throw new ContractErrorDataValidationError(error.errorName, [
-      {
-        message:
-          `Error "${error.errorName}" is not declared on ${scopeLabel}. ` +
-          `Declared errors: ${Object.keys(declaredErrors ?? {}).join(", ") || "none"}.`,
-      },
-    ]);
+    // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
+    throw new ContractMisuseError(
+      `Contract error "${error.errorName}" is not declared on ${scopeLabel}. ` +
+        `Declared errors: ${Object.keys(declaredErrors ?? {}).join(", ") || "none"}.`,
+    );
   }
 
   // `details[0]` is always the data slot (undefined for data-less errors)

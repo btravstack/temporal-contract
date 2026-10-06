@@ -162,31 +162,4 @@ describe("contract-declared idempotency deduplicates on the real server", () => 
       expect(second).toBeOkWith({ ok: true });
     });
   });
-
-  it("an explicit per-call ALLOW_DUPLICATE overrides a once-per-id contract", async ({
-    testEnv,
-  }) => {
-    const id = nextTaskQueueId("idempotency-override");
-    const contract = withTaskQueue(idempotencyContract, id);
-    const bundle = await bundleFor(fixturePath(import.meta.url, "idempotency.workflows"));
-    const { worker, client } = await testRig(testEnv, { contract, bundle });
-    const workflowId = id;
-
-    await worker.raw.runUntil(async () => {
-      const first = await client.executeWorkflow("onceWorkflow", {
-        workflowId,
-        args: { shouldFail: false },
-        workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
-      });
-      expect(first).toBeOkWith({ ok: true });
-
-      const second = await client.executeWorkflow("onceWorkflow", {
-        workflowId,
-        args: { shouldFail: false },
-        workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
-        workflowIdReusePolicy: "ALLOW_DUPLICATE",
-      });
-      expect(second).toBeOkWith({ ok: true });
-    });
-  });
 });

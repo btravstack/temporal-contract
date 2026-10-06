@@ -130,6 +130,43 @@ describe("workflow-registration completeness check — real server", () => {
     }
   });
 
+  it("errors when the workflows module throws ContractMisuseError at import, instead of skipping it", async ({
+    testEnv,
+  }) => {
+    const contract = withTaskQueue(registrationContract, nextTaskQueueId("registration"));
+    const workerResult = await TypedWorker.create({
+      contract,
+      connection: testEnv.nativeConnection,
+      workflowsPath: fixturePath(import.meta.url, "registration-misdeclared.workflows"),
+    });
+
+    expect(workerResult).toBeDefect();
+    if (workerResult.isDefect()) {
+      const cause = workerResult.cause as TechnicalError;
+      expect(cause).toBeInstanceOf(TechnicalError);
+      expect(cause.message).toContain("failed to load");
+      expect(cause.message).toContain('workflow "gamma" is not declared');
+    }
+  });
+
+  it("shutdown() on a worker that is not running is a TechnicalError defect, not a throw", async ({
+    testEnv,
+  }) => {
+    const contract = withTaskQueue(registrationContract, nextTaskQueueId("registration"));
+    const worker = await TypedWorker.create({
+      contract,
+      connection: testEnv.nativeConnection,
+      workflowsPath: fixturePath(import.meta.url, "registration-complete.workflows"),
+    }).get();
+
+    // Run to completion first so the worker releases its connection, then
+    // shut down again: Temporal throws `IllegalStateError` (not running).
+    await worker.raw.runUntil(async () => undefined);
+    const shutdown = worker.shutdown();
+    expect(shutdown).toBeDefect();
+    if (shutdown.isDefect()) expect(shutdown.cause).toBeInstanceOf(TechnicalError);
+  });
+
   it("errors when a declared workflow is exported under a different name (registration-name mismatch)", async ({
     testEnv,
   }) => {

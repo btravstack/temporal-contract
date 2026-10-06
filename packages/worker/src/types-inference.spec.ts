@@ -4,6 +4,7 @@ import {
   defineSignal,
   defineWorkflow,
 } from "@temporal-contract/contract";
+import type { ContractError } from "@temporal-contract/contract/errors";
 import { OkAsync } from "unthrown";
 /**
  * Type-level tests for the worker- and client-side inference helpers.
@@ -29,7 +30,11 @@ import {
   type EmptyContext,
   type GlobalActivityImplementationFor,
 } from "./activity.js";
-import type { TypedChildWorkflowHandle, TypedChildWorkflowOptions } from "./child-workflow.js";
+import type {
+  ChildWorkflowContractErrorsOf,
+  TypedChildWorkflowHandle,
+  TypedChildWorkflowOptions,
+} from "./child-workflow.js";
 import type {
   ClientInferInput,
   ClientInferOutput,
@@ -232,6 +237,37 @@ describe("TypedChildWorkflowHandle storage", () => {
     };
     void useHandle;
     expect(typeof useHandle).toBe("function");
+  });
+});
+
+describe("child workflow with a contract-derived ID", () => {
+  const derived = defineWorkflow({
+    input: z.object({ orderId: z.string() }),
+    output: z.object({}),
+    workflowId: ({ orderId }) => `order-${orderId}`,
+    startPolicy: "once-per-id",
+    errors: { Declined: { data: z.object({ reason: z.string() }) } },
+  });
+  const derivedContract = defineContract({ taskQueue: "derived", workflows: { derived } });
+  type Options = TypedChildWorkflowOptions<typeof derivedContract, "derived">;
+
+  it("forbids a caller-supplied workflowId", () => {
+    const ok: Options = { args: { orderId: "1" }, parentClosePolicy: "ABANDON" };
+    // @ts-expect-error — the contract derives the ID
+    const bad: Options = { args: { orderId: "1" }, parentClosePolicy: "ABANDON", workflowId: "x" };
+    const overridden: Options = {
+      args: { orderId: "1" },
+      parentClosePolicy: "ABANDON",
+      // @ts-expect-error — the contract's startPolicy owns the reuse policy
+      workflowIdReusePolicy: "ALLOW_DUPLICATE",
+    };
+    expect([ok, bad, overridden]).toHaveLength(3);
+  });
+
+  it("types the child's declared errors on the error channel", () => {
+    expectTypeOf<
+      ChildWorkflowContractErrorsOf<(typeof derivedContract)["workflows"]["derived"]>
+    >().toEqualTypeOf<ContractError<"Declined", { reason: string }>>();
   });
 });
 

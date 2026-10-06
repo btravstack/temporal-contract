@@ -16,7 +16,7 @@ import type {
   SignalDefinition,
   UpdateDefinition,
 } from "@temporal-contract/contract";
-import { ContractError, type ContractErrorConstructors } from "@temporal-contract/contract/errors";
+import type { ContractErrorConstructors } from "@temporal-contract/contract/errors";
 import { _internal_buildErrorConstructors } from "@temporal-contract/contract/internal";
 import { type ActivityOptions, type WorkflowInfo, workflowInfo } from "@temporalio/workflow";
 import type { AsyncResult } from "unthrown";
@@ -25,14 +25,15 @@ import {
   createValidatedActivities,
   type WorkflowInferWorkflowContextActivities,
 } from "./activities-proxy.js";
+import { toWorkflowFailure } from "./activity-failure.js";
 import { cancellableScope, nonCancellableScope } from "./cancellation.js";
 import {
+  type ChildWorkflowContractErrorsOf,
   createStartChildWorkflow,
   createExecuteChildWorkflow,
   type TypedChildWorkflowHandle,
   type TypedChildWorkflowOptions,
 } from "./child-workflow.js";
-import { contractErrorToApplicationFailure } from "./contract-errors.js";
 import {
   type ChildWorkflowCancelledError,
   type ChildWorkflowError,
@@ -53,10 +54,10 @@ import {
 import {
   buildRawActivitiesProxy,
   createContinueAsNew,
-  extractHandlerInput,
   type TypedContinueAsNewOptions,
 } from "./internal.js";
 import { workflowSaga, type WorkflowSagaBuilder, type WorkflowSagaOptions } from "./saga.js";
+import { extractHandlerInput } from "./shared.js";
 import {
   type ClientInferInput,
   type ClientInferOutput,
@@ -142,6 +143,7 @@ export {
 // `context.startChildWorkflow`, its options bag, and the typed signal-sender
 // map — exported so user code can annotate stored handles and helpers.
 export type {
+  ChildWorkflowContractErrorsOf,
   TypedChildWorkflowHandle,
   TypedChildWorkflowOptions,
   TypedChildWorkflowSignals,
@@ -296,9 +298,9 @@ export function declareWorkflow<
   // contract's available workflows, not a bare property-access crash — not
   // a different runtime outcome. See `activity-bounds.ts` for the fuller
   // explanation of this same distinction.
-  const definition = contract.workflows[workflowName] as
-    | TContract["workflows"][TWorkflowName]
-    | undefined;
+  const definition = (
+    Object.hasOwn(contract.workflows, workflowName) ? contract.workflows[workflowName] : undefined
+  ) as TContract["workflows"][TWorkflowName] | undefined;
   if (!definition) {
     const available = Object.keys(contract.workflows).join(", ") || "none";
     // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: declaration-time fail-fast as a non-retryable ApplicationFailure (CLAUDE.md rule 2 exception)
@@ -407,7 +409,12 @@ export function declareWorkflow<
         TContract,
         TWorkflowName
       >,
-      info: workflowInfo(),
+      // A getter, not a snapshot: the SDK replaces `workflowInfo()` on every
+      // activation, so a captured object would freeze `historyLength`,
+      // `continueAsNewSuggested`, etc. at their first-activation values.
+      get info() {
+        return workflowInfo();
+      },
       startChildWorkflow: createStartChildWorkflow,
       executeChildWorkflow: createExecuteChildWorkflow,
       cancellableScope,
@@ -443,28 +450,20 @@ export function declareWorkflow<
 
     // Execute workflow with the parsed input.
     //
-    // A thrown typed contract error (`throw context.errors.X(...)`) is
-    // converted to its `ApplicationFailure` wire shape here. This must
-    // happen inside the workflow function: a plain `Error` subclass thrown
-    // from workflow code is treated by Temporal as a Workflow Task failure
-    // and retried forever, while an `ApplicationFailure` fails the
-    // execution terminally with `type` = the declared error name and
-    // `details[0]` = the schema-validated data — which the typed client
-    // rehydrates back into a `ContractError`.
+    // A thrown library error is mapped to the Temporal failure it carries
+    // here (`toWorkflowFailure`): a typed contract error
+    // (`throw context.errors.X(...)`) becomes its `ApplicationFailure` wire
+    // shape, and a tagged wrapper (`throw result.error`, `.getOrThrow()`)
+    // its Temporal cause. This must happen inside the workflow function: a
+    // non-`TemporalFailure` thrown from workflow code is treated by Temporal
+    // as a Workflow Task failure and retried forever, while an
+    // `ApplicationFailure` fails the execution terminally.
     let result: unknown;
     try {
       result = await implementation(context, validatedInput);
     } catch (error) {
-      if (error instanceof ContractError) {
-        // oxlint-disable-next-line unthrown/no-throw -- sanctioned ApplicationFailure model: a declared contract error fails the execution terminally with its typed wire shape (CLAUDE.md rule 2 exception)
-        throw await contractErrorToApplicationFailure(
-          error,
-          definition.errors,
-          `workflow "${workflowName}"`,
-        );
-      }
-      // oxlint-disable-next-line unthrown/no-throw -- workflow-sandbox rethrow: an unmodeled implementation throw must reach Temporal untouched
-      throw error;
+      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ApplicationFailure model: the failure must reach Temporal as a TemporalFailure to fail the execution terminally (CLAUDE.md rule 2 exception)
+      throw await toWorkflowFailure(error, definition.errors, `workflow "${workflowName}"`);
     }
 
     // Validate workflow output, but hand Temporal the implementation's
@@ -628,15 +627,6 @@ export type WorkflowImplementation<
 ) => Promise<WorkerInferOutput<TContract["workflows"][TWorkflowName]>>;
 
 /**
- * Workflow execution context providing typed activities, workflow info, and interaction handlers
- *
- * Provides access to:
- * - Typed activities (both workflow-specific and global)
- * - Workflow metadata and execution info
- * - Signal, query, and update handler registration
- * - Child workflow execution capabilities
- */
-/**
  * Typed error constructors for a workflow's declared `errors` map, or an
  * empty object when the workflow declares none.
  */
@@ -646,12 +636,26 @@ type WorkflowErrorConstructorsOf<TWorkflow> = TWorkflow extends {
   ? ContractErrorConstructors<TErrors>
   : Record<string, never>;
 
+/**
+ * Workflow execution context providing typed activities, workflow info, and interaction handlers
+ *
+ * Provides access to:
+ * - Typed activities (both workflow-specific and global)
+ * - Workflow metadata and execution info
+ * - Signal, query, and update handler registration
+ * - Child workflow execution capabilities
+ */
 export type WorkflowContext<
   TContract extends ContractDefinition,
   TWorkflowName extends keyof TContract["workflows"] & string,
 > = {
   activities: Readonly<WorkflowInferWorkflowContextActivities<TContract, TWorkflowName>>;
-  info: WorkflowInfo;
+  /**
+   * The current `workflowInfo()` — read on every access, so fields the SDK
+   * updates between activations (`historyLength`, `continueAsNewSuggested`,
+   * …) stay current. Don't destructure it once at the top of the workflow.
+   */
+  readonly info: WorkflowInfo;
 
   /**
    * Typed constructors for the errors declared on this workflow's contract
@@ -700,8 +704,9 @@ export type WorkflowContext<
    * handler to access workflow state.
    *
    * Both query schemas (input and output) must validate synchronously —
-   * Temporal runs query handlers synchronously. An async-validating schema
-   * (e.g. zod async refine) trips a `ContractMisuseError` at bind time.
+   * Temporal runs query handlers synchronously. A query whose schema
+   * validates asynchronously (e.g. zod async refine) is rejected with a
+   * `ContractMisuseError`.
    *
    * @example
    * ```ts
@@ -727,9 +732,14 @@ export type WorkflowContext<
    * handler to access and modify workflow state.
    *
    * The update's *input* schema must validate synchronously — it feeds
-   * Temporal's synchronous update validator slot. An async-validating schema
-   * trips a `ContractMisuseError` at bind time (the output schema may be
-   * async; it runs inside the handler body).
+   * Temporal's synchronous update validator slot. An update whose input
+   * validates asynchronously is rejected with a `ContractMisuseError` (the
+   * output schema may be async; it runs inside the handler body).
+   *
+   * A library error the handler throws (`throw context.errors.X(...)`,
+   * `throw result.error`) rejects the update with the Temporal failure it
+   * carries, the same mapping `declareWorkflow` applies to the
+   * implementation.
    *
    * @example
    * ```ts
@@ -755,15 +765,16 @@ export type WorkflowContext<
    *
    * The `contract` argument is always required — it identifies the task
    * queue and workflow definition the child runs against, and supplies the
-   * `workflowIdReusePolicy` from the target workflow's declared `startPolicy`
-   * mode:
+   * `workflowIdReusePolicy` from the target workflow's declared `startPolicy`:
    * - Same-contract child: pass this worker's own contract and one of its
    *   workflow names.
    * - Cross-contract child: pass another worker's contract to invoke a
    *   workflow it serves (the child's task queue comes from that contract).
    *
-   * An explicit `workflowIdReusePolicy` in `options` overrides the
-   * contract's mode for this call only.
+   * There is no per-call `workflowIdReusePolicy` override — the contract's
+   * `startPolicy` owns it, as on the client. A child that derives its ID on the
+   * contract (`defineWorkflow({ workflowId })`) gets it computed from the
+   * validated `args`, and `options.workflowId` is a type error.
    *
    * @example
    * ```ts
@@ -816,15 +827,20 @@ export type WorkflowContext<
    *
    * The `contract` argument is always required — it identifies the task
    * queue and workflow definition the child runs against, and supplies the
-   * `workflowIdReusePolicy` from the target workflow's declared `startPolicy`
-   * mode:
+   * `workflowIdReusePolicy` from the target workflow's declared `startPolicy`:
    * - Same-contract child: pass this worker's own contract and one of its
    *   workflow names.
    * - Cross-contract child: pass another worker's contract to invoke a
    *   workflow it serves (the child's task queue comes from that contract).
    *
-   * An explicit `workflowIdReusePolicy` in `options` overrides the
-   * contract's mode for this call only.
+   * There is no per-call `workflowIdReusePolicy` override — the contract's
+   * `startPolicy` owns it, as on the client. A child that derives its ID on the
+   * contract (`defineWorkflow({ workflowId })`) gets it computed from the
+   * validated `args`, and `options.workflowId` is a type error.
+   *
+   * A child that fails with one of its own declared errors comes back as
+   * that typed `ContractError` (rehydrated against the child's `errors`), so
+   * `context.saga` compensates on it like a declared activity error.
    *
    * @example
    * ```ts
@@ -866,7 +882,10 @@ export type WorkflowContext<
     options: TypedChildWorkflowOptions<TChildContract, TChildWorkflowName>,
   ) => AsyncResult<
     ClientInferOutput<TChildContract["workflows"][TChildWorkflowName]>,
-    ChildWorkflowError | ChildWorkflowCancelledError | ChildWorkflowNotFoundError
+    | ChildWorkflowError
+    | ChildWorkflowCancelledError
+    | ChildWorkflowNotFoundError
+    | ChildWorkflowContractErrorsOf<TChildContract["workflows"][TChildWorkflowName]>
   >;
 
   /**
@@ -886,13 +905,10 @@ export type WorkflowContext<
    *
    * implementation: async (context, args) => {
    *   const result = await context.cancellableScope(async () => {
-   *     // `fn`'s return value becomes the scope's `T` verbatim, so await and
-   *     // narrow the activity's own AsyncResult HERE, inside the callback.
-   *     // `AsyncResult` is deliberately not a full `PromiseLike` (no
-   *     // `.catch`/`.finally`), so returning an un-awaited activity call
-   *     // would make `T` the un-awaited `AsyncResult` itself — which has no
-   *     // `isOk`/`isErr`/`.value` (only the plain `Result` you get by
-   *     // awaiting does).
+   *     // `fn`'s return value is awaited, so returning the activity's
+   *     // AsyncResult directly would make the scope's value its settled
+   *     // `Result` (nested inside the scope's own). Narrowing it here instead
+   *     // keeps the scope's value a plain domain value.
    *     const step = await context.activities.processStep(args);
    *     if (step.isDefect()) {
    *       throw step.cause; // an unmodeled bug — surfaces as the scope's own defect
@@ -924,7 +940,9 @@ export type WorkflowContext<
    * }
    * ```
    */
-  cancellableScope: <T>(fn: () => T | Promise<T>) => AsyncResult<T, WorkflowCancelledError>;
+  cancellableScope: <T>(
+    fn: () => T | Promise<T>,
+  ) => AsyncResult<Awaited<T>, WorkflowCancelledError>;
 
   /**
    * Run `fn` inside a non-cancellable Temporal scope. Cancellation requests
@@ -937,7 +955,9 @@ export type WorkflowContext<
    * raised from *inside* the scope, which is rare. Non-cancellation errors
    * surface on the `defect` channel.
    */
-  nonCancellableScope: <T>(fn: () => T | Promise<T>) => AsyncResult<T, WorkflowCancelledError>;
+  nonCancellableScope: <T>(
+    fn: () => T | Promise<T>,
+  ) => AsyncResult<Awaited<T>, WorkflowCancelledError>;
 
   /**
    * Open a saga: a sequence of steps whose compensations are unwound LIFO when

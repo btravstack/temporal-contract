@@ -30,15 +30,12 @@ const onceChild = defineWorkflow({
  * racing a *Closed* (not merely Running) prior execution, exactly the case
  * `workflowIdReusePolicy` governs. `mode` selects `startChildWorkflow` vs.
  * `executeChildWorkflow` so both child-start paths get independent coverage
- * from the same fixture. `overridePolicy`, when set, is passed as an
- * explicit per-call `workflowIdReusePolicy` on the SECOND attempt only, to
- * prove an explicit override still wins over the contract's declared mode.
+ * from the same fixture.
  */
 const parent = defineWorkflow({
   input: z.object({
     mode: z.enum(["start", "execute"]),
     childWorkflowId: z.string(),
-    overridePolicy: z.literal("ALLOW_DUPLICATE").optional(),
   }),
   output: z.object({
     firstOk: z.boolean(),
@@ -51,7 +48,7 @@ const parent = defineWorkflow({
   }),
   // Each test starts `parent` under a fresh, `nextTaskQueueId`-derived
   // workflow ID (see the spec file), so `parent` itself is never re-run
-  // under a reused ID — its own idempotency mode is not under test here.
+  // under a reused ID — its own start policy is not under test here.
   // `"allow-duplicate"` is Temporal's own default, chosen so it stays inert.
   startPolicy: "allow-duplicate",
 });

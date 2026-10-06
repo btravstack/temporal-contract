@@ -2,17 +2,22 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   type ActivityDefinition,
   type ContractDefinition,
+  type ErrorDefinition,
   summarizeIssues,
 } from "@temporal-contract/contract";
-import { ChildWorkflowFailure } from "@temporalio/common";
+import type { AnyContractError, RehydrationMiss } from "@temporal-contract/contract/errors";
+import { _internal_rehydrateContractError } from "@temporal-contract/contract/internal";
+import { ApplicationFailure, ChildWorkflowFailure } from "@temporalio/common";
 /**
- * Internal helpers shared across the worker package's entry points.
+ * Internal workflow-sandbox helpers (they import `@temporalio/workflow`, so
+ * the `./activity` entry must not reach this module — activity-safe helpers
+ * live in `shared.ts`).
  *
  * Not part of the public API — this module is not listed in the package's
  * `exports` map, so consumers can't import from `@temporal-contract/worker/internal`.
  * In-package tests import it directly via relative path.
  */
-import { isCancellation, makeContinueAsNewFunc, proxyActivities } from "@temporalio/workflow";
+import { isCancellation, log, makeContinueAsNewFunc, proxyActivities } from "@temporalio/workflow";
 import type { ActivityOptions, ContinueAsNewOptions } from "@temporalio/workflow";
 
 import {
@@ -39,42 +44,6 @@ export function formatChildWorkflowValidationMessage(
   issues: ReadonlyArray<StandardSchemaV1.Issue>,
 ): string {
   return `Child workflow "${workflowName}" ${direction} validation failed: ${summarizeIssues(issues)}`;
-}
-
-// Re-export the shared `_internal_makeAsyncResult` helper from the contract
-// package so worker call sites can wrap their `() => Promise<Result<T, E>>`
-// work functions identically to the client side. Unanticipated rejections
-// (a synchronous throw or a rejected promise from `work()`) are routed through
-// unthrown's `defect` channel rather than escaping as an unhandled rejection.
-// `assertNoDefect` narrows an internally-built `Result` (known to carry only
-// ok/err) to `Ok | Err`, re-throwing a stray defect's cause — so call sites
-// reach `.value` / `.error` without a manual "impossible defect" guard.
-export {
-  _internal_makeAsyncResult as makeAsyncResult,
-  _internal_assertNoDefect as assertNoDefect,
-} from "@temporal-contract/contract/internal";
-
-/**
- * Extract the single payload from a Temporal handler's `...args` array.
- *
- * Temporal invokes handlers with whatever was passed via `args: [...]` at the
- * call site. The typed-contract layer always sends `args: [input]` — the
- * caller's original (validated but untransformed) value, which the receiving
- * handler parses — so the common case is a one-element array containing the
- * wrapped input.
- *
- * Zero arguments map to `undefined`, not `[]`: a payload-less send (e.g. a
- * signal declared without an `input` schema, whose materialized
- * `UndefinedInputSchema` only accepts `undefined`/`null`) must parse as "no
- * payload", and an empty array would be rejected by that schema.
- *
- * If a non-typed-contract caller passes multiple positional arguments
- * (`args: [a, b, c]`), we surface the whole array as the input — the schema
- * will then reject it unless the contract specifically modeled a tuple.
- */
-export function extractHandlerInput(args: unknown[]): unknown {
-  if (args.length === 0) return undefined;
-  return args.length === 1 ? args[0] : args;
 }
 
 type ActivityFn = (...args: unknown[]) => Promise<unknown>;
@@ -119,6 +88,8 @@ export function buildRawActivitiesProxy(
     ...contractActivities,
     ...workflowActivities,
   };
+  const overrideFor = (name: string) =>
+    overrides && Object.hasOwn(overrides, name) ? overrides[name] : undefined;
 
   // Every reachable activity must carry BOTH bounds in its MERGED options: a
   // per-attempt bound and a total bound. See `activity-bounds.ts` for why the
@@ -145,7 +116,7 @@ export function buildRawActivitiesProxy(
     const merged: ActivityOptions = {
       ...defaultOptions,
       ...(definition.activityOptions as ActivityOptions | undefined),
-      ...overrides?.[name],
+      ...overrideFor(name),
     };
     const missing = missingBounds(merged);
     if (missing.length > 0) {
@@ -176,13 +147,17 @@ export function buildRawActivitiesProxy(
   // Temporal's plain `TypeError` (→ workflow-task stall) for options no
   // activity would ever have used. The same reasoning covers the
   // no-activities case.
-  const needsDefaultProxy = Object.entries(allDefinitions).some(([name, definition]) => {
-    const contractDefaults = definition.activityOptions;
-    const override = overrides?.[name];
-    const hasContractDefaults = contractDefaults && Object.keys(contractDefaults).length > 0;
-    const hasOverride = override && Object.keys(override).length > 0;
-    return !hasContractDefaults && !hasOverride;
-  });
+  //
+  // An empty options bag can't change the effective options — treat it as
+  // absent so the "one extra proxy only when options differ" optimization
+  // holds for `activityOptions: {}` / `activityOptionsByName: { x: {} }`.
+  const hasKeys = (options: object | undefined) =>
+    options !== undefined && Object.keys(options).length > 0;
+  const isCustomized = (name: string, definition: ActivityDefinition) =>
+    hasKeys(definition.activityOptions) || hasKeys(overrideFor(name));
+  const needsDefaultProxy = Object.entries(allDefinitions).some(
+    ([name, definition]) => !isCustomized(name, definition),
+  );
   const defaultProxy =
     defaultOptions && needsDefaultProxy
       ? proxyActivities<Record<string, ActivityFn>>(defaultOptions)
@@ -191,34 +166,21 @@ export function buildRawActivitiesProxy(
   // Validate every override key corresponds to a declared activity.
   // Without this, a typo at runtime (or a stale options bag from a renamed
   // activity) silently builds a proxy for a non-existent activity.
-  const overrideEntries = overrides
-    ? Object.entries(overrides).filter(
-        (entry): entry is [string, ActivityOptions] => entry[1] !== undefined,
-      )
-    : [];
-  for (const [name] of overrideEntries) {
-    if (!(name in allDefinitions)) {
+  for (const [name, options] of Object.entries(overrides ?? {})) {
+    if (options !== undefined && !Object.hasOwn(allDefinitions, name)) {
       // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: declaration-time fail-fast as a non-retryable ApplicationFailure (CLAUDE.md rule 2 exception)
       throw new ContractMisuseError(
         `activityOptionsByName entry "${name}" does not match any declared activity. Available: ${Object.keys(allDefinitions).join(", ") || "none"}.`,
       );
     }
   }
-  const overrideByName = Object.fromEntries(overrideEntries);
 
   // Merged path: build one proxy per customized activity; combine with the
   // default proxy via a get-trap so unmatched keys still get the default
   // options.
   const customizedFns: Record<string, ActivityFn> = {};
   for (const [name, definition] of Object.entries(allDefinitions)) {
-    const contractDefaults = definition.activityOptions;
-    const override = overrideByName[name];
-    // An empty options bag can't change the effective options — treat it as
-    // absent so the "one extra proxy only when options differ" optimization
-    // holds for `activityOptions: {}` / `activityOptionsByName: { x: {} }`.
-    const hasContractDefaults = contractDefaults && Object.keys(contractDefaults).length > 0;
-    const hasOverride = override && Object.keys(override).length > 0;
-    if (!hasContractDefaults && !hasOverride) {
+    if (!isCustomized(name, definition)) {
       continue;
     }
     // The contract types durations as plain `string | number` (it carries no
@@ -227,8 +189,8 @@ export function buildRawActivitiesProxy(
     // runtime, so the widening cast is safe.
     const mergedOptions: ActivityOptions = {
       ...defaultOptions,
-      ...(contractDefaults as ActivityOptions | undefined),
-      ...override,
+      ...(definition.activityOptions as ActivityOptions | undefined),
+      ...overrideFor(name),
     };
     const mergedProxy = proxyActivities<Record<string, ActivityFn>>(mergedOptions);
     const fn = mergedProxy[name];
@@ -251,7 +213,7 @@ export function buildRawActivitiesProxy(
   return new Proxy(customizedFns, {
     get(target, prop) {
       if (typeof prop !== "string") return undefined;
-      return target[prop] ?? defaultProxy?.[prop];
+      return Object.hasOwn(target, prop) ? target[prop] : defaultProxy?.[prop];
     },
   });
 }
@@ -325,14 +287,15 @@ export function createContinueAsNew(
       options = arg2 as TypedContinueAsNewOptions | undefined;
     }
 
-    const targetDef = targetContract.workflows[targetName];
+    const targetDef = Object.hasOwn(targetContract.workflows, targetName)
+      ? targetContract.workflows[targetName]
+      : undefined;
     if (!targetDef) {
-      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ValidationError/ApplicationFailure model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
-      throw new WorkflowInputValidationError(targetName, [
-        {
-          message: `continueAsNew target workflow "${targetName}" is not declared on the supplied contract.`,
-        },
-      ]);
+      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: terminal failure Temporal must see thrown (CLAUDE.md rule 2 exception)
+      throw new ContractMisuseError(
+        `continueAsNew target workflow "${targetName}" is not declared on the supplied contract. ` +
+          `Available workflows: ${Object.keys(targetContract.workflows).join(", ") || "none"}`,
+      );
     }
 
     const inputResult = await targetDef.input["~standard"].validate(rawArgs);
@@ -382,7 +345,7 @@ export function createContinueAsNew(
  * We deliberately do *not* check that `arg1.workflows[arg2]` is a valid
  * workflow definition. If it isn't, the dispatcher falls through to the
  * `targetContract.workflows[targetName]` lookup which throws a clear
- * "target workflow X is not declared" error — better than silently
+ * "target workflow X is not declared" `ContractMisuseError` — better than silently
  * misrouting a typo back to the current workflow.
  */
 function looksLikeCrossContractCall(arg1: unknown, arg2: unknown): boolean {
@@ -392,6 +355,21 @@ function looksLikeCrossContractCall(arg1: unknown, arg2: unknown): boolean {
   if (typeof candidate["taskQueue"] !== "string") return false;
   const workflows = candidate["workflows"];
   return typeof workflows === "object" && workflows !== null;
+}
+
+/**
+ * The `onMiss` hook handed to `_internal_rehydrateContractError` at every
+ * workflow-side rehydration site: a failure whose `type` names a declared
+ * error but that could not be rehydrated (schema drift, a foreign failure
+ * reusing the name) degrades to the generic error — log why, through the
+ * replay-aware workflow logger. Name and reason only, never the payload.
+ */
+export function logRehydrationMiss(scope: string): (miss: RehydrationMiss) => void {
+  return (miss) =>
+    log.warn(
+      `${scope}: failure of type "${miss.errorName}" matched a declared error but was not ` +
+        `rehydrated (${miss.reason}); surfacing it as a generic failure`,
+    );
 }
 
 /**
@@ -410,7 +388,8 @@ function looksLikeCrossContractCall(arg1: unknown, arg2: unknown): boolean {
  *   cause forwarded so consumers can match `err.cause instanceof
  *   ApplicationFailure` without unwrapping twice. (If the wrapper's `cause`
  *   is `undefined`, the wrapper itself is forwarded so identity is
- *   preserved.)
+ *   preserved.) A child's *declared* error is rehydrated before this runs —
+ *   see {@link rehydrateChildWorkflowError}.
  * - Anything else → {@link ChildWorkflowError} carrying the raw thrown value
  *   as `cause`.
  *
@@ -454,6 +433,25 @@ export function classifyChildWorkflowError(
     `${describeChildWorkflowOperation(operation, childWorkflowName)}: ${message}`,
     error,
   );
+}
+
+/**
+ * Rehydrate a child workflow's failure into one of its own declared errors:
+ * the typed `ContractError` when the child ended with a declared
+ * `ApplicationFailure` (`ChildWorkflowFailure.cause`), else `undefined` —
+ * the caller falls back to {@link classifyChildWorkflowError}. Cancellation
+ * is never rehydrated.
+ */
+export async function rehydrateChildWorkflowError(
+  error: unknown,
+  childWorkflowName: string,
+  declaredErrors: Record<string, ErrorDefinition> | undefined,
+): Promise<AnyContractError | undefined> {
+  if (isCancellation(error) || !(error instanceof ChildWorkflowFailure)) return undefined;
+  if (!(error.cause instanceof ApplicationFailure)) return undefined;
+  return await _internal_rehydrateContractError(declaredErrors, error.cause, {
+    onMiss: logRehydrationMiss(`Child workflow "${childWorkflowName}"`),
+  });
 }
 
 function describeChildWorkflowOperation(
