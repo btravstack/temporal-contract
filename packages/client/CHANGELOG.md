@@ -1,5 +1,27 @@
 # @temporal-contract/client
 
+## 8.0.0-beta.12
+
+### Major Changes
+
+- b8b698e: Client audit hardening — start paths share one options builder the contract can't be overridden in, error unions name only what can actually happen, and the update API grows the pieces Temporal has.
+
+  - **`getHandle` returns the handle directly**, like Temporal's. `WorkflowNotInContractError` (and its tag, and its slot in every union and in `WORKFLOW_START_PATTERNS` / `WORKFLOW_EXECUTE_PATTERNS` / `SCHEDULE_CREATE_PATTERNS`) is removed: the types only admit declared names, so an undeclared workflow, signal, or update name is now a defect carrying a `TechnicalError` with a direct message (`getHandle` / `getUpdateHandle` throw it). Migration: `client.getHandle(name, id).value` → `client.getHandle(name, id)`; drop `P.tag(WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG)` arms.
+  - **The contract owns the start options.** `workflowIdReusePolicy` and `followRuns` are no longer accepted by `startWorkflow` / `signalWithStart` / `executeWorkflow` (the contract's `startPolicy` wins, even over an explicit `undefined`; handles always follow the run chain). `signalWithStart` now enforces `workflowId` like `startWorkflow`: forbidden for a workflow whose contract derives it, required otherwise. Migration: delete those options; set `startPolicy` on the contract.
+  - **`executeWorkflow` is `startWorkflow(...).flatMap((h) => h.result())`**, so its result-phase errors name the derived workflow ID and an unrecognized result failure's `RuntimeClientError.operation` is `"result"`.
+  - **Start handles' `runId` is `undefined`** — they follow the run chain, so `firstExecutionRunId` is the started run. Migration: read `firstExecutionRunId`.
+  - **Update errors match the SDK.** `startUpdate` errs only with `UpdateValidationError | UpdateRpcTimeoutOrCancelledError | WorkflowExecutionNotFoundError`; a rejection or failed handler surfaces on the update handle's `result()`. New `UpdateRpcTimeoutOrCancelledError` (Temporal's `WorkflowUpdateRPCTimeoutOrCancelledError`) joins every update union and `UPDATE_PATTERNS`. Temporal's `QueryRejectedError` is now `QueryFailedError`. Migration: match rejections on `updateHandle.result()`; add an arm for the new error.
+  - **New:** `handle.updates.name(input, { updateId })`, `handle.getUpdateHandle(updateName, updateId)`, `contractClient.executeUpdateWithStart(workflowName, { ...startOptions, workflowIdConflictPolicy, updateName, updateArgs, updateId })`, and `contractClient.workflowIdFor(workflowName, input)` for workflows whose contract derives their ID.
+  - **Search-attribute values are checked against their declared kind** at runtime (a defect, like an undeclared key). `schedule.update` re-checks the action's search attributes and refuses to move a contract workflow off the contract's task queue.
+  - **Schedules:** `schedule.create`'s `args` is optional when the input schema accepts `undefined` (sends empty args); `TypedScheduleHandle.raw` exposes the SDK handle; `schedule.list()` documents that iteration throws.
+  - `WorkflowFailedError.retryState` carries Temporal's retry state. `TypedClient.create({ client, onRehydrationMiss })` reports declared errors that degrade to `WorkflowFailedError`. `CONTRACT_ERROR_TAG` and `RehydrationMiss` are re-exported.
+  - **Peers:** `@temporal-contract/contract` is now a peer dependency; `@temporalio/client` / `@temporalio/common` floors rise to `^1.24.0` and `unthrown` to `^5.11.0` (the `< 1.16` Schedule-API check is gone). Migration: install `@temporal-contract/contract@beta` alongside the client.
+
+### Patch Changes
+
+- Updated dependencies [b91f784]
+  - @temporal-contract/contract@8.0.0-beta.12
+
 ## 8.0.0-beta.11
 
 ### Patch Changes

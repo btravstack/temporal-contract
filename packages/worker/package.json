@@ -1,6 +1,6 @@
 {
   "name": "@temporal-contract/worker",
-  "version": "8.0.0-beta.11",
+  "version": "8.0.0-beta.12",
   "description": "Worker utilities with unthrown Result/AsyncResult for implementing temporal-contract workflows and activities",
   "keywords": [
     "contract",
@@ -80,7 +80,7 @@
     "zod": "catalog:"
   },
   "peerDependencies": {
-    "@temporal-contract/contract": "^8.0.0-beta.11",
+    "@temporal-contract/contract": "^8.0.0-beta.12",
     "@temporalio/common": "^1.24.0",
     "@temporalio/worker": "^1.24.0",
     "@temporalio/workflow": "^1.24.0",
