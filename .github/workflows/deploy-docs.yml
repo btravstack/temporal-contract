@@ -23,8 +23,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   # A version bump can publish several Releases at once (monorepo); collapse that burst of events
@@ -119,8 +117,9 @@ jobs:
         if: steps.meta.outputs.prerelease == 'true'
         env:
           DOCS_VERSIONS: ${{ steps.meta.outputs.versions_stable }}
+          STABLE_TAG: ${{ steps.meta.outputs.stable_tag }}
         run: |
-          git worktree add /tmp/stable-docs "${{ steps.meta.outputs.stable_tag }}"
+          git worktree add /tmp/stable-docs "$STABLE_TAG"
           # A tag that predates native DOCS_VERSIONS support in the config gets the
           # version dropdown injected; a no-op once the stable tag carries it natively.
           # (Runs with the main checkout's docs toolchain — tsx lives there.)
@@ -154,6 +153,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     name: Deploy
+    # Write scopes live on the job that deploys, not on the build job that
+    # runs `pnpm install` and build scripts.
+    permissions:
+      pages: write
+      id-token: write
     steps:
       - name: Deploy to GitHub Pages
         id: deployment

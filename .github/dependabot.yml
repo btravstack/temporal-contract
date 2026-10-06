@@ -24,7 +24,8 @@ updates:
       dev-dependencies:
         dependency-type: "development"
     ignore:
-      # Only allow @types/node updates that match the Node.js major version (24.x)
+      # @types/node tracks the supported Node floor's major (22.x, see engines), so
+      # types never advertise APIs the oldest supported runtime lacks.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
     # Mirror pnpm's minimumReleaseAge: wait before proposing freshly published versions.
@@ -35,7 +36,8 @@ updates:
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
-    directory: "/"
+    # The composite action under .github/actions is not scanned from "/".
+    directories: ["/", "/.github/actions/*"]
     schedule:
       interval: "weekly"
       day: "monday"

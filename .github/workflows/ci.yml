@@ -14,18 +14,34 @@ concurrency:
 
 jobs:
   ci:
-    uses: btravstack/tools/.github/workflows/ci-reusable.yml@workflows-v1
+    uses: btravstack/tools/.github/workflows/ci-reusable.yml@022bb36b7955698e6b813d27bacdf0c88ed70be1 # workflows-v1
     with:
       integration-tests: true
+      changeset: true
       node-versions: '["", "22.22.0"]'
 
   package-check:
     name: Package
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup
         uses: ./.github/actions/setup
       - name: Validate published surfaces (publint + are-the-types-wrong)
         run: pnpm run check:packages
+
+  docs:
+    name: Docs build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup
+        uses: ./.github/actions/setup
+      # Typedoc + copy-docs + VitePress (dead links fail the build): the same
+      # pipeline deploy-docs.yml runs after merge, caught before it instead.
+      - name: Build documentation
+        run: pnpm --filter ./docs exec turbo build

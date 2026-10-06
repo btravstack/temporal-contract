@@ -33,9 +33,9 @@ export type WorkflowIdReusePolicy =
   | "REJECT_DUPLICATE";
 
 /**
- * The single mode→policy mapping. Client and worker both call this so the two
- * cannot drift; `Record<IdempotencyMode, …>` makes a newly added mode a
- * compile error until it is mapped.
+ * The single start-policy→reuse-policy mapping. Client and worker both call
+ * this so the two cannot drift; `Record<WorkflowStartPolicy, …>` makes a newly
+ * added policy a compile error until it is mapped.
  */
 const REUSE_POLICY: Record<WorkflowStartPolicy, WorkflowIdReusePolicy> = {
   "once-per-id": "REJECT_DUPLICATE",
@@ -43,17 +43,7 @@ const REUSE_POLICY: Record<WorkflowStartPolicy, WorkflowIdReusePolicy> = {
   "allow-duplicate": "ALLOW_DUPLICATE",
 };
 
-/** Translate a contract's declared idempotency mode to Temporal's policy. */
-export function reusePolicyFor(mode: WorkflowStartPolicy): WorkflowIdReusePolicy {
-  return REUSE_POLICY[mode];
+/** Translate a contract's declared start policy to Temporal's `workflowIdReusePolicy`. */
+export function reusePolicyFor(startPolicy: WorkflowStartPolicy): WorkflowIdReusePolicy {
+  return REUSE_POLICY[startPolicy];
 }
-
-/**
- * @deprecated Renamed to {@link WorkflowStartPolicy}, and the field that
- * carries it from `idempotency` to `startPolicy`: it governs
- * `workflowIdReusePolicy` — whether a workflow ID may be reused after a
- * Closed run — and never made a workflow idempotent. For an activity running
- * twice under Temporal's at-least-once guarantee, see an activity's
- * `idempotencyKey`.
- */
-export type IdempotencyMode = WorkflowStartPolicy;
