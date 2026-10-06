@@ -17,9 +17,6 @@
 /** `_tag` of `RuntimeClientError` — generic technical-failure wrapper (rides the defect channel). */
 export const RUNTIME_CLIENT_ERROR_TAG = "@temporal-contract/RuntimeClientError";
 
-/** `_tag` of `WorkflowNotInContractError` — the workflow name isn't declared on the bound contract. */
-export const WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG = "@temporal-contract/WorkflowNotInContractError";
-
 /** `_tag` of `WorkflowAlreadyStartedError` — starting collided with an existing execution. */
 export const WORKFLOW_ALREADY_STARTED_ERROR_TAG = "@temporal-contract/WorkflowAlreadyStartedError";
 
@@ -65,6 +62,10 @@ export const UPDATE_FAILED_ERROR_TAG = "@temporal-contract/UpdateFailedError";
 
 /** `_tag` of `UpdateRejectedError` — the update was rejected at admission by the worker-side validator. */
 export const UPDATE_REJECTED_ERROR_TAG = "@temporal-contract/UpdateRejectedError";
+
+/** `_tag` of `UpdateRpcTimeoutOrCancelledError` — the update *call* timed out or was cancelled client-side. */
+export const UPDATE_RPC_TIMEOUT_OR_CANCELLED_ERROR_TAG =
+  "@temporal-contract/UpdateRpcTimeoutOrCancelledError";
 
 /** `_tag` of `ScheduleAlreadyExistsError` — `schedule.create` collided with a running schedule. */
 export const SCHEDULE_ALREADY_EXISTS_ERROR_TAG = "@temporal-contract/ScheduleAlreadyExistsError";

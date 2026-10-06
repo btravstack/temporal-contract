@@ -1,19 +1,18 @@
-export {
-  ContractClient,
-  readTypedSearchAttributes,
-  TypedClient,
-  type CreateClientOptions,
-  type TypedGetHandleOptions,
-  type TypedSearchAttributeMap,
-  type TypedSignalWithStartOptions,
-  type TypedStartUpdateOptions,
-  type TypedWorkflowHandle,
-  type TypedWorkflowHandleWithSignaledRunId,
-  type TypedWorkflowStartOptions,
-  type TypedWorkflowUpdateHandle,
-  type WorkflowContractErrorsOf,
-  type WorkflowResultErrorsOf,
-} from "./client.js";
+export { ContractClient, readTypedSearchAttributes, TypedClient } from "./client.js";
+export type {
+  TypedWorkflowHandle,
+  TypedWorkflowHandleWithSignaledRunId,
+  TypedWorkflowUpdateHandle,
+} from "./handle.js";
+export type {
+  CreateClientOptions,
+  DerivedIdWorkflowName,
+  TypedGetHandleOptions,
+  TypedSignalWithStartOptions,
+  TypedStartUpdateOptions,
+  TypedUpdateWithStartOptions,
+  TypedWorkflowStartOptions,
+} from "./options.js";
 // Technical creation failure — `TypedClient.create` routes it to the Defect
 // channel (as the defect's cause) instead of throwing.
 export { TechnicalError } from "@temporal-contract/contract/errors";
@@ -21,9 +20,11 @@ export { TechnicalError } from "@temporal-contract/contract/errors";
 // workflow's declared `errors` entry surfaces as a `ContractError` instead
 // of the generic `WorkflowFailedError`.
 export {
+  CONTRACT_ERROR_TAG,
   ContractError,
   type AnyContractError,
   type ContractErrorUnion,
+  type RehydrationMiss,
 } from "@temporal-contract/contract/errors";
 export {
   TypedScheduleClient,
@@ -40,12 +41,12 @@ export {
   SignalValidationError,
   UpdateFailedError,
   UpdateRejectedError,
+  UpdateRpcTimeoutOrCancelledError,
   UpdateValidationError,
   WorkflowAlreadyStartedError,
   WorkflowCancelledError,
   WorkflowExecutionNotFoundError,
   WorkflowFailedError,
-  WorkflowNotInContractError,
   WorkflowTerminatedError,
   WorkflowTimeoutError,
   WorkflowValidationError,
@@ -61,12 +62,12 @@ export {
   SIGNAL_VALIDATION_ERROR_TAG,
   UPDATE_FAILED_ERROR_TAG,
   UPDATE_REJECTED_ERROR_TAG,
+  UPDATE_RPC_TIMEOUT_OR_CANCELLED_ERROR_TAG,
   UPDATE_VALIDATION_ERROR_TAG,
   WORKFLOW_ALREADY_STARTED_ERROR_TAG,
   WORKFLOW_CANCELLED_ERROR_TAG,
   WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG,
   WORKFLOW_FAILED_ERROR_TAG,
-  WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG,
   WORKFLOW_TERMINATED_ERROR_TAG,
   WORKFLOW_TIMEOUT_ERROR_TAG,
   WORKFLOW_VALIDATION_ERROR_TAG,
@@ -93,4 +94,7 @@ export type {
   ClientInferWorkflowSignals,
   ClientInferWorkflowQueries,
   ClientInferWorkflowUpdates,
+  TypedSearchAttributeMap,
+  WorkflowContractErrorsOf,
+  WorkflowResultErrorsOf,
 } from "./types.js";

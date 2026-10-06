@@ -11,7 +11,6 @@ import {
   WORKFLOW_CANCELLED_ERROR_TAG,
   WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG,
   WORKFLOW_FAILED_ERROR_TAG,
-  WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG,
   WORKFLOW_TERMINATED_ERROR_TAG,
   WORKFLOW_TIMEOUT_ERROR_TAG,
   WORKFLOW_VALIDATION_ERROR_TAG,
@@ -180,15 +179,10 @@ describe("Client Package - Integration Tests", () => {
         args: input,
       });
 
-      // WHEN — getHandle is synchronous: the only failure mode is a
-      // workflow name missing from the contract.
-      const handleResult = client.getHandle("simpleWorkflow", workflowId);
+      // WHEN — getHandle is synchronous and infallible, like Temporal's.
+      const handle = client.getHandle("simpleWorkflow", workflowId);
 
       // THEN
-      expect(handleResult).toBeOk();
-      if (!handleResult.isOk()) throw new Error("Expected Ok result");
-
-      const handle = handleResult.value;
       const result = await handle.result();
       expect(result).toBeOk();
       if (result.isOk()) {
@@ -231,7 +225,9 @@ describe("Client Package - Integration Tests", () => {
   });
 
   describe("Handle identifiers", () => {
-    it("startWorkflow handles carry firstExecutionRunId and runId", async ({ client }) => {
+    it("startWorkflow handles carry firstExecutionRunId and are not pinned to a run", async ({
+      client,
+    }) => {
       const handleResult = await client.startWorkflow("simpleWorkflow", {
         workflowId: `run-ids-${Date.now()}`,
         args: { value: "ids" },
@@ -241,13 +237,14 @@ describe("Client Package - Integration Tests", () => {
       if (!handleResult.isOk()) throw new Error("Expected Ok result");
       const handle = handleResult.value;
       expect(typeof handle.firstExecutionRunId).toBe("string");
-      expect(handle.runId).toBe(handle.firstExecutionRunId);
+      // The handle follows its run chain, so it doesn't claim the first run.
+      expect(handle.runId).toBeUndefined();
 
       await handle.result();
     });
   });
 
-  describe("Wire format (D1) — transforms apply exactly once per boundary", () => {
+  describe("Wire format — transforms apply exactly once per boundary", () => {
     it("sends the original input, receiver parses once; output parsed once by the client", async ({
       client,
     }) => {
@@ -407,6 +404,30 @@ describe("Client Package - Integration Tests", () => {
       }
     });
 
+    it("should start a workflow and run an update in one request via executeUpdateWithStart", async ({
+      client,
+    }) => {
+      // GIVEN
+      const workflowId = `update-with-start-${Date.now()}`;
+
+      // WHEN
+      const updateResult = await client.executeUpdateWithStart("interactiveWorkflow", {
+        workflowId,
+        args: { initialValue: 6 },
+        workflowIdConflictPolicy: "FAIL",
+        updateName: "multiply",
+        updateArgs: { factor: 7 },
+      });
+
+      // THEN — the update ran against the execution it started
+      expect(updateResult).toBeOk();
+      if (updateResult.isOk()) {
+        expect(updateResult.value).toEqual({ newValue: 42 });
+      }
+      const result = await client.getHandle("interactiveWorkflow", workflowId).result();
+      expect(result).toBeOk();
+    });
+
     it("should start an update via startUpdate and await its result on the update handle", async ({
       client,
     }) => {
@@ -558,7 +579,6 @@ describe("Client Package - Integration Tests", () => {
           // Covers executeWorkflow's full error union (start phase +
           // result phase, outcome trio included).
           matcher.with(
-            P.tag(WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG),
             P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
             P.tag(WORKFLOW_ALREADY_STARTED_ERROR_TAG),
             P.tag(WORKFLOW_FAILED_ERROR_TAG),

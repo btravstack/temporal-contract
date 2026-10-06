@@ -45,24 +45,23 @@ import {
   SIGNAL_VALIDATION_ERROR_TAG,
   UPDATE_FAILED_ERROR_TAG,
   UPDATE_REJECTED_ERROR_TAG,
+  UPDATE_RPC_TIMEOUT_OR_CANCELLED_ERROR_TAG,
   UPDATE_VALIDATION_ERROR_TAG,
   WORKFLOW_ALREADY_STARTED_ERROR_TAG,
   WORKFLOW_CANCELLED_ERROR_TAG,
   WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG,
   WORKFLOW_FAILED_ERROR_TAG,
-  WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG,
   WORKFLOW_TERMINATED_ERROR_TAG,
   WORKFLOW_TIMEOUT_ERROR_TAG,
   WORKFLOW_VALIDATION_ERROR_TAG,
 } from "./error-tags.js";
 
 /**
- * Every error `ContractClient.startWorkflow` / `signalWithStart` can produce:
- * the workflow name is not on the contract, its input failed validation, or
- * an execution under this workflow ID already exists.
+ * Every error `ContractClient.startWorkflow` can produce: its input failed
+ * validation, or an execution under this workflow ID already exists
+ * (`signalWithStart` adds `SignalValidationError`).
  */
 export const WORKFLOW_START_PATTERNS = [
-  P.tag(WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG),
   P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
   P.tag(WORKFLOW_ALREADY_STARTED_ERROR_TAG),
 ] as const;
@@ -87,7 +86,6 @@ export const WORKFLOW_RESULT_PATTERNS = [
  * widest: both phases, minus the workflow's own declared `errors`.
  */
 export const WORKFLOW_EXECUTE_PATTERNS = [
-  P.tag(WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG),
   P.tag(WORKFLOW_ALREADY_STARTED_ERROR_TAG),
   P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
   P.tag(WORKFLOW_FAILED_ERROR_TAG),
@@ -122,17 +120,20 @@ export const QUERY_PATTERNS = [
   P.tag(WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG),
 ] as const;
 
-/** Every error a `handle.updates.*` call can produce. */
+/**
+ * Every error a `handle.updates.*` call (or an update handle's `result()`)
+ * can produce.
+ */
 export const UPDATE_PATTERNS = [
   P.tag(UPDATE_VALIDATION_ERROR_TAG),
   P.tag(UPDATE_REJECTED_ERROR_TAG),
   P.tag(UPDATE_FAILED_ERROR_TAG),
+  P.tag(UPDATE_RPC_TIMEOUT_OR_CANCELLED_ERROR_TAG),
   P.tag(WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG),
 ] as const;
 
 /** Every error `schedule.create` can produce. */
 export const SCHEDULE_CREATE_PATTERNS = [
   P.tag(SCHEDULE_ALREADY_EXISTS_ERROR_TAG),
-  P.tag(WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG),
   P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
 ] as const;

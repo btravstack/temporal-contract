@@ -7,11 +7,13 @@
  * reaches Temporal, which is the only thing the policy sees.
  */
 import { defineContract, defineWorkflow } from "@temporal-contract/contract";
+import { TechnicalError } from "@temporal-contract/contract/errors";
 import type { Client } from "@temporalio/client";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { TypedClient } from "./client.js";
+import { WorkflowValidationError } from "./errors.js";
 
 const derivedContract = defineContract({
   taskQueue: "orders",
@@ -36,6 +38,14 @@ const derivedContract = defineContract({
       input: z.object({ day: z.string() }),
       output: z.object({ ok: z.boolean() }),
       startPolicy: "allow-duplicate",
+      signals: { nudge: { input: z.object({}) } },
+    }),
+    signalled: defineWorkflow({
+      input: z.object({ orderId: z.string() }),
+      output: z.object({ ok: z.boolean() }),
+      workflowId: ({ orderId }) => `signalled-${orderId}`,
+      startPolicy: "once-per-id",
+      signals: { nudge: { input: z.object({}) } },
     }),
   },
 });
@@ -44,14 +54,18 @@ function makeClient() {
   const start = vi.fn().mockResolvedValue({
     workflowId: "assigned-by-temporal",
     firstExecutionRunId: "run-1",
+    result: vi.fn().mockResolvedValue({ ok: true }),
   });
-  const execute = vi.fn().mockResolvedValue({ ok: true });
+  const signalWithStart = vi.fn().mockResolvedValue({
+    workflowId: "assigned-by-temporal",
+    signaledRunId: "run-1",
+  });
   const raw = {
-    workflow: { start, execute, getHandle: vi.fn(), signalWithStart: vi.fn() },
+    workflow: { start, getHandle: vi.fn(), signalWithStart },
     schedule: { create: vi.fn(), getHandle: vi.fn() },
   } as unknown as Client;
 
-  return { raw, start, execute };
+  return { raw, start, signalWithStart };
 }
 
 const bind = async (raw: Client) =>
@@ -99,14 +113,48 @@ describe("contract-derived workflow IDs", () => {
   });
 
   it("derives the ID on executeWorkflow too", async () => {
-    const { raw, execute } = makeClient();
+    const { raw, start } = makeClient();
     const orders = await bind(raw);
 
     await orders.executeWorkflow("processOrder", { args: { orderId: "ORD-9", amount: 1 } });
 
-    expect(execute).toHaveBeenCalledWith(
+    expect(start).toHaveBeenCalledWith(
       "processOrder",
       expect.objectContaining({ workflowId: "order-ORD-9" }),
+    );
+  });
+
+  it("executeWorkflow's result-phase errors name the derived ID, not undefined", async () => {
+    const { raw, start } = makeClient();
+    start.mockImplementation(async (_type: string, options: { workflowId: string }) => ({
+      workflowId: options.workflowId,
+      result: vi.fn().mockResolvedValue({ ok: "not-a-boolean" }),
+    }));
+    const orders = await bind(raw);
+
+    const result = await orders.executeWorkflow("processOrder", {
+      args: { orderId: "ORD-9", amount: 1 },
+    });
+
+    expect(result.isErr() && result.error).toBeInstanceOf(WorkflowValidationError);
+    expect(result.isErr() && (result.error as WorkflowValidationError).workflowId).toBe(
+      "order-ORD-9",
+    );
+  });
+
+  it("derives the ID on signalWithStart too", async () => {
+    const { raw, signalWithStart } = makeClient();
+    const orders = await bind(raw);
+
+    await orders.signalWithStart("signalled", {
+      args: { orderId: "ORD-3" },
+      signalName: "nudge",
+      signalArgs: {},
+    });
+
+    expect(signalWithStart).toHaveBeenCalledWith(
+      "signalled",
+      expect.objectContaining({ workflowId: "signalled-ORD-3" }),
     );
   });
 
@@ -126,7 +174,72 @@ describe("contract-derived workflow IDs", () => {
   });
 });
 
+describe("workflowIdFor", () => {
+  it("returns the ID a start would derive, from the validated input", async () => {
+    const { raw, start } = makeClient();
+    const orders = await bind(raw);
+
+    const workflowId = await orders.workflowIdFor("processTrimmed", { orderId: "  ORD-1  " });
+
+    expect(workflowId).toBeOk();
+    expect(workflowId.isOk() && workflowId.value).toBe("order-ORD-1");
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it("errs with WorkflowValidationError on invalid input", async () => {
+    const { raw } = makeClient();
+    const orders = await bind(raw);
+
+    const workflowId = await orders.workflowIdFor("processOrder", {
+      orderId: "ORD-1",
+      amount: "ten" as unknown as number,
+    });
+
+    expect(workflowId).toBeErr();
+    expect(workflowId.isErr() && workflowId.error).toBeInstanceOf(WorkflowValidationError);
+  });
+
+  it("is a defect for a workflow that does not derive its ID", async () => {
+    const { raw } = makeClient();
+    const orders = await bind(raw);
+
+    const workflowId = await orders.workflowIdFor(
+      // @ts-expect-error -- only deriving workflows are accepted
+      "auditSweep",
+      { day: "2026-09-03" },
+    );
+
+    expect(workflowId).toBeDefect();
+    expect(workflowId.isDefect() && workflowId.cause).toBeInstanceOf(TechnicalError);
+  });
+});
+
 describe("contract-derived workflow IDs — types", () => {
+  it("rejects a caller-supplied ID on signalWithStart for a derived workflow", async () => {
+    const { raw } = makeClient();
+    const orders = await bind(raw);
+
+    await orders.signalWithStart("signalled", {
+      // @ts-expect-error -- the contract derives this workflow's ID.
+      workflowId: "mine",
+      args: { orderId: "ORD-1" },
+      signalName: "nudge",
+      signalArgs: {},
+    });
+  });
+
+  it("still requires an ID on signalWithStart for a workflow that declares no derivation", async () => {
+    const { raw } = makeClient();
+    const orders = await bind(raw);
+
+    // @ts-expect-error -- `workflowId` is required for a non-deriving workflow
+    await orders.signalWithStart("auditSweep", {
+      args: { day: "2026-09-03" },
+      signalName: "nudge",
+      signalArgs: {},
+    });
+  });
+
   it("rejects a caller-supplied ID for a derived workflow", async () => {
     const { raw } = makeClient();
     const orders = await bind(raw);

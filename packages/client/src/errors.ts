@@ -5,6 +5,7 @@ import type {
   ApplicationFailure,
   CancelledFailure,
   ChildWorkflowFailure,
+  RetryState,
   ServerFailure,
   TerminatedFailure,
   TimeoutFailure,
@@ -20,12 +21,12 @@ import {
   SIGNAL_VALIDATION_ERROR_TAG,
   UPDATE_FAILED_ERROR_TAG,
   UPDATE_REJECTED_ERROR_TAG,
+  UPDATE_RPC_TIMEOUT_OR_CANCELLED_ERROR_TAG,
   UPDATE_VALIDATION_ERROR_TAG,
   WORKFLOW_ALREADY_STARTED_ERROR_TAG,
   WORKFLOW_CANCELLED_ERROR_TAG,
   WORKFLOW_EXECUTION_NOT_FOUND_ERROR_TAG,
   WORKFLOW_FAILED_ERROR_TAG,
-  WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG,
   WORKFLOW_TERMINATED_ERROR_TAG,
   WORKFLOW_TIMEOUT_ERROR_TAG,
   WORKFLOW_VALIDATION_ERROR_TAG,
@@ -57,7 +58,10 @@ export type TemporalFailure =
   | ActivityFailure;
 
 /**
- * Generic runtime failure wrapper when no specific error type applies
+ * Technical-failure wrapper for a Temporal call that failed in a way the
+ * typed client does not model. Never surfaced on the Err channel: it is the
+ * cause of the *defect* such a failure becomes, naming the operation that
+ * failed.
  */
 export class RuntimeClientError extends TaggedError(RUNTIME_CLIENT_ERROR_TAG, {
   name: "RuntimeClientError",
@@ -74,34 +78,14 @@ export class RuntimeClientError extends TaggedError(RUNTIME_CLIENT_ERROR_TAG, {
 }
 
 /**
- * Surfaced on the Err channel when a workflow name is not declared in the
- * bound contract. This is a contract-level lookup failure (a typo, a stale
- * contract) — distinct from Temporal's own `WorkflowNotFoundError`, which is
- * about a missing *execution* and surfaces here as
- * {@link WorkflowExecutionNotFoundError}.
- */
-export class WorkflowNotInContractError extends TaggedError(WORKFLOW_NOT_IN_CONTRACT_ERROR_TAG, {
-  name: "WorkflowNotInContractError",
-})<{
-  workflowName: string;
-  availableWorkflows: readonly string[];
-}> {
-  constructor(workflowName: string, availableWorkflows: readonly string[]) {
-    super({ workflowName, availableWorkflows });
-    this.message = `Workflow "${workflowName}" not found in contract. Available workflows: ${availableWorkflows.join(", ")}`;
-  }
-}
-
-/**
- * Discriminated variant of {@link RuntimeClientError} surfaced when starting
- * a workflow collides with an existing execution — Temporal's
- * `WorkflowExecutionAlreadyStartedError`. The most common cause is a
- * workflowId reuse policy that rejects duplicates while a previous run is
- * still in retention.
+ * Surfaced on the Err channel when starting a workflow collides with an
+ * existing execution — Temporal's `WorkflowExecutionAlreadyStartedError`.
+ * The most common cause is a `startPolicy` that rejects duplicates while a
+ * previous run is still in retention.
  *
- * Distinguishing this from `RuntimeClientError` lets idempotent callers
- * branch on it explicitly (e.g. fetch the existing handle and continue)
- * without inspecting `error.cause` against a Temporal SDK class.
+ * Modeled (rather than left to the defect channel) so idempotent callers can
+ * branch on it explicitly — e.g. fetch the existing handle and continue —
+ * without inspecting a Temporal SDK class.
  */
 export class WorkflowAlreadyStartedError extends TaggedError(WORKFLOW_ALREADY_STARTED_ERROR_TAG, {
   name: "WorkflowAlreadyStartedError",
@@ -117,10 +101,8 @@ export class WorkflowAlreadyStartedError extends TaggedError(WORKFLOW_ALREADY_ST
 }
 
 /**
- * Discriminated variant of {@link RuntimeClientError} surfaced when an
- * operation targets a workflow execution that doesn't exist in the
- * namespace — Temporal's `WorkflowNotFoundError` (distinct from this
- * package's contract-level {@link WorkflowNotInContractError}).
+ * Surfaced on the Err channel when an operation targets a workflow execution
+ * that doesn't exist in the namespace — Temporal's `WorkflowNotFoundError`.
  *
  * Returned from:
  * - handle methods: `signal`, `query`, `executeUpdate`, `result`,
@@ -143,9 +125,8 @@ export class WorkflowExecutionNotFoundError extends TaggedError(
 }
 
 /**
- * Discriminated variant of {@link RuntimeClientError} surfaced when waiting
- * on a workflow's result and the workflow completes with a failure —
- * Temporal's `WorkflowFailedError`.
+ * Surfaced on the Err channel when waiting on a workflow's result and the
+ * workflow completes with a failure — Temporal's `WorkflowFailedError`.
  *
  * `cause` is the *unwrapped* underlying {@link TemporalFailure} (typically an
  * `ApplicationFailure`) lifted from Temporal's wrapper, so callers can branch
@@ -164,6 +145,10 @@ export class WorkflowExecutionNotFoundError extends TaggedError(
  * this generic wrapper is considered, so `instanceof` digging through
  * `cause` is never needed to tell them apart.
  *
+ * `retryState` is Temporal's account of why the execution stopped retrying
+ * (e.g. `"RETRY_STATE_MAXIMUM_ATTEMPTS_REACHED"`), carried over from its
+ * wrapper.
+ *
  * Returned from `executeWorkflow` and `handle.result()`.
  */
 export class WorkflowFailedError extends TaggedError(WORKFLOW_FAILED_ERROR_TAG, {
@@ -171,11 +156,12 @@ export class WorkflowFailedError extends TaggedError(WORKFLOW_FAILED_ERROR_TAG, 
 })<{
   workflowId: string;
   cause?: TemporalFailure | undefined;
+  retryState?: RetryState | undefined;
 }> {
-  constructor(workflowId: string, cause?: TemporalFailure) {
+  constructor(workflowId: string, cause?: TemporalFailure, retryState?: RetryState) {
     const causeMessage =
       cause instanceof Error ? cause.message : String(cause ?? "unknown failure");
-    super({ workflowId, cause });
+    super({ workflowId, cause, retryState });
     this.message = `Workflow "${workflowId}" completed with failure: ${causeMessage}`;
   }
 }
@@ -248,18 +234,14 @@ export class WorkflowTimeoutError extends TaggedError(WORKFLOW_TIMEOUT_ERROR_TAG
   }
 }
 
-// Validation-message formatters live in `@temporal-contract/contract` so
-// client and worker share a single source of truth. The previous local
-// copies have been removed in favor of the shared `summarizeIssues` import
-// at the top of this module.
-
 /**
  * Surfaced on the Err channel when workflow input or output validation fails.
  *
  * `workflowId` identifies the targeted execution when the failing call knows
  * it (start/execute/signalWithStart options, a handle's bound execution);
- * it is absent for call sites without one (e.g. `schedule.create`, where
- * runs are spawned later).
+ * it is absent for call sites without one: `schedule.create` (runs are
+ * spawned later), `workflowIdFor`, and the input check of a workflow whose
+ * contract derives its ID (the ID is derived from the validated input).
  */
 export class WorkflowValidationError extends TaggedError(WORKFLOW_VALIDATION_ERROR_TAG, {
   name: "WorkflowValidationError",
@@ -301,17 +283,20 @@ export class QueryValidationError extends TaggedError(QUERY_VALIDATION_ERROR_TAG
 }
 
 /**
- * Surfaced on the Err channel when the server could not serve a query —
- * either no handler is registered under the query name on the (possibly
- * older) workflow execution, or the query handler itself threw. Temporal
- * reports both through the same channel (`QueryNotRegisteredError`, an
- * `INVALID_ARGUMENT` gRPC failure whose message carries the underlying
- * reason), so they are classified into this single modeled error; `cause`
- * keeps Temporal's original error for inspection.
+ * Surfaced on the Err channel when the server could not serve a query:
  *
- * A routine operational outcome — a stale execution predating the handler,
- * a handler bug — not a technical fault, so it rides the Err channel
- * instead of the defect channel.
+ * - no handler is registered under the query name on the (possibly older)
+ *   workflow execution, or the query handler itself threw — Temporal reports
+ *   both as `QueryNotRegisteredError` (an `INVALID_ARGUMENT` gRPC failure
+ *   whose message carries the underlying reason);
+ * - the server rejected the query because of the execution's status, under
+ *   the Temporal client's `queryRejectCondition` — Temporal's
+ *   `QueryRejectedError`, whose `status` names the execution status.
+ *
+ * `cause` keeps Temporal's original error for inspection. A routine
+ * operational outcome — a stale execution predating the handler, a handler
+ * bug, a closed execution — not a technical fault, so it rides the Err
+ * channel instead of the defect channel.
  *
  * Returned from the typed handle's `queries.*` proxies.
  */
@@ -376,8 +361,8 @@ export class UpdateValidationError extends TaggedError(UPDATE_VALIDATION_ERROR_T
  * `ApplicationFailure`) lifted from Temporal's wrapper, mirroring
  * {@link WorkflowFailedError.cause}.
  *
- * Returned from the typed handle's `updates.*` proxies, `startUpdate`, and
- * the update handle's `result()`.
+ * Returned from the typed handle's `updates.*` proxies, the update handle's
+ * `result()`, and `executeUpdateWithStart`.
  */
 export class UpdateFailedError extends TaggedError(UPDATE_FAILED_ERROR_TAG, {
   name: "UpdateFailedError",
@@ -405,8 +390,10 @@ export class UpdateFailedError extends TaggedError(UPDATE_FAILED_ERROR_TAG, {
  * check, which fails before anything is sent) and from
  * {@link UpdateFailedError} (the handler was admitted and then failed).
  *
- * Returned from the typed handle's `updates.*` proxies, `startUpdate`, and
- * the update handle's `result()`.
+ * Returned from the typed handle's `updates.*` proxies, the update handle's
+ * `result()`, and `executeUpdateWithStart` — never from `startUpdate`:
+ * Temporal hands back the update handle for a rejected update too, and the
+ * rejection surfaces when its `result()` is awaited.
  */
 export class UpdateRejectedError extends TaggedError(UPDATE_REJECTED_ERROR_TAG, {
   name: "UpdateRejectedError",
@@ -419,6 +406,30 @@ export class UpdateRejectedError extends TaggedError(UPDATE_REJECTED_ERROR_TAG, 
     this.message = `Update "${updateName}" was rejected at admission: ${
       cause instanceof Error ? cause.message : String(cause ?? "unknown error")
     }`;
+  }
+}
+
+/**
+ * Surfaced on the Err channel when an update *call* timed out or was
+ * cancelled on the client side — Temporal's
+ * `WorkflowUpdateRPCTimeoutOrCancelledError`. It says nothing about the
+ * update itself, which may still be admitted and run: retry with the same
+ * `updateId`, or reattach with `handle.getUpdateHandle(name, updateId)`.
+ * `cause` keeps Temporal's original error.
+ *
+ * Returned from every update path: the `updates.*` proxies, `startUpdate`,
+ * the update handle's `result()`, and `executeUpdateWithStart`.
+ */
+export class UpdateRpcTimeoutOrCancelledError extends TaggedError(
+  UPDATE_RPC_TIMEOUT_OR_CANCELLED_ERROR_TAG,
+  { name: "UpdateRpcTimeoutOrCancelledError" },
+)<{
+  updateName: string;
+  cause?: unknown;
+}> {
+  constructor(updateName: string, cause?: unknown) {
+    super({ updateName, cause });
+    this.message = `Update "${updateName}" call timed out or was cancelled.`;
   }
 }
 

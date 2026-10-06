@@ -1,6 +1,7 @@
 import { defineContract, defineSearchAttribute, defineWorkflow } from "@temporal-contract/contract";
+import { TechnicalError } from "@temporal-contract/contract/errors";
 import type { Client } from "@temporalio/client";
-import { TypedSearchAttributes } from "@temporalio/common";
+import { defineSearchAttributeKey, TypedSearchAttributes } from "@temporalio/common";
 /**
  * Coverage for `TypedClient.schedule` — typed wrapper around Temporal's
  * `ScheduleClient`.
@@ -15,7 +16,6 @@ import {
   RuntimeClientError,
   ScheduleAlreadyExistsError,
   ScheduleNotFoundError,
-  WorkflowNotInContractError,
   WorkflowValidationError,
 } from "./errors.js";
 
@@ -109,27 +109,6 @@ describe("TypedClient.schedule", () => {
     client = await bindContract(contract, rawClient);
   });
 
-  describe("@temporalio/client < 1.16 guard", () => {
-    it("TypedClient.create surfaces a missing `schedule` as a Defect with a clear message", async () => {
-      // Simulates a consumer who installed @temporalio/client < 1.16
-      // (where the Schedule API didn't exist). The peer dep allows all of
-      // ^1, so this is a supported install — it just shouldn't crash with a
-      // confusing `Cannot read properties of undefined`. The check lives on
-      // the connection-scoped root (it's a property of the client, not of
-      // any contract).
-      const oldClient = {
-        workflow: { start: vi.fn(), execute: vi.fn(), getHandle: vi.fn() },
-        // schedule intentionally absent
-      } as unknown as Client;
-
-      const created = await TypedClient.create({ client: oldClient });
-      expect(created).toBeDefect();
-      if (created.isDefect()) {
-        expect((created.cause as Error).message).toMatch(/requires @temporalio\/client >= 1\.16/);
-      }
-    });
-  });
-
   describe("create", () => {
     it("validates args, calls Temporal with the contract's taskQueue/workflowType, and returns a typed handle", async () => {
       mockSchedule.create.mockResolvedValue(createMockHandle());
@@ -159,7 +138,7 @@ describe("TypedClient.schedule", () => {
       );
     });
 
-    it("transmits the ORIGINAL args, not the parsed value (D1 wire format)", async () => {
+    it("transmits the ORIGINAL args, not the parsed value", async () => {
       // Sender validates and discards the parsed result; the worker parses
       // on receive. A transforming input schema makes the difference visible.
       const transformContract = defineContract({
@@ -195,7 +174,7 @@ describe("TypedClient.schedule", () => {
       );
     });
 
-    it("returns WorkflowNotInContractError when the workflow isn't declared", async () => {
+    it("surfaces an undeclared workflow name as a Defect(TechnicalError)", async () => {
       const result = await client.schedule.create(
         // @ts-expect-error testing runtime validation
         "nonExistent",
@@ -206,11 +185,55 @@ describe("TypedClient.schedule", () => {
         },
       );
 
-      expect(result).toBeErr();
-      if (result.isErr()) {
-        expect(result.error).toBeInstanceOf(WorkflowNotInContractError);
+      expect(result).toBeDefect();
+      if (result.isDefect()) {
+        expect(result.cause).toBeInstanceOf(TechnicalError);
       }
       expect(mockSchedule.create).not.toHaveBeenCalled();
+    });
+
+    it("lets `args` be omitted when the input schema accepts undefined, sending empty args", async () => {
+      const optionalContract = defineContract({
+        taskQueue: "schedules-q",
+        workflows: {
+          sweep: defineWorkflow({
+            input: z.object({ day: z.string() }).optional(),
+            output: z.number(),
+            startPolicy: "allow-duplicate",
+          }),
+        },
+      });
+      const optionalClient = await bindContract(optionalContract, {
+        workflow: {},
+        schedule: mockSchedule,
+      } as unknown as Client);
+      mockSchedule.create.mockResolvedValue(createMockHandle());
+
+      const result = await optionalClient.schedule.create("sweep", {
+        scheduleId: "s",
+        spec: { cronExpressions: ["0 2 * * *"] },
+      });
+
+      expect(result).toBeOk();
+      const passed = mockSchedule.create.mock.calls[0]?.[0] as { action: { args: unknown[] } };
+      expect(passed.action.args).toEqual([]);
+    });
+
+    it("keeps the contract-owned action fields even if an override smuggles them in", async () => {
+      mockSchedule.create.mockResolvedValue(createMockHandle());
+
+      await client.schedule.create("processOrder", {
+        scheduleId: "daily-sweep",
+        spec: { cronExpressions: ["0 2 * * *"] },
+        args: { orderId: "sweep" },
+        action: { taskQueue: "elsewhere", workflowType: "other" } as never,
+      });
+
+      const passed = mockSchedule.create.mock.calls[0]?.[0] as { action: object };
+      expect(passed.action).toMatchObject({
+        taskQueue: "schedules-q",
+        workflowType: "processOrder",
+      });
     });
 
     it("returns WorkflowValidationError when args fail input-schema validation", async () => {
@@ -393,6 +416,33 @@ describe("TypedClient.schedule", () => {
       }
       expect(mockSchedule.create).not.toHaveBeenCalled();
     });
+
+    it("update re-checks the action's search attributes against the declared kinds (a Defect)", async () => {
+      const tempHandle = createMockHandle();
+      mockSchedule.getHandle.mockReturnValue(tempHandle);
+
+      const handle = searchClient.schedule.getHandle("search-sweep");
+      const result = await handle.update((() => ({
+        spec: {},
+        action: {
+          type: "startWorkflow",
+          workflowType: "processOrder",
+          taskQueue: "schedule-search-q",
+          args: [{ orderId: "ORD-1" }],
+          // `priority` is declared INT.
+          typedSearchAttributes: [
+            { key: defineSearchAttributeKey("priority", "KEYWORD"), value: "high" },
+          ],
+        },
+      })) as never);
+
+      expect(result).toBeDefect();
+      if (result.isDefect()) {
+        expect(result.cause).toBeInstanceOf(RuntimeClientError);
+        expect((result.cause as RuntimeClientError).message).toContain("declared INT");
+      }
+      expect(tempHandle.update).not.toHaveBeenCalled();
+    });
   });
 
   describe("getHandle + handle methods", () => {
@@ -402,6 +452,7 @@ describe("TypedClient.schedule", () => {
 
       const handle = client.schedule.getHandle("daily-sweep");
       expect(handle.scheduleId).toBe("daily-sweep");
+      expect(handle.raw).toBe(tempHandle);
 
       expect(await handle.pause("test")).toBeOk();
       expect(tempHandle.pause).toHaveBeenCalledWith("test");
@@ -513,8 +564,31 @@ describe("TypedClient.schedule", () => {
 
       expect(result).toBeOk();
       const persistFn = tempHandle.update.mock.calls[0]?.[0] as (previous: unknown) => unknown;
-      // Original args on the wire — validated, not transformed (D1).
+      // Original args on the wire — validated, not transformed.
       expect(persistFn({})).toBe(updated);
+    });
+
+    it("update refuses to move a contract workflow off the contract's task queue (a Defect)", async () => {
+      const tempHandle = createMockHandle();
+      mockSchedule.getHandle.mockReturnValue(tempHandle);
+
+      const handle = client.schedule.getHandle("daily-sweep");
+      const result = await handle.update((() => ({
+        spec: {},
+        action: {
+          type: "startWorkflow",
+          workflowType: "processOrder",
+          taskQueue: "other-q",
+          args: [{ orderId: "sweep" }],
+        },
+      })) as never);
+
+      expect(result).toBeDefect();
+      if (result.isDefect()) {
+        expect(result.cause).toBeInstanceOf(TechnicalError);
+        expect((result.cause as TechnicalError).message).toContain("other-q");
+      }
+      expect(tempHandle.update).not.toHaveBeenCalled();
     });
 
     it("update passes through actions whose workflowType isn't declared on the contract", async () => {

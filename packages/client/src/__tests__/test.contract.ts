@@ -62,7 +62,7 @@ export const testContract = defineContract({
       },
     }),
 
-    // Workflow with transforming input/output schemas — exercises the D1
+    // Workflow with transforming input/output schemas — exercises the
     // wire format: the sender validates but transmits the ORIGINAL value;
     // the receiver parses, so each transform applies exactly once.
     transformWorkflow: defineWorkflow({
