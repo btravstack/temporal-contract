@@ -187,10 +187,10 @@ overrides:
   "fast-copy@<4.1.0": "4.1.0"
   # GHSA-r4xh-jqrq-34v2 (Moderate): smol-toml quadratic parse. Via knip only.
   "smol-toml@<1.9.0": "1.9.0"
-  # GHSA-68fv-2mgg-jv7q (High, source-map-js) is NOT overridden yet: 1.2.2 was
-  # published 2026-09-30 and is still inside minimumReleaseAge. Add
-  # "source-map-js@<1.2.2": "1.2.2" once it clears (build-time only, via
-  # @temporalio/worker's webpack in the example).
+  # GHSA-68fv-2mgg-jv7q (High): source-map-js event-loop DoS. Build-time only,
+  # via @temporalio/worker's webpack in the example. 1.2.2 is exempted from
+  # minimumReleaseAge below; drop that exemption after 2026-10-07.
+  "source-map-js@<1.2.2": "1.2.2"
 
 allowBuilds:
   "@swc/core": true
@@ -218,3 +218,6 @@ minimumReleaseAgeExclude:
   - "@unthrown/oxlint"
   - "@unthrown/saga"
   - "@unthrown/vitest"
+  # TEMPORARY third-party exemption for the GHSA-68fv-2mgg-jv7q fix (1.2.2,
+  # published 2026-09-30). Remove after 2026-10-07, once it clears the delay.
+  - "source-map-js@1.2.2"
