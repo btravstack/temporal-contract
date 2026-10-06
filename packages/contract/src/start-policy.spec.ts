@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { reusePolicyFor } from "./idempotency.js";
+import { reusePolicyFor } from "./start-policy.js";
 
 describe("reusePolicyFor", () => {
   it("maps once-per-id to REJECT_DUPLICATE — the ID may run exactly once, ever", () => {
@@ -15,10 +15,10 @@ describe("reusePolicyFor", () => {
     expect(reusePolicyFor("allow-duplicate")).toBe("ALLOW_DUPLICATE");
   });
 
-  it("maps every declared mode — a new mode without a mapping is a compile error", () => {
-    // `Record<IdempotencyMode, …>` in the implementation makes an unmapped
-    // mode fail to compile. This test pins the runtime side: every mode
-    // produces a policy string, none produces undefined.
+  it("maps every start policy — a new policy without a mapping is a compile error", () => {
+    // `Record<WorkflowStartPolicy, …>` in the implementation makes an
+    // unmapped policy fail to compile. This test pins the runtime side: every
+    // policy produces a reuse-policy string, none produces undefined.
     const modes = ["once-per-id", "retry-if-failed", "allow-duplicate"] as const;
     for (const mode of modes) {
       expect(typeof reusePolicyFor(mode)).toBe("string");

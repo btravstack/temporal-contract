@@ -36,7 +36,9 @@ async function copyDocs(): Promise<void> {
         console.log(`✓ Copied docs for @temporal-contract/${pkg}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        console.warn(`⚠ Could not copy docs for @temporal-contract/${pkg}:`, message);
+        // A missing API section would otherwise ship silently.
+        console.error(`❌ Could not copy docs for @temporal-contract/${pkg}:`, message);
+        process.exit(1);
       }
     }
 

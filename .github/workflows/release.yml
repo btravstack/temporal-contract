@@ -7,12 +7,18 @@ on:
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 jobs:
   release:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # Repeats the reusable workflow's own guard so a fork PR from a branch named
+    # `main` can never reach a job holding RELEASE_PAT and id-token: write,
+    # even if the pinned reusable workflow changes.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     permissions:
       contents: write
       pull-requests: write
       id-token: write
-    uses: btravstack/tools/.github/workflows/release-reusable.yml@workflows-v1
+    uses: btravstack/tools/.github/workflows/release-reusable.yml@022bb36b7955698e6b813d27bacdf0c88ed70be1 # workflows-v1
     with:
       # The exact commit the green CI run measured. Without it a `workflow_run`
       # checkout takes the default branch's CURRENT tip, which a push landing
