@@ -12,10 +12,7 @@
   --vp-home-hero-name-color: var(--text-accent);
 }
 
-/* Home-hero background glyph — the project's motif behind the hero (a durable
- * timeline with a clock). Painted in --accent through a mask, so it always
- * tracks the accent token; the SVG is base64-encoded so no CSS minifier can
- * mangle it. */
+/* Use the project silhouette as the decorative hero backdrop. */
 .VPHome {
   position: relative;
   isolation: isolate;
@@ -32,10 +29,8 @@
   right: var(--btv-gutter);
   aspect-ratio: 500 / 300;
   background-color: var(--accent);
-  -webkit-mask: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MDAgMzAwIiBmaWxsPSJub25lIj48cGF0aCBkPSJNNDAsMTUwIEg0NjAiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIyIi8+PHBhdGggZD0iTTEwMCwxMzggVjE2MiBNMTgwLDEzOCBWMTYyIE0yNjAsMTM4IFYxNjIgTTM0MCwxMzggVjE2MiBNNDIwLDEzOCBWMTYyIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMiIvPjxjaXJjbGUgY3g9IjI2MCIgY3k9IjE1MCIgcj0iOCIgZmlsbD0iI2ZmZiIvPjxwYXRoIGQ9Ik0yNjAsMTUwIG0wLC0yNiBhMjYsMjYgMCAxIDEgLTE4LDQ0IiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMiIvPjwvc3ZnPg==")
-    no-repeat top center / contain;
-  mask: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MDAgMzAwIiBmaWxsPSJub25lIj48cGF0aCBkPSJNNDAsMTUwIEg0NjAiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIyIi8+PHBhdGggZD0iTTEwMCwxMzggVjE2MiBNMTgwLDEzOCBWMTYyIE0yNjAsMTM4IFYxNjIgTTM0MCwxMzggVjE2MiBNNDIwLDEzOCBWMTYyIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMiIvPjxjaXJjbGUgY3g9IjI2MCIgY3k9IjE1MCIgcj0iOCIgZmlsbD0iI2ZmZiIvPjxwYXRoIGQ9Ik0yNjAsMTUwIG0wLC0yNiBhMjYsMjYgMCAxIDEgLTE4LDQ0IiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMiIvPjwvc3ZnPg==")
-    no-repeat top center / contain;
+  -webkit-mask: url("/logo-mono.svg") no-repeat top center / contain;
+  mask: url("/logo-mono.svg") no-repeat top center / contain;
   opacity: 0.14;
   pointer-events: none;
   z-index: -1;

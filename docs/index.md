@@ -10,7 +10,7 @@ hero:
   image:
     light: /logo-light.svg
     dark: /logo-dark.svg
-    alt: temporal-contract
+    alt: temporal-contract logo
   actions:
     - theme: brand
       text: Your first workflow
