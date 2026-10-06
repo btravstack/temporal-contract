@@ -18,6 +18,7 @@ import type {
 import { summarizeIssues } from "@temporal-contract/contract";
 import { defineQuery, defineSignal, defineUpdate, log, setHandler } from "@temporalio/workflow";
 
+import { toWorkflowFailure } from "./activity-failure.js";
 import {
   ContractMisuseError,
   QueryInputValidationError,
@@ -25,7 +26,7 @@ import {
   UpdateInputValidationError,
   UpdateOutputValidationError,
 } from "./errors.js";
-import { extractHandlerInput } from "./internal.js";
+import { extractHandlerInput } from "./shared.js";
 import type { WorkerInferInput, WorkerInferOutput } from "./types.js";
 
 /**
@@ -71,12 +72,6 @@ function updateInputMustBeSynchronousMessage(updateName: string): string {
   );
 }
 
-/**
- * Sentinel fed to a schema's `validate` when probing for synchronicity. Its
- * validity is irrelevant — only whether `validate` returns a thenable.
- */
-const SYNC_PROBE_SENTINEL = Symbol("temporal-contract.sync-schema-probe");
-
 function isThenable(value: unknown): value is PromiseLike<unknown> {
   return (
     (typeof value === "object" || typeof value === "function") &&
@@ -86,20 +81,21 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
 }
 
 /**
- * Per-call guard for the sync-only schema slots, kept shape-compatible with
- * {@link assertSyncSchema}'s probe.
+ * Per-call guard for the sync-only schema slots (query input/output, update
+ * input). Standard Schema permits `validate` to return a Promise (e.g. Zod
+ * with an async `.refine`), but Temporal runs query handlers and the update
+ * validator slot synchronously, so every call checks the result's shape and
+ * trips {@link ContractMisuseError} on an async one. There is no bind-time
+ * check: a schema may go async only for some inputs (`.refine(async)` runs
+ * after the synchronous base check passes), so only the real payload tells.
  *
- * Standard Schema types the async signature as `Promise<Result>`, but an
- * implementation may legally hand back any `PromiseLike` — a wrapper, a
- * deferred, a `then`-able from another realm. `instanceof Promise` misses
- * those, and the caller would then read `.issues` (`undefined` → "no issues")
- * and `.value` (`undefined`) straight off the thenable, silently handing the
- * handler an unvalidated `undefined` instead of tripping
- * {@link ContractMisuseError}. Matching the probe's `isThenable` closes that.
- *
- * A detected thenable's settlement is detached for the same reason the probe
- * detaches its own: nothing awaits it, and a rejection would otherwise surface
- * as an unhandled rejection while the {@link ContractMisuseError} is in flight.
+ * Structural (`then`-able), not `instanceof Promise`: an implementation may
+ * legally hand back any `PromiseLike`, and missing one would read `.issues`
+ * (`undefined` → "no issues") and `.value` straight off the thenable,
+ * silently handing the handler an unvalidated `undefined`. A detected
+ * thenable's settlement is detached: nothing awaits it, and a rejection would
+ * otherwise surface as an unhandled rejection while the
+ * {@link ContractMisuseError} is in flight.
  */
 function isAsyncValidation(result: unknown): result is PromiseLike<unknown> {
   if (!isThenable(result)) return false;
@@ -108,61 +104,6 @@ function isAsyncValidation(result: unknown): result is PromiseLike<unknown> {
     () => undefined,
   );
   return true;
-}
-
-/**
- * Bind-time probe for the sync-only schema slots (query input/output, update
- * input). Standard Schema permits `validate` to return a Promise (e.g. Zod
- * with an async `.refine`), but Temporal runs query handlers and the update
- * validator slot synchronously — an async schema would pass declaration and
- * only blow up when the first live request arrives. Probing at
- * `handleQuery`/`handleUpdate` bind time (i.e. on the first workflow task
- * that registers the handler) moves that failure to worker startup/binding,
- * where it is a clear {@link ContractMisuseError} instead of a mid-traffic
- * surprise.
- *
- * The probe invokes `validate` on an opaque sentinel and only inspects
- * whether the result is a thenable. Any synchronous **throw** counts as
- * "fine, it's synchronous": a sync validation error on the sentinel is
- * expected and proves synchronicity. A returned thenable is the async
- * signature — its eventual settlement is silenced (so a rejecting probe
- * can't trip unhandled-rejection reporting) and the bind fails immediately.
- */
-function assertSyncSchema(
-  schema: { "~standard": { validate: (value: unknown) => unknown } },
-  location: {
-    workflowName: string;
-    handlerKind: "Query" | "Update";
-    handlerName: string;
-    direction: "input" | "output";
-  },
-): void {
-  let probeResult: unknown;
-  try {
-    probeResult = schema["~standard"].validate(SYNC_PROBE_SENTINEL);
-  } catch {
-    // A synchronous throw on the sentinel proves the schema validates
-    // synchronously — exactly what this probe is checking for.
-    return;
-  }
-  if (isThenable(probeResult)) {
-    // Detach the probe's eventual settlement — we only cared about the shape.
-    probeResult.then(
-      () => undefined,
-      () => undefined,
-    );
-    const requirement =
-      location.handlerKind === "Query"
-        ? "Temporal query handlers run synchronously"
-        : "Temporal's update validator slot is synchronous";
-    // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: bind-time fail-fast as a non-retryable ApplicationFailure (CLAUDE.md rule 2 exception)
-    throw new ContractMisuseError(
-      `${location.handlerKind} "${location.handlerName}" of workflow "${location.workflowName}": ` +
-        `the ${location.direction} schema validates asynchronously (its validate() returned a Promise, ` +
-        `e.g. an async refine), but ${requirement}. ` +
-        `Use a synchronously-validating schema for this ${location.direction}.`,
-    );
-  }
 }
 
 /**
@@ -185,6 +126,10 @@ function assertSyncSchema(
  * {@link ContractMisuseError} (a non-retryable `ApplicationFailure`) so the
  * programming bug fails the execution terminally instead of hanging it in
  * an infinite Workflow Task retry loop.
+ *
+ * A library error the handler throws (`throw context.errors.X(...)`,
+ * `throw result.error`) fails the workflow with the Temporal failure it
+ * carries — the same mapping `declareWorkflow` applies to the implementation.
  */
 export function bindSignalHandler(
   workflowDefinition: AnyWorkflowDefinition,
@@ -198,7 +143,8 @@ export function bindSignalHandler(
       `Signal "${signalName}" cannot be defined: workflow "${workflowName}" has no signals in its contract`,
     );
   }
-  const signalDef = (workflowDefinition.signals as Record<string, SignalDefinition>)[signalName];
+  const signals = workflowDefinition.signals as Record<string, SignalDefinition>;
+  const signalDef = Object.hasOwn(signals, signalName) ? signals[signalName] : undefined;
   if (!signalDef) {
     // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: non-retryable ApplicationFailure Temporal must see thrown (CLAUDE.md rule 2 exception)
     throw new ContractMisuseError(
@@ -219,7 +165,12 @@ export function bindSignalHandler(
       );
       return;
     }
-    await handler(inputResult.value);
+    try {
+      await handler(inputResult.value);
+    } catch (error) {
+      // oxlint-disable-next-line unthrown/no-throw -- sanctioned ApplicationFailure model: a library error thrown by the handler must reach Temporal as a TemporalFailure, or the workflow task retries forever (CLAUDE.md rule 2 exception)
+      throw await toWorkflowFailure(error, workflowDefinition.errors, `workflow "${workflowName}"`);
+    }
   });
 }
 
@@ -249,29 +200,14 @@ export function bindQueryHandler(
       `Query "${queryName}" cannot be defined: workflow "${workflowName}" has no queries in its contract`,
     );
   }
-  const queryDef = (workflowDefinition.queries as Record<string, QueryDefinition>)[queryName];
+  const queries = workflowDefinition.queries as Record<string, QueryDefinition>;
+  const queryDef = Object.hasOwn(queries, queryName) ? queries[queryName] : undefined;
   if (!queryDef) {
     // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: non-retryable ApplicationFailure Temporal must see thrown (CLAUDE.md rule 2 exception)
     throw new ContractMisuseError(
       `Query "${queryName}" not found in workflow "${workflowName}" contract`,
     );
   }
-
-  // Bind-time probe: both query schema slots must validate synchronously.
-  // Failing here (worker startup / first workflow task) beats failing on the
-  // first live query. The per-call guards below stay as defense-in-depth.
-  assertSyncSchema(queryDef.input, {
-    workflowName,
-    handlerKind: "Query",
-    handlerName: queryName,
-    direction: "input",
-  });
-  assertSyncSchema(queryDef.output, {
-    workflowName,
-    handlerKind: "Query",
-    handlerName: queryName,
-    direction: "output",
-  });
 
   const query = defineQuery(queryName);
   setHandler(query, (...args: unknown[]) => {
@@ -351,24 +287,14 @@ export function bindUpdateHandler(
       `Update "${updateName}" cannot be defined: workflow "${workflowName}" has no updates in its contract`,
     );
   }
-  const updateDef = (workflowDefinition.updates as Record<string, UpdateDefinition>)[updateName];
+  const updates = workflowDefinition.updates as Record<string, UpdateDefinition>;
+  const updateDef = Object.hasOwn(updates, updateName) ? updates[updateName] : undefined;
   if (!updateDef) {
     // oxlint-disable-next-line unthrown/no-throw -- sanctioned ContractMisuseError model: non-retryable ApplicationFailure Temporal must see thrown (CLAUDE.md rule 2 exception)
     throw new ContractMisuseError(
       `Update "${updateName}" not found in workflow "${workflowName}" contract`,
     );
   }
-
-  // Bind-time probe: the update *input* schema feeds Temporal's synchronous
-  // validator slot, so it must validate synchronously. (The output schema is
-  // exempt — it runs inside the async handler body.) The per-call guards
-  // below stay as defense-in-depth.
-  assertSyncSchema(updateDef.input, {
-    workflowName,
-    handlerKind: "Update",
-    handlerName: updateName,
-    direction: "input",
-  });
 
   const update = defineUpdate(updateName);
   setHandler(
@@ -398,7 +324,17 @@ export function bindUpdateHandler(
         throw new UpdateInputValidationError(updateName, inputResult.issues);
       }
 
-      const result = await handler(inputResult.value);
+      let result: unknown;
+      try {
+        result = await handler(inputResult.value);
+      } catch (error) {
+        // oxlint-disable-next-line unthrown/no-throw -- sanctioned ApplicationFailure model: a library error thrown by the handler must reach Temporal as a TemporalFailure to reject the update, or the workflow task retries forever (CLAUDE.md rule 2 exception)
+        throw await toWorkflowFailure(
+          error,
+          workflowDefinition.errors,
+          `workflow "${workflowName}"`,
+        );
+      }
 
       const outputResult = await updateDef.output["~standard"].validate(result);
       if (outputResult.issues) {

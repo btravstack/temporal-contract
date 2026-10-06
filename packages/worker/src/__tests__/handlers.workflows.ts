@@ -50,69 +50,33 @@ export const counter = declareWorkflow({
 });
 
 /**
- * Exists solely to prove behavior 7: an async-validating query INPUT schema
- * trips `ContractMisuseError` at bind time (`context.handleQuery`, called
- * synchronously on the workflow's first Workflow Task), not on the first
- * live query. The `await condition(() => false)` below is never reached —
- * the bind throws first — but keeps the function's return type honest.
+ * Binds a handler on every sync-only schema slot fed an async schema; each
+ * must be rejected by the per-call guard on use. Runs forever (never
+ * signaled to finish) — the spec only issues queries and updates against it.
  */
-export const bindsAsyncQuerySchema = declareWorkflow({
-  workflowName: "bindsAsyncQuerySchema",
+export const probeEdgeCases = declareWorkflow({
+  workflowName: "probeEdgeCases",
   contract: handlersContract,
   implementation: async (context) => {
-    context.handleQuery("asyncCheckedQuery", () => ({ ok: true }));
-    await condition(() => false);
-    return {};
-  },
-});
-
-/**
- * The OUTPUT-schema counterpart of `bindsAsyncQuerySchema` — proves
- * `bindQueryHandler`'s bind-time probe checks the output schema slot too,
- * independently of the input slot.
- */
-export const bindsAsyncQueryOutputSchema = declareWorkflow({
-  workflowName: "bindsAsyncQueryOutputSchema",
-  contract: handlersContract,
-  implementation: async (context) => {
+    context.handleQuery("probeDodging", (echoed) => ({ echoed }));
+    context.handleQuery("thenableDodging", (echoed) => ({ echoed }));
     context.handleQuery("asyncCheckedQueryOutput", () => ({ ok: true }));
-    await condition(() => false);
-    return {};
-  },
-});
-
-/**
- * Async-validating update INPUT schema — the update-side counterpart of
- * `bindsAsyncQuerySchema`. `bindUpdateHandler` runs its own
- * `assertSyncSchema(updateDef.input, ...)` call, separate from
- * `bindQueryHandler`'s; this proves that specific call site independently.
- */
-export const bindsAsyncUpdateSchema = declareWorkflow({
-  workflowName: "bindsAsyncUpdateSchema",
-  contract: handlersContract,
-  implementation: async (context) => {
     context.handleUpdate("asyncCheckedUpdateInput", async () => ({ ok: true }));
     await condition(() => false);
     return {};
   },
 });
 
-/**
- * The three schema-probe edge cases: a synchronously-throwing schema must
- * pass the bind-time probe (not a false positive); a schema that answers
- * the probe synchronously but validates real payloads asynchronously must
- * still be caught by the PER-CALL guard; same for a schema whose async
- * result is a bare thenable rather than a native `Promise`. Isolated from
- * `counter` so each stays easy to reason about independently. Runs forever
- * (never signaled to finish) — the spec only issues queries against it.
- */
-export const probeEdgeCases = declareWorkflow({
-  workflowName: "probeEdgeCases",
+export const rejecting = declareWorkflow({
+  workflowName: "rejecting",
   contract: handlersContract,
   implementation: async (context) => {
-    context.handleQuery("syncThrowProbe", (echoed) => ({ echoed }));
-    context.handleQuery("probeDodging", (echoed) => ({ echoed }));
-    context.handleQuery("thenableDodging", (echoed) => ({ echoed }));
+    context.handleUpdate("rejectUpdate", async () => {
+      throw context.errors.Rejected();
+    });
+    context.handleSignal("reject", () => {
+      throw context.errors.Rejected();
+    });
     await condition(() => false);
     return {};
   },

@@ -1,5 +1,10 @@
 import { ContractError } from "@temporal-contract/contract/errors";
-import { ApplicationFailure, ActivityFailure, RetryState } from "@temporalio/common";
+import {
+  ApplicationFailure,
+  ActivityFailure,
+  CancelledFailure,
+  RetryState,
+} from "@temporalio/common";
 import { ErrAsync, OkAsync } from "unthrown";
 import { describe, expect, it } from "vitest";
 
@@ -53,12 +58,15 @@ describe("propagateFailure", () => {
     await expect(propagateFailure(ErrAsync(activityError))).rejects.toBe(cause);
   });
 
-  it("rethrows the wrapper itself when neither cause nor originalFailure was preserved", async () => {
-    // Never lose the error identity: if there is nothing underneath, the
-    // ActivityError itself is the most informative thing available.
+  it("converts an ActivityError with nothing preserved to a terminal ContractMisuseError", async () => {
+    // The bare TaggedError is not a TemporalFailure — rethrown, it would
+    // stall the workflow task instead of failing the workflow.
     const activityError = new ActivityError("charge", 'Activity "charge" failed: opaque');
 
-    await expect(propagateFailure(ErrAsync(activityError))).rejects.toBe(activityError);
+    await expect(propagateFailure(ErrAsync(activityError))).rejects.toMatchObject({
+      type: "ContractMisuseError",
+      message: 'Activity "charge" failed: opaque',
+    });
   });
 
   it("rethrows the preserved cause for a cancelled activity", async () => {
@@ -71,10 +79,10 @@ describe("propagateFailure", () => {
     await expect(propagateFailure(ErrAsync(cancelled))).rejects.toBe(cancelledFailure);
   });
 
-  it("rethrows a cancelled activity's wrapper when no cause was preserved", async () => {
+  it("throws a fresh CancelledFailure for a cancelled activity with no cause preserved", async () => {
     const cancelled = new ActivityCancelledError("charge");
 
-    await expect(propagateFailure(ErrAsync(cancelled))).rejects.toBe(cancelled);
+    await expect(propagateFailure(ErrAsync(cancelled))).rejects.toBeInstanceOf(CancelledFailure);
   });
 
   it("rethrows a non-ActivityError error value unchanged", async () => {
@@ -159,10 +167,10 @@ describe("propagateFailure", () => {
     await expect(propagateFailure(ErrAsync(cancelled))).rejects.toBe(cancelledFailure);
   });
 
-  it("rethrows a cancelled scope's wrapper when no cause was preserved", async () => {
+  it("throws a fresh CancelledFailure for a cancelled scope with no cause preserved", async () => {
     const cancelled = new WorkflowCancelledError();
 
-    await expect(propagateFailure(ErrAsync(cancelled))).rejects.toBe(cancelled);
+    await expect(propagateFailure(ErrAsync(cancelled))).rejects.toBeInstanceOf(CancelledFailure);
   });
 
   it("converts a not-found child workflow to a terminal ContractMisuseError, not a bare TaggedError rethrow", async () => {

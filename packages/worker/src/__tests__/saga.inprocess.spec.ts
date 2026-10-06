@@ -100,6 +100,32 @@ describe("the workflow saga, inside the sandbox", () => {
     // THEN nothing was taken back — that step's state is not knowable
     expect({ ...result, undone }).toEqual({ failedWith: ACTIVITY_ERROR_TAG, undone: [] });
   });
+
+  it("unwinds on a child workflow's declared error, the child started under its derived ID", async ({
+    testEnv,
+  }) => {
+    // GIVEN a fulfilment whose second step is a child that is out of stock
+    const { worker, client, undone } = await rigFor(testEnv, "saga-child");
+
+    // WHEN the workflow runs
+    const result = await worker.raw.runUntil(
+      client
+        .executeWorkflow("fulfilViaChild", {
+          workflowId: "saga-child",
+          args: {},
+          workflowExecutionTimeout: WORKFLOW_EXECUTION_TIMEOUT,
+        })
+        .getOrThrow(),
+    );
+
+    // THEN the child's error came back typed, so step one was undone, and the
+    // child ran under the ID its contract derives from `args`
+    expect({ ...result, undone }).toEqual({
+      failedWith: CONTRACT_ERROR_TAG,
+      childWorkflowId: "ship-s-1",
+      undone: ["release"],
+    });
+  });
 });
 
 /**

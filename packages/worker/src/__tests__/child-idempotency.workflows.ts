@@ -46,19 +46,17 @@ export const parent = declareWorkflow({
   // awaiting the first attempt's full completion before the second — so the
   // second attempt always races a *Closed* prior run, exactly the case
   // `workflowIdReusePolicy` governs. `args.mode` picks which child-start path
-  // (`startChildWorkflow` vs. `executeChildWorkflow`) is under test;
-  // `args.overridePolicy`, when set, rides only on the SECOND attempt.
+  // (`startChildWorkflow` vs. `executeChildWorkflow`) is under test.
   implementation: async (context, args) => {
-    async function attempt(
-      overridePolicy: "ALLOW_DUPLICATE" | undefined,
-    ): Promise<{ ok: true; value: { ok: boolean } } | { ok: false; cause: unknown }> {
+    async function attempt(): Promise<
+      { ok: true; value: { ok: boolean } } | { ok: false; cause: unknown }
+    > {
       const options = {
         workflowId: args.childWorkflowId,
         args: { shouldFail: false },
         // This fixture is about workflowIdReusePolicy, not parent-close
         // behavior; TERMINATE preserves the pre-8.0.0 default.
         parentClosePolicy: "TERMINATE" as const,
-        ...(overridePolicy ? { workflowIdReusePolicy: overridePolicy } : {}),
       };
 
       if (args.mode === "start") {
@@ -86,8 +84,8 @@ export const parent = declareWorkflow({
       return { ok: true, value: execResult.value };
     }
 
-    const first = await attempt(undefined);
-    const second = await attempt(args.overridePolicy);
+    const first = await attempt();
+    const second = await attempt();
 
     return {
       firstOk: first.ok,

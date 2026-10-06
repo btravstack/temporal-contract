@@ -28,7 +28,7 @@ import {
   type ContractErrorInputUnion,
 } from "@temporal-contract/contract/errors";
 import { _internal_buildErrorConstructors } from "@temporal-contract/contract/internal";
-import { ApplicationFailure } from "@temporalio/common";
+import { ApplicationFailure, CancelledFailure } from "@temporalio/common";
 import { P, type AsyncResult } from "unthrown";
 
 import { contractErrorToApplicationFailure } from "./contract-errors.js";
@@ -36,17 +36,35 @@ import {
   ActivityDefinitionNotFoundError,
   ActivityInputValidationError,
   ActivityOutputValidationError,
+  ContractMisuseError,
 } from "./errors.js";
-import { extractHandlerInput, makeAsyncResult } from "./internal.js";
-import { type WorkerInferInput, type WorkerInferOutput } from "./types.js";
+import {
+  type ActivityInvocationInfo,
+  type ActivityMiddleware,
+  type AnyActivityMiddleware,
+  type EmptyContext,
+} from "./middleware.js";
+import { extractHandlerInput, makeAsyncResult } from "./shared.js";
+import { type ClientInferInput, type WorkerInferInput, type WorkerInferOutput } from "./types.js";
 
 export {
   ActivityDefinitionNotFoundError,
   ActivityInputValidationError,
   ActivityOutputValidationError,
   ContractErrorDataValidationError,
+  ContractMisuseError,
   ValidationError,
 } from "./errors.js";
+
+export {
+  composeActivityMiddleware,
+  declareActivityMiddleware,
+  type ActivityInvocationInfo,
+  type ActivityMiddleware,
+  type ActivityMiddlewareNext,
+  type AnyActivityMiddleware,
+  type EmptyContext,
+} from "./middleware.js";
 
 // Re-export the canonical activity-failure class so consumers don't need
 // a separate `@temporalio/common` import to construct one.
@@ -144,6 +162,18 @@ function matchesExpected(cause: unknown, expected: QualifyFailureOptions["expect
 }
 
 /**
+ * A rejection caused by the activity being cancelled: the SDK's
+ * `CancelledFailure` (thrown by `heartbeat`/`sleep`, and the
+ * `cancellationSignal`'s abort reason), or the `AbortError` an
+ * abort-signal-aware API (`fetch`, timers) rejects with.
+ */
+function isActivityCancellation(cause: unknown): boolean {
+  return (
+    cause instanceof CancelledFailure || (cause instanceof Error && cause.name === "AbortError")
+  );
+}
+
+/**
  * Build a qualifier for `fromPromise` that **triages** each rejection: causes
  * matching `options.expected` are wrapped in a modeled
  * {@link ApplicationFailure} of the given `errorType`; everything else goes
@@ -164,6 +194,10 @@ function matchesExpected(cause: unknown, expected: QualifyFailureOptions["expect
  * preserves it as `cause` (so stack traces survive the activity → workflow
  * boundary); a matched non-`Error` cause falls back to `options.message` (or
  * `String(cause)`).
+ *
+ * A cancellation (`CancelledFailure`, `AbortError`) is never wrapped — it
+ * always rides the defect channel, so it still reaches Temporal as a
+ * cancellation.
  *
  * @example
  * ```ts
@@ -210,7 +244,11 @@ export function qualifyFailure(
   options: QualifyFailureOptions,
 ): <TDefect>(cause: unknown, defect: (cause: unknown) => TDefect) => ApplicationFailure | TDefect {
   return (cause, defect) => {
-    if (!matchesExpected(cause, options.expected)) {
+    // Cancellation first, whatever `expected` says (`"any"` included): wrapped
+    // as an `ApplicationFailure` it would stop being a cancellation, and
+    // Temporal would record a failed (possibly retried) attempt instead of a
+    // cancelled one. Rethrown untouched from the defect channel, it stays one.
+    if (isActivityCancellation(cause) || !matchesExpected(cause, options.expected)) {
       return defect(cause);
     }
     // `nonRetryable` precedence: explicit option > inherited from a matched
@@ -454,276 +492,6 @@ export type GlobalActivityImplementationFor<
     : never;
 
 /**
- * Per-invocation description handed to middleware and `createContext`.
- */
-export type ActivityInvocationInfo = {
-  /** Flat runtime name of the activity (as Temporal sees it). */
-  readonly activityName: string;
-  /**
-   * Owning workflow for workflow-local activities; `undefined` for global
-   * ones.
-   *
-   * **Shared-definition caveat:** `workflowName` identifies the scope the
-   * implementation was *registered under*, not the workflow that is calling
-   * right now (Temporal's flat activity namespace erases the caller). When
-   * one `defineActivity` object is referenced from several scopes and
-   * implemented with the same function reference, the activity registers
-   * once under the first scope encountered — global first, then the
-   * contract's workflow declaration order — and every invocation reports
-   * that scope's `workflowName`. To know the actual calling workflow inside
-   * an activity, read `Context.current().info.workflowType` from
-   * `@temporalio/activity`.
-   */
-  readonly workflowName: string | undefined;
-};
-
-/**
- * The empty middleware context. `Record<never, never>` rather than `{}` so
- * an empty context is a real "no properties" type instead of the
- * anything-goes empty-object type. (Mirrors amqp-contract's `EmptyContext`.)
- */
-export type EmptyContext = Record<never, never>;
-
-/**
- * Continuation invoked by an {@link ActivityMiddleware}.
- *
- * - `next()` — forward unchanged.
- * - `next({ context: { ... } })` — extend the typed context flowing
- *   downstream; the patch is shallow-merged over the current context, so
- *   later middleware and the implementation see the accumulated value.
- * - `next({ input: ... })` — substitute the input. A substituted input is
- *   re-validated against the activity's input schema before it flows
- *   downstream — an invalid substitution fails terminally with
- *   `ActivityInputValidationError`, so middleware cannot smuggle
- *   unvalidated data past the contract boundary.
- */
-export type ActivityMiddlewareNext<
-  TContextOut extends Record<string, unknown> | EmptyContext = EmptyContext,
-> = (opts?: {
-  readonly input?: unknown;
-  readonly context?: TContextOut;
-}) => AsyncResult<unknown, ApplicationFailure | AnyContractError>;
-
-/**
- * Contract-aware middleware wrapped around every activity implementation.
- *
- * Middleware runs *inside* the validation boundary — `invocation.input` is
- * already validated against the contract's input schema, and whatever the
- * chain returns on the `ok` channel is still validated against the output
- * schema afterwards. Because it operates on the unthrown `AsyncResult`
- * rather than thrown exceptions, a middleware observes modeled failures
- * (`ApplicationFailure`, contract errors) on the `err` channel and can
- * short-circuit by returning its own result without calling `next`.
- *
- * Context accumulates through the chain: `TContextIn` is what this
- * middleware receives (the `createContext` seed for the outermost one),
- * `TContextOut extends TContextIn` is what it passes downstream via
- * `next({ context })`. A middleware that only reads context leaves both
- * parameters equal and stays valid unchanged. Compose typed chains with
- * {@link composeActivityMiddleware}; pin a middleware's context types
- * without a variable annotation via {@link declareActivityMiddleware}.
- *
- * @example Log every activity invocation and its outcome (read-only)
- * ```ts
- * import { ApplicationFailure } from '@temporal-contract/worker/activity';
- * import { P } from "unthrown";
- *
- * const logging: ActivityMiddleware = ({ activityName, workflowName }, next) =>
- *   next().tapErrCases((matcher) =>
- *     matcher.with(
- *       P.instanceOf(ApplicationFailure),
- *       P.tag("@temporal-contract/ContractError"),
- *       (error) => {
- *         logger.warn({ activityName, workflowName, error }, "activity failed");
- *       },
- *     ),
- *   );
- * ```
- *
- * @example Guard-and-narrow: inject a tenant id for everything downstream
- * ```ts
- * const auth = declareActivityMiddleware<EmptyContext, { tenantId: string }>(
- *   (invocation, next) => {
- *     const tenantId = readTenant(invocation.input);
- *     if (!tenantId) {
- *       return ErrAsync(ApplicationFailure.create({ type: "Unauthenticated", nonRetryable: true }));
- *     }
- *     return next({ context: { tenantId } });
- *   },
- * );
- * ```
- */
-export type ActivityMiddleware<
-  TContextIn extends Record<string, unknown> | EmptyContext = EmptyContext,
-  TContextOut extends TContextIn = TContextIn,
-> = (
-  invocation: ActivityInvocationInfo & {
-    /** Schema-validated input for this invocation. */
-    readonly input: unknown;
-    /** Context accumulated so far (the `createContext` seed for the outermost middleware). */
-    readonly context: TContextIn;
-  },
-  next: ActivityMiddlewareNext<TContextOut>,
-) => AsyncResult<unknown, ApplicationFailure | AnyContractError>;
-
-/**
- * Context-erased middleware shape used by the runtime chain.
- */
-export type AnyActivityMiddleware = ActivityMiddleware<
-  Record<string, unknown>,
-  Record<string, unknown>
->;
-
-/**
- * Identity helper that pins a middleware's context types without a variable
- * annotation. (Mirrors amqp-contract's `defineMiddleware`.)
- */
-export function declareActivityMiddleware<
-  TContextIn extends Record<string, unknown> | EmptyContext = EmptyContext,
-  TContextOut extends TContextIn = TContextIn,
->(
-  middleware: ActivityMiddleware<TContextIn, TContextOut>,
-): ActivityMiddleware<TContextIn, TContextOut> {
-  return middleware;
-}
-
-/**
- * Compose middleware outermost-first into a single {@link ActivityMiddleware}
- * whose context type accumulates across the chain — each middleware's
- * `TContextOut` bounds the next one's `TContextIn`, so the composed result's
- * out-context is the last middleware's. For chains longer than eight, nest:
- * a composed chain is itself an `ActivityMiddleware` and can be the *first*
- * argument of an outer `composeActivityMiddleware` call.
- *
- * (Mirrors amqp-contract's `composeMiddleware` overload approach.)
- */
-export function composeActivityMiddleware<
-  TSeed extends Record<string, unknown> | EmptyContext,
-  TA extends TSeed,
->(m1: ActivityMiddleware<TSeed, TA>): ActivityMiddleware<TSeed, TA>;
-export function composeActivityMiddleware<
-  TSeed extends Record<string, unknown> | EmptyContext,
-  TA extends TSeed,
-  TB extends TA,
->(m1: ActivityMiddleware<TSeed, TA>, m2: ActivityMiddleware<TA, TB>): ActivityMiddleware<TSeed, TB>;
-export function composeActivityMiddleware<
-  TSeed extends Record<string, unknown> | EmptyContext,
-  TA extends TSeed,
-  TB extends TA,
-  TC extends TB,
->(
-  m1: ActivityMiddleware<TSeed, TA>,
-  m2: ActivityMiddleware<TA, TB>,
-  m3: ActivityMiddleware<TB, TC>,
-): ActivityMiddleware<TSeed, TC>;
-export function composeActivityMiddleware<
-  TSeed extends Record<string, unknown> | EmptyContext,
-  TA extends TSeed,
-  TB extends TA,
-  TC extends TB,
-  TD extends TC,
->(
-  m1: ActivityMiddleware<TSeed, TA>,
-  m2: ActivityMiddleware<TA, TB>,
-  m3: ActivityMiddleware<TB, TC>,
-  m4: ActivityMiddleware<TC, TD>,
-): ActivityMiddleware<TSeed, TD>;
-export function composeActivityMiddleware<
-  TSeed extends Record<string, unknown> | EmptyContext,
-  TA extends TSeed,
-  TB extends TA,
-  TC extends TB,
-  TD extends TC,
-  TE extends TD,
->(
-  m1: ActivityMiddleware<TSeed, TA>,
-  m2: ActivityMiddleware<TA, TB>,
-  m3: ActivityMiddleware<TB, TC>,
-  m4: ActivityMiddleware<TC, TD>,
-  m5: ActivityMiddleware<TD, TE>,
-): ActivityMiddleware<TSeed, TE>;
-export function composeActivityMiddleware<
-  TSeed extends Record<string, unknown> | EmptyContext,
-  TA extends TSeed,
-  TB extends TA,
-  TC extends TB,
-  TD extends TC,
-  TE extends TD,
-  TF extends TE,
->(
-  m1: ActivityMiddleware<TSeed, TA>,
-  m2: ActivityMiddleware<TA, TB>,
-  m3: ActivityMiddleware<TB, TC>,
-  m4: ActivityMiddleware<TC, TD>,
-  m5: ActivityMiddleware<TD, TE>,
-  m6: ActivityMiddleware<TE, TF>,
-): ActivityMiddleware<TSeed, TF>;
-export function composeActivityMiddleware<
-  TSeed extends Record<string, unknown> | EmptyContext,
-  TA extends TSeed,
-  TB extends TA,
-  TC extends TB,
-  TD extends TC,
-  TE extends TD,
-  TF extends TE,
-  TG extends TF,
->(
-  m1: ActivityMiddleware<TSeed, TA>,
-  m2: ActivityMiddleware<TA, TB>,
-  m3: ActivityMiddleware<TB, TC>,
-  m4: ActivityMiddleware<TC, TD>,
-  m5: ActivityMiddleware<TD, TE>,
-  m6: ActivityMiddleware<TE, TF>,
-  m7: ActivityMiddleware<TF, TG>,
-): ActivityMiddleware<TSeed, TG>;
-export function composeActivityMiddleware<
-  TSeed extends Record<string, unknown> | EmptyContext,
-  TA extends TSeed,
-  TB extends TA,
-  TC extends TB,
-  TD extends TC,
-  TE extends TD,
-  TF extends TE,
-  TG extends TF,
-  TH extends TG,
->(
-  m1: ActivityMiddleware<TSeed, TA>,
-  m2: ActivityMiddleware<TA, TB>,
-  m3: ActivityMiddleware<TB, TC>,
-  m4: ActivityMiddleware<TC, TD>,
-  m5: ActivityMiddleware<TD, TE>,
-  m6: ActivityMiddleware<TE, TF>,
-  m7: ActivityMiddleware<TF, TG>,
-  m8: ActivityMiddleware<TG, TH>,
-): ActivityMiddleware<TSeed, TH>;
-export function composeActivityMiddleware(
-  ...middlewares: readonly AnyActivityMiddleware[]
-): AnyActivityMiddleware {
-  return (invocation, next) => {
-    const run = (
-      index: number,
-      input: unknown,
-      inputPatched: boolean,
-      context: Record<string, unknown>,
-    ): ReturnType<AnyActivityMiddleware> =>
-      index >= middlewares.length
-        ? // Only surface `input` in the terminal patch when some stage
-          // actually substituted it — an untouched input must not trigger
-          // the wrapper's re-validation pass.
-          next(inputPatched ? { input, context } : { context })
-        : middlewares[index]!({ ...invocation, input, context }, (opts) =>
-            run(
-              index + 1,
-              opts && "input" in opts ? opts.input : input,
-              inputPatched || (opts !== undefined && "input" in opts),
-              { ...context, ...opts?.context },
-            ),
-          );
-    return run(0, invocation.input, false, invocation.context);
-  };
-}
-
-/**
  * Options for {@link declareActivitiesHandler}.
  */
 export type DeclareActivitiesHandlerOptions<
@@ -765,8 +533,13 @@ export type DeclareActivitiesHandlerOptions<
   middleware?: ActivityMiddleware<TContext, TInjected>;
 };
 
+/**
+ * One wire-facing handler: Temporal hands it the caller's raw payload (the
+ * input schema's *input* type — it is parsed inside), and it resolves with
+ * the implementation's original, validated return.
+ */
 type ActivityImplementation<TActivity extends ActivityDefinition> = (
-  args: WorkerInferInput<TActivity>,
+  args: ClientInferInput<TActivity>,
 ) => Promise<WorkerInferOutput<TActivity>>;
 
 type ActivitiesImplementations<TActivities extends Record<string, ActivityDefinition>> = {
@@ -836,9 +609,9 @@ export type ActivitiesHandler<TContract extends ContractDefinition> =
  *   createContext: () => ({ emailService }),
  *   activities: {
  *     // Activity returns AsyncResult instead of throwing.
- *     sendEmail: (args, { errors, context }) =>
+ *     sendEmail: ({ errors, context, input }) =>
  *       fromPromise(
- *         context.emailService.send(args),
+ *         context.emailService.send(input),
  *         (error) =>
  *           // Wrap technical errors in ApplicationFailure. `nonRetryable`
  *           // is per-instance: set it to true on permanent failures so
@@ -933,14 +706,16 @@ export function declareActivitiesHandler<
   // `label` is the diagnostic name used in validation errors (workflow-local
   // activities keep the historical `workflow.activity` format); `info` is the
   // runtime identity handed to middleware and `createContext`.
+  type ErasedImplementation = (
+    helpers: { errors: unknown; context: unknown; input: unknown; idempotencyKey: unknown },
+    args: unknown,
+  ) => AsyncResult<unknown, ApplicationFailure | AnyContractError>;
+
   function makeWrapped(
     label: string,
     info: ActivityInvocationInfo,
     activityDef: ActivityDefinition,
-    activityImpl: (
-      helpers: { errors: unknown; context: unknown; input: unknown; idempotencyKey: unknown },
-      args: unknown,
-    ) => AsyncResult<unknown, ApplicationFailure | AnyContractError>,
+    activityImpl: ErasedImplementation,
   ) {
     // Constructors are stateless and derived from contract-time immutables,
     // so build them once per activity at declaration time.
@@ -1073,11 +848,6 @@ export function declareActivitiesHandler<
     };
   }
 
-  type ErasedImplementation = (
-    helpers: { errors: unknown; context: unknown; input: unknown; idempotencyKey: unknown },
-    args: unknown,
-  ) => AsyncResult<unknown, ApplicationFailure | AnyContractError>;
-
   const implementationMap = activities as Record<string, unknown>;
   const workflowDefs = contract.workflows ?? {};
 
@@ -1090,7 +860,7 @@ export function declareActivitiesHandler<
     for (const activityName of Object.keys(contract.activities)) {
       if (Object.hasOwn(workflowDefs, activityName)) {
         // oxlint-disable-next-line unthrown/no-throw -- declaration-time fail-fast config error: worker startup must abort on an ambiguous implementations map
-        throw new Error(
+        throw new ContractMisuseError(
           `global activity "${activityName}" has the same name as a workflow. Workflows and global activities share the root of the worker implementations map — rename one of them.`,
         );
       }
@@ -1130,7 +900,7 @@ export function declareActivitiesHandler<
       return false;
     }
     // oxlint-disable-next-line unthrown/no-throw -- declaration-time fail-fast config error: worker startup must abort instead of silently clobbering a shared activity implementation
-    throw new Error(
+    throw new ContractMisuseError(
       `declareActivitiesHandler: activity "${activityName}" received two different implementations — ` +
         `one from ${existing.scopeLabel} and one from ${scopeLabel}. Activities share a single flat ` +
         `namespace at runtime, so the second implementation would silently replace the first. ` +
@@ -1143,7 +913,9 @@ export function declareActivitiesHandler<
   // 1) Global activities declared under contract.activities.
   if (contract.activities) {
     for (const [activityName, activityDef] of Object.entries(contract.activities)) {
-      const impl = implementationMap[activityName];
+      const impl = Object.hasOwn(implementationMap, activityName)
+        ? implementationMap[activityName]
+        : undefined;
       if (typeof impl !== "function") {
         missingImplementations.push(activityName);
         continue;
@@ -1164,10 +936,15 @@ export function declareActivitiesHandler<
   // 2) Workflow-scoped activities, flattened to the root level.
   for (const [workflowName, workflowDef] of Object.entries(workflowDefs)) {
     const wfDefs = workflowDef.activities ?? {};
-    const wfActivitiesImpl = implementationMap[workflowName] as Record<string, unknown> | undefined;
+    const wfActivitiesImpl = (
+      Object.hasOwn(implementationMap, workflowName) ? implementationMap[workflowName] : undefined
+    ) as Record<string, unknown> | undefined;
 
     for (const [activityName, activityDef] of Object.entries(wfDefs)) {
-      const impl = wfActivitiesImpl?.[activityName];
+      const impl =
+        wfActivitiesImpl && Object.hasOwn(wfActivitiesImpl, activityName)
+          ? wfActivitiesImpl[activityName]
+          : undefined;
       if (typeof impl !== "function") {
         missingImplementations.push(`${workflowName}.${activityName}`);
         continue;
@@ -1203,7 +980,7 @@ export function declareActivitiesHandler<
 
   if (missingImplementations.length > 0) {
     // oxlint-disable-next-line unthrown/no-throw -- declaration-time fail-fast config error: worker startup must abort on missing activity implementations
-    throw new Error(
+    throw new ContractMisuseError(
       `declareActivitiesHandler: missing implementation${missingImplementations.length > 1 ? "s" : ""} ` +
         `for declared activit${missingImplementations.length > 1 ? "ies" : "y"}: ` +
         `${missingImplementations.join(", ")}. Every activity declared on the contract must be implemented.`,

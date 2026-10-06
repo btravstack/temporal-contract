@@ -17,6 +17,12 @@ import { rehydrationWorkerContract } from "./rehydration.contract.js";
  *   built without the typed constructors: `declareWorkflow`'s catch block
  *   must rethrow it untouched (not misclassify it as a contract error, not
  *   swallow it);
+ * - `"rethrow:<charge mode>"` — calls `charge` and throws its failure as-is
+ *   (`.getOrThrow()`): `declareWorkflow` must map the library error to the
+ *   Temporal failure it carries instead of stalling the workflow task;
+ * - `"history"` — reads `context.info.historyLength` before and after an
+ *   activity, proving `context.info` is live rather than a first-activation
+ *   snapshot;
  * - anything else — calls the `charge` activity and reports how the
  *   workflow-side proxy classified its failure: `contract:<name>` for a
  *   rehydrated typed error, `generic:<_tag>` for the untyped fallback.
@@ -48,6 +54,18 @@ export const quote = declareWorkflow({
         message: "boom",
         nonRetryable: true,
       });
+    }
+
+    if (args.mode.startsWith("rethrow:")) {
+      const mode = args.mode.slice("rethrow:".length);
+      (await context.activities.charge({ mode })).getOrThrow();
+      return { classification: "ok" };
+    }
+
+    if (args.mode === "history") {
+      const before = context.info.historyLength;
+      await context.activities.charge({ mode: "ok" });
+      return { classification: `history advanced: ${context.info.historyLength > before}` };
     }
 
     const result = await context.activities.charge({ mode: args.mode });

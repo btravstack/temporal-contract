@@ -177,13 +177,9 @@ describe("Worker Package - Integration Tests", () => {
       });
 
       // WHEN — getHandle is synchronous in the new client surface
-      const handleResult = client.getHandle("simpleWorkflow", workflowId);
+      const handle = client.getHandle("simpleWorkflow", workflowId);
 
       // THEN
-      expect(handleResult).toBeOk();
-      if (!handleResult.isOk()) throw new Error("Expected Ok result");
-
-      const handle = handleResult.value;
       const result = await handle.result();
       expect(result).toBeOk();
       if (result.isOk()) {

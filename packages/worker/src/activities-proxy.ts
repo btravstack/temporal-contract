@@ -23,7 +23,8 @@ import {
   ActivityInputValidationError,
   ActivityOutputValidationError,
 } from "./errors.js";
-import { makeAsyncResult } from "./internal.js";
+import { logRehydrationMiss } from "./internal.js";
+import { makeAsyncResult } from "./shared.js";
 import type { ClientInferInput, ClientInferOutput } from "./types.js";
 
 /**
@@ -132,20 +133,12 @@ export function createValidatedActivities<
   };
 
   for (const [activityName, activityDef] of Object.entries(allActivitiesDefinition)) {
-    const rawActivity = rawActivities[activityName];
-
-    if (!rawActivity) {
-      // oxlint-disable-next-line unthrown/no-throw -- declaration-time fail-fast config error: a missing implementation is a wiring bug surfaced at proxy construction
-      throw new Error(
-        `Activity implementation not found for: "${activityName}". ` +
-          `Available activities: ${Object.keys(rawActivities).length > 0 ? Object.keys(rawActivities).join(", ") : "none"}`,
-      );
-    }
-
     (validatedActivities as Record<string, unknown>)[activityName] = makeResultShapedActivity(
       activityName,
       activityDef,
-      rawActivity,
+      // `buildRawActivitiesProxy` resolves every declared name: its bound
+      // check throws before returning for any activity no options cover.
+      rawActivities[activityName]!,
     );
   }
 
@@ -240,7 +233,9 @@ async function classifyActivityError(
   const inner = error instanceof ActivityFailure ? (error.cause ?? error) : error;
 
   if (inner instanceof ApplicationFailure) {
-    const rehydrated = await _internal_rehydrateContractError(activityDef.errors, inner);
+    const rehydrated = await _internal_rehydrateContractError(activityDef.errors, inner, {
+      onMiss: logRehydrationMiss(`Activity "${activityName}"`),
+    });
     if (rehydrated) {
       return rehydrated as ContractErrorUnion<Record<string, ErrorDefinition>>;
     }

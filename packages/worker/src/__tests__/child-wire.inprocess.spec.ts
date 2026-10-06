@@ -113,7 +113,7 @@ describe("workflow entry point — wire format against a real server", () => {
     expect(cause).toBeInstanceOf(ApplicationFailure);
     expect((cause as ApplicationFailure).type).toBe("WorkflowOutputValidationError");
     expect((cause as ApplicationFailure).message).toMatch(
-      /Workflow "entryInvalidOutput" output validation failed: at n: (?:Invalid input|expected number, received string)/,
+      /Workflow "entryInvalidOutput" output validation failed: at n$/,
     );
   });
 });
@@ -196,7 +196,7 @@ describe("child-workflow boundary — wire format against a real server", () => 
       if (!parentResult.childWorkflowId) {
         throw new Error("expected parentChild to return a childWorkflowId");
       }
-      const childHandle = client.getHandle("child", parentResult.childWorkflowId).getOrThrow();
+      const childHandle = client.getHandle("child", parentResult.childWorkflowId);
       const description = await childHandle.raw.describe();
       return { parentResult, actualRunId: description.runId };
     });
@@ -240,7 +240,7 @@ describe("child-workflow boundary — wire format against a real server", () => 
       // by the parent's own reported `childWorkflowId` (the typed handle's
       // real `workflowId`, not a hardcoded/duplicated derivation).
       if (!result.childWorkflowId) throw new Error("expected a childWorkflowId");
-      const childHandle = client.getHandle("signalful", result.childWorkflowId).getOrThrow();
+      const childHandle = client.getHandle("signalful", result.childWorkflowId);
       const history = await childHandle.raw.fetchHistory();
       const events = history.events ?? [];
       const signalNames = events
@@ -284,7 +284,7 @@ describe("child-workflow boundary — wire format against a real server", () => 
       const result = await handle.result().getOrThrow();
 
       if (!result.childWorkflowId) throw new Error("expected a childWorkflowId");
-      const childHandle = client.getHandle("signalful", result.childWorkflowId).getOrThrow();
+      const childHandle = client.getHandle("signalful", result.childWorkflowId);
       const history = await childHandle.raw.fetchHistory();
       const events = history.events ?? [];
       const signalNames = events
@@ -298,7 +298,7 @@ describe("child-workflow boundary — wire format against a real server", () => 
     // classification and message `createTypedChildSignals` produces —
     // naming the child workflow, the signal, and the failing field.
     expect(result.sendError).toMatch(
-      /Child workflow "signalful" signal "note" input validation failed: at text: (?:Invalid input|expected string, received number)/,
+      /Child workflow "signalful" signal "note" input validation failed: at text$/,
     );
     // EFFECT 2 (corroborating): the child's OWN completed output shows it
     // never received a note.

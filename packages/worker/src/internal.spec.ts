@@ -1,4 +1,4 @@
-import type { ActivityDefinition } from "@temporal-contract/contract";
+import type { ActivityDefinition, ContractDefinition } from "@temporal-contract/contract";
 /**
  * Runtime coverage for the two `ContractMisuseError` fail-fast paths in
  * `buildRawActivitiesProxy` (see `internal.ts:82-248` for the merge-precedence
@@ -24,7 +24,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { ContractMisuseError } from "./errors.js";
-import { buildRawActivitiesProxy } from "./internal.js";
+import { buildRawActivitiesProxy, createContinueAsNew } from "./internal.js";
 
 const activityDef = (): ActivityDefinition =>
   ({ input: z.object({}), output: z.object({}) }) as unknown as ActivityDefinition;
@@ -187,5 +187,24 @@ describe("buildRawActivitiesProxy — bound enforcement", () => {
         undefined,
       ),
     ).not.toThrow();
+  });
+});
+
+describe("createContinueAsNew — undeclared target", () => {
+  it("throws ContractMisuseError with a direct message, even for an Object.prototype name", async () => {
+    const contract = {
+      taskQueue: "q",
+      workflows: {
+        wf: { input: z.object({}), output: z.object({}), startPolicy: "allow-duplicate" },
+      },
+    } as unknown as ContractDefinition;
+    const continueAsNew = createContinueAsNew(contract, "wf");
+
+    const rejection = continueAsNew(contract, "constructor", {});
+    await expect(rejection).rejects.toBeInstanceOf(ContractMisuseError);
+    await expect(rejection).rejects.toMatchObject({
+      message:
+        'continueAsNew target workflow "constructor" is not declared on the supplied contract. Available workflows: wf',
+    });
   });
 });

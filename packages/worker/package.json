@@ -53,7 +53,6 @@
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:",
-    "@temporal-contract/contract": "workspace:*",
     "@unthrown/saga": "catalog:"
   },
   "devDependencies": {
@@ -61,6 +60,7 @@
     "@btravstack/tsconfig": "catalog:",
     "@btravstack/typedoc": "catalog:",
     "@temporal-contract/client": "workspace:*",
+    "@temporal-contract/contract": "workspace:*",
     "@temporal-contract/testing": "workspace:*",
     "@temporalio/activity": "catalog:",
     "@temporalio/client": "catalog:",
@@ -80,10 +80,11 @@
     "zod": "catalog:"
   },
   "peerDependencies": {
-    "@temporalio/common": "^1.16.0",
-    "@temporalio/worker": "^1.16.0",
-    "@temporalio/workflow": "^1.16.0",
-    "unthrown": "^5.0.0"
+    "@temporal-contract/contract": "^8.0.0-beta.11",
+    "@temporalio/common": "^1.24.0",
+    "@temporalio/worker": "^1.24.0",
+    "@temporalio/workflow": "^1.24.0",
+    "unthrown": "^5.11.0"
   },
   "engines": {
     "node": ">=22.22.0"

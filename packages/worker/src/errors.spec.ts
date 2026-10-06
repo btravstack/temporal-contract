@@ -49,43 +49,35 @@ const issue = (
 ): StandardSchemaV1.Issue => (path === undefined ? { message } : { message, path });
 
 describe("validation error message formatting", () => {
-  it("falls back to just the message when no path is present", () => {
+  it("renders a path-less issue as `at root`, without the schema message", () => {
     const error = new ActivityInputValidationError("act", [issue("invalid input")]);
-    expect(error.message).toBe(`Activity "act" input validation failed: invalid input`);
+    expect(error.message).toBe(`Activity "act" input validation failed: at root`);
   });
 
   it("renders a top-level string key with no prefix", () => {
     const error = new ActivityInputValidationError("act", [
       issue("expected string", ["customerId"]),
     ]);
-    expect(error.message).toBe(
-      `Activity "act" input validation failed: at customerId: expected string`,
-    );
+    expect(error.message).toBe(`Activity "act" input validation failed: at customerId`);
   });
 
   it("renders nested object paths with dot notation", () => {
     const error = new ActivityInputValidationError("act", [
       issue("expected number", ["payment", "amount"]),
     ]);
-    expect(error.message).toBe(
-      `Activity "act" input validation failed: at payment.amount: expected number`,
-    );
+    expect(error.message).toBe(`Activity "act" input validation failed: at payment.amount`);
   });
 
   it("renders array indices with bracket notation", () => {
     const error = new ActivityInputValidationError("act", [issue("expected object", ["items", 0])]);
-    expect(error.message).toBe(
-      `Activity "act" input validation failed: at items[0]: expected object`,
-    );
+    expect(error.message).toBe(`Activity "act" input validation failed: at items[0]`);
   });
 
   it("renders mixed object/array paths", () => {
     const error = new ActivityInputValidationError("act", [
       issue("expected number", ["items", 2, "quantity"]),
     ]);
-    expect(error.message).toBe(
-      `Activity "act" input validation failed: at items[2].quantity: expected number`,
-    );
+    expect(error.message).toBe(`Activity "act" input validation failed: at items[2].quantity`);
   });
 
   it("unwraps PathSegment-form path entries (Standard Schema spec)", () => {
@@ -94,17 +86,13 @@ describe("validation error message formatting", () => {
     const error = new ActivityInputValidationError("act", [
       issue("expected boolean", [{ key: "items" }, { key: 0 }, { key: "active" }]),
     ]);
-    expect(error.message).toBe(
-      `Activity "act" input validation failed: at items[0].active: expected boolean`,
-    );
+    expect(error.message).toBe(`Activity "act" input validation failed: at items[0].active`);
   });
 
   it("falls back to bracket-stringification for symbol path segments", () => {
     const symbolKey = Symbol("hidden");
     const error = new ActivityInputValidationError("act", [issue("invalid", [symbolKey])]);
-    expect(error.message).toBe(
-      `Activity "act" input validation failed: at [Symbol(hidden)]: invalid`,
-    );
+    expect(error.message).toBe(`Activity "act" input validation failed: at [Symbol(hidden)]`);
   });
 
   it("joins multiple issues with `; ` and applies path formatting to each", () => {
@@ -112,11 +100,9 @@ describe("validation error message formatting", () => {
       issue("expected array, received undefined", ["items"]),
       issue("expected number, received undefined", ["items", 0, "quantity"]),
     ]);
-    // Reproduces the issue's example output, with paths now visible.
+    // Paths only — schema messages can embed raw input values.
     expect(error.message).toBe(
-      `Activity "act" input validation failed: ` +
-        `at items: expected array, received undefined; ` +
-        `at items[0].quantity: expected number, received undefined`,
+      `Activity "act" input validation failed: ` + `at items; ` + `at items[0].quantity`,
     );
   });
 
@@ -124,16 +110,14 @@ describe("validation error message formatting", () => {
     const error = new ActivityOutputValidationError("act", [
       issue("expected string", ["transactionId"]),
     ]);
-    expect(error.message).toContain(`at transactionId: expected string`);
+    expect(error.message).toContain(`at transactionId`);
   });
 
   it("applies to workflow validation errors as well", () => {
     const error = new WorkflowInputValidationError("processOrder", [
       issue("expected number", ["totalAmount"]),
     ]);
-    expect(error.message).toBe(
-      `Workflow "processOrder" input validation failed: at totalAmount: expected number`,
-    );
+    expect(error.message).toBe(`Workflow "processOrder" input validation failed: at totalAmount`);
   });
 
   it("preserves the typed `issues` property for programmatic access", () => {
@@ -150,40 +134,36 @@ describe("validation error message formatting", () => {
 
     it("bracket-quotes keys containing dots", () => {
       const error = new ActivityInputValidationError("act", [issue("invalid", ["foo.bar"])]);
-      expect(error.message).toBe(`Activity "act" input validation failed: at ["foo.bar"]: invalid`);
+      expect(error.message).toBe(`Activity "act" input validation failed: at ["foo.bar"]`);
     });
 
     it("bracket-quotes keys containing whitespace", () => {
       const error = new ActivityInputValidationError("act", [
         issue("expected string", ["user", "first name"]),
       ]);
-      expect(error.message).toBe(
-        `Activity "act" input validation failed: at user["first name"]: expected string`,
-      );
+      expect(error.message).toBe(`Activity "act" input validation failed: at user["first name"]`);
     });
 
     it("bracket-quotes keys starting with a digit", () => {
       const error = new ActivityInputValidationError("act", [issue("invalid", ["123foo"])]);
-      expect(error.message).toBe(`Activity "act" input validation failed: at ["123foo"]: invalid`);
+      expect(error.message).toBe(`Activity "act" input validation failed: at ["123foo"]`);
     });
 
     it("bracket-quotes the empty-string key", () => {
       const error = new ActivityInputValidationError("act", [issue("invalid", [""])]);
-      expect(error.message).toBe(`Activity "act" input validation failed: at [""]: invalid`);
+      expect(error.message).toBe(`Activity "act" input validation failed: at [""]`);
     });
 
     it('disambiguates the literal string key "0" from the numeric index 0', () => {
       const stringKey = new ActivityInputValidationError("act", [issue("invalid", ["0"])]);
       const numericKey = new ActivityInputValidationError("act", [issue("invalid", [0])]);
-      expect(stringKey.message).toBe(`Activity "act" input validation failed: at ["0"]: invalid`);
-      expect(numericKey.message).toBe(`Activity "act" input validation failed: at [0]: invalid`);
+      expect(stringKey.message).toBe(`Activity "act" input validation failed: at ["0"]`);
+      expect(numericKey.message).toBe(`Activity "act" input validation failed: at [0]`);
     });
 
     it("escapes embedded quotes via JSON.stringify", () => {
       const error = new ActivityInputValidationError("act", [issue("invalid", [`with"quote`])]);
-      expect(error.message).toBe(
-        `Activity "act" input validation failed: at ["with\\"quote"]: invalid`,
-      );
+      expect(error.message).toBe(`Activity "act" input validation failed: at ["with\\"quote"]`);
     });
   });
 
@@ -197,9 +177,7 @@ describe("validation error message formatting", () => {
       const message = formatChildWorkflowValidationMessage("processChild", "input", [
         issue("expected number", ["amount"]),
       ]);
-      expect(message).toBe(
-        `Child workflow "processChild" input validation failed: at amount: expected number`,
-      );
+      expect(message).toBe(`Child workflow "processChild" input validation failed: at amount`);
     });
 
     it("formats output validation failures and joins multiple issues", () => {
@@ -208,15 +186,15 @@ describe("validation error message formatting", () => {
         issue("expected string", ["transactionId"]),
       ]);
       expect(message).toBe(
-        `Child workflow "processChild" output validation failed: at success: expected boolean; at transactionId: expected string`,
+        `Child workflow "processChild" output validation failed: at success; at transactionId`,
       );
     });
 
-    it("falls back to just the message when no path is present", () => {
+    it("renders a path-less issue as `at root`", () => {
       const message = formatChildWorkflowValidationMessage("processChild", "input", [
         issue("invalid input"),
       ]);
-      expect(message).toBe(`Child workflow "processChild" input validation failed: invalid input`);
+      expect(message).toBe(`Child workflow "processChild" input validation failed: at root`);
     });
   });
 });
@@ -274,6 +252,20 @@ describe("validation errors are terminal Temporal failures (#251)", () => {
     const error = new WorkflowInputValidationError("wf", [issue("bad")]);
     expect(Object.prototype.propertyIsEnumerable.call(error, "name")).toBe(false);
     expect(Object.keys(error)).not.toContain("name");
+  });
+
+  it("carry the full issues in details[0] — the message carries only paths", () => {
+    const error = new WorkflowInputValidationError("wf", [
+      { message: 'Invalid email: Received "jane@x"', path: [{ key: "user" }, "email", 0] },
+      { message: "Required" },
+    ]);
+    expect(error.message).not.toContain("jane@x");
+    expect(error.details).toEqual([
+      [
+        { message: 'Invalid email: Received "jane@x"', path: ["user", "email", 0] },
+        { message: "Required" },
+      ],
+    ]);
   });
 
   it("ContractMisuseError carries the misuse message and empty issues", () => {
@@ -351,7 +343,9 @@ describe("rethrowCancellation", () => {
     );
   });
 
-  it("falls back to throwing the error itself when no cause was attached", () => {
+  it("throws a fresh CancelledFailure when no cause was attached", () => {
+    // The bare tagged error is not a TemporalFailure and would stall the
+    // workflow task instead of ending the execution Cancelled.
     const wrapped = new WorkflowCancelledError();
 
     let thrown: unknown;
@@ -360,7 +354,8 @@ describe("rethrowCancellation", () => {
     } catch (error) {
       thrown = error;
     }
-    expect(thrown).toBe(wrapped);
+    expect(thrown).toBeInstanceOf(CancelledFailure);
+    expect((thrown as CancelledFailure).message).toBe(wrapped.message);
   });
 
   it("is typed `never` — usable as a terminal statement", () => {

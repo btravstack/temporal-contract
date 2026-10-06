@@ -1,6 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { summarizeIssues } from "@temporal-contract/contract";
-import { ApplicationFailure } from "@temporalio/common";
+import { ApplicationFailure, CancelledFailure } from "@temporalio/common";
 import { TaggedError } from "unthrown";
 
 import {
@@ -48,9 +48,12 @@ import {
  *
  * The concrete subclass name is passed through as the failure `type`, so it
  * stays discriminable after crossing Temporal's serialization boundary (where
- * the JS class identity is lost) via `failure.type`. The failing field path is
- * carried in the human-readable `message` (see {@link summarizeIssues}). The
- * raw `issues` remain available as a property for in-process inspection.
+ * the JS class identity is lost) via `failure.type`. The `message` carries only
+ * the failing field paths (see {@link summarizeIssues}) because it is stored
+ * in history unencrypted; the full issues — schema messages included, which
+ * may echo payload values — ride `details[0]` as `{ message, path }` records,
+ * which payload codecs do encrypt. The raw `issues` also remain available as a
+ * property for in-process inspection.
  *
  * See issue #251.
  */
@@ -60,8 +63,8 @@ export abstract class ValidationError extends ApplicationFailure {
     type: string,
     public readonly issues: ReadonlyArray<StandardSchemaV1.Issue>,
   ) {
-    // (message, type, nonRetryable) — terminal, deterministic failure.
-    super(message, type, true);
+    // (message, type, nonRetryable, details) — terminal, deterministic failure.
+    super(message, type, true, issues.length > 0 ? [issues.map(issueDetail)] : undefined);
     // `ApplicationFailure`'s `SymbolBasedInstanceOfError` decorator installs a
     // read-only `name` ("ApplicationFailure") on the prototype, so a plain
     // `this.name = type` assignment throws. Define an own property to shadow it
@@ -81,6 +84,25 @@ export abstract class ValidationError extends ApplicationFailure {
       Error.captureStackTrace(this, this.constructor);
     }
   }
+}
+
+/**
+ * A serializable copy of a Standard Schema issue for `ApplicationFailure.details`:
+ * only `message` and a plain-key `path`. Schema libraries attach extra fields
+ * (raw input, `BigInt`s, symbols) the payload converter may not encode.
+ */
+function issueDetail(issue: StandardSchemaV1.Issue): {
+  message: string;
+  path?: Array<string | number>;
+} {
+  if (!issue.path) return { message: issue.message };
+  return {
+    message: issue.message,
+    path: issue.path.map((segment) => {
+      const key = typeof segment === "object" ? segment.key : segment;
+      return typeof key === "symbol" ? String(key) : key;
+    }),
+  };
 }
 
 /**
@@ -250,10 +272,10 @@ export class UpdateOutputValidationError extends ValidationError {
 
 /**
  * Error thrown when a contract-declared error's `data` payload fails
- * validation against its declared schema at the Temporal boundary, or when
- * an implementation surfaces a `ContractError` whose name isn't declared on
- * its activity/workflow. Both are deterministic contract-misuse bugs, so the
- * failure is terminal (`nonRetryable`) like the other validation errors.
+ * validation against its declared schema at the Temporal boundary — a
+ * deterministic contract-misuse bug, so the failure is terminal
+ * (`nonRetryable`) like the other validation errors. (A `ContractError` whose
+ * name isn't declared at all is a {@link ContractMisuseError}.)
  */
 export class ContractErrorDataValidationError extends ValidationError {
   constructor(
@@ -270,12 +292,17 @@ export class ContractErrorDataValidationError extends ValidationError {
 }
 
 /**
- * Error thrown when workflow-sandbox code misuses the contract surface, at
- * one of two different points with two different runtime consequences:
+ * Error thrown when code misuses the contract surface — a deterministic
+ * programming bug, never a payload problem. Outside the sandbox it is the
+ * startup failure of `declareActivitiesHandler` (missing, conflicting or
+ * ambiguous implementations); at an activity boundary it is a `ContractError`
+ * whose name the activity doesn't declare. Inside the workflow sandbox it
+ * fires at one of two points with two different runtime consequences:
  *
  * - Binding a signal/query/update handler for a name the contract doesn't
- *   declare, or using an async-validating schema where Temporal requires
- *   synchronous validation. These throw from *inside* the running
+ *   declare, using an async-validating schema where Temporal requires
+ *   synchronous validation, throwing an undeclared `ContractError`, or
+ *   continuing as new into an undeclared workflow. These throw from *inside* the running
  *   `implementation` — `handleSignal`/`handleQuery`/`handleUpdate` execute
  *   there, after Temporal has already invoked the workflow function — so
  *   the throw is classified as a normal workflow failure and fails the
@@ -294,7 +321,8 @@ export class ContractErrorDataValidationError extends ValidationError {
  *   workflow via indefinite workflow-task retry exactly like the plain
  *   `TypeError` it replaces. That is deliberate (see `activity-bounds.ts`);
  *   the value here is a typed, named, greppable failure, not a different
- *   retry outcome.
+ *   retry outcome — and `TypedWorker.create`'s registration check, which
+ *   imports the workflows module, fails worker startup on it.
  *
  * Extends {@link ValidationError} for family consistency with its siblings
  * (a schema-validation failure at the wire boundary), even though the
@@ -497,18 +525,17 @@ export class WorkflowCancelledError extends TaggedError(WORKFLOW_CANCELLED_ERROR
  * workflow complete as `Completed`, silently overriding the server's
  * cancellation request. When the workflow should *honor* the cancellation
  * (typically after `nonCancellableScope` cleanup), call this helper: it
- * throws the original `CancelledFailure` carried in `error.cause` (or the
- * error itself when no cause was attached), which Temporal recognizes and
- * turns into a `Cancelled` workflow outcome.
+ * throws the original `CancelledFailure` carried in `error.cause` (or a fresh
+ * `CancelledFailure` when no cause was attached — the bare tagged error is not
+ * a `TemporalFailure` and would stall the workflow), which Temporal recognizes
+ * and turns into a `Cancelled` workflow outcome.
  *
  * Workflow-sandbox safe: no I/O, no wall clock — it only rethrows.
  *
  * @example
  * ```ts
- * // `fn`'s return value becomes the scope's `T` verbatim, so await and
- * // narrow the activity's own AsyncResult HERE, inside the callback —
- * // returning it un-awaited would make `T` the AsyncResult itself, which
- * // has no `isOk`/`isErr`/`.value`.
+ * // `fn`'s return value is awaited; narrow the activity's own Result HERE so
+ * // the scope's value is a plain domain value, not a nested `Result`.
  * const result = await context.cancellableScope(async () => {
  *   const step = await context.activities.processStep(args);
  *   if (step.isDefect()) {
@@ -540,5 +567,5 @@ export function rethrowCancellation(
   error: ActivityCancelledError | ChildWorkflowCancelledError | WorkflowCancelledError,
 ): never {
   // oxlint-disable-next-line unthrown/no-throw -- sanctioned cancellation re-raise: the original CancelledFailure must reach Temporal so the execution ends Cancelled (CLAUDE.md rule 2 exception)
-  throw error.cause ?? error;
+  throw error.cause ?? new CancelledFailure(error.message);
 }

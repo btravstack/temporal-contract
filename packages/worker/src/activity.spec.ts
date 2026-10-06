@@ -1,4 +1,5 @@
 import type { ContractDefinition } from "@temporal-contract/contract";
+import { CancelledFailure } from "@temporalio/common";
 import { OkAsync, ErrAsync, fromSafePromise, type AsyncResult } from "unthrown";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -745,6 +746,15 @@ describe("Worker unthrown Package", () => {
       expect((wrapped as ApplicationFailure).cause).toBeUndefined();
 
       expect(qualify("boom", defectMarker)).toEqual({ __defect: "boom" });
+    });
+
+    it("routes a cancellation to the defect channel even under expected: 'any'", () => {
+      const qualify = qualifyFailure("PAYMENT_FAILED", { expected: "any" });
+      const cancelled = new CancelledFailure("activity cancelled");
+      const aborted = Object.assign(new Error("aborted"), { name: "AbortError" });
+
+      expect(qualify(cancelled, defectMarker)).toEqual({ __defect: cancelled });
+      expect(qualify(aborted, defectMarker)).toEqual({ __defect: aborted });
     });
 
     it("expected: 'any' wraps every rejection (the explicit escape hatch)", () => {

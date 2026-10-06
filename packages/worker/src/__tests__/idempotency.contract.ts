@@ -1,7 +1,7 @@
 import { defineContract, defineWorkflow } from "@temporal-contract/contract";
 import { z } from "zod";
 
-// Composition-first: one workflow per idempotency mode, all sharing the same
+// Composition-first: one workflow per start policy, all sharing the same
 // `{ shouldFail }` -> `{ ok }` shape. A single fixture module (see
 // idempotency.workflows.ts) can then produce either a Completed or a Failed
 // run per mode, which is exactly the pair the dedup specs need to start a

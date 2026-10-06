@@ -52,3 +52,49 @@ export const fulfilUntilCancelled = declareWorkflow({
     return { failedWith: settled.isErr() ? settled.error._tag : "no failure" };
   },
 });
+
+export const shipChild = declareWorkflow({
+  workflowName: "shipChild",
+  contract: sagaContract,
+  // Never calls one, but the global activities are reachable, so bounded.
+  activityOptions: { startToCloseTimeout: "10 seconds" },
+  implementation: async (context, { sku }) => {
+    throw context.errors.OutOfStock({ sku });
+  },
+});
+
+/**
+ * Step two is a child workflow that fails with its own declared error. The
+ * parent must receive it rehydrated as a `ContractError`, which is what makes
+ * the saga undo step one.
+ */
+export const fulfilViaChild = declareWorkflow({
+  workflowName: "fulfilViaChild",
+  contract: sagaContract,
+  activityOptions: { startToCloseTimeout: "10 seconds" },
+  implementation: async (context) => {
+    // Route the child to this run's (per-test) task queue.
+    const contract = { ...sagaContract, taskQueue: context.info.taskQueue };
+    let childWorkflowId = "";
+    const settled = await context
+      .saga()
+      .step(
+        () => context.activities.reserve({}),
+        () => context.activities.release({}),
+      )
+      .step(() =>
+        context
+          .startChildWorkflow(contract, "shipChild", {
+            args: { sku: "s-1" },
+            parentClosePolicy: "TERMINATE",
+          })
+          .flatMap((handle) => {
+            childWorkflowId = handle.workflowId;
+            return handle.result();
+          }),
+      )
+      .run();
+
+    return { failedWith: settled.isErr() ? settled.error._tag : "no failure", childWorkflowId };
+  },
+});
