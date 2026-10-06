@@ -212,29 +212,27 @@ export function createTimeSkippingContractTest<TContract extends ContractDefinit
 
       // A worker still holding the environment's native connection makes the
       // worker-scoped `testEnv` teardown fail with "Cannot close connection
-      // while Workers hold a reference to it". Two states can reach here:
+      // while Workers hold a reference to it", so wait for a final state:
       //
       // - `INITIALIZED` — the test never ran the worker. `runUntil` on an
       //   already-resolved promise starts and immediately stops it, which is
-      //   the only way to release the reference from this state
-      //   (`shutdown()` throws unless the worker is `RUNNING`).
+      //   the only way to release the reference from this state.
       // - `RUNNING` — the test started it with `run()` and did not stop it.
-      //   `shutdown()` is the documented way out, and is what
-      //   `createContractTest` does.
+      //   `shutdown()` only *starts* the stop.
+      // - `STOPPING` / `DRAINING` / `DRAINED` — a stop is already under way.
       //
-      // A test that used `runUntil` is already `STOPPED` and skips both.
+      // This fixture never owns the `run()` promise (the test does, via
+      // `runUntil` or its own `run()`), so it polls the state instead.
       const state = rig.worker.raw.getState();
       if (state === "INITIALIZED") {
         await rig.worker.raw.runUntil(Promise.resolve());
       } else if (state === "RUNNING") {
-        // `shutdown()` only *starts* the stop, so returning here would race
-        // the environment teardown that follows. `createContractTest` awaits
-        // the `run()` promise it owns; this fixture never starts the worker
-        // (the test does, via `runUntil` or its own `run()`), so there is no
-        // such promise to await — wait for the state instead.
-        rig.worker.shutdown();
-        await vi.waitFor(() => rig.worker.raw.getState() === "STOPPED", { interval: 100 });
+        rig.worker.shutdown().get();
       }
+      await vi.waitUntil(() => ["STOPPED", "FAILED"].includes(rig.worker.raw.getState()), {
+        interval: 100,
+        timeout: 10_000,
+      });
     },
     worker: async ({ rig }, use) => {
       await use(rig.worker);

@@ -37,14 +37,18 @@
  * });
  * ```
  */
+import { randomUUID } from "node:crypto";
+
 import { TypedClient, type ContractClient } from "@temporal-contract/client";
 import type { ContractDefinition } from "@temporal-contract/contract";
 import type { ActivitiesHandler } from "@temporal-contract/worker/activity";
 import { TypedWorker, type CreateWorkerOptions } from "@temporal-contract/worker/worker";
-import { Client } from "@temporalio/client";
+import { Client, Connection } from "@temporalio/client";
 import { vi } from "vitest";
 
 import { it as baseIt } from "./extension.js";
+import { getTemporalAddress } from "./internal.js";
+import { bundleFor } from "./workflow-bundle.js";
 
 /**
  * Options for {@link createContractTest}.
@@ -55,7 +59,7 @@ export type CreateContractTestOptions<TContract extends ContractDefinition> = {
   /**
    * Path to the workflows file registered on the worker — typically built
    * with `workflowsPathFromURL(import.meta.url, "./x.workflows.js")` from
-   * `@temporal-contract/worker/worker`.
+   * `@temporal-contract/worker/worker`. Bundled once per test file.
    */
   workflowsPath: string;
   /**
@@ -64,13 +68,14 @@ export type CreateContractTestOptions<TContract extends ContractDefinition> = {
    */
   activities?: ActivitiesHandler<TContract>;
   /**
-   * Extra options forwarded to `TypedWorker.create` (e.g. `namespace`,
-   * interceptors, tuning knobs). The `namespace`, when given, is also used
-   * by the client fixtures.
+   * Extra options forwarded to `TypedWorker.create` (e.g. interceptors,
+   * tuning knobs). A `namespace` given here replaces the per-file namespace
+   * {@link createContractTest} registers — it must already exist on the
+   * server — and is also used by the client fixtures.
    */
   workerOptions?: Omit<
     CreateWorkerOptions<TContract>,
-    "activities" | "connection" | "contract" | "workflowsPath"
+    "activities" | "connection" | "contract" | "workflowBundle" | "workflowsPath"
   >;
 };
 
@@ -79,6 +84,11 @@ export type CreateContractTestOptions<TContract extends ContractDefinition> = {
  * {@link createContractTest}.
  */
 export type ContractTestContext<TContract extends ContractDefinition> = {
+  /**
+   * The Temporal namespace the worker and clients use — unique to the
+   * {@link createContractTest} call (so, in practice, to the test file).
+   */
+  namespace: string;
   /** Contract-bound client — `typedClient.for(contract)`. */
   client: ContractClient<TContract>;
   /**
@@ -100,6 +110,11 @@ export type ContractTestContext<TContract extends ContractDefinition> = {
  * queue (started before each test, shut down after), the connection-scoped
  * {@link TypedClient} root, and the contract-bound {@link ContractClient}.
  *
+ * Every call registers its own Temporal namespace, used by both the worker
+ * and the clients. Test files run in parallel against one server, and a
+ * worker polls the contract's real task queue — sharing a namespace, one
+ * file's worker would pick up another file's tasks.
+ *
  * Requires the `@temporal-contract/testing/global-setup` global setup (or a
  * module default-exporting `createGlobalSetup(...)`) to be registered on the
  * test project. The underlying `clientConnection`/`workerConnection`
@@ -109,15 +124,25 @@ export function createContractTest<TContract extends ContractDefinition>(
   options: CreateContractTestOptions<TContract>,
 ) {
   const { contract } = options;
+  const namespace = options.workerOptions?.namespace ?? `contract-test-${randomUUID()}`;
   return baseIt.extend<ContractTestContext<TContract>>({
+    namespace: [
+      // oxlint-disable-next-line no-empty-pattern
+      async ({}, use) => {
+        if (options.workerOptions?.namespace === undefined) await registerNamespace(namespace);
+        await use(namespace);
+      },
+      { scope: "file" },
+    ],
     worker: [
-      async ({ workerConnection }, use) => {
+      async ({ workerConnection, namespace }, use) => {
         // E is `never` here — see "Setup calls have an empty Err channel" in
         // docs/explanation/the-result-model.md.
         const worker = await TypedWorker.create({
           contract,
           connection: workerConnection,
-          workflowsPath: options.workflowsPath,
+          namespace,
+          workflowBundle: await bundleFor(options.workflowsPath),
           ...(options.activities !== undefined ? { activities: options.activities } : {}),
           ...options.workerOptions,
         }).get();
@@ -128,12 +153,18 @@ export function createContractTest<TContract extends ContractDefinition>(
         // resurfaces at the `.get()` below.
         const running = worker.run();
 
-        await vi.waitFor(() => worker.raw.getState() === "RUNNING", { interval: 100 });
+        await vi.waitUntil(() => worker.raw.getState() === "RUNNING", {
+          interval: 100,
+          timeout: 10_000,
+        });
 
         await use(worker);
 
+        // A test that already stopped the worker leaves it STOPPING,
+        // DRAINING, DRAINED or STOPPED; `running` settles once it is stopped
+        // from any of them.
         if (worker.raw.getState() === "RUNNING") {
-          worker.shutdown();
+          worker.shutdown().get();
         }
         // Resolves once shutdown completes — or rethrows the original
         // failure's cause when the worker crashed, surfacing it as a
@@ -142,12 +173,8 @@ export function createContractTest<TContract extends ContractDefinition>(
       },
       { auto: true },
     ],
-    typedClient: async ({ clientConnection }, use) => {
-      const namespace = options.workerOptions?.namespace;
-      const client = new Client({
-        connection: clientConnection,
-        ...(namespace !== undefined ? { namespace } : {}),
-      });
+    typedClient: async ({ clientConnection, namespace }, use) => {
+      const client = new Client({ connection: clientConnection, namespace });
       // Setup faults are defects (E = never); `get()` unwraps directly.
       const typedClient = await TypedClient.create({ client }).get();
       await use(typedClient);
@@ -156,4 +183,26 @@ export function createContractTest<TContract extends ContractDefinition>(
       await use(typedClient.for(contract));
     },
   });
+}
+
+/**
+ * Register `namespace` on the testcontainers server and wait until it
+ * serves requests.
+ */
+async function registerNamespace(namespace: string): Promise<void> {
+  const connection = await Connection.connect({ address: getTemporalAddress() });
+  try {
+    await connection.workflowService.registerNamespace({
+      namespace,
+      // The server's minimum. protobufjs encodes a plain number into the
+      // int64 field; the generated type names `Long`, which is not a dependency here.
+      workflowExecutionRetentionPeriod: { seconds: 86_400 as never },
+    });
+    await vi.waitFor(() => connection.workflowService.describeNamespace({ namespace }), {
+      interval: 100,
+      timeout: 10_000,
+    });
+  } finally {
+    await connection.close();
+  }
 }

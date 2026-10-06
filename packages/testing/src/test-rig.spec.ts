@@ -6,7 +6,7 @@ import {
   isTerminalStatus,
   skipReasonFor,
   START_METHODS,
-} from "./test-rig.js";
+} from "./internal.js";
 
 describe("isTerminalStatus", () => {
   it("treats every finished status as terminal", () => {
@@ -46,18 +46,12 @@ describe("skipReasonFor", () => {
 
 describe("START_METHODS", () => {
   it("names exactly ContractClient's start-capable public methods", () => {
-    // `createTypedHandle` is `private` in the TypeScript source, but
-    // `private` is compile-time only — it still shows up in runtime
-    // reflection below, so it's named and excluded explicitly rather than
-    // silently swallowed by some naming convention that could just as
-    // easily hide a real public method in the future.
-    const PRIVATE_HELPER = "createTypedHandle";
-    // `getHandle` is ContractClient's one public method that does NOT start
-    // an execution — everything else public is in START_METHODS.
-    const NON_START_METHOD = "getHandle";
+    // ContractClient's public methods that do NOT start an execution —
+    // everything else public is in START_METHODS.
+    const NON_START_METHODS = ["getHandle", "workflowIdFor"];
 
     const publicMethods = Object.getOwnPropertyNames(ContractClient.prototype).filter((name) => {
-      if (name === "constructor" || name === PRIVATE_HELPER) return false;
+      if (name === "constructor") return false;
       // `getOwnPropertyDescriptor` (rather than direct property access)
       // avoids invoking `taskQueue`'s getter on the bare prototype, which
       // has no bound instance state and would throw.
@@ -65,7 +59,7 @@ describe("START_METHODS", () => {
       return typeof descriptor?.value === "function";
     });
 
-    expect(new Set(publicMethods)).toEqual(new Set([...START_METHODS, NON_START_METHOD]));
+    expect(new Set(publicMethods)).toEqual(new Set([...START_METHODS, ...NON_START_METHODS]));
   });
 });
 
@@ -74,6 +68,12 @@ describe("extractStartedWorkflowId", () => {
     expect(
       extractStartedWorkflowId("startWorkflow", ["myWorkflow", { workflowId: "order-123" }]),
     ).toBe("order-123");
+  });
+
+  it("returns undefined for a missing workflowId when the contract derives it", () => {
+    expect(
+      extractStartedWorkflowId("executeWorkflow", ["myWorkflow", { args: {} }], true),
+    ).toBeUndefined();
   });
 
   it("throws naming the method and the received bag when workflowId is missing", () => {

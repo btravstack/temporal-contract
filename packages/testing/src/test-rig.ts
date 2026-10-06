@@ -1,4 +1,4 @@
-import type { ContractClient } from "@temporal-contract/client";
+import type { ContractClient, WorkflowValidationError } from "@temporal-contract/client";
 import { TypedClient } from "@temporal-contract/client";
 import type { ContractDefinition } from "@temporal-contract/contract";
 // `ActivitiesHandler` lives on the /activity subpath — worker.ts imports it
@@ -9,110 +9,15 @@ import { TypedWorker } from "@temporal-contract/worker/worker";
 import type { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
 import type { History, WorkflowBundleWithSourceMap } from "@temporalio/worker";
+import type { AsyncResult } from "unthrown";
 import { onTestFinished } from "vitest";
 
-/** Statuses whose history is complete and therefore replayable. */
-const TERMINAL_STATUSES = new Set([
-  "COMPLETED",
-  "FAILED",
-  "CANCELLED",
-  "TERMINATED",
-  "TIMED_OUT",
-  // The run ended; the next run is a separate execution with its own history.
-  "CONTINUED_AS_NEW",
-]);
-
-/**
- * Whether a workflow-execution status names a finished run, and is therefore
- * safe to fetch and replay. An unscoped `handle.describe()` (no `runId`)
- * always resolves to the *latest* run in a chain, so in practice it can
- * never itself report `CONTINUED_AS_NEW` — that status only ever shows up if
- * a caller describes a specific older run directly. It's kept in the set
- * anyway because it genuinely is a finished, replayable state for whichever
- * run it's read from.
- */
-export function isTerminalStatus(name: string): boolean {
-  return TERMINAL_STATUSES.has(name);
-}
-
-/**
- * Look up the caller-supplied `replaySkipAllowlist` reason (see
- * {@link RigOptions}) for a non-terminal execution, matching by workflow-ID
- * *prefix* so one entry covers every workflow ID `nextTaskQueueId`-style
- * counters generate from a shared base (e.g. `"probe-edge-cases"` matches
- * `"probe-edge-cases-1"`, `"probe-edge-cases-2"`, ...). Returns `undefined`
- * for anything unlisted, so the caller can fail loudly instead of silently
- * under-reporting replay coverage.
- */
-export function skipReasonFor(
-  workflowId: string,
-  allowlist: Readonly<Record<string, string>>,
-): string | undefined {
-  // Longest match wins, not first. `Object.entries` order would otherwise make
-  // overlapping prefixes ("order" and "order-cancel") resolve to whichever was
-  // declared first — so the same workflow ID could pick up a different reason
-  // purely from key ordering, and a deliberately narrower entry could be
-  // shadowed by a broader one.
-  let best: { prefix: string; reason: string } | undefined;
-  for (const [prefix, reason] of Object.entries(allowlist)) {
-    if (!workflowId.startsWith(prefix)) continue;
-    if (best === undefined || prefix.length > best.prefix.length) best = { prefix, reason };
-  }
-  return best?.reason;
-}
-
-/**
- * The three `ContractClient` methods that can start an execution. Pinned
- * against `ContractClient`'s actual method surface by a unit test in
- * `test-rig.spec.ts` — exported so that test can import it; guarded again at
- * runtime inside {@link testRig} itself, since a unit test only catches drift
- * when someone remembers to run it.
- */
-export const START_METHODS = new Set(["startWorkflow", "executeWorkflow", "signalWithStart"]);
-
-/**
- * `JSON.stringify` for a diagnostic message, but never at the cost of the
- * diagnostic. A bag containing a BigInt (or a circular reference) makes
- * `JSON.stringify` throw, which would replace the guard's actionable error
- * with an unrelated TypeError — hiding exactly the problem it exists to
- * surface. Falls back to a coarse description.
- */
-function describeBag(bag: unknown): string {
-  try {
-    return JSON.stringify(bag) ?? String(bag);
-  } catch {
-    return `[unserializable ${typeof bag}]`;
-  }
-}
-/**
- * Pull the `workflowId` out of a start method's options bag (its second
- * argument, per every `START_METHODS` signature) so the rig knows which
- * execution to replay later.
- *
- * This is the rig's single load-bearing assumption about another package's
- * call shape — held with no runtime enforcement anywhere else. Throwing here
- * when the assumption doesn't hold is deliberate: the alternative is
- * `startedIds` silently staying empty, `onTestFinished` iterating nothing,
- * and the test passing green while proving zero replay coverage — exactly
- * the failure mode this whole rig exists to prevent. Pure and exported so
- * the guard is unit-testable without a server.
- */
-export function extractStartedWorkflowId(methodName: string, args: readonly unknown[]): string {
-  const bag = args[1];
-  const workflowId =
-    typeof bag === "object" && bag !== null && "workflowId" in bag
-      ? (bag as { workflowId?: unknown }).workflowId
-      : undefined;
-  if (typeof workflowId !== "string") {
-    // oxlint-disable-next-line unthrown/no-throw -- test-harness assertion: guards the rig's one load-bearing assumption about ContractClient's call shape; see this function's JSDoc
-    throw new Error(
-      `testRig expected "${methodName}"'s second argument to carry a string "workflowId" ` +
-        `(every Temporal WorkflowOptions requires one) but received: ${describeBag(bag)}. ` +
-        `Without it, this execution's history can never be harvested for replay.`,
-    );
-  }
-  return workflowId;
-}
+import {
+  extractStartedWorkflowId,
+  isTerminalStatus,
+  skipReasonFor,
+  START_METHODS,
+} from "./internal.js";
 
 /**
  * Duck-types `@temporalio/common`'s `WorkflowNotFoundError` by `error.name`
@@ -130,7 +35,7 @@ type RigOptions<TContract extends ContractDefinition> = {
   readonly bundle: WorkflowBundleWithSourceMap;
   readonly activities?: ActivitiesHandler<TContract>;
   /**
-   * Workflow-ID prefixes (matched via {@link skipReasonFor}) whose executions
+   * Workflow-ID prefixes (longest prefix wins) whose executions
    * are deliberately left non-terminal, so their histories cannot be
    * replayed. Every entry needs a reason. Defaults to `{}` — a published rig
    * cannot know a consuming repo's fixture IDs, so nothing is skipped unless
@@ -214,7 +119,7 @@ export async function testRig<TContract extends ContractDefinition>(
 
   // Guards the Proxy's own load-bearing assumption below: every name in
   // `START_METHODS` must resolve to an actual method on `bound`. A rename
-  // (or a fourth start method `START_METHODS` doesn't know about yet) would
+  // (or a new start method `START_METHODS` doesn't know about yet) would
   // otherwise make the Proxy silently stop intercepting that method —
   // `startedIds` stays empty, `onTestFinished` iterates nothing, and the
   // whole tier goes green proving zero replay coverage. Thrown eagerly, at
@@ -225,14 +130,14 @@ export async function testRig<TContract extends ContractDefinition>(
       throw new Error(
         `testRig's START_METHODS names "${methodName}", but ContractClient has no such method. ` +
           `Either the method was renamed or removed (update START_METHODS in ` +
-          `packages/testing/src/test-rig.ts to match), or this is a typo.`,
+          `packages/testing/src/internal.ts to match), or this is a typo.`,
       );
     }
   }
 
-  // A `Set`: a test that calls e.g. `signalWithStart` more than once against
-  // the same workflow ID must not queue the same replay twice.
-  const startedIds = new Set<string>();
+  // Every start call's workflow ID: the caller's own, or — for a workflow
+  // whose contract derives it — the pending `workflowIdFor` lookup.
+  const started: (string | AsyncResult<string, WorkflowValidationError>)[] = [];
 
   const client = new Proxy(bound, {
     get(target, property, receiver) {
@@ -242,13 +147,38 @@ export async function testRig<TContract extends ContractDefinition>(
       const methodName = property;
 
       return (...args: readonly unknown[]) => {
-        startedIds.add(extractStartedWorkflowId(methodName, args));
+        const [workflowName, bag] = args as [string, { args?: unknown } | undefined];
+        const derivesId = typeof contract.workflows[workflowName]?.workflowId === "function";
+        started.push(
+          extractStartedWorkflowId(methodName, args, derivesId) ??
+            (
+              target.workflowIdFor as (
+                name: string,
+                input: unknown,
+              ) => AsyncResult<string, WorkflowValidationError>
+            )(workflowName, bag?.args),
+        );
         return Reflect.apply(value as (...rest: readonly unknown[]) => unknown, target, args);
       };
     },
   }) as ContractClient<TContract>;
 
   onTestFinished(async () => {
+    // A `Set`: a test that calls e.g. `signalWithStart` more than once against
+    // the same workflow ID must not queue the same replay twice.
+    const startedIds = new Set<string>();
+    for (const entry of started) {
+      if (typeof entry === "string") {
+        startedIds.add(entry);
+        continue;
+      }
+      // `undefined` on `Err`: the input failed validation, so the start it
+      // belongs to failed the same validation before dispatch — nothing to
+      // replay. A defect (a throwing derivation) rethrows.
+      const workflowId = await entry.getOrUndefined();
+      if (workflowId !== undefined) startedIds.add(workflowId);
+    }
+
     for (const workflowId of startedIds) {
       const handle = testEnv.client.workflow.getHandle(workflowId);
       let described;

@@ -21,3 +21,7 @@ export async function greet(args: { name: string }): Promise<{ message: string }
   const { decorated } = await activities.decorate({ name: args.name });
   return { message: `Hello, ${decorated}!` };
 }
+
+export async function greetDerived(args: { name: string }): Promise<{ message: string }> {
+  return greet(args);
+}

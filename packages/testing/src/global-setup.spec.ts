@@ -6,8 +6,9 @@
  * the postgres → temporal startup order, that the temporal address is
  * provided to the test project, that teardown stops both containers and
  * the network — swallowing individual stop failures so one broken container
- * doesn't leak the others — and that the factory's options (images, extra
- * temporal env, quiet) are applied.
+ * doesn't leak the others, and on a failed startup too — and that the
+ * factory's options (images, extra temporal env, health-check retries,
+ * quiet) are applied.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TestProject } from "vitest/node";
@@ -23,6 +24,8 @@ type StartedContainer = {
 const mocks = vi.hoisted(() => {
   const images: string[] = [];
   const environments: Array<{ image: string; env: Record<string, string> }> = [];
+  const healthCheckRetries: number[] = [];
+  const failingImages = new Set<string>();
   const startedContainers: Array<{
     getHost: () => string;
     getMappedPort: (port: number) => number;
@@ -49,13 +52,15 @@ const mocks = vi.hoisted(() => {
       environments.push({ image: this.image, env });
       return this;
     }
-    withHealthCheck() {
+    withHealthCheck({ retries }: { retries: number }) {
+      healthCheckRetries.push(retries);
       return this;
     }
     withWaitStrategy() {
       return this;
     }
     start() {
+      if (failingImages.has(this.image)) return Promise.reject(new Error("unhealthy"));
       const started = {
         getHost: () => "10.0.0.5",
         getMappedPort: (port: number) => 40_000 + port,
@@ -75,6 +80,8 @@ const mocks = vi.hoisted(() => {
   return {
     images,
     environments,
+    healthCheckRetries,
+    failingImages,
     startedContainers,
     networkStop,
     FakeGenericContainer,
@@ -102,6 +109,8 @@ describe("global setup", () => {
   beforeEach(() => {
     mocks.images.length = 0;
     mocks.environments.length = 0;
+    mocks.healthCheckRetries.length = 0;
+    mocks.failingImages.clear();
     mocks.startedContainers.length = 0;
     mocks.networkStop.mockClear();
     vi.spyOn(console, "log").mockImplementation(() => {});
@@ -116,8 +125,9 @@ describe("global setup", () => {
     const { provide } = await runSetup();
 
     expect(mocks.images).toHaveLength(2);
-    expect(mocks.images[0]).toMatch(/^postgres:/);
-    expect(mocks.images[1]).toMatch(/^temporalio\/auto-setup:/);
+    expect(mocks.images[0]).toMatch(/^postgres:[^@]+@sha256:[0-9a-f]{64}$/);
+    expect(mocks.images[1]).toMatch(/^temporalio\/auto-setup:[^@]+@sha256:[0-9a-f]{64}$/);
+    expect(mocks.healthCheckRetries).toEqual([60, 60]);
 
     expect(provide).toHaveBeenCalledWith("__TESTCONTAINERS_TEMPORAL_IP__", "10.0.0.5");
     expect(provide).toHaveBeenCalledWith("__TESTCONTAINERS_TEMPORAL_PORT_7233__", 47_233);
@@ -133,6 +143,30 @@ describe("global setup", () => {
       expect(container.stop).toHaveBeenCalledTimes(1);
     }
     expect(mocks.networkStop).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops what already started when a later container fails to start", async () => {
+    mocks.failingImages.add("temporal-broken");
+
+    await expect(
+      runSetup(createGlobalSetup({ temporalImage: "temporal-broken" })),
+    ).rejects.toMatchObject({ message: "unhealthy" });
+
+    const [postgres] = mocks.startedContainers as StartedContainer[];
+    expect(postgres?.stop).toHaveBeenCalledTimes(1);
+    expect(mocks.networkStop).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives postgres a fresh password per run and hands it to temporal", async () => {
+    await runSetup();
+    await runSetup();
+
+    const passwords = mocks.environments
+      .filter(({ image }) => image.startsWith("postgres:"))
+      .map(({ env }) => env["POSTGRES_PASSWORD"]);
+    expect(passwords[0]).not.toBe(passwords[1]);
+    const temporal = mocks.environments.find(({ image }) => image.startsWith("temporalio/"));
+    expect(temporal?.env["POSTGRES_PWD"]).toBe(passwords[0]);
   });
 
   it("keeps tearing down when a container fails to stop", async () => {
@@ -153,6 +187,8 @@ describe("createGlobalSetup", () => {
   beforeEach(() => {
     mocks.images.length = 0;
     mocks.environments.length = 0;
+    mocks.healthCheckRetries.length = 0;
+    mocks.failingImages.clear();
     mocks.startedContainers.length = 0;
     mocks.networkStop.mockClear();
     vi.spyOn(console, "log").mockImplementation(() => {});
@@ -161,6 +197,12 @@ describe("createGlobalSetup", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("uses the configured health-check retries", async () => {
+    await runSetup(createGlobalSetup({ healthCheckRetries: 120 }));
+
+    expect(mocks.healthCheckRetries).toEqual([120, 120]);
   });
 
   it("uses the configured images", async () => {
@@ -195,11 +237,11 @@ describe("createGlobalSetup", () => {
 
     // The postgres container's env is untouched.
     const postgres = mocks.environments.find(({ image }) => image.startsWith("postgres:"));
-    expect(postgres?.env).toEqual({
-      POSTGRES_DB: "temporal",
-      POSTGRES_USER: "temporal",
-      POSTGRES_PASSWORD: "temporal",
-    });
+    expect(Object.keys(postgres?.env ?? {})).toEqual([
+      "POSTGRES_DB",
+      "POSTGRES_USER",
+      "POSTGRES_PASSWORD",
+    ]);
   });
 
   it("silences progress logs with quiet (teardown errors still log)", async () => {
