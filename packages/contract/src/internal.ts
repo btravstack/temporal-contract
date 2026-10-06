@@ -22,14 +22,14 @@ export {
 } from "./errors-impl.js";
 
 /**
- * Mode→policy mapping for `startPolicy` — re-exported under the
+ * Start-policy→`workflowIdReusePolicy` mapping — re-exported under the
  * `_internal_` prefix used throughout this subpath. Not part of the public
  * API: contract authors only ever set `startPolicy` on `defineWorkflow`; the
  * client and worker are the ones that translate it to Temporal's
  * `workflowIdReusePolicy` via this function, so it lives here rather than on
  * `.` alongside the public `WorkflowStartPolicy` type.
  */
-export { reusePolicyFor as _internal_reusePolicyFor } from "./idempotency.js";
+export { reusePolicyFor as _internal_reusePolicyFor } from "./start-policy.js";
 
 /**
  * Wrap an async function returning `Promise<Result<T, E>>` in an

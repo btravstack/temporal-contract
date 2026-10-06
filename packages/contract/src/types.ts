@@ -1,6 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
-import type { WorkflowStartPolicy } from "./idempotency.js";
+import type { WorkflowStartPolicy } from "./start-policy.js";
 
 /**
  * Base types for validation schemas
@@ -50,35 +50,18 @@ export type ErrorDefinition<TData extends AnySchema = AnySchema> = {
  * free of `@temporalio/*` dependencies; the worker forwards values to
  * Temporal unchanged.
  *
- * The union is three members instead of plain `string | number` so that
- * literal duration strings survive inference into `validate-contract.ts`'s
- * compile-time `CheckDuration`, while every string the runtime accepts still
- * type-checks:
+ * The type is deliberately permissive — it accepts any string. Duration
+ * strings are checked at **runtime only**, by `defineContract`, against the
+ * `ms` grammar (`MS_DURATION_PATTERN` in `builder.ts`), so a malformed value
+ * fails when the contract is defined rather than when the worker schedules
+ * the activity. There is no compile-time duration check.
  *
- * - `` `${number}${string}` `` — preserves *every* literal duration string
- *   as itself instead of widening it to `string`, including a leading-dot
- *   literal like `".5s"` (the runtime regex, `MS_DURATION_PATTERN` in
- *   `builder.ts`, accepts the leading dot). One template-literal member
- *   anywhere in the union is enough to enable literal inference for every
- *   string literal candidate — a second, narrower template-literal member
- *   for the dot case specifically is not needed for inference and was
- *   removed (mutation-tested: deleting
- *   it, alone or together with `CheckDuration`'s corresponding
- *   `` `.${number}${string}` `` branch, leaves the package green).
- *   `CheckDuration`'s `` `.${number}${string}` `` branch (`validate-contract.ts`)
- *   is likewise not load-bearing today: removing it alone also leaves the
- *   package green, because `IsMsDuration` already resolves a concrete
- *   literal like `".5s"` on its own — the branch only matters for the
- *   *unresolved pattern* case `IsExactly` guards against, which no current
- *   `DurationValue` shape produces. See `CheckDuration`'s doc comment for why
- *   the branch is kept anyway.
+ * - `` `${number}${string}` `` — keeps literal duration strings as
+ *   themselves in inferred contract types instead of widening them to
+ *   `string`.
  * - `number` — a plain number of milliseconds.
- * - `string & {}` — deliberate, not a mistake: it is what keeps a *computed*
- *   string (e.g. a timeout read from config, which has no literal to
- *   preserve) accepting. Without it, any non-literal `string` duration stops
- *   compiling — a regression the runtime does not have. Do not "simplify"
- *   this to `string`, which would silently widen every literal above back to
- *   `string` and defeat the whole point of this union.
+ * - `string & {}` — keeps a *computed* string (e.g. a timeout read from
+ *   config) assignable without widening the literals above back to `string`.
  */
 export type DurationValue = `${number}${string}` | number | (string & {});
 
@@ -346,12 +329,13 @@ export type WorkflowDefinition<
    * already been used. Applied by the client to every `startWorkflow` /
    * `executeWorkflow` / `signalWithStart`, and by the worker to every
    * `context.startChildWorkflow` / `context.executeChildWorkflow` of this
-   * workflow; an explicit per-call `workflowIdReusePolicy` still wins.
+   * workflow. Neither offers a per-call `workflowIdReusePolicy` override: the
+   * policy is the contract's.
    *
    * NOT applied to `schedule.create` — the schedule action type has no
    * `workflowIdReusePolicy` field, so a schedule action pinning a fixed
    * `workflowId` gets Temporal's own default (`ALLOW_DUPLICATE`) regardless
-   * of this mode.
+   * of this policy.
    *
    * Required so the question is asked once per workflow rather than
    * silently inheriting Temporal's `ALLOW_DUPLICATE`.

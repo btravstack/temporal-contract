@@ -239,25 +239,17 @@ export type RehydrationMiss = {
   readonly failure: ApplicationFailureLike;
 };
 
-let rehydrationMissHandler: ((miss: RehydrationMiss) => void) | undefined;
-
 /**
- * Register a module-level diagnostic hook invoked whenever a failure whose
- * `type` matches a declared error name fails to rehydrate as a typed
- * {@link ContractError} (see {@link RehydrationMiss}). The degrade-to-generic
- * behavior is unchanged — this only makes it observable. The worker and
- * client packages wire this into their loggers; pass `undefined` to
- * unregister. A throwing handler is swallowed: diagnostics must never break
- * error classification.
+ * Invoke the caller's miss hook. A throwing hook is swallowed: diagnostics
+ * must never break error classification.
  */
-export function onRehydrationMiss(handler: ((miss: RehydrationMiss) => void) | undefined): void {
-  rehydrationMissHandler = handler;
-}
-
-function reportRehydrationMiss(miss: RehydrationMiss): void {
-  if (!rehydrationMissHandler) return;
+function reportRehydrationMiss(
+  onMiss: ((miss: RehydrationMiss) => void) | undefined,
+  miss: RehydrationMiss,
+): void {
+  if (!onMiss) return;
   try {
-    rehydrationMissHandler(miss);
+    onMiss(miss);
   } catch {
     // Deliberately swallowed — a throwing diagnostic hook must not turn a
     // degrade-to-generic path into a hard failure.
@@ -283,8 +275,9 @@ function reportRehydrationMiss(miss: RehydrationMiss): void {
  * error (unknown `type`, payload that no longer validates, or a data-less
  * name without the marker) — callers fall through to their generic failure
  * classification, so a mismatch degrades to today's untyped behavior instead
- * of producing a wrong typed error. Degrades are reported through the
- * {@link onRehydrationMiss} hook so they are observable.
+ * of producing a wrong typed error. Degrades are reported to the optional
+ * `onMiss` hook so the caller can log them (the hook is per call, not module
+ * state: module state would not survive into the bundled workflow sandbox).
  *
  * @internal — exported on the `./internal` subpath for the sibling worker
  * and client packages. Not part of the public API; no semver guarantee.
@@ -292,9 +285,13 @@ function reportRehydrationMiss(miss: RehydrationMiss): void {
 export async function _internal_rehydrateContractError(
   declaredErrors: Record<string, ErrorDefinition> | undefined,
   failure: ApplicationFailureLike,
+  options?: { readonly onMiss?: (miss: RehydrationMiss) => void },
 ): Promise<AnyContractError | undefined> {
-  if (!declaredErrors || !failure.type) return undefined;
-
+  // `Object.hasOwn`, not a plain index: a failure `type` of "constructor" or
+  // "toString" must not resolve through the prototype chain.
+  if (!declaredErrors || !failure.type || !Object.hasOwn(declaredErrors, failure.type)) {
+    return undefined;
+  }
   const definition = declaredErrors[failure.type];
   if (!definition) return undefined;
 
@@ -302,7 +299,7 @@ export async function _internal_rehydrateContractError(
   if (definition.data) {
     const validated = await definition.data["~standard"].validate(failure.details?.[0]);
     if (validated.issues) {
-      reportRehydrationMiss({
+      reportRehydrationMiss(options?.onMiss, {
         errorName: failure.type,
         reason: "data-validation-failed",
         issues: validated.issues,
@@ -312,7 +309,7 @@ export async function _internal_rehydrateContractError(
     }
     data = validated.value;
   } else if (!hasWireMarker(failure.details)) {
-    reportRehydrationMiss({
+    reportRehydrationMiss(options?.onMiss, {
       errorName: failure.type,
       reason: "missing-wire-marker",
       failure,

@@ -13,6 +13,13 @@ import type {
   UpdateDefinition,
 } from "./types.js";
 
+/**
+ * Types every key of `T` that `TShape` doesn't declare as `never`, so an
+ * inferred definition literal carrying a misspelled key fails to compile
+ * (generic inference otherwise absorbs the extra key silently).
+ */
+type NoExcessKeys<T, TShape> = { readonly [K in Exclude<keyof T, keyof TShape>]: never };
+
 // Exported builders first (classic functions for hoisting)
 
 /**
@@ -74,7 +81,7 @@ export function defineActivity<
      * parameter is contextually typed as the activity's validated input.
      */
     readonly idempotencyKey?: (input: StandardSchemaV1.InferOutput<TInput>) => string;
-  },
+  } & NoExcessKeys<TActivity, ActivityDefinition>,
 ): TActivity {
   return definition;
 }
@@ -109,7 +116,9 @@ export function defineActivity<
  * export const shutdown = defineSignal();
  * ```
  */
-export function defineSignal<TSignal extends SignalDefinition>(definition: TSignal): TSignal;
+export function defineSignal<TSignal extends SignalDefinition>(
+  definition: TSignal & NoExcessKeys<TSignal, SignalDefinition>,
+): TSignal;
 export function defineSignal(definition?: {
   input?: undefined;
 }): SignalDefinition<UndefinedInputSchema>;
@@ -160,7 +169,9 @@ export function defineSignal(
  * });
  * ```
  */
-export function defineQuery<TQuery extends QueryDefinition>(definition: TQuery): TQuery;
+export function defineQuery<TQuery extends QueryDefinition>(
+  definition: TQuery & NoExcessKeys<TQuery, QueryDefinition>,
+): TQuery;
 export function defineQuery<TOutput extends AnySchema>(definition: {
   input?: undefined;
   output: TOutput;
@@ -210,7 +221,9 @@ export function defineQuery(
  * });
  * ```
  */
-export function defineUpdate<TUpdate extends UpdateDefinition>(definition: TUpdate): TUpdate;
+export function defineUpdate<TUpdate extends UpdateDefinition>(
+  definition: TUpdate & NoExcessKeys<TUpdate, UpdateDefinition>,
+): TUpdate;
 export function defineUpdate<TOutput extends AnySchema>(definition: {
   input?: undefined;
   output: TOutput;
@@ -315,7 +328,7 @@ export function defineWorkflow<
      * parameter is contextually typed as the workflow's validated input.
      */
     readonly workflowId?: (input: StandardSchemaV1.InferOutput<TInput>) => string;
-  },
+  } & NoExcessKeys<TWorkflow, AnyWorkflowDefinition>,
 ): TWorkflow {
   return definition;
 }
@@ -331,22 +344,27 @@ export function defineWorkflow<
  * - Clear API boundaries and documentation
  *
  * The contract validates the structure and ensures:
- * - Task queue is specified
+ * - Task queue is specified, trimmed, and within Temporal's length limit
  * - At least one workflow or global activity is defined (a contract with
  *   only global `activities` and zero workflows is valid — e.g. a dedicated
  *   activity-pool task queue)
- * - No unknown top-level keys (typo protection, like `activityOptions`)
- * - Valid JavaScript identifiers that don't collide with Temporal-reserved
- *   names are used
+ * - No unknown keys on the contract or on any definition in it (typo
+ *   protection)
+ * - Every workflow declares a valid `startPolicy`
+ * - Valid JavaScript identifiers that don't collide with `Object.prototype`
+ *   members, Temporal-reserved names, Temporal system search attributes, or
+ *   the worker's own failure types are used
  * - No ambiguous name collisions between workflows, global activities, and
  *   workflow-specific activities (referencing the *same* activity definition
- *   object from several scopes is allowed)
+ *   object from several scopes is allowed), and no search attribute declared
+ *   with two different kinds
+ * - Durations and retry policies are ones Temporal accepts
  * - All schemas implement the Standard Schema specification
  *
  * @template TContract - The contract definition type
  * @param definition - The complete contract definition
  * @returns The same definition with preserved types for type inference
- * @throws {Error} If the contract structure is invalid
+ * @throws {ContractDefinitionError} If the contract structure is invalid
  *
  * **Composition-first.** Define resources individually with `defineActivity`
  * / `defineWorkflow` (and friends), then reference them here — don't inline
@@ -447,9 +465,30 @@ const undefinedInputSchema: UndefinedInputSchema = {
  * TypeScript already rejects wrong shapes for typed callers, but a JavaScript
  * caller (or a cast) can pass misspelled keys or non-schema values that would
  * otherwise be silently ignored until a worker or client trips over them.
- * Validation is first-failure-wins: every helper throws a single-line
- * `Contract validation failed: …` error naming the offending path.
+ * Validation is first-failure-wins: every helper throws a single
+ * {@link ContractDefinitionError} whose `path` names the offending slot
+ * (dotted, from the contract root — e.g. `workflows.processOrder.signals.cancel`).
  */
+
+/**
+ * Thrown by `defineContract` when the contract definition is structurally
+ * invalid. `path` locates the offending slot in dotted notation from the
+ * contract root (`workflows.processOrder.activities.charge.activityOptions`);
+ * it is `""` for root-level failures.
+ *
+ * A plain `Error` subclass rather than an unthrown `TaggedError`: the package
+ * root must stay importable without the optional `unthrown` peer, and an
+ * invalid contract is a programming error that aborts at import time anyway.
+ */
+export class ContractDefinitionError extends Error {
+  override readonly name = "ContractDefinitionError";
+  readonly path: string;
+
+  constructor(path: string, message: string) {
+    super(message);
+    this.path = path;
+  }
+}
 
 /**
  * Contract names (workflow, activity, signal, query, update, search
@@ -459,6 +498,14 @@ const undefinedInputSchema: UndefinedInputSchema = {
  * Must start with: letter, underscore, or dollar sign
  */
 const IDENTIFIER_PATTERN = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
+
+/**
+ * `Object.prototype` member names (`constructor`, `toString`, `__proto__`, …).
+ * They pass {@link IDENTIFIER_PATTERN}, but every runtime lookup-by-name on a
+ * plain object would resolve them through the prototype chain, so they are
+ * rejected for every kind of contract name.
+ */
+const OBJECT_PROTOTYPE_NAMES: readonly string[] = Object.getOwnPropertyNames(Object.prototype);
 
 /**
  * Temporal reserves handler names for its own SDK internals: everything
@@ -481,6 +528,61 @@ const TEMPORAL_NAMED_KINDS: readonly string[] = [
   "update",
 ];
 
+/**
+ * `ApplicationFailure.type` strings the worker emits for its own failures —
+ * the `ValidationError` subclasses in `packages/worker/src/errors.ts`. A
+ * declared error with one of these names would be indistinguishable on the
+ * wire (and in `nonRetryableErrorTypes`) from the worker's own failure. Keep
+ * in sync with that file.
+ */
+const WORKER_FAILURE_TYPES: readonly string[] = [
+  "ActivityInputValidationError",
+  "ActivityOutputValidationError",
+  "WorkflowInputValidationError",
+  "WorkflowOutputValidationError",
+  "QueryInputValidationError",
+  "QueryOutputValidationError",
+  "UpdateInputValidationError",
+  "UpdateOutputValidationError",
+  "ContractErrorDataValidationError",
+  "ContractMisuseError",
+];
+
+/**
+ * Temporal's built-in system search attributes. Declaring a custom attribute
+ * under one of these names is rejected by the server when the workflow
+ * starts, so it is rejected at definition time instead.
+ */
+const TEMPORAL_SYSTEM_SEARCH_ATTRIBUTES: readonly string[] = [
+  "WorkflowType",
+  "WorkflowId",
+  "RunId",
+  "ExecutionStatus",
+  "TaskQueue",
+  "StartTime",
+  "CloseTime",
+  "ExecutionTime",
+  "ExecutionDuration",
+  "HistoryLength",
+  "HistorySizeBytes",
+  "StateTransitionCount",
+  "TemporalChangeVersion",
+  "BinaryChecksums",
+  "BuildIds",
+  "BatcherUser",
+  "TemporalScheduledStartTime",
+  "TemporalScheduledById",
+  "TemporalSchedulePaused",
+  "TemporalNamespaceDivision",
+  "ParentWorkflowId",
+  "ParentRunId",
+  "RootWorkflowId",
+  "RootRunId",
+];
+
+/** Temporal's default maximum length for IDs, task queue names included (`limit.maxIDLength`). */
+const MAX_TASK_QUEUE_LENGTH = 1000;
+
 /** The seven Temporal search attribute kinds (see {@link SearchAttributeKind}). */
 const SEARCH_ATTRIBUTE_KINDS: readonly string[] = [
   "TEXT",
@@ -491,6 +593,27 @@ const SEARCH_ATTRIBUTE_KINDS: readonly string[] = [
   "DATETIME",
   "KEYWORD_LIST",
 ];
+
+const START_POLICIES: readonly string[] = ["once-per-id", "retry-if-failed", "allow-duplicate"];
+
+const CONTRACT_KEYS = ["taskQueue", "workflows", "activities"] as const;
+
+const WORKFLOW_KEYS = [
+  "input",
+  "output",
+  "workflowId",
+  "startPolicy",
+  "activities",
+  "signals",
+  "queries",
+  "updates",
+  "searchAttributes",
+  "errors",
+] as const;
+
+const ACTIVITY_KEYS = ["input", "output", "errors", "activityOptions", "idempotencyKey"] as const;
+
+const ERROR_KEYS = ["data", "message", "nonRetryable"] as const;
 
 const ACTIVITY_OPTIONS_KEYS = [
   "startToCloseTimeout",
@@ -516,9 +639,12 @@ const RETRY_KEYS = [
 ] as const;
 
 /** Throw the canonical single-line contract validation error. */
-function fail(detail: string): never {
+function fail(path: string, detail: string): never {
   // oxlint-disable-next-line unthrown/no-throw -- declaration-time fail-fast config error: an invalid contract must abort at definition, before any Result seam exists
-  throw new Error(`Contract validation failed: ${detail}`);
+  throw new ContractDefinitionError(
+    path,
+    `Contract validation failed${path ? ` at ${path}` : ""}: ${detail}`,
+  );
 }
 
 /** Plain-object check — `null` and arrays don't qualify as definition maps. */
@@ -526,17 +652,33 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function assertIdentifier(kind: string, name: string): void {
+function assertIdentifier(kind: string, name: string, path: string): void {
   if (!IDENTIFIER_PATTERN.test(name)) {
-    fail(`${kind} name "${name}" must be a valid JavaScript identifier`);
+    fail(path, `${kind} name "${name}" must be a valid JavaScript identifier`);
+  }
+  if (OBJECT_PROTOTYPE_NAMES.includes(name)) {
+    fail(
+      path,
+      `${kind} name "${name}" is an Object.prototype member — name-keyed lookups would resolve it through the prototype chain. Rename it.`,
+    );
   }
   if (
     TEMPORAL_NAMED_KINDS.includes(kind) &&
     (name.startsWith(TEMPORAL_RESERVED_PREFIX) || TEMPORAL_RESERVED_NAMES.includes(name))
   ) {
     fail(
+      path,
       `${kind} name "${name}" is reserved by Temporal — names starting with "__temporal_" and the names "__stack_trace" / "__enhanced_stack_trace" are used internally by the Temporal SDK. Rename it.`,
     );
+  }
+  if (kind === "error" && WORKER_FAILURE_TYPES.includes(name)) {
+    fail(
+      path,
+      `error name "${name}" is reserved — the worker emits it as the ApplicationFailure type of its own failures. Rename it.`,
+    );
+  }
+  if (kind === "search attribute" && TEMPORAL_SYSTEM_SEARCH_ATTRIBUTES.includes(name)) {
+    fail(path, `search attribute name "${name}" is a Temporal system search attribute. Rename it.`);
   }
 }
 
@@ -545,7 +687,7 @@ function assertIdentifier(kind: string, name: string): void {
  * allowed keys so a typo is a one-glance fix.
  */
 function assertKnownKeys(
-  context: string,
+  path: string,
   bag: Record<string, unknown>,
   allowed: readonly string[],
 ): void {
@@ -554,16 +696,24 @@ function assertKnownKeys(
     const offending = unknown.map((key) => `"${key}"`).join(", ");
     const expected = allowed.map((key) => `"${key}"`).join(", ");
     fail(
-      `${context} has unknown key${unknown.length > 1 ? "s" : ""} ${offending} — allowed keys are ${expected}`,
+      path,
+      `unknown key${unknown.length > 1 ? "s" : ""} ${offending} — allowed keys are ${expected}`,
     );
   }
 }
 
-function assertSchema(context: string, slot: string, value: unknown): void {
+function assertSchema(path: string, slot: string, value: unknown): void {
   if (!isStandardSchema(value)) {
     fail(
-      `${context}: ${slot} must be a Standard Schema compatible schema (e.g., Zod, Valibot, ArkType)`,
+      `${path}.${slot}`,
+      `${slot} must be a Standard Schema compatible schema (e.g., Zod, Valibot, ArkType)`,
     );
+  }
+}
+
+function assertOptionalFunction(path: string, slot: string, value: unknown): void {
+  if (value !== undefined && typeof value !== "function") {
+    fail(`${path}.${slot}`, `${slot} must be a function`);
   }
 }
 
@@ -578,11 +728,26 @@ function assertSchema(context: string, slot: string, value: unknown): void {
  * is deliberately rejected here.
  */
 const MS_DURATION_PATTERN =
-  /^(?:\d+)?\.?\d+ *(?:milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w|years?|yrs?|y)?$/i;
+  /^((?:\d+)?\.?\d+) *(milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w|years?|yrs?|y)?$/i;
 
 /**
- * A Temporal duration value: an `ms`-formatted string or a non-negative
- * finite number of milliseconds. `undefined` (absent) is allowed — every
+ * Milliseconds per unit, keyed by the unit's first letter — `ms`'s own
+ * factors (a year is 365.25 days). Millisecond units (`ms`, `msecs`,
+ * `milliseconds`) also start with `m` and are special-cased before lookup.
+ */
+const MS_PER_UNIT: Record<string, number> = {
+  s: 1000,
+  m: 60_000,
+  h: 3_600_000,
+  d: 86_400_000,
+  w: 604_800_000,
+  y: 31_557_600_000,
+};
+
+/**
+ * Validate a Temporal duration value — an `ms`-formatted string or a
+ * non-negative finite number of milliseconds — and return it in
+ * milliseconds. `undefined` (absent) is allowed and returned as-is — every
  * duration slot on the contract-level `activityOptions` is optional.
  *
  * Strings are validated against the `ms` grammar at `defineContract` time so
@@ -590,54 +755,66 @@ const MS_DURATION_PATTERN =
  * with a message naming the offending path — instead of surfacing later as
  * an opaque worker-side Temporal error.
  */
-function assertDuration(context: string, key: string, value: unknown): void {
-  if (value === undefined) return;
+function parseDuration(path: string, key: string, value: unknown): number | undefined {
+  if (value === undefined) return undefined;
   if (typeof value === "number") {
     if (!Number.isFinite(value) || value < 0) {
       fail(
-        `${context}: ${key} has invalid duration ${String(value)} — a numeric duration must be a non-negative, finite number of milliseconds`,
+        `${path}.${key}`,
+        `${key} has invalid duration ${String(value)} — a numeric duration must be a non-negative, finite number of milliseconds`,
       );
     }
-    return;
+    return value;
   }
   if (typeof value !== "string") {
-    fail(`${context}: ${key} must be an ms-formatted string or a number of milliseconds`);
+    fail(`${path}.${key}`, `${key} must be an ms-formatted string or a number of milliseconds`);
   }
   // Cheap length cap first: the regex is linear, but there is no reason to
   // run it over an arbitrarily long string when the cap rejects it anyway.
-  if (value.length > 100 || !MS_DURATION_PATTERN.test(value)) {
+  const match = value.length > 100 ? null : MS_DURATION_PATTERN.exec(value);
+  if (!match) {
     fail(
-      `${context}: ${key} has invalid duration "${value}" — expected an ms-formatted string (a number followed by an optional unit ms/s/m/h/d/w/y or its long form, e.g. "30s", "5 minutes", "1.5h") or a number of milliseconds`,
+      `${path}.${key}`,
+      `${key} has invalid duration "${value}" — expected an ms-formatted string (a number followed by an optional unit ms/s/m/h/d/w/y or its long form, e.g. "30s", "5 minutes", "1.5h") or a number of milliseconds`,
     );
   }
+  const unit = match[2]?.toLowerCase();
+  const factor =
+    unit === undefined || unit.startsWith("ms") || unit.startsWith("milli")
+      ? 1
+      : (MS_PER_UNIT[unit.charAt(0)] ?? 1);
+  return Number(match[1]) * factor;
 }
 
 /**
- * Validate an `errors` map: identifier keys, and per entry an optional
+ * Validate an `errors` map: identifier keys (not colliding with the worker's
+ * own failure types), and per entry strict keys, an optional
  * Standard Schema `data` (like every other schema slot on the contract),
  * string `message`, and boolean `nonRetryable`.
  */
-function validateErrorsMap(context: string, errors: unknown): void {
+function validateErrorsMap(path: string, errors: unknown): void {
+  const errorsPath = `${path}.errors`;
   if (!isRecord(errors)) {
-    fail(`${context}: errors must be an object`);
+    fail(errorsPath, "errors must be an object");
   }
   for (const [errorName, definition] of Object.entries(errors)) {
-    assertIdentifier("error", errorName);
-    const errorContext = `${context} error "${errorName}"`;
+    const errorPath = `${errorsPath}.${errorName}`;
+    assertIdentifier("error", errorName, errorPath);
     if (!isRecord(definition)) {
-      fail(`${errorContext} must be an object`);
+      fail(errorPath, "error definition must be an object");
     }
+    assertKnownKeys(errorPath, definition, ERROR_KEYS);
     if (definition["data"] !== undefined) {
-      assertSchema(errorContext, "data", definition["data"]);
+      assertSchema(errorPath, "data", definition["data"]);
     }
     if (definition["message"] !== undefined && typeof definition["message"] !== "string") {
-      fail(`${errorContext}: message must be a string`);
+      fail(`${errorPath}.message`, "message must be a string");
     }
     if (
       definition["nonRetryable"] !== undefined &&
       typeof definition["nonRetryable"] !== "boolean"
     ) {
-      fail(`${errorContext}: nonRetryable must be a boolean`);
+      fail(`${errorPath}.nonRetryable`, "nonRetryable must be a boolean");
     }
   }
 }
@@ -646,28 +823,63 @@ function validateErrorsMap(context: string, errors: unknown): void {
  * Validate contract-level `activityOptions`. Strict keys so a typo
  * (`startToCloseTimeOut`) fails at `defineContract` time instead of being
  * silently ignored when the worker merges options.
+ *
+ * The retry policy mirrors `@temporalio/common`'s `compileRetryPolicy` (plus
+ * the server's `backoffCoefficient >= 1` rule): an invalid policy otherwise
+ * only throws inside the workflow when the activity is scheduled, failing the
+ * workflow task on every attempt instead of failing here.
  */
-function validateActivityOptions(context: string, options: unknown): void {
+function validateActivityOptions(path: string, options: unknown): void {
+  const optionsPath = `${path}.activityOptions`;
   if (!isRecord(options)) {
-    fail(`${context}: activityOptions must be an object`);
+    fail(optionsPath, "activityOptions must be an object");
   }
-  assertKnownKeys(`${context} activityOptions`, options, ACTIVITY_OPTIONS_KEYS);
+  assertKnownKeys(optionsPath, options, ACTIVITY_OPTIONS_KEYS);
   for (const key of ACTIVITY_OPTIONS_DURATION_KEYS) {
-    assertDuration(`${context} activityOptions`, key, options[key]);
+    parseDuration(optionsPath, key, options[key]);
   }
 
   const retry = options["retry"];
   if (retry === undefined) return;
+  const retryPath = `${optionsPath}.retry`;
   if (!isRecord(retry)) {
-    fail(`${context}: activityOptions.retry must be an object`);
+    fail(retryPath, "retry must be an object");
   }
-  assertKnownKeys(`${context} activityOptions.retry`, retry, RETRY_KEYS);
-  assertDuration(`${context} activityOptions.retry`, "initialInterval", retry["initialInterval"]);
-  assertDuration(`${context} activityOptions.retry`, "maximumInterval", retry["maximumInterval"]);
-  for (const key of ["backoffCoefficient", "maximumAttempts"] as const) {
-    if (retry[key] !== undefined && typeof retry[key] !== "number") {
-      fail(`${context}: activityOptions.retry.${key} must be a number`);
-    }
+  assertKnownKeys(retryPath, retry, RETRY_KEYS);
+  const initialInterval = parseDuration(retryPath, "initialInterval", retry["initialInterval"]);
+  const maximumInterval = parseDuration(retryPath, "maximumInterval", retry["maximumInterval"]);
+  if (initialInterval === 0) {
+    fail(`${retryPath}.initialInterval`, "initialInterval cannot be 0");
+  }
+  if (maximumInterval === 0) {
+    fail(`${retryPath}.maximumInterval`, "maximumInterval cannot be 0");
+  }
+  // Temporal compares against its 1s default when `initialInterval` is absent.
+  if (maximumInterval !== undefined && maximumInterval < (initialInterval ?? 1000)) {
+    fail(
+      `${retryPath}.maximumInterval`,
+      `maximumInterval cannot be less than initialInterval (${initialInterval ?? "1000, Temporal's default"} ms)`,
+    );
+  }
+  const backoffCoefficient = retry["backoffCoefficient"];
+  if (
+    backoffCoefficient !== undefined &&
+    (typeof backoffCoefficient !== "number" ||
+      !Number.isFinite(backoffCoefficient) ||
+      backoffCoefficient < 1)
+  ) {
+    fail(`${retryPath}.backoffCoefficient`, "backoffCoefficient must be a finite number >= 1");
+  }
+  const maximumAttempts = retry["maximumAttempts"];
+  if (
+    maximumAttempts !== undefined &&
+    maximumAttempts !== Number.POSITIVE_INFINITY &&
+    !(Number.isInteger(maximumAttempts) && (maximumAttempts as number) > 0)
+  ) {
+    fail(
+      `${retryPath}.maximumAttempts`,
+      "maximumAttempts must be a positive integer, or Infinity for unlimited attempts",
+    );
   }
   const nonRetryableErrorTypes = retry["nonRetryableErrorTypes"];
   if (
@@ -675,25 +887,37 @@ function validateActivityOptions(context: string, options: unknown): void {
     (!Array.isArray(nonRetryableErrorTypes) ||
       nonRetryableErrorTypes.some((entry) => typeof entry !== "string"))
   ) {
-    fail(`${context}: activityOptions.retry.nonRetryableErrorTypes must be an array of strings`);
+    fail(
+      `${retryPath}.nonRetryableErrorTypes`,
+      "nonRetryableErrorTypes must be an array of strings",
+    );
   }
 }
 
 /**
- * Validate an activity definition: Standard Schema `input`/`output`, plus
- * optional `errors` and `activityOptions`.
+ * Validate an activity definition: strict keys, Standard Schema
+ * `input`/`output`, plus optional `errors`, `activityOptions`, and
+ * `idempotencyKey`.
  */
-function validateActivityDefinition(context: string, definition: unknown): void {
+function validateActivityDefinition(path: string, definition: unknown): void {
   if (!isRecord(definition)) {
-    fail(`${context} must be an object`);
+    fail(path, "activity definition must be an object");
   }
-  assertSchema(context, "input", definition["input"]);
-  assertSchema(context, "output", definition["output"]);
+  if (definition["defaultOptions"] !== undefined) {
+    fail(
+      `${path}.defaultOptions`,
+      `"defaultOptions" was renamed to "activityOptions". Rename the field (the options are unchanged).`,
+    );
+  }
+  assertKnownKeys(path, definition, ACTIVITY_KEYS);
+  assertSchema(path, "input", definition["input"]);
+  assertSchema(path, "output", definition["output"]);
+  assertOptionalFunction(path, "idempotencyKey", definition["idempotencyKey"]);
   if (definition["errors"] !== undefined) {
-    validateErrorsMap(context, definition["errors"]);
+    validateErrorsMap(path, definition["errors"]);
   }
   if (definition["activityOptions"] !== undefined) {
-    validateActivityOptions(context, definition["activityOptions"]);
+    validateActivityOptions(path, definition["activityOptions"]);
   }
 }
 
@@ -703,25 +927,27 @@ function validateActivityDefinition(context: string, definition: unknown): void 
  * {@link undefinedInputSchema} when `input` is omitted, so by the time a
  * definition reaches `defineContract` its `input` slot is always present.
  */
-function validateMessageDefinition(context: string, definition: unknown, hasOutput: boolean): void {
+function validateMessageDefinition(path: string, definition: unknown, hasOutput: boolean): void {
   if (!isRecord(definition)) {
-    fail(`${context} must be an object`);
+    fail(path, "definition must be an object");
   }
-  assertSchema(context, "input", definition["input"]);
+  assertKnownKeys(path, definition, hasOutput ? ["input", "output"] : ["input"]);
+  assertSchema(path, "input", definition["input"]);
   if (hasOutput) {
-    assertSchema(context, "output", definition["output"]);
+    assertSchema(path, "output", definition["output"]);
   }
 }
 
 /** Validate a search attribute definition: `kind` must be one of the seven Temporal kinds. */
-function validateSearchAttributeDefinition(context: string, definition: unknown): void {
+function validateSearchAttributeDefinition(path: string, definition: unknown): void {
   if (!isRecord(definition)) {
-    fail(`${context} must be an object`);
+    fail(path, "search attribute definition must be an object");
   }
+  assertKnownKeys(path, definition, ["kind"]);
   const kind = definition["kind"];
   if (typeof kind !== "string" || !SEARCH_ATTRIBUTE_KINDS.includes(kind)) {
     const expected = SEARCH_ATTRIBUTE_KINDS.map((entry) => `"${entry}"`).join(", ");
-    fail(`${context}: kind must be one of ${expected}`);
+    fail(`${path}.kind`, `kind must be one of ${expected}`);
   }
 }
 
@@ -731,97 +957,81 @@ function validateSearchAttributeDefinition(context: string, definition: unknown)
  * per `validateEntry`.
  */
 function validateDefinitionMap(
-  context: string,
+  path: string,
   slot: string,
   kind: string,
   map: unknown,
-  validateEntry: (entryContext: string, definition: unknown) => void,
+  validateEntry: (entryPath: string, definition: unknown) => void,
 ): void {
   if (map === undefined) return;
+  const slotPath = `${path}.${slot}`;
   if (!isRecord(map)) {
-    fail(`${context}: ${slot} must be an object`);
+    fail(slotPath, `${slot} must be an object`);
   }
   for (const [name, definition] of Object.entries(map)) {
-    assertIdentifier(kind, name);
-    validateEntry(`${context} ${kind} "${name}"`, definition);
+    const entryPath = `${slotPath}.${name}`;
+    assertIdentifier(kind, name, entryPath);
+    validateEntry(entryPath, definition);
   }
 }
 
 /**
- * Validate a workflow definition: Standard Schema `input`/`output`, plus the
- * optional activities/signals/queries/updates/searchAttributes/errors maps.
+ * Validate a workflow definition: strict keys, Standard Schema
+ * `input`/`output`, a required `startPolicy`, an optional `workflowId`
+ * function, plus the optional
+ * activities/signals/queries/updates/searchAttributes/errors maps.
  */
-function validateWorkflowDefinition(context: string, definition: unknown): void {
+function validateWorkflowDefinition(path: string, definition: unknown): void {
   if (!isRecord(definition)) {
-    fail(`${context} must be an object`);
+    fail(path, "workflow definition must be an object");
   }
-  assertSchema(context, "input", definition["input"]);
-  assertSchema(context, "output", definition["output"]);
-  const startPolicy = definition["startPolicy"];
-  // `startPolicy` is required at the *type* level (`WorkflowDefinition`,
-  // types.ts), but this runtime check deliberately still accepts `undefined`
-  // here — tightening it to reject a missing field would be "finishing the
-  // flip" for real, and it's load-bearing: it's what lets a definition reach
-  // the client/worker without `startPolicy` at runtime despite the type
-  // requiring it (e.g. a contract assembled outside the type system, or an
-  // older compiled artifact) without failing contract validation. The
-  // client's/worker's own `definition.startPolicy ? {...} : {}` guards stay
-  // defensive for exactly that case, and the `plainWorkflow` fixture in
-  // client.spec.ts exists to prove it.
   // A definition still carrying the pre-rename `idempotency` field fails
-  // loudly rather than silently losing its policy. The type system catches
-  // this for TypeScript callers, but a plain-JS contract or a stale compiled
-  // artifact would otherwise reach the client with no `startPolicy` at all
-  // and inherit Temporal's `ALLOW_DUPLICATE` — silently dropping the very
-  // protection the field exists to declare.
-  if (definition["idempotency"] !== undefined && startPolicy === undefined) {
+  // with a pointed message rather than the generic unknown-key one.
+  if (definition["idempotency"] !== undefined) {
     fail(
-      `${context}: "idempotency" was renamed to "startPolicy". Rename the field ` +
-        `(the mode values are unchanged) — leaving it as "idempotency" would ` +
-        `silently fall back to Temporal's ALLOW_DUPLICATE.`,
+      `${path}.idempotency`,
+      `"idempotency" was renamed to "startPolicy". Rename the field (the mode values are unchanged).`,
     );
   }
-  if (
-    startPolicy !== undefined &&
-    startPolicy !== "once-per-id" &&
-    startPolicy !== "retry-if-failed" &&
-    startPolicy !== "allow-duplicate"
-  ) {
-    fail(`${context}: startPolicy must be "once-per-id", "retry-if-failed", or "allow-duplicate"`);
+  assertKnownKeys(path, definition, WORKFLOW_KEYS);
+  assertSchema(path, "input", definition["input"]);
+  assertSchema(path, "output", definition["output"]);
+  assertOptionalFunction(path, "workflowId", definition["workflowId"]);
+  // Required at runtime too, so the client and worker can rely on it: a
+  // definition assembled outside the type system would otherwise silently
+  // inherit Temporal's `ALLOW_DUPLICATE`.
+  const startPolicy = definition["startPolicy"];
+  if (typeof startPolicy !== "string" || !START_POLICIES.includes(startPolicy)) {
+    fail(
+      `${path}.startPolicy`,
+      `startPolicy is required and must be "once-per-id", "retry-if-failed", or "allow-duplicate"`,
+    );
   }
   validateDefinitionMap(
-    context,
+    path,
     "activities",
     "activity",
     definition["activities"],
     validateActivityDefinition,
   );
-  validateDefinitionMap(
-    context,
-    "signals",
-    "signal",
-    definition["signals"],
-    (entryContext, entry) => validateMessageDefinition(entryContext, entry, false),
+  validateDefinitionMap(path, "signals", "signal", definition["signals"], (entryPath, entry) =>
+    validateMessageDefinition(entryPath, entry, false),
   );
-  validateDefinitionMap(context, "queries", "query", definition["queries"], (entryContext, entry) =>
-    validateMessageDefinition(entryContext, entry, true),
+  validateDefinitionMap(path, "queries", "query", definition["queries"], (entryPath, entry) =>
+    validateMessageDefinition(entryPath, entry, true),
   );
-  validateDefinitionMap(
-    context,
-    "updates",
-    "update",
-    definition["updates"],
-    (entryContext, entry) => validateMessageDefinition(entryContext, entry, true),
+  validateDefinitionMap(path, "updates", "update", definition["updates"], (entryPath, entry) =>
+    validateMessageDefinition(entryPath, entry, true),
   );
   validateDefinitionMap(
-    context,
+    path,
     "searchAttributes",
     "search attribute",
     definition["searchAttributes"],
     validateSearchAttributeDefinition,
   );
   if (definition["errors"] !== undefined) {
-    validateErrorsMap(context, definition["errors"]);
+    validateErrorsMap(path, definition["errors"]);
   }
 }
 
@@ -836,6 +1046,9 @@ function validateWorkflowDefinition(context: string, definition: unknown): void 
  *    another — unless every scope references the *same* definition object
  *    (a shared `defineActivity` result), which flattens unambiguously and
  *    is therefore allowed.
+ * 3. Search attribute names across workflows: Temporal registers a search
+ *    attribute once per namespace with a single type, so the same name
+ *    declared with different kinds can't both be right.
  */
 function validateNameCollisions(
   workflows: Record<string, unknown>,
@@ -845,6 +1058,7 @@ function validateNameCollisions(
     for (const activityName of Object.keys(globalActivities)) {
       if (Object.hasOwn(workflows, activityName)) {
         fail(
+          `activities.${activityName}`,
           `global activity "${activityName}" has the same name as a workflow. Workflows and global activities share the root of the worker implementations map — rename one of them.`,
         );
       }
@@ -865,14 +1079,26 @@ function validateNameCollisions(
     }
   }
 
+  // Structural validation already ran, so present slots are plain objects of
+  // valid definitions.
+  const searchAttributeKinds = new Map<string, { kind: unknown; workflowName: string }>();
   for (const [workflowName, workflow] of Object.entries(workflows)) {
-    // Structural validation already ran, so a present `activities` slot is a
-    // plain object of definitions.
-    const workflowActivities = (workflow as { activities?: unknown }).activities;
-    if (!isRecord(workflowActivities)) {
-      continue;
+    const { activities: workflowActivities, searchAttributes } = workflow as {
+      activities?: Record<string, unknown>;
+      searchAttributes?: Record<string, { kind: unknown }>;
+    };
+    for (const [name, { kind }] of Object.entries(searchAttributes ?? {})) {
+      const previous = searchAttributeKinds.get(name);
+      if (previous && previous.kind !== kind) {
+        fail(
+          `workflows.${workflowName}.searchAttributes.${name}`,
+          `search attribute "${name}" is declared as ${String(kind)} here but as ${String(previous.kind)} in workflow "${previous.workflowName}". A search attribute has one type per namespace — use the same kind or rename one of them.`,
+        );
+      }
+      searchAttributeKinds.set(name, { kind, workflowName });
     }
-    for (const [activityName, definition] of Object.entries(workflowActivities)) {
+
+    for (const [activityName, definition] of Object.entries(workflowActivities ?? {})) {
       const previousOwner = owners.get(activityName);
       if (!previousOwner) {
         owners.set(activityName, { name: workflowName, definition });
@@ -883,12 +1109,15 @@ function validateNameCollisions(
         // unambiguous, so sharing one `defineActivity` result is allowed.
         continue;
       }
+      const activityPath = `workflows.${workflowName}.activities.${activityName}`;
       if (previousOwner.name === GLOBAL_OWNER) {
         fail(
+          activityPath,
           `workflow "${workflowName}" has activity "${activityName}" that conflicts with a different global activity of the same name. Activities share a single flat namespace at runtime — reference the shared definition from the contract's global "activities" block, or rename one of them.`,
         );
       }
       fail(
+        activityPath,
         `workflow "${workflowName}" has activity "${activityName}" that conflicts with a different same-named activity in workflow "${previousOwner.name}". Activities share a single flat namespace at runtime — hoist the shared activity to the contract's global "activities" block, or rename one of them.`,
       );
     }
@@ -898,39 +1127,50 @@ function validateNameCollisions(
 /**
  * Validate a contract definition's structure. The root is strict — an
  * unknown top-level key (e.g. a misspelled `workflow`) fails instead of
- * being silently ignored, matching the strict `activityOptions` behavior.
+ * being silently ignored, like every definition below it.
  */
 function validateContractDefinition(definition: unknown): void {
   if (!isRecord(definition)) {
-    fail("contract must be an object");
+    fail("", "contract must be an object");
   }
-  assertKnownKeys("contract", definition, ["taskQueue", "workflows", "activities"]);
+  assertKnownKeys("", definition, CONTRACT_KEYS);
 
   const taskQueue = definition["taskQueue"];
   if (typeof taskQueue !== "string") {
-    fail("taskQueue must be a string");
+    fail("taskQueue", "taskQueue must be a string");
   }
   if (taskQueue.trim().length === 0) {
-    fail("taskQueue cannot be empty");
+    fail("taskQueue", "taskQueue cannot be empty");
+  }
+  if (taskQueue.trim() !== taskQueue) {
+    fail("taskQueue", "taskQueue cannot have leading or trailing whitespace");
+  }
+  if (taskQueue.length > MAX_TASK_QUEUE_LENGTH) {
+    fail(
+      "taskQueue",
+      `taskQueue cannot exceed ${MAX_TASK_QUEUE_LENGTH} characters (Temporal's default limit)`,
+    );
   }
 
   const workflows = definition["workflows"];
   if (!isRecord(workflows)) {
-    fail("workflows must be an object");
+    fail("workflows", "workflows must be an object");
   }
   for (const [workflowName, workflow] of Object.entries(workflows)) {
-    assertIdentifier("workflow", workflowName);
-    validateWorkflowDefinition(`workflow "${workflowName}"`, workflow);
+    const workflowPath = `workflows.${workflowName}`;
+    assertIdentifier("workflow", workflowName, workflowPath);
+    validateWorkflowDefinition(workflowPath, workflow);
   }
 
   const activities = definition["activities"];
   if (activities !== undefined && !isRecord(activities)) {
-    fail("activities must be an object");
+    fail("activities", "activities must be an object");
   }
   if (activities) {
     for (const [activityName, activity] of Object.entries(activities)) {
-      assertIdentifier("global activity", activityName);
-      validateActivityDefinition(`global activity "${activityName}"`, activity);
+      const activityPath = `activities.${activityName}`;
+      assertIdentifier("global activity", activityName, activityPath);
+      validateActivityDefinition(activityPath, activity);
     }
   }
 
@@ -938,7 +1178,7 @@ function validateContractDefinition(definition: unknown): void {
   // they model dedicated activity-pool task queues. A contract with neither
   // workflows nor activities declares nothing and is still rejected.
   if (Object.keys(workflows).length === 0 && Object.keys(activities ?? {}).length === 0) {
-    fail("at least one workflow or global activity is required");
+    fail("", "at least one workflow or global activity is required");
   }
 
   validateNameCollisions(workflows, activities);

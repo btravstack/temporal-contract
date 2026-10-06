@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import {
+  ContractDefinitionError,
   defineActivity,
   defineContract,
   defineQuery,
@@ -792,7 +793,7 @@ describe("Contract Builder", () => {
           activites: {},
         }),
       ).toThrow(
-        'contract has unknown key "activites" — allowed keys are "taskQueue", "workflows", "activities"',
+        'Contract validation failed: unknown key "activites" — allowed keys are "taskQueue", "workflows", "activities"',
       );
     });
 
@@ -942,7 +943,7 @@ describe("Contract Builder", () => {
           },
         }),
       ).toThrow(
-        'Contract validation failed: workflow "test": startPolicy must be "once-per-id", "retry-if-failed", or "allow-duplicate"',
+        'Contract validation failed at workflows.test.startPolicy: startPolicy is required and must be "once-per-id", "retry-if-failed", or "allow-duplicate"',
       );
     });
 
@@ -966,8 +967,7 @@ describe("Contract Builder", () => {
       ).toThrow('"idempotency" was renamed to "startPolicy"');
     });
 
-    it("accepts a definition carrying BOTH fields, taking the new one", () => {
-      // Mid-migration codebases exist; only a *missing* startPolicy is fatal.
+    it("rejects a definition carrying BOTH fields — the leftover key is still a rename to finish", () => {
       expect(() =>
         defineContract({
           taskQueue: "test",
@@ -983,7 +983,7 @@ describe("Contract Builder", () => {
             },
           },
         }),
-      ).not.toThrow();
+      ).toThrow('"idempotency" was renamed to "startPolicy"');
     });
 
     it("should throw when workflow startPolicy is not a string", () => {
@@ -1317,7 +1317,9 @@ describe("Contract Builder — typed errors and default options", () => {
           },
         },
       }),
-    ).toThrow('global activity "sendEmail" activityOptions has unknown key "startToCloseTimeOut"');
+    ).toThrow(
+      'Contract validation failed at activities.sendEmail.activityOptions: unknown key "startToCloseTimeOut"',
+    );
   });
 
   it("rejects a typo'd retry key inside activityOptions (strict object)", () => {
@@ -1375,7 +1377,7 @@ describe("Contract Builder — duration validation", () => {
     "rejects the invalid duration string %j with the offending path and value",
     (value) => {
       expect(() => withTimeout(value)).toThrow(
-        `global activity "sendEmail" activityOptions: startToCloseTimeout has invalid duration "${value}"`,
+        `Contract validation failed at activities.sendEmail.activityOptions.startToCloseTimeout: startToCloseTimeout has invalid duration "${value}"`,
       );
     },
   );
@@ -1399,7 +1401,7 @@ describe("Contract Builder — duration validation", () => {
         },
       }),
     ).toThrow(
-      'global activity "sendEmail" activityOptions.retry: initialInterval has invalid duration "quick"',
+      'at activities.sendEmail.activityOptions.retry.initialInterval: initialInterval has invalid duration "quick"',
     );
   });
 });
@@ -1457,8 +1459,7 @@ describe("Contract Builder — Temporal-reserved names", () => {
       defineContract({
         taskQueue: "test",
         workflows: {
-          // @ts-expect-error — reserved workflow-scoped activity name.
-          wf: { ...base, activities: { __temporal_probe: base } },
+          wf: { ...base, startPolicy: "allow-duplicate", activities: { __temporal_probe: base } },
         },
       }),
     ).toThrow(RESERVED_MESSAGE);
@@ -1467,8 +1468,11 @@ describe("Contract Builder — Temporal-reserved names", () => {
       defineContract({
         taskQueue: "test",
         workflows: {
-          // @ts-expect-error — reserved signal name.
-          wf: { ...base, signals: { __temporal_ping: { input: z.object({}) } } },
+          wf: {
+            ...base,
+            startPolicy: "allow-duplicate",
+            signals: { __temporal_ping: { input: z.object({}) } },
+          },
         },
       }),
     ).toThrow(RESERVED_MESSAGE);
@@ -1477,9 +1481,8 @@ describe("Contract Builder — Temporal-reserved names", () => {
       defineContract({
         taskQueue: "test",
         workflows: {
-          // @ts-expect-error — reserved update name (one of the two exact
-          // stack-trace query names, reused here on an update).
-          wf: { ...base, updates: { __stack_trace: base } },
+          // One of the two exact stack-trace query names, reused on an update.
+          wf: { ...base, startPolicy: "allow-duplicate", updates: { __stack_trace: base } },
         },
       }),
     ).toThrow(RESERVED_MESSAGE);
@@ -1498,5 +1501,158 @@ describe("Contract Builder — Temporal-reserved names", () => {
         },
       }),
     ).not.toThrow();
+  });
+});
+
+describe("Contract Builder — audit hardening", () => {
+  const io = { input: z.object({}), output: z.object({}) };
+  const wf = { ...io, startPolicy: "allow-duplicate" as const };
+  // Built from `unknown` so JS-shaped (type-invalid) definitions reach the
+  // runtime validator without per-line `@ts-expect-error`s.
+  const define = (definition: unknown) => () =>
+    defineContract(definition as Parameters<typeof defineContract>[0]);
+  const withWorkflow = (workflow: unknown) =>
+    define({ taskQueue: "q", workflows: { wf: workflow } });
+  const withActivity = (activity: unknown) =>
+    define({ taskQueue: "q", workflows: {}, activities: { act: activity } });
+
+  it("throws a ContractDefinitionError carrying the offending path", () => {
+    let caught: unknown;
+    try {
+      withWorkflow({ ...wf, signals: { ping: { input: "nope" } } })();
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ContractDefinitionError);
+    expect(caught).toMatchObject({
+      name: "ContractDefinitionError",
+      path: "workflows.wf.signals.ping.input",
+    });
+  });
+
+  it.each(["constructor", "toString", "hasOwnProperty", "__proto__", "valueOf"])(
+    "rejects the Object.prototype member %j as a name",
+    (name) => {
+      expect(withWorkflow({ ...wf, errors: { [name]: {} } })).toThrow(/Object\.prototype member/);
+      expect(define({ taskQueue: "q", workflows: {}, activities: { [name]: io } })).toThrow(
+        /Object\.prototype member/,
+      );
+    },
+  );
+
+  it.each([
+    [{ backoffCoefficient: 0 }, "backoffCoefficient must be a finite number >= 1"],
+    [{ backoffCoefficient: 0.5 }, "backoffCoefficient must be a finite number >= 1"],
+    [{ maximumAttempts: 0 }, "maximumAttempts must be a positive integer"],
+    [{ maximumAttempts: 2.5 }, "maximumAttempts must be a positive integer"],
+    [{ maximumAttempts: -1 }, "maximumAttempts must be a positive integer"],
+    [{ initialInterval: 0 }, "initialInterval cannot be 0"],
+    [{ maximumInterval: "0s" }, "maximumInterval cannot be 0"],
+    [{ initialInterval: "1m", maximumInterval: "30s" }, "cannot be less than initialInterval"],
+    // Temporal compares against its 1s default when initialInterval is absent.
+    [{ maximumInterval: "500ms" }, "cannot be less than initialInterval"],
+  ])("rejects the retry policy %j", (retry, message) => {
+    expect(withActivity({ ...io, activityOptions: { retry } })).toThrow(message);
+  });
+
+  it.each([
+    { maximumAttempts: Number.POSITIVE_INFINITY },
+    { maximumAttempts: 3, backoffCoefficient: 1 },
+    { initialInterval: "1s", maximumInterval: "1 minute" },
+    { initialInterval: 200, maximumInterval: "0.5s" },
+  ])("accepts the retry policy %j", (retry) => {
+    expect(withActivity({ ...io, activityOptions: { retry } })).not.toThrow();
+  });
+
+  it.each([
+    ["workflow", () => withWorkflow({ ...wf, signal: {} }), "workflows.wf"],
+    ["activity", () => withActivity({ ...io, retries: 3 }), "activities.act"],
+    [
+      "signal",
+      () =>
+        withWorkflow({ ...wf, signals: { ping: { input: z.object({}), output: z.object({}) } } }),
+      "workflows.wf.signals.ping",
+    ],
+    [
+      "query",
+      () => withWorkflow({ ...wf, queries: { get: { ...io, handler: true } } }),
+      "workflows.wf.queries.get",
+    ],
+    [
+      "update",
+      () => withWorkflow({ ...wf, updates: { set: { ...io, validator: true } } }),
+      "workflows.wf.updates.set",
+    ],
+    [
+      "error",
+      () => withWorkflow({ ...wf, errors: { Boom: { retryable: false } } }),
+      "workflows.wf.errors.Boom",
+    ],
+    [
+      "search attribute",
+      () =>
+        withWorkflow({ ...wf, searchAttributes: { tenant: { kind: "KEYWORD", indexed: true } } }),
+      "workflows.wf.searchAttributes.tenant",
+    ],
+  ])("rejects an unknown key on a %s definition", (_kind, build, path) => {
+    expect(build()).toThrow(`Contract validation failed at ${path}: unknown key`);
+  });
+
+  it("points a leftover defaultOptions at its activityOptions rename", () => {
+    expect(withActivity({ ...io, defaultOptions: { startToCloseTimeout: "1s" } })).toThrow(
+      '"defaultOptions" was renamed to "activityOptions"',
+    );
+  });
+
+  it("requires workflowId and idempotencyKey to be functions when present", () => {
+    expect(withWorkflow({ ...wf, workflowId: "fixed-id" })).toThrow(
+      "at workflows.wf.workflowId: workflowId must be a function",
+    );
+    expect(withActivity({ ...io, idempotencyKey: "key" })).toThrow(
+      "at activities.act.idempotencyKey: idempotencyKey must be a function",
+    );
+  });
+
+  it("rejects a workflow without a startPolicy", () => {
+    expect(withWorkflow(io)).toThrow("at workflows.wf.startPolicy: startPolicy is required");
+  });
+
+  it.each(["WorkflowInputValidationError", "ContractMisuseError", "ActivityOutputValidationError"])(
+    "rejects the worker failure type %j as an error name",
+    (name) => {
+      expect(withWorkflow({ ...wf, errors: { [name]: {} } })).toThrow(/is reserved — the worker/);
+    },
+  );
+
+  it.each(["WorkflowId", "ExecutionStatus", "TemporalChangeVersion", "BuildIds"])(
+    "rejects the Temporal system search attribute %j",
+    (name) => {
+      expect(withWorkflow({ ...wf, searchAttributes: { [name]: { kind: "KEYWORD" } } })).toThrow(
+        /Temporal system search attribute/,
+      );
+    },
+  );
+
+  it("rejects one search attribute declared with different kinds across workflows", () => {
+    const build = (kind: string) =>
+      define({
+        taskQueue: "q",
+        workflows: {
+          a: { ...wf, searchAttributes: { tenant: { kind: "KEYWORD" } } },
+          b: { ...wf, searchAttributes: { tenant: { kind } } },
+        },
+      });
+    expect(build("INT")).toThrow(
+      'at workflows.b.searchAttributes.tenant: search attribute "tenant" is declared as INT here but as KEYWORD in workflow "a"',
+    );
+    expect(build("KEYWORD")).not.toThrow();
+  });
+
+  it("rejects a taskQueue with surrounding whitespace or over Temporal's length limit", () => {
+    const withQueue = (taskQueue: string) => define({ taskQueue, workflows: { wf } });
+    expect(withQueue(" orders")).toThrow("taskQueue cannot have leading or trailing whitespace");
+    expect(withQueue("orders\n")).toThrow("taskQueue cannot have leading or trailing whitespace");
+    expect(withQueue("q".repeat(1001))).toThrow("taskQueue cannot exceed 1000 characters");
+    expect(withQueue("q".repeat(1000))).not.toThrow();
   });
 });
