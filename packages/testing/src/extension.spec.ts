@@ -11,7 +11,8 @@
  */
 import { afterAll, describe, expect, vi } from "vitest";
 
-import { it, resolveTemporalAddress } from "./extension.js";
+import { it } from "./extension.js";
+import { resolveTemporalAddress } from "./internal.js";
 
 const mocks = vi.hoisted(() => {
   const clientClose = vi.fn(() => Promise.resolve());

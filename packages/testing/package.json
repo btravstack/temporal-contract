@@ -91,15 +91,21 @@
     "@temporal-contract/client": "^8.0.0-beta.11",
     "@temporal-contract/contract": "^8.0.0-beta.11",
     "@temporal-contract/worker": "^8.0.0-beta.11",
-    "@temporalio/client": "^1.16.0",
-    "@temporalio/testing": "^1.16.0",
-    "@temporalio/worker": "^1.16.0",
+    "@temporalio/client": "^1.24.0",
+    "@temporalio/testing": "^1.24.0",
+    "@temporalio/worker": "^1.24.0",
     "testcontainers": "^12",
-    "unthrown": "^5.0.0",
+    "unthrown": "^5.11.0",
     "vitest": "^4 || ^5"
   },
   "peerDependenciesMeta": {
+    "@temporalio/testing": {
+      "optional": true
+    },
     "testcontainers": {
+      "optional": true
+    },
+    "vitest": {
       "optional": true
     }
   },

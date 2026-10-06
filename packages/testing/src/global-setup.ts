@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import type { TestProject } from "vitest/node";
 
 /**
@@ -35,18 +37,27 @@ declare module "vitest" {
  */
 export type CreateGlobalSetupOptions = {
   /**
-   * PostgreSQL image reference backing the Temporal server.
+   * PostgreSQL image reference backing the Temporal server. The default is
+   * pinned by digest; pass a tag or another digest to override it.
    *
-   * @defaultValue `"postgres:18.1"`
+   * @defaultValue `"postgres:18.1@sha256:1090bc3a…"`
    */
   postgresImage?: string;
   /**
    * Temporal auto-setup image reference — pin this to test against a
-   * specific server version.
+   * specific server version. The default is pinned by digest.
    *
-   * @defaultValue `"temporalio/auto-setup:1.29.1"`
+   * @defaultValue `"temporalio/auto-setup:1.29.1@sha256:5b3502a3…"`
    */
   temporalImage?: string;
+  /**
+   * How many failed health checks (one per second) each container may go
+   * through before startup fails — raise it on slow CI runners or when the
+   * images still have to be pulled.
+   *
+   * @defaultValue `60`
+   */
+  healthCheckRetries?: number;
   /**
    * Extra environment variables merged into the Temporal container (e.g.
    * dynamic-config knobs). Keys given here override the built-in defaults.
@@ -87,8 +98,9 @@ export function createGlobalSetup(
   options: CreateGlobalSetupOptions = {},
 ): (project: TestProject) => Promise<() => Promise<void>> {
   const {
-    postgresImage = "postgres:18.1",
-    temporalImage = "temporalio/auto-setup:1.29.1",
+    postgresImage = "postgres:18.1@sha256:1090bc3a8ccfb0b55f78a494d76f8d603434f7e4553543d6e807bc7bd6bbd17f",
+    temporalImage = "temporalio/auto-setup:1.29.1@sha256:5b3502a3b685f9eff1b925af90c57c9e3dbeccbef367cc28a2a9712c63379312",
+    healthCheckRetries = 60,
     temporalEnv = {},
     quiet = false,
   } = options;
@@ -104,94 +116,94 @@ export function createGlobalSetup(
 
     log("🐳 Starting Temporal test environment...");
 
-    // Create a network for containers to communicate
-    const network = await new Network().start();
-
-    // Start PostgreSQL container first
-    log("🐳 Starting PostgreSQL container...");
-    const postgresContainer = await new GenericContainer(postgresImage)
-      .withNetwork(network)
-      .withNetworkAliases("postgres")
-      .withExposedPorts(5432)
-      .withEnvironment({
-        POSTGRES_DB: "temporal",
-        POSTGRES_USER: "temporal",
-        POSTGRES_PASSWORD: "temporal",
-      })
-      .withHealthCheck({
-        test: ["CMD-SHELL", "pg_isready -U temporal"],
-        interval: 1_000,
-        retries: 30,
-        startPeriod: 1_000,
-        timeout: 1_000,
-      })
-      .withWaitStrategy(Wait.forHealthCheck())
-      .start();
-
-    log("✅ PostgreSQL container started");
-
-    // Start Temporal container
-    log("🐳 Starting Temporal container...");
-    const temporalContainer = await new GenericContainer(temporalImage)
-      .withNetwork(network)
-      .withExposedPorts(7233)
-      .withEnvironment({
-        DB: "postgres12",
-        DB_PORT: "5432",
-        POSTGRES_SEEDS: "postgres",
-        POSTGRES_USER: "temporal",
-        POSTGRES_PWD: "temporal",
-        BIND_ON_IP: "0.0.0.0",
-        TEMPORAL_BROADCAST_ADDRESS: "127.0.0.1",
-        ...temporalEnv,
-      })
-      .withHealthCheck({
-        test: ["CMD-SHELL", "tctl --address 127.0.0.1:7233 workflow list"],
-        interval: 1_000,
-        retries: 30,
-        startPeriod: 1_000,
-        timeout: 1_000,
-      })
-      .withWaitStrategy(Wait.forHealthCheck())
-      .start();
-
-    log("✅ Temporal container started");
-
-    const __TESTCONTAINERS_TEMPORAL_IP__ = temporalContainer.getHost();
-    const __TESTCONTAINERS_TEMPORAL_PORT_7233__ = temporalContainer.getMappedPort(7233);
-
-    provide("__TESTCONTAINERS_TEMPORAL_IP__", __TESTCONTAINERS_TEMPORAL_IP__);
-    provide("__TESTCONTAINERS_TEMPORAL_PORT_7233__", __TESTCONTAINERS_TEMPORAL_PORT_7233__);
-
-    log(
-      `🚀 Temporal test environment is ready at ${__TESTCONTAINERS_TEMPORAL_IP__}:${__TESTCONTAINERS_TEMPORAL_PORT_7233__}`,
-    );
-
-    // Return teardown function
-    return async () => {
+    // Everything started so far, stopped in reverse order — on teardown, and
+    // when a later step fails to start, so a failed setup leaks nothing.
+    const started: { name: string; stop: () => Promise<unknown> }[] = [];
+    const teardown = async () => {
       log("🧹 Cleaning up Temporal test environment...");
-
-      try {
-        await temporalContainer.stop();
-        log("✅ Temporal container stopped");
-      } catch (error) {
-        console.error("⚠️  Error stopping container:", error);
-      }
-
-      try {
-        await postgresContainer.stop();
-        log("✅ PostgreSQL container stopped");
-      } catch (error) {
-        console.error("⚠️  Error stopping PostgreSQL container:", error);
-      }
-
-      try {
-        await network.stop();
-        log("✅ Network stopped");
-      } catch (error) {
-        console.error("⚠️  Error stopping network:", error);
+      for (const { name, stop } of started.toReversed()) {
+        try {
+          await stop();
+          log(`✅ ${name} stopped`);
+        } catch (error) {
+          console.error(`⚠️  Error stopping ${name}:`, error);
+        }
       }
     };
+
+    // Postgres is only reachable on this network; a fresh password per run
+    // keeps it from being a well-known credential.
+    const password = randomBytes(16).toString("hex");
+
+    try {
+      const network = await new Network().start();
+      started.push({ name: "Network", stop: () => network.stop() });
+
+      log("🐳 Starting PostgreSQL container...");
+      const postgresContainer = await new GenericContainer(postgresImage)
+        .withNetwork(network)
+        .withNetworkAliases("postgres")
+        .withEnvironment({
+          POSTGRES_DB: "temporal",
+          POSTGRES_USER: "temporal",
+          POSTGRES_PASSWORD: password,
+        })
+        .withHealthCheck({
+          test: ["CMD-SHELL", "pg_isready -U temporal"],
+          interval: 1_000,
+          retries: healthCheckRetries,
+          startPeriod: 1_000,
+          timeout: 1_000,
+        })
+        .withWaitStrategy(Wait.forHealthCheck())
+        .start();
+      started.push({ name: "PostgreSQL container", stop: () => postgresContainer.stop() });
+      log("✅ PostgreSQL container started");
+
+      log("🐳 Starting Temporal container...");
+      const temporalContainer = await new GenericContainer(temporalImage)
+        .withNetwork(network)
+        .withExposedPorts(7233)
+        .withEnvironment({
+          DB: "postgres12",
+          DB_PORT: "5432",
+          POSTGRES_SEEDS: "postgres",
+          POSTGRES_USER: "temporal",
+          POSTGRES_PWD: password,
+          BIND_ON_IP: "0.0.0.0",
+          TEMPORAL_BROADCAST_ADDRESS: "127.0.0.1",
+          ...temporalEnv,
+        })
+        .withHealthCheck({
+          // Lists the `default` namespace's workflows, so the check passes
+          // only once auto-setup has registered it.
+          test: ["CMD-SHELL", "temporal workflow list --address 127.0.0.1:7233 --limit 1"],
+          interval: 1_000,
+          retries: healthCheckRetries,
+          startPeriod: 1_000,
+          timeout: 1_000,
+        })
+        .withWaitStrategy(Wait.forHealthCheck())
+        .start();
+      started.push({ name: "Temporal container", stop: () => temporalContainer.stop() });
+      log("✅ Temporal container started");
+
+      const __TESTCONTAINERS_TEMPORAL_IP__ = temporalContainer.getHost();
+      const __TESTCONTAINERS_TEMPORAL_PORT_7233__ = temporalContainer.getMappedPort(7233);
+
+      provide("__TESTCONTAINERS_TEMPORAL_IP__", __TESTCONTAINERS_TEMPORAL_IP__);
+      provide("__TESTCONTAINERS_TEMPORAL_PORT_7233__", __TESTCONTAINERS_TEMPORAL_PORT_7233__);
+
+      log(
+        `🚀 Temporal test environment is ready at ${__TESTCONTAINERS_TEMPORAL_IP__}:${__TESTCONTAINERS_TEMPORAL_PORT_7233__}`,
+      );
+    } catch (error) {
+      await teardown();
+      // oxlint-disable-next-line unthrown/no-throw -- sanctioned re-raise: the setup failure must keep riding its original error after cleanup
+      throw error;
+    }
+
+    return teardown;
   };
 }
 

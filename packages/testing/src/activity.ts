@@ -15,13 +15,15 @@
  *   **real** `declareActivitiesHandler` wrapping — input parse →
  *   implementation → output validation → contract-error → `ApplicationFailure`
  *   wire conversion — then rehydrates the wire failure back into a typed
- *   `Result`, exercising the full round-trip a workflow-side caller sees.
+ *   `Result`, exercising the full round-trip a workflow-side caller sees,
+ *   payload serialization included.
  *   Use it for boundary-faithful tests: it fails where production fails
  *   (schema drift, undeclared error names, invalid error data) even when the
  *   raw implementation's `Result` looks fine.
  *
  * This entry deliberately avoids `vitest` — it only needs
- * `@temporalio/testing` — so it can be used from any test runner.
+ * `@temporalio/testing` and `@temporalio/worker` — so it can be used from
+ * any test runner.
  */
 import type {
   ActivityDefinition,
@@ -30,45 +32,32 @@ import type {
   ErrorDefinition,
   WorkerInferInput,
 } from "@temporal-contract/contract";
-import {
-  type ContractErrorConstructors,
-  type ContractErrorUnion,
-} from "@temporal-contract/contract/errors";
+import { type ContractErrorUnion } from "@temporal-contract/contract/errors";
 import {
   _internal_buildErrorConstructors,
   _internal_makeAsyncResult,
   _internal_rehydrateContractError,
 } from "@temporal-contract/contract/internal";
-import { declareActivitiesHandler, ApplicationFailure } from "@temporal-contract/worker/activity";
+import {
+  declareActivitiesHandler,
+  ActivityOutputValidationError,
+  ApplicationFailure,
+  type ActivityImplementationHelpers,
+} from "@temporal-contract/worker/activity";
 import { MockActivityEnvironment } from "@temporalio/testing";
+import { defaultPayloadConverter } from "@temporalio/worker";
 import { Err, Ok, type AsyncResult } from "unthrown";
-
-/**
- * Typed error constructors for an activity's declared `errors` map — the
- * `errors` helper handed to the implementation, mirroring the worker's
- * runtime behavior. Empty for activities that declare no errors.
- */
-type ActivityErrorConstructorsOf<TActivity extends ActivityDefinition> = TActivity extends {
-  errors: infer TErrors extends Record<string, ErrorDefinition>;
-}
-  ? ContractErrorConstructors<TErrors>
-  : Record<string, never>;
 
 /**
  * Shape of the implementation accepted by {@link runActivity} and
  * {@link runActivityHandler} — the same `(helpers, args) => AsyncResult<...>`
- * shape `declareActivitiesHandler` expects — the input is on the helpers record
- * too, so `({ errors, input }) => ...` is the same call in one destructuring —
- * with the output/error channels inferred from the function itself. The `context` helper is always empty
+ * shape `declareActivitiesHandler` expects, with the output/error channels
+ * inferred from the function itself. The `context` helper is always empty
  * here: implementations relying on middleware-injected context should be
  * exercised through a worker instead.
  */
 export type RunActivityImplementation<TActivity extends ActivityDefinition, TOutput, TError> = (
-  helpers: {
-    readonly errors: ActivityErrorConstructorsOf<TActivity>;
-    readonly context: Record<never, never>;
-    readonly input: WorkerInferInput<TActivity>;
-  },
+  helpers: ActivityImplementationHelpers<TActivity>,
   args: WorkerInferInput<TActivity>,
 ) => AsyncResult<TOutput, TError>;
 
@@ -129,9 +118,7 @@ export function runActivity<TActivity extends ActivityDefinition, TOutput, TErro
 ): AsyncResult<TOutput, TError> {
   const env = options.env ?? new MockActivityEnvironment();
   const helpers = {
-    errors: _internal_buildErrorConstructors(
-      definition.errors,
-    ) as unknown as ActivityErrorConstructorsOf<TActivity>,
+    errors: _internal_buildErrorConstructors(definition.errors),
     context: {},
     input: options.input,
     // Same value production hands over: the declared derivation applied to
@@ -141,7 +128,7 @@ export function runActivity<TActivity extends ActivityDefinition, TOutput, TErro
     idempotencyKey: (definition.idempotencyKey as ((input: unknown) => string) | undefined)?.(
       options.input,
     ),
-  };
+  } as unknown as ActivityImplementationHelpers<TActivity>;
 
   return _internal_makeAsyncResult(() =>
     env.run(async () => {
@@ -160,8 +147,9 @@ export function runActivity<TActivity extends ActivityDefinition, TOutput, TErro
  * `ApplicationFailure` for everything else that crossed the boundary
  * (technical failures returned by the implementation, and the worker's
  * terminal validation failures: `ActivityInputValidationError`,
- * `ActivityOutputValidationError`, `ContractErrorDataValidationError` — all
- * `ApplicationFailure` subclasses, discriminable via `failure.type`).
+ * `ActivityOutputValidationError`, `ContractErrorDataValidationError`,
+ * `ContractMisuseError` — all `ApplicationFailure` subclasses,
+ * discriminable via `failure.type`).
  */
 export type RunActivityHandlerError<TActivity extends ActivityDefinition> = TActivity extends {
   errors: infer TErrors extends Record<string, ErrorDefinition>;
@@ -196,6 +184,14 @@ export type RunActivityHandlerOptions<TActivity extends ActivityDefinition, TOut
    * {@link RunActivityOptions.env}.
    */
   env?: MockActivityEnvironment;
+  /**
+   * The payload converter the input, the output and the failure details
+   * round-trip through, as they would between a workflow and a worker —
+   * pass the one your worker and client are configured with.
+   *
+   * @defaultValue `defaultPayloadConverter` from `@temporalio/worker`
+   */
+  payloadConverter?: Pick<typeof defaultPayloadConverter, "fromPayload" | "toPayload">;
 };
 
 /**
@@ -205,17 +201,22 @@ export type RunActivityHandlerOptions<TActivity extends ActivityDefinition, TOut
  *
  * - the wire input is parsed against the contract's input schema (an invalid
  *   input surfaces the production `ActivityInputValidationError`);
+ * - the input, the output and the failure details round-trip through the
+ *   payload converter, so a value that does not survive serialization (a
+ *   `Date` becomes a string under the default JSON converter) fails here
+ *   as it would in production;
  * - the implementation's `Ok` output is validated on the sending side and
  *   parsed on the receiving side, so a transforming output schema applies
- *   exactly once — and drift from the schema surfaces the production
- *   `ActivityOutputValidationError`;
+ *   exactly once — and drift from the schema, on either side, surfaces the
+ *   production `ActivityOutputValidationError`;
  * - a typed `Err(errors.X(data))` is converted to its `ApplicationFailure`
  *   wire shape (`type` = error name, `details[0]` = data, `details[1]` =
  *   the provenance wire marker) and **rehydrated** back into the typed
  *   `ContractError` — the full wire round-trip;
- * - contract misuse (an undeclared error name, or error data failing its
- *   declared schema) surfaces the production terminal
- *   `ContractErrorDataValidationError` instead of a green test;
+ * - contract misuse surfaces the production terminal failure instead of a
+ *   green test: `ContractMisuseError` for an undeclared error name,
+ *   `ContractErrorDataValidationError` for error data failing its declared
+ *   schema;
  * - an unanticipated throw stays on the `defect` channel.
  *
  * Use {@link runActivity} for pure-logic unit tests of the implementation;
@@ -268,12 +269,19 @@ export function runActivityHandler<TActivity extends ActivityDefinition, TOutput
     activityName
   ]!;
 
+  const converter = options.payloadConverter ?? defaultPayloadConverter;
+  const overTheWire = (value: unknown): unknown =>
+    converter.fromPayload(converter.toPayload(value));
+
   return _internal_makeAsyncResult(async () => {
     let wireOutput: unknown;
     try {
-      wireOutput = await env.run(() => wrapped(options.input));
+      wireOutput = overTheWire(await env.run(() => wrapped(overTheWire(options.input))));
     } catch (error) {
       if (error instanceof ApplicationFailure) {
+        // The failure was built for this call, so its details are rewritten
+        // in place to their received shape (keeping the subclass intact).
+        (error as { details?: unknown }).details = error.details?.map(overTheWire);
         // Receiving side of the failure boundary: a declared error name whose
         // payload validates (with the wire marker corroborating provenance)
         // rehydrates into the typed ContractError; anything else — including
@@ -291,16 +299,15 @@ export function runActivityHandler<TActivity extends ActivityDefinition, TOutput
     // Receiving side of the output boundary: the handler validated the
     // implementation's return but transmitted the ORIGINAL value, so the
     // consumer-side parse here applies a transforming output schema exactly
-    // once — mirroring the workflow-side proxy.
+    // once — mirroring the workflow-side proxy. It fails when the value did
+    // not survive serialization.
     const outputResult = await definition.output["~standard"].validate(wireOutput);
     if (outputResult.issues) {
-      // Unreachable in practice — the handler already validated this value
-      // against the same schema — so a failure here is a bug (e.g. a
-      // nondeterministic schema) and belongs on the defect channel.
-      // oxlint-disable-next-line unthrown/no-throw -- defect-channel edge: a receive-side parse failure after a passing send-side validation is a bug, not a modeled error
-      throw new Error(
-        `runActivityHandler: activity "${activityName}" output failed the receive-side parse after passing send-side validation — the output schema appears nondeterministic.`,
+      const failure: ApplicationFailure = new ActivityOutputValidationError(
+        activityName,
+        outputResult.issues,
       );
+      return Err(failure as RunActivityHandlerError<TActivity>);
     }
     return Ok(outputResult.value as ClientInferOutput<TActivity>);
   });

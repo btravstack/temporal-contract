@@ -19,6 +19,7 @@ import { ContractError } from "@temporal-contract/contract/errors";
 import {
   ApplicationFailure,
   ContractErrorDataValidationError,
+  ContractMisuseError,
   ActivityInputValidationError,
   ActivityOutputValidationError,
 } from "@temporal-contract/worker/activity";
@@ -63,6 +64,21 @@ describe("runActivity", () => {
       expect(result.error.errorName).toBe("PaymentDeclined");
       expect(result.error.data).toEqual({ reason: "insufficient funds for 9000" });
     }
+  });
+
+  it("hands the implementation the declared idempotency key", async () => {
+    const keyed = defineActivity({
+      input: z.object({ orderId: z.string() }),
+      output: z.object({ key: z.string() }),
+      idempotencyKey: ({ orderId }) => `charge:${orderId}`,
+    });
+
+    const result = await runActivity(keyed, {
+      implementation: ({ idempotencyKey }) => OkAsync({ key: idempotencyKey }),
+      input: { orderId: "ORD-1" },
+    });
+
+    expect(result).toBeOkWith({ key: "charge:ORD-1" });
   });
 
   it("surfaces an unanticipated throw on the defect channel", async () => {
@@ -192,6 +208,24 @@ describe("runActivityHandler", () => {
     }
   });
 
+  it("fails an output that does not survive the payload converter, like production", async () => {
+    const stamp = defineActivity({
+      input: z.object({}),
+      output: z.object({ at: z.date() }),
+    });
+
+    const result = await runActivityHandler(stamp, {
+      // Passes send-side validation, but crosses the wire as an ISO string.
+      implementation: () => OkAsync({ at: new Date() }),
+      input: {},
+    });
+
+    expect(result).toBeErr();
+    if (result.isErr()) {
+      expect(result.error).toBeInstanceOf(ActivityOutputValidationError);
+    }
+  });
+
   it("surfaces an undeclared error name as the production contract-misuse failure", async () => {
     const result = await runActivityHandler(charge, {
       implementation: () =>
@@ -207,7 +241,7 @@ describe("runActivityHandler", () => {
 
     expect(result).toBeErr();
     if (result.isErr()) {
-      expect(result.error).toBeInstanceOf(ContractErrorDataValidationError);
+      expect(result.error).toBeInstanceOf(ContractMisuseError);
       expect(result.error.message).toContain('"NotDeclared" is not declared');
     }
   });

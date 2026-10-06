@@ -18,13 +18,13 @@ import { testContract } from "./test.contract.js";
 // too keeps its exports type-checked and visible to static analysis.
 import * as workflows from "./test.workflows.js";
 
+// One function reference for both scopes: `decorate` is one activity.
+const decorate = ({ input: { name } }: { input: { name: string } }) =>
+  OkAsync({ decorated: name.toUpperCase() });
+
 const activities = declareActivitiesHandler({
   contract: testContract,
-  activities: {
-    greet: {
-      decorate: ({ input: { name } }) => OkAsync({ decorated: name.toUpperCase() }),
-    },
-  },
+  activities: { greet: { decorate }, greetDerived: { decorate } },
 });
 
 const it = createContractTest({
@@ -57,6 +57,19 @@ describe("createContractTest", () => {
     // Sanity: the module registered via `workflowsPath` exports the
     // workflow the contract declares.
     expect(workflows.greet).toBeTypeOf("function");
+    expect(workflows.greetDerived).toBeTypeOf("function");
+  });
+
+  it("runs the worker and the client in a namespace of its own", ({
+    namespace,
+    typedClient,
+    worker,
+  }) => {
+    // Parallel test files share one server and the contract's task queue;
+    // only a per-file namespace keeps their workers apart.
+    expect(namespace).toMatch(/^contract-test-/);
+    expect(typedClient.raw.options.namespace).toBe(namespace);
+    expect(worker.raw.options.namespace).toBe(namespace);
   });
 
   it("starts a workflow and reads its result through a typed handle", async ({ client }) => {

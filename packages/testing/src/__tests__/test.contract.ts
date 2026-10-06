@@ -1,8 +1,9 @@
 import { defineActivity, defineContract, defineWorkflow } from "@temporal-contract/contract";
 import { z } from "zod";
 
-// Minimal inline contract for exercising the contract-aware fixtures:
-// one workflow with one activity.
+// Minimal inline contract for exercising the contract-aware fixtures: one
+// workflow with one activity, plus a variant whose contract derives the
+// workflow ID.
 
 const decorate = defineActivity({
   input: z.object({ name: z.string() }),
@@ -17,7 +18,15 @@ const greet = defineWorkflow({
   activities: { decorate },
 });
 
+const greetDerived = defineWorkflow({
+  input: z.object({ name: z.string() }),
+  output: z.object({ message: z.string() }),
+  workflowId: ({ name }) => `greet-derived-${name}`,
+  startPolicy: "allow-duplicate",
+  activities: { decorate },
+});
+
 export const testContract = defineContract({
   taskQueue: "testing-contract-fixtures",
-  workflows: { greet },
+  workflows: { greet, greetDerived },
 });

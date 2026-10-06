@@ -7,10 +7,20 @@
 ## Installation
 
 ```bash
-pnpm add -D @temporal-contract/testing
+# 8.0 beta — `latest` still resolves 7.x
+pnpm add -D @temporal-contract/testing@beta
+
+# Required peers (skip what you already have)
+pnpm add @temporal-contract/contract@beta @temporal-contract/client@beta \
+         @temporal-contract/worker@beta unthrown @temporalio/client @temporalio/worker
+
+# Optional peers, per entry point you use
+pnpm add -D vitest                # every entry except /activity and /workflow-bundle
+pnpm add -D @temporalio/testing   # /activity, /time-skipping, /test-rig
+pnpm add -D testcontainers        # /global-setup (Docker)
 ```
 
-The package declares peer dependencies on the other three `@temporal-contract/*` packages (contract, client, worker — the contract-aware fixtures hand you a `TypedClient` and run a worker, so they must resolve to _your_ copies), plus `@temporalio/client`, `@temporalio/testing`, `@temporalio/worker`, `unthrown` (`^5`), and `vitest` (`^4`). Make sure they are installed alongside it — see [Install temporal-contract](https://btravstack.github.io/temporal-contract/how-to/install) for the full matrix.
+The `@temporal-contract/*` peers must resolve to _your_ copies — the contract-aware fixtures hand you a `TypedClient` and run a worker. The `@temporalio/*` peers need `^1.24.0`, `unthrown` `^5.11.0`, `vitest` `^4 || ^5`. See [Install temporal-contract](https://btravstack.github.io/temporal-contract/how-to/install) for the full matrix.
 
 ## Quick Example
 
@@ -38,13 +48,16 @@ import { createGlobalSetup } from "@temporal-contract/testing/global-setup";
 
 export default createGlobalSetup({
   temporalImage: "temporalio/auto-setup:1.28.0",
+  healthCheckRetries: 120, // one per second; default 60
   quiet: true,
 });
 ```
 
+The default images are pinned by digest; Postgres gets a random password per run and is reachable only from the Temporal container.
+
 ### Contract-Aware Fixtures
 
-`createContractTest` wires the whole stack for one contract — a running worker, the connection-scoped `TypedClient` root, and the contract-bound `ContractClient`:
+`createContractTest` wires the whole stack for one contract — a running worker, the connection-scoped `TypedClient` root, and the contract-bound `ContractClient` — in a Temporal namespace registered for the test file, so parallel test files don't steal each other's tasks:
 
 ```typescript
 // order.spec.ts
@@ -57,13 +70,14 @@ import { orderContract } from "./order.contract.js";
 
 const activities = declareActivitiesHandler({ contract: orderContract, activities: { ... } });
 
-const it = createContractTest(orderContract, {
-  workflowsPath: workflowsPathFromURL(import.meta.url, "./order.workflows.js"),
+const it = createContractTest({
+  contract: orderContract,
+  workflowsPath: workflowsPathFromURL(import.meta.url, "./order.workflows.js"), // bundled once per file
   activities, // omit for a workflow-only worker
 });
 
 describe("order processing", () => {
-  it("processes an order", async ({ client, typedClient, worker }) => {
+  it("processes an order", async ({ client, typedClient, worker, namespace }) => {
     const result = await client.executeWorkflow("processOrder", {
       workflowId: `order-${Date.now()}`,
       args: { orderId: "ORD-1" },
@@ -75,13 +89,23 @@ describe("order processing", () => {
 
 ### Unit-Testing a Single Activity
 
-`runActivity` executes one `AsyncResult`-returning activity implementation inside `@temporalio/testing`'s `MockActivityEnvironment` — no worker, no server, no Docker. Pass your own environment to observe heartbeats or trigger cancellation:
+`runActivity` executes one `AsyncResult`-returning activity implementation inside `@temporalio/testing`'s `MockActivityEnvironment` — no worker, no server, no Docker. Pass your own environment (`env`) to observe heartbeats or trigger cancellation:
 
 ```typescript
-import { runActivity } from "@temporal-contract/testing/activity";
+import { runActivity, runActivityHandler } from "@temporal-contract/testing/activity";
 
-const result = await runActivity(chargeCardDefinition, chargeCard, { amount: 100 });
+const result = await runActivity(chargeCardDefinition, {
+  implementation: chargeCard, // ({ errors, input, idempotencyKey }) => AsyncResult<...>
+  input: { amount: 100 },
+});
 expect(result.isOk()).toBe(true);
+
+// Boundary-faithful: the real handler wrapping, validation on both sides, and a
+// payload-converter round trip (override with `payloadConverter`).
+const wired = await runActivityHandler(chargeCardDefinition, {
+  implementation: chargeCard,
+  input: { amount: 100 },
+});
 ```
 
 ### Time-Skipping Environment (no Docker)
@@ -97,6 +121,8 @@ it("processes the order", async ({ testEnv }) => {
   // testEnv.client, testEnv.nativeConnection, worker.runUntil(...)
 });
 ```
+
+`createTimeSkippingContractTest({ contract, workflowsPath, activities })` is the one-call counterpart to `createContractTest`: a bundled worker and the contract-bound `client`, plus a replay of every execution the test started (derived workflow IDs included) when it finishes.
 
 `createTimeSkippingEnvironment(options?)` creates the environment directly for suites preferring explicit `beforeAll`/`afterAll` management.
 
