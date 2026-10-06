@@ -1,7 +1,6 @@
 /**
  * Public entry point `@temporal-contract/contract/errors` — the typed
- * domain-error surface (classes, types, and the rehydration-miss diagnostic
- * hook).
+ * domain-error surface (classes and types).
  *
  * Lives in its own entry point rather than the package root because the
  * implementation imports `unthrown` at runtime — the root entry must stay
@@ -23,7 +22,6 @@ export {
   type ContractErrorInputUnion,
   type ContractErrorOptions,
   type ContractErrorUnion,
-  onRehydrationMiss,
   type RehydrationMiss,
   TechnicalError,
 } from "./errors-impl.js";

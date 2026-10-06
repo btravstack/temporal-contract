@@ -28,6 +28,42 @@ const SAFE_IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
  * - `at user["first name"]: Expected string, received undefined`
  * - `Validation error` *(no path)*
  *
+ * **The schema's message is included verbatim**, and schema libraries embed
+ * the raw input in it (Valibot: `Invalid email: Received "jane@x"`). Use it
+ * for in-process diagnostics only — never for text that crosses a Temporal
+ * boundary; {@link summarizeIssues} is the redacted form for that.
+ */
+export function formatIssue(issue: StandardSchemaV1.Issue): string {
+  if (issue.path === undefined || issue.path.length === 0) {
+    return issue.message;
+  }
+  return `${formatIssuePath(issue)}: ${issue.message}`;
+}
+
+/** Maximum number of issue paths {@link summarizeIssues} lists before eliding the rest. */
+const MAX_SUMMARIZED_ISSUES = 5;
+
+/**
+ * Join a list of validation issues into a single, **redacted** message: only
+ * the failing paths, never the schema-provided message text, capped at the
+ * first five issues — e.g. `at items[0].quantity; at customerId; …and 3 more`
+ * (`at root` for an issue on the value itself).
+ *
+ * The summary becomes `ApplicationFailure.message` in Temporal history, which
+ * payload codecs do not encrypt, and schema libraries embed raw input values
+ * in their messages (Valibot: `Invalid email: Received "jane@x"`) — so the
+ * messages are dropped and the length is bounded. The full issues stay
+ * available, in process, on the error objects' `issues` property.
+ */
+export function summarizeIssues(issues: ReadonlyArray<StandardSchemaV1.Issue>): string {
+  const listed = issues.slice(0, MAX_SUMMARIZED_ISSUES).map(formatIssuePath).join("; ");
+  const rest = issues.length - MAX_SUMMARIZED_ISSUES;
+  return rest > 0 ? `${listed}; …and ${rest} more` : listed;
+}
+
+/**
+ * Render an issue's path as `at <path>`, or `at root` when it has none.
+ *
  * Path segments come either as bare `PropertyKey` values or as
  * `{ key: PropertyKey }` objects (per the spec); both are normalized.
  * - Numeric keys → `[N]`
@@ -37,9 +73,9 @@ const SAFE_IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
  *   literal string `"0"`, embedded quotes, etc.)
  * - Symbol / other `PropertyKey` → `[Symbol(name)]`
  */
-export function formatIssue(issue: StandardSchemaV1.Issue): string {
+function formatIssuePath(issue: StandardSchemaV1.Issue): string {
   if (issue.path === undefined || issue.path.length === 0) {
-    return issue.message;
+    return "at root";
   }
   let path = "";
   for (let i = 0; i < issue.path.length; i++) {
@@ -56,13 +92,5 @@ export function formatIssue(issue: StandardSchemaV1.Issue): string {
       path += `[${String(key)}]`;
     }
   }
-  return `at ${path}: ${issue.message}`;
-}
-
-/**
- * Join a list of validation issues into a single message, with each issue
- * rendered via {@link formatIssue} so field paths surface in the error text.
- */
-export function summarizeIssues(issues: ReadonlyArray<StandardSchemaV1.Issue>): string {
-  return issues.map(formatIssue).join("; ");
+  return `at ${path}`;
 }

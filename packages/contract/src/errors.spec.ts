@@ -1,11 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import {
   CONTRACT_ERROR_TAG,
   CONTRACT_ERROR_WIRE_MARKER,
   ContractError,
-  onRehydrationMiss,
   TECHNICAL_ERROR_TAG,
   TechnicalError,
 } from "./errors.js";
@@ -90,10 +89,6 @@ describe("_internal_rehydrateContractError", () => {
     OutOfStock: { message: "No stock left" },
   };
 
-  afterEach(() => {
-    onRehydrationMiss(undefined);
-  });
-
   it("rehydrates a matching failure with schema-validated data", async () => {
     const error = await _internal_rehydrateContractError(declaredErrors, {
       type: "PaymentDeclined",
@@ -172,6 +167,19 @@ describe("_internal_rehydrateContractError", () => {
     expect(error).toBeUndefined();
   });
 
+  it("does not resolve Object.prototype members as declared errors", async () => {
+    // A marked, data-less failure would otherwise rehydrate against the
+    // inherited member as if it were a declared data-less error.
+    for (const type of ["constructor", "toString", "__proto__"]) {
+      await expect(
+        _internal_rehydrateContractError(declaredErrors, {
+          type,
+          details: [undefined, CONTRACT_ERROR_WIRE_MARKER],
+        }),
+      ).resolves.toBeUndefined();
+    }
+  });
+
   it("returns undefined when no errors are declared or the failure has no type", async () => {
     await expect(
       _internal_rehydrateContractError(undefined, { type: "PaymentDeclined" }),
@@ -179,16 +187,15 @@ describe("_internal_rehydrateContractError", () => {
     await expect(_internal_rehydrateContractError(declaredErrors, {})).resolves.toBeUndefined();
   });
 
-  describe("onRehydrationMiss diagnostics", () => {
+  describe("onMiss diagnostics", () => {
     it("reports a data validation miss with the issues", async () => {
       const handler = vi.fn();
-      onRehydrationMiss(handler);
       const failure = {
         type: "PaymentDeclined",
         details: [{ reason: 42 }, CONTRACT_ERROR_WIRE_MARKER],
       };
 
-      await _internal_rehydrateContractError(declaredErrors, failure);
+      await _internal_rehydrateContractError(declaredErrors, failure, { onMiss: handler });
 
       expect(handler).toHaveBeenCalledExactlyOnceWith({
         errorName: "PaymentDeclined",
@@ -200,10 +207,9 @@ describe("_internal_rehydrateContractError", () => {
 
     it("reports a missing-marker miss for data-less declared names", async () => {
       const handler = vi.fn();
-      onRehydrationMiss(handler);
       const failure = { type: "OutOfStock", details: [] };
 
-      await _internal_rehydrateContractError(declaredErrors, failure);
+      await _internal_rehydrateContractError(declaredErrors, failure, { onMiss: handler });
 
       expect(handler).toHaveBeenCalledExactlyOnceWith({
         errorName: "OutOfStock",
@@ -214,36 +220,34 @@ describe("_internal_rehydrateContractError", () => {
 
     it("does not report undeclared types or successful rehydrations", async () => {
       const handler = vi.fn();
-      onRehydrationMiss(handler);
 
-      await _internal_rehydrateContractError(declaredErrors, { type: "SOMETHING_ELSE" });
-      await _internal_rehydrateContractError(declaredErrors, {
-        type: "PaymentDeclined",
-        details: [{ reason: "ok" }, CONTRACT_ERROR_WIRE_MARKER],
-      });
+      await _internal_rehydrateContractError(
+        declaredErrors,
+        { type: "SOMETHING_ELSE" },
+        { onMiss: handler },
+      );
+      await _internal_rehydrateContractError(
+        declaredErrors,
+        { type: "PaymentDeclined", details: [{ reason: "ok" }, CONTRACT_ERROR_WIRE_MARKER] },
+        { onMiss: handler },
+      );
 
       expect(handler).not.toHaveBeenCalled();
     });
 
     it("swallows a throwing handler — classification still degrades cleanly", async () => {
-      onRehydrationMiss(() => {
+      const onMiss = () => {
         // oxlint-disable-next-line unthrown/no-throw -- deliberately hostile diagnostic hook for the swallow test
         throw new Error("hostile logger");
-      });
+      };
 
       await expect(
-        _internal_rehydrateContractError(declaredErrors, { type: "OutOfStock", details: [] }),
+        _internal_rehydrateContractError(
+          declaredErrors,
+          { type: "OutOfStock", details: [] },
+          { onMiss },
+        ),
       ).resolves.toBeUndefined();
-    });
-
-    it("can be unregistered by passing undefined", async () => {
-      const handler = vi.fn();
-      onRehydrationMiss(handler);
-      onRehydrationMiss(undefined);
-
-      await _internal_rehydrateContractError(declaredErrors, { type: "OutOfStock", details: [] });
-
-      expect(handler).not.toHaveBeenCalled();
     });
   });
 });

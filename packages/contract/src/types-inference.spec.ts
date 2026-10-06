@@ -314,3 +314,30 @@ describe("input-less signal/query/update definitions", () => {
     expectTypeOf<InferUpdateNames<typeof wf>>().toEqualTypeOf<"bump">();
   });
 });
+
+describe("define* excess-key rejection", () => {
+  it("rejects a misspelled key on defineActivity and defineWorkflow at compile time", () => {
+    defineActivity({
+      input: z.object({}),
+      output: z.object({}),
+      // @ts-expect-error — typo of `activityOptions`
+      activityOption: { startToCloseTimeout: "1s" },
+    });
+    defineWorkflow({
+      input: z.object({}),
+      output: z.object({}),
+      startPolicy: "allow-duplicate",
+      // @ts-expect-error — the pre-rename field
+      idempotency: "once-per-id",
+    });
+  });
+
+  it("rejects an extra key on defineSignal / defineQuery / defineUpdate at compile time", () => {
+    // @ts-expect-error — signals carry no output
+    defineSignal({ input: z.object({}), output: z.object({}) });
+    // @ts-expect-error — not a definition key
+    defineQuery({ input: z.object({}), output: z.object({}), handler: true });
+    // @ts-expect-error — not a definition key
+    defineUpdate({ input: z.object({}), output: z.object({}), validator: true });
+  });
+});

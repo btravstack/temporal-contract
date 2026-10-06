@@ -4,8 +4,8 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
  *
  * `formatIssue` renders an issue's path with dot notation for identifier-safe
  * keys, `[N]` for numeric keys, JSON-quoted brackets for everything else, and
- * `[Symbol(...)]` for symbol keys. `summarizeIssues` joins the rendered
- * issues with `"; "`. Both consuming packages (`@temporal-contract/client`
+ * `[Symbol(...)]` for symbol keys. `summarizeIssues` joins the issue *paths*
+ * only (no schema messages) with `"; "`, capped at five. Both consuming packages (`@temporal-contract/client`
  * and `@temporal-contract/worker`) rely on this rendering for their
  * validation error messages.
  */
@@ -83,16 +83,22 @@ describe("formatIssue", () => {
 });
 
 describe("summarizeIssues", () => {
-  it("joins rendered issues with '; '", () => {
+  it("lists only the issue paths — schema messages (which may embed input values) are dropped", () => {
     expect(
       summarizeIssues([
-        issue("Expected string", ["customerId"]),
+        issue('Invalid email: Received "jane@x"', ["customerId"]),
         issue("Expected number", ["items", 0, "quantity"]),
         issue("Validation error"),
       ]),
-    ).toBe(
-      "at customerId: Expected string; at items[0].quantity: Expected number; Validation error",
+    ).toBe("at customerId; at items[0].quantity; at root");
+  });
+
+  it("caps the summary at five issues", () => {
+    const issues = Array.from({ length: 8 }, (_, i) => issue("secret", ["items", i]));
+    expect(summarizeIssues(issues)).toBe(
+      "at items[0]; at items[1]; at items[2]; at items[3]; at items[4]; …and 3 more",
     );
+    expect(summarizeIssues(issues.slice(0, 5))).not.toContain("more");
   });
 
   it("returns an empty string for an empty issue list", () => {
