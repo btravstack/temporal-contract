@@ -1,7 +1,7 @@
 # temporal-contract branding
 
 The illustrated mascot preserves the btravstack pink beet and its original
-project motif: a leafless pink beet forming from liquid inside an hourglass. The canonical
+project motif: a small rounded leafless beet at the bottom of an hourglass beneath pink flow and drops. The canonical
 source is [the website brand generator](https://github.com/btravstack/btravstack.github.io/blob/main/scripts/generate-brand.mjs).
 
 To refresh them, run the generator in that repository and copy the generated
