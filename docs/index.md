@@ -10,7 +10,7 @@ hero:
   image:
     light: /logo-light.svg
     dark: /logo-dark.svg
-    alt: "temporal-contract mascot: a leafless pink beet forming from liquid inside an hourglass"
+    alt: "temporal-contract mascot: a small rounded leafless beet at the bottom of an hourglass beneath pink flow and drops"
   actions:
     - theme: brand
       text: Your first workflow

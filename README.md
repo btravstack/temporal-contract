@@ -3,7 +3,7 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/public/logo-dark.svg" />
   <source media="(prefers-color-scheme: light)" srcset="docs/public/logo-light.svg" />
-  <img src="docs/public/logo.svg" alt="temporal-contract mascot: a leafless pink beet forming from liquid inside an hourglass" width="128" height="128" />
+  <img src="docs/public/logo.svg" alt="temporal-contract mascot: a small rounded leafless beet at the bottom of an hourglass beneath pink flow and drops" width="128" height="128" />
 </picture>
 
 # temporal-contract
