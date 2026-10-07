@@ -10,7 +10,7 @@ hero:
   image:
     light: /logo-light.svg
     dark: /logo-dark.svg
-    alt: temporal-contract logo
+    alt: "temporal-contract mascot: a pink beet inside an hourglass"
   actions:
     - theme: brand
       text: Your first workflow
