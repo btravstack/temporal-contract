@@ -1,5 +1,11 @@
 # @temporal-contract/worker
 
+## 8.0.0-beta.13
+
+### Patch Changes
+
+- @temporal-contract/contract@8.0.0-beta.13
+
 ## 8.0.0-beta.12
 
 ### Major Changes

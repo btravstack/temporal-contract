@@ -1,5 +1,14 @@
 # @temporal-contract/testing
 
+## 8.0.0-beta.13
+
+### Patch Changes
+
+- 7150d3a: `createGlobalSetup` takes a `startupTimeoutMs` budget, three minutes by default, for each container to become healthy. Failed health checks inside the budget no longer count, so `temporalio/auto-setup` can create its schemas on a loaded Docker host, and the budget reaches testcontainers' own startup timeout, which used to stop the wait after 60 seconds. `healthCheckRetries` is deprecated; when `startupTimeoutMs` is unset it is read as the budget in seconds.
+- @temporal-contract/client@8.0.0-beta.13
+  - @temporal-contract/worker@8.0.0-beta.13
+  - @temporal-contract/contract@8.0.0-beta.13
+
 ## 8.0.0-beta.12
 
 ### Major Changes

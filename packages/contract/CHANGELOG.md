@@ -1,5 +1,9 @@
 # @temporal-contract/contract
 
+## 8.0.0-beta.13
+
+No changes in this release.
+
 ## 8.0.0-beta.12
 
 ### Major Changes
