@@ -297,16 +297,20 @@ Build a configured setup — reference this factory from your own global-setup
 module to pin images, inject Temporal env, or silence progress logs.
 `CreateGlobalSetupOptions`:
 
-| Field                | Type                     | Default                                             |
-| -------------------- | ------------------------ | --------------------------------------------------- |
-| `postgresImage`      | `string`                 | `"postgres:18.1@sha256:…"` (pinned by digest)       |
-| `temporalImage`      | `string`                 | `"temporalio/auto-setup:1.29.1@sha256:…"` (digest)  |
-| `healthCheckRetries` | `number`                 | `60` — failed checks (one per second) per container |
-| `temporalEnv`        | `Record<string, string>` | `{}` (merged over the defaults)                     |
-| `quiet`              | `boolean`                | `false`                                             |
+| Field                | Type                     | Default                                            |
+| -------------------- | ------------------------ | -------------------------------------------------- |
+| `postgresImage`      | `string`                 | `"postgres:18.1@sha256:…"` (pinned by digest)      |
+| `temporalImage`      | `string`                 | `"temporalio/auto-setup:1.29.1@sha256:…"` (digest) |
+| `startupTimeoutMs`   | `number`                 | `180_000` — how long each container may take       |
+| `healthCheckRetries` | `number`                 | deprecated — the same budget, in seconds           |
+| `temporalEnv`        | `Record<string, string>` | `{}` (merged over the defaults)                    |
+| `quiet`              | `boolean`                | `false`                                            |
 
-Raise `healthCheckRetries` on slow CI runners or when the images still have to
-be pulled.
+Failed health checks inside `startupTimeoutMs` do not count, so
+`temporalio/auto-setup` can create its schemas on a loaded Docker host. Raise
+it on slow CI runners or when the images still have to be pulled.
+`healthCheckRetries` is read as that budget in seconds when `startupTimeoutMs`
+is unset.
 
 ```typescript
 // temporal-global-setup.ts

@@ -7,8 +7,8 @@
  * provided to the test project, that teardown stops both containers and
  * the network — swallowing individual stop failures so one broken container
  * doesn't leak the others, and on a failed startup too — and that the
- * factory's options (images, extra temporal env, health-check retries,
- * quiet) are applied.
+ * factory's options (images, extra temporal env, the startup budget, quiet)
+ * are applied.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TestProject } from "vitest/node";
@@ -24,7 +24,8 @@ type StartedContainer = {
 const mocks = vi.hoisted(() => {
   const images: string[] = [];
   const environments: Array<{ image: string; env: Record<string, string> }> = [];
-  const healthCheckRetries: number[] = [];
+  const healthChecks: Array<{ startPeriod: number }> = [];
+  const startupTimeouts: number[] = [];
   const failingImages = new Set<string>();
   const startedContainers: Array<{
     getHost: () => string;
@@ -52,11 +53,15 @@ const mocks = vi.hoisted(() => {
       environments.push({ image: this.image, env });
       return this;
     }
-    withHealthCheck({ retries }: { retries: number }) {
-      healthCheckRetries.push(retries);
+    withHealthCheck(healthCheck: { startPeriod: number }) {
+      healthChecks.push(healthCheck);
       return this;
     }
     withWaitStrategy() {
+      return this;
+    }
+    withStartupTimeout(timeout: number) {
+      startupTimeouts.push(timeout);
       return this;
     }
     start() {
@@ -80,7 +85,8 @@ const mocks = vi.hoisted(() => {
   return {
     images,
     environments,
-    healthCheckRetries,
+    healthChecks,
+    startupTimeouts,
     failingImages,
     startedContainers,
     networkStop,
@@ -109,7 +115,8 @@ describe("global setup", () => {
   beforeEach(() => {
     mocks.images.length = 0;
     mocks.environments.length = 0;
-    mocks.healthCheckRetries.length = 0;
+    mocks.healthChecks.length = 0;
+    mocks.startupTimeouts.length = 0;
     mocks.failingImages.clear();
     mocks.startedContainers.length = 0;
     mocks.networkStop.mockClear();
@@ -127,7 +134,6 @@ describe("global setup", () => {
     expect(mocks.images).toHaveLength(2);
     expect(mocks.images[0]).toMatch(/^postgres:[^@]+@sha256:[0-9a-f]{64}$/);
     expect(mocks.images[1]).toMatch(/^temporalio\/auto-setup:[^@]+@sha256:[0-9a-f]{64}$/);
-    expect(mocks.healthCheckRetries).toEqual([60, 60]);
 
     expect(provide).toHaveBeenCalledWith("__TESTCONTAINERS_TEMPORAL_IP__", "10.0.0.5");
     expect(provide).toHaveBeenCalledWith("__TESTCONTAINERS_TEMPORAL_PORT_7233__", 47_233);
@@ -187,7 +193,8 @@ describe("createGlobalSetup", () => {
   beforeEach(() => {
     mocks.images.length = 0;
     mocks.environments.length = 0;
-    mocks.healthCheckRetries.length = 0;
+    mocks.healthChecks.length = 0;
+    mocks.startupTimeouts.length = 0;
     mocks.failingImages.clear();
     mocks.startedContainers.length = 0;
     mocks.networkStop.mockClear();
@@ -199,10 +206,34 @@ describe("createGlobalSetup", () => {
     vi.restoreAllMocks();
   });
 
-  it("uses the configured health-check retries", async () => {
+  it("gives each container three minutes to start by default", async () => {
+    await runSetup();
+
+    expect({ startupTimeouts: mocks.startupTimeouts, healthChecks: mocks.healthChecks }).toEqual({
+      startupTimeouts: [180_000, 180_000],
+      healthChecks: [
+        expect.objectContaining({ startPeriod: 180_000 }),
+        expect.objectContaining({ startPeriod: 180_000 }),
+      ],
+    });
+  });
+
+  it("uses the configured startup timeout for both containers", async () => {
+    await runSetup(createGlobalSetup({ startupTimeoutMs: 300_000, healthCheckRetries: 10 }));
+
+    expect({ startupTimeouts: mocks.startupTimeouts, healthChecks: mocks.healthChecks }).toEqual({
+      startupTimeouts: [300_000, 300_000],
+      healthChecks: [
+        expect.objectContaining({ startPeriod: 300_000 }),
+        expect.objectContaining({ startPeriod: 300_000 }),
+      ],
+    });
+  });
+
+  it("reads the deprecated health-check retries as a budget in seconds", async () => {
     await runSetup(createGlobalSetup({ healthCheckRetries: 120 }));
 
-    expect(mocks.healthCheckRetries).toEqual([120, 120]);
+    expect(mocks.startupTimeouts).toEqual([120_000, 120_000]);
   });
 
   it("uses the configured images", async () => {
