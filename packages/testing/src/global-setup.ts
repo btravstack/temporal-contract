@@ -51,11 +51,20 @@ export type CreateGlobalSetupOptions = {
    */
   temporalImage?: string;
   /**
-   * How many failed health checks (one per second) each container may go
-   * through before startup fails — raise it on slow CI runners or when the
-   * images still have to be pulled.
+   * How long each container may take to become healthy, in milliseconds,
+   * before startup fails. Failed health checks inside this window do not
+   * count against the container, so `temporalio/auto-setup` can create its
+   * schemas on a loaded Docker host — raise it on slow CI runners or when
+   * the images still have to be pulled.
    *
-   * @defaultValue `60`
+   * @defaultValue `180_000` (three minutes)
+   */
+  startupTimeoutMs?: number;
+  /**
+   * The startup budget counted in health checks, one per second.
+   *
+   * @deprecated Use {@link CreateGlobalSetupOptions.startupTimeoutMs}; when
+   * it is unset, `healthCheckRetries` seconds is used as the budget.
    */
   healthCheckRetries?: number;
   /**
@@ -100,10 +109,22 @@ export function createGlobalSetup(
   const {
     postgresImage = "postgres:18.1@sha256:1090bc3a8ccfb0b55f78a494d76f8d603434f7e4553543d6e807bc7bd6bbd17f",
     temporalImage = "temporalio/auto-setup:1.29.1@sha256:5b3502a3b685f9eff1b925af90c57c9e3dbeccbef367cc28a2a9712c63379312",
-    healthCheckRetries = 60,
+    healthCheckRetries,
     temporalEnv = {},
     quiet = false,
   } = options;
+  const startupTimeoutMs =
+    options.startupTimeoutMs ??
+    (healthCheckRetries === undefined ? 180_000 : healthCheckRetries * 1_000);
+  // Docker ignores failed checks during `startPeriod`, so the whole budget is
+  // spent waiting rather than on a retry count; testcontainers' own startup
+  // timeout (60 s by default) is what ends it.
+  const healthCheck = {
+    interval: 1_000,
+    retries: 3,
+    startPeriod: startupTimeoutMs,
+    timeout: 5_000,
+  };
 
   const log = quiet
     ? () => {}
@@ -150,12 +171,10 @@ export function createGlobalSetup(
         })
         .withHealthCheck({
           test: ["CMD-SHELL", "pg_isready -U temporal"],
-          interval: 1_000,
-          retries: healthCheckRetries,
-          startPeriod: 1_000,
-          timeout: 1_000,
+          ...healthCheck,
         })
         .withWaitStrategy(Wait.forHealthCheck())
+        .withStartupTimeout(startupTimeoutMs)
         .start();
       started.push({ name: "PostgreSQL container", stop: () => postgresContainer.stop() });
       log("✅ PostgreSQL container started");
@@ -178,12 +197,10 @@ export function createGlobalSetup(
           // Lists the `default` namespace's workflows, so the check passes
           // only once auto-setup has registered it.
           test: ["CMD-SHELL", "temporal workflow list --address 127.0.0.1:7233 --limit 1"],
-          interval: 1_000,
-          retries: healthCheckRetries,
-          startPeriod: 1_000,
-          timeout: 1_000,
+          ...healthCheck,
         })
         .withWaitStrategy(Wait.forHealthCheck())
+        .withStartupTimeout(startupTimeoutMs)
         .start();
       started.push({ name: "Temporal container", stop: () => temporalContainer.stop() });
       log("✅ Temporal container started");

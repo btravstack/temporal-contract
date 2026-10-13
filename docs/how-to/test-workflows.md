@@ -402,7 +402,7 @@ import { createGlobalSetup } from "@temporal-contract/testing/global-setup";
 
 export default createGlobalSetup({
   temporalImage: "temporalio/auto-setup:1.28.0",
-  healthCheckRetries: 120, // one per second; default 60
+  startupTimeoutMs: 300_000, // per container; default 180_000
   temporalEnv: { FRONTEND_GRPC_MAX_MESSAGE_SIZE: "10485760" },
   quiet: true,
 });

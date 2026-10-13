@@ -219,6 +219,11 @@ A pre-release audit tightened every package. Each item says what to change.
   the default images are pinned by digest; PostgreSQL gets a random password
   per run and no host port; the Temporal health check uses the `temporal` CLI
   instead of `tctl`.
+- **Global setup's startup budget is `startupTimeoutMs`** (the release after
+  `8.0.0-beta.12`), default three minutes per container, and it reaches
+  testcontainers' own startup timeout, which used to cap the wait at 60
+  seconds whatever `healthCheckRetries` said. `healthCheckRetries` is
+  deprecated and read as that budget in seconds.
 - **Internal helpers left the public entries:** `resolveTemporalAddress`
   (`/extension`) and `isTerminalStatus`, `START_METHODS`, `skipReasonFor`,
   `extractStartedWorkflowId` (`/test-rig`). Copy them if you relied on them.
