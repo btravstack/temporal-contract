@@ -1,5 +1,15 @@
 # @temporal-contract/testing
 
+## 8.0.0-beta.14
+
+### Patch Changes
+
+- Updated dependencies [29c8bc3]
+- Updated dependencies [29c8bc3]
+  - @temporal-contract/client@8.0.0-beta.14
+  - @temporal-contract/contract@8.0.0-beta.14
+  - @temporal-contract/worker@8.0.0-beta.14
+
 ## 8.0.0-beta.13
 
 ### Patch Changes
