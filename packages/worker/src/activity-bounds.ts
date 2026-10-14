@@ -13,50 +13,22 @@
  * An activity with only `startToCloseTimeout` therefore retries a
  * non-transient failure roughly every 100 seconds, forever.
  */
-import type { ActivityOptions } from "@temporalio/workflow";
+import {
+  _internal_hasPerAttemptBound as hasPerAttemptBound,
+  _internal_hasTotalBound as hasTotalBound,
+  _internal_missingBounds as missingBounds,
+  type _internal_BoundKind as BoundKind,
+} from "@temporal-contract/contract/internal";
 
-/** Which of the two bounds an activity is missing. */
-export type BoundKind = "per-attempt" | "total";
+// The bound predicates live in `@temporal-contract/contract/internal` so the
+// client's standalone activities apply the same rules.
+export { hasPerAttemptBound, hasTotalBound, missingBounds, type BoundKind };
 
 /** One activity that fails the bound rules, and which bounds it lacks. */
 export type BoundViolation = {
   readonly name: string;
   readonly missing: readonly BoundKind[];
 };
-
-/**
- * True when the options cap a single attempt. `scheduleToCloseTimeout` counts:
- * it caps the whole sequence, so it necessarily caps one attempt.
- */
-export function hasPerAttemptBound(options: ActivityOptions): boolean {
-  return options.startToCloseTimeout !== undefined || options.scheduleToCloseTimeout !== undefined;
-}
-
-/**
- * True when the options cap the whole retry sequence.
- *
- * `maximumAttempts` is a bound only when it is a finite positive integer:
- * Temporal deletes the field when it is `Infinity` because that IS the default
- * (`retry-policy.js:15-18`), and rejects `<= 0` and non-integers with a
- * `ValueError` in `compileRetryPolicy`. Stating the rule positively means an
- * unbounded value produces this library's message, while a genuinely invalid
- * value still reaches Temporal's own validation.
- */
-export function hasTotalBound(options: ActivityOptions): boolean {
-  if (options.scheduleToCloseTimeout !== undefined) return true;
-  const maximumAttempts = options.retry?.maximumAttempts;
-  return (
-    typeof maximumAttempts === "number" && Number.isInteger(maximumAttempts) && maximumAttempts > 0
-  );
-}
-
-/** The bounds these options lack, in a stable order. Empty means compliant. */
-export function missingBounds(options: ActivityOptions): BoundKind[] {
-  const missing: BoundKind[] = [];
-  if (!hasPerAttemptBound(options)) missing.push("per-attempt");
-  if (!hasTotalBound(options)) missing.push("total");
-  return missing;
-}
 
 const REMEDY: Record<BoundKind, string> = {
   "per-attempt":

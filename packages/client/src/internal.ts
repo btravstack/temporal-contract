@@ -7,8 +7,10 @@
  */
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type {
+  ActivityDefinition,
   AnyWorkflowDefinition,
   ContractDefinition,
+  ErrorDefinition,
   SearchAttributeDefinition,
 } from "@temporal-contract/contract";
 import {
@@ -81,7 +83,7 @@ export type OnRehydrationMiss = (miss: RehydrationMiss) => void;
 export function lookupDeclared<T>(
   entries: Record<string, T> | undefined,
   name: string,
-  what: "Workflow" | "Signal" | "Update",
+  what: "Workflow" | "Signal" | "Update" | "Activity",
   where: string,
 ): T {
   if (!entries || !Object.hasOwn(entries, name)) {
@@ -103,6 +105,22 @@ export function lookupWorkflow(
     contract.workflows,
     workflowName,
     "Workflow",
+    `the contract for task queue "${contract.taskQueue}"`,
+  );
+}
+
+/**
+ * {@link lookupDeclared} for a global activity on a contract — the ones a
+ * standalone call can target.
+ */
+export function lookupActivity(
+  contract: ContractDefinition,
+  activityName: string,
+): ActivityDefinition {
+  return lookupDeclared<ActivityDefinition>(
+    contract.activities,
+    activityName,
+    "Activity",
     `the contract for task queue "${contract.taskQueue}"`,
   );
 }
@@ -292,23 +310,24 @@ export function deriveWorkflowId(
 }
 
 /**
- * Async tail of the result-error classification: a {@link WorkflowFailedError}
- * whose `cause` is an `ApplicationFailure` matching one of the workflow's
- * declared contract errors rehydrates into that typed error; otherwise the
- * original error flows through unchanged. Composed via `flatMapErrCases` by
- * `handle.result()` — the rehydration validates the error payload against
- * its declared schema, which may be async, so it can't run inside a
- * synchronous `qualify`.
+ * Async tail of the result-error classification: a failed-result error
+ * ({@link WorkflowFailedError}, or a standalone activity's
+ * `ActivityFailedError`) whose `cause` is an `ApplicationFailure` matching
+ * one of the definition's declared contract errors rehydrates into that
+ * typed error; otherwise the original error flows through unchanged.
+ * Composed via `flatMapErrCases` by the handles' `result()` — the
+ * rehydration validates the error payload against its declared schema, which
+ * may be async, so it can't run inside a synchronous `qualify`.
  */
-export function rehydrateFailedResult(
-  workflowDef: AnyWorkflowDefinition,
-  failed: WorkflowFailedError,
+export function rehydrateFailedResult<TFailed extends { readonly cause?: unknown }>(
+  errors: Record<string, ErrorDefinition> | undefined,
+  failed: TFailed,
   onMiss: OnRehydrationMiss | undefined,
-): AsyncResult<never, AnyContractError | WorkflowFailedError> {
+): AsyncResult<never, AnyContractError | TFailed> {
   const cause = failed.cause;
   if (!(cause instanceof ApplicationFailure)) return ErrAsync(failed);
   return fromSafePromise(
-    _internal_rehydrateContractError(workflowDef.errors, cause, onMiss ? { onMiss } : undefined),
+    _internal_rehydrateContractError(errors, cause, onMiss ? { onMiss } : undefined),
   ).flatMap((rehydrated) => Err(rehydrated ?? failed));
 }
 

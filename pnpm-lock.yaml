@@ -554,6 +554,9 @@ importers:
       '@temporalio/common':
         specifier: 'catalog:'
         version: 1.24.0
+      '@temporalio/testing':
+        specifier: 'catalog:'
+        version: 1.24.0(esbuild@0.28.2)(postcss@8.5.26)
       '@temporalio/worker':
         specifier: 'catalog:'
         version: 1.24.0(esbuild@0.28.2)(postcss@8.5.26)

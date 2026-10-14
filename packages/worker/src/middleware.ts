@@ -27,6 +27,11 @@ export type ActivityInvocationInfo = {
    * that scope's `workflowName`. To know the actual calling workflow inside
    * an activity, read `Context.current().info.workflowType` from
    * `@temporalio/activity`.
+   *
+   * **Standalone calls:** a client's `startActivity` / `executeActivity` has
+   * no calling workflow at all, yet `workflowName` still reports the
+   * registration scope. `Context.current().info.workflowExecution` is
+   * `undefined` there; fall back to `info.activityId`.
    */
   readonly workflowName: string | undefined;
 };

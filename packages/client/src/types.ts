@@ -1,4 +1,6 @@
 import type {
+  ActivityDefinition,
+  ContractDefinition,
   SignalDefinition,
   QueryDefinition,
   UpdateDefinition,
@@ -11,6 +13,12 @@ import type { ContractErrorUnion } from "@temporal-contract/contract/errors";
 import type { AsyncResult } from "unthrown";
 
 import type {
+  ActivityCancelledError,
+  ActivityExecutionNotFoundError,
+  ActivityFailedError,
+  ActivityTerminatedError,
+  ActivityTimeoutError,
+  ActivityValidationError,
   QueryFailedError,
   QueryValidationError,
   SignalValidationError,
@@ -192,3 +200,40 @@ export type TypedSearchAttributeMap<TWorkflow extends AnyWorkflowDefinition> =
         >;
       }
     : never;
+
+/**
+ * The declared global activity named `TName` on `TContract`, or `never` —
+ * the activities a standalone call can target.
+ */
+export type ContractActivityOf<TContract extends ContractDefinition, TName> =
+  TContract["activities"] extends Record<string, ActivityDefinition>
+    ? TName extends keyof TContract["activities"]
+      ? TContract["activities"][TName]
+      : never
+    : never;
+
+/**
+ * Typed contract-error union for an activity's declared `errors` map, or
+ * `never` when it declares none.
+ */
+export type ActivityContractErrorsOf<TActivity extends ActivityDefinition> = TActivity extends {
+  errors: infer TErrors extends Record<string, ErrorDefinition>;
+}
+  ? ContractErrorUnion<TErrors>
+  : never;
+
+/**
+ * Union of the modeled errors awaiting a standalone activity's result can
+ * surface — the shared tail of `executeActivity` and the activity handle's
+ * `result()`: any contract error declared on the activity, output
+ * validation, the generic failure, the three first-class outcomes, and a
+ * missing execution.
+ */
+export type ActivityResultErrorsOf<TActivity extends ActivityDefinition> =
+  | ActivityContractErrorsOf<TActivity>
+  | ActivityValidationError
+  | ActivityFailedError
+  | ActivityCancelledError
+  | ActivityTerminatedError
+  | ActivityTimeoutError
+  | ActivityExecutionNotFoundError;

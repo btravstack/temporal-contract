@@ -366,3 +366,34 @@ describe("TypedChildWorkflowOptions requires an explicit parentClosePolicy", () 
     expect(options).toBeDefined();
   });
 });
+
+describe("context.executeActivity typing", () => {
+  const pdfContract = defineContract({
+    taskQueue: "pdf",
+    workflows: {},
+    activities: {
+      render: defineActivity({
+        input: z.object({ invoiceId: z.string() }),
+        output: z.object({ url: z.string() }),
+      }),
+    },
+  });
+
+  it("constrains names to the target's global activities and types args and output", () => {
+    // Never invoked — compile-time only.
+    const helper = (context: WorkflowContext<typeof inferenceContract, "orderWorkflow">) => {
+      // @ts-expect-error — not a declared activity of the target contract
+      void context.executeActivity(pdfContract, "missing", { args: {} });
+      // @ts-expect-error — `args` is checked against the input schema
+      void context.executeActivity(pdfContract, "render", { args: { invoiceId: 1 } });
+      void context.executeActivity(pdfContract, "render", {
+        args: { invoiceId: "x" },
+        // @ts-expect-error — the task queue is the target contract's
+        taskQueue: "q",
+      });
+      return context.executeActivity(pdfContract, "render", { args: { invoiceId: "x" } });
+    };
+    type Output = Parameters<Parameters<Awaited<ReturnType<typeof helper>>["map"]>[0]>[0];
+    expectTypeOf<Output>().toEqualTypeOf<{ url: string }>();
+  });
+});

@@ -437,7 +437,7 @@ export function createTypedHandle<TWorkflow extends AnyWorkflowDefinition>(
             .with(
               P.tag(WORKFLOW_FAILED_ERROR_TAG),
               (failed) =>
-                rehydrateFailedResult(definition, failed, onRehydrationMiss) as AsyncResult<
+                rehydrateFailedResult(definition.errors, failed, onRehydrationMiss) as AsyncResult<
                   never,
                   WorkflowContractErrorsOf<TWorkflow> | WorkflowFailedError
                 >,

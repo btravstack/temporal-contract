@@ -9,6 +9,7 @@ import type {
   ActivityDefinition,
   ContractDefinition,
   ErrorDefinition,
+  InferActivityNames,
   InferQueryNames,
   InferSignalNames,
   InferUpdateNames,
@@ -22,7 +23,11 @@ import { type ActivityOptions, type WorkflowInfo, workflowInfo } from "@temporal
 import type { AsyncResult } from "unthrown";
 
 import {
+  type ActivityErrorsFor,
+  type ContractActivityOf,
+  createExecuteActivity,
   createValidatedActivities,
+  type TypedExecuteActivityOptions,
   type WorkflowInferWorkflowContextActivities,
 } from "./activities-proxy.js";
 import { toWorkflowFailure } from "./activity-failure.js";
@@ -374,6 +379,7 @@ export function declareWorkflow<
   // stateless and derived from contract-time immutables, so hoisted to
   // declaration time alongside the activities proxy.
   const workflowErrorConstructors = _internal_buildErrorConstructors(definition.errors);
+  const executeActivity = createExecuteActivity(activityOptions);
 
   const workflowFn = async (...args: unknown[]) => {
     const input = extractHandlerInput(args);
@@ -417,6 +423,10 @@ export function declareWorkflow<
       },
       startChildWorkflow: createStartChildWorkflow,
       executeChildWorkflow: createExecuteChildWorkflow,
+      executeActivity: executeActivity as WorkflowContext<
+        TContract,
+        TWorkflowName
+      >["executeActivity"],
       cancellableScope,
       nonCancellableScope,
       saga: workflowSaga,
@@ -886,6 +896,51 @@ export type WorkflowContext<
     | ChildWorkflowCancelledError
     | ChildWorkflowNotFoundError
     | ChildWorkflowContractErrorsOf<TChildContract["workflows"][TChildWorkflowName]>
+  >;
+
+  /**
+   * Execute a global activity of any contract on **that contract's task
+   * queue** — typically an activity-only contract served by its own worker
+   * pool (PDF rendering, a rate-limited LLM lane). The queue is written once,
+   * on the contract whose worker polls it, instead of in an
+   * `activityOptionsByName` entry per calling workflow.
+   *
+   * The call behaves like `context.activities.X`: `args` is validated before
+   * dispatch, the result is parsed on receive, and failures come back as
+   * the activity's declared contract errors, `ActivityError` or
+   * `ActivityCancelledError`. Options merge shallowly: this workflow's
+   * `activityOptions` → the activity's contract-level `activityOptions` →
+   * the per-call options. The merged result needs a per-attempt and a total
+   * bound; an unbounded call, or an undeclared activity name, is a defect
+   * carrying a `ContractMisuseError`.
+   *
+   * @example
+   * ```ts
+   * // pdf.contract.ts — served by a dedicated worker on the "pdf" queue
+   * export const pdfContract = defineContract({
+   *   taskQueue: "pdf",
+   *   workflows: {},
+   *   activities: { renderInvoice },
+   * });
+   *
+   * // in a workflow of another contract
+   * const pdf = await propagateFailure(
+   *   context.executeActivity(pdfContract, "renderInvoice", {
+   *     args: { invoiceId: order.invoiceId },
+   *   }),
+   * );
+   * ```
+   */
+  executeActivity: <
+    TTargetContract extends ContractDefinition,
+    TActivityName extends InferActivityNames<TTargetContract>,
+  >(
+    contract: TTargetContract,
+    activityName: TActivityName,
+    options: TypedExecuteActivityOptions<ContractActivityOf<TTargetContract, TActivityName>>,
+  ) => AsyncResult<
+    ClientInferOutput<ContractActivityOf<TTargetContract, TActivityName>>,
+    ActivityErrorsFor<ContractActivityOf<TTargetContract, TActivityName>>
   >;
 
   /**

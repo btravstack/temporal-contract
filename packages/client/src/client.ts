@@ -1,6 +1,8 @@
 import type {
+  ActivityDefinition,
   AnyWorkflowDefinition,
   ContractDefinition,
+  InferActivityNames,
   InferSignalNames,
   InferUpdateNames,
   SearchAttributeDefinition,
@@ -14,7 +16,10 @@ import type { WorkflowIdConflictPolicy, WorkflowStartOptions } from "@temporalio
 import { defineSearchAttributeKey, type TypedSearchAttributes } from "@temporalio/common";
 import { type AsyncResult, Ok } from "unthrown";
 
+import { createTypedActivityHandle, startActivity, type TypedActivityHandle } from "./activity.js";
 import {
+  type ActivityAlreadyStartedError,
+  type ActivityValidationError,
   type UpdateFailedError,
   type UpdateRejectedError,
   type UpdateRpcTimeoutOrCancelledError,
@@ -37,6 +42,7 @@ import {
   classifyStartError,
   classifyUpdateError,
   deriveWorkflowId,
+  lookupActivity,
   lookupDeclared,
   lookupWorkflow,
   makeAsyncResult,
@@ -47,6 +53,7 @@ import {
 import type {
   CreateClientOptions,
   DerivedIdWorkflowName,
+  TypedActivityStartOptions,
   TypedGetHandleOptions,
   TypedSignalWithStartOptions,
   TypedUpdateWithStartOptions,
@@ -54,8 +61,10 @@ import type {
 } from "./options.js";
 import { TypedScheduleClient } from "./schedule.js";
 import type {
+  ActivityResultErrorsOf,
   ClientInferInput,
   ClientInferOutput,
+  ContractActivityOf,
   TypedSearchAttributeMap,
   WorkflowResultErrorsOf,
 } from "./types.js";
@@ -709,6 +718,96 @@ export class ContractClient<TContract extends ContractDefinition> {
       workflowName,
       definition,
       { runId, firstExecutionRunId: handleOptions.firstExecutionRunId },
+      this.onRehydrationMiss,
+    );
+  }
+
+  /**
+   * Start a **standalone activity** — one of the contract's global
+   * activities, run directly on the contract's task queue with no workflow
+   * around it (Temporal's `client.activity.start`; needs Temporal Server ≥
+   * 1.32). The worker side is the ordinary `declareActivitiesHandler`
+   * registration, so its input validation and failure mapping apply.
+   *
+   * `args` is validated against the activity's input schema before anything
+   * is sent. The activity's contract-level `activityOptions` are the
+   * defaults for the call's options; the merged options need a per-attempt
+   * and a total bound, or the call is a defect.
+   *
+   * @example
+   * ```ts
+   * const started = await client.for(pdfContract).startActivity("renderInvoice", {
+   *   activityId: `invoice-${invoiceId}`,
+   *   args: { invoiceId },
+   * });
+   * ```
+   */
+  startActivity<TActivityName extends InferActivityNames<TContract>>(
+    activityName: TActivityName,
+    options: TypedActivityStartOptions<ContractActivityOf<TContract, TActivityName>>,
+  ): AsyncResult<
+    TypedActivityHandle<ContractActivityOf<TContract, TActivityName>>,
+    ActivityValidationError | ActivityAlreadyStartedError
+  > {
+    return startActivity(
+      this.client,
+      this.contract,
+      activityName,
+      options as unknown as TypedActivityStartOptions<ActivityDefinition>,
+      this.onRehydrationMiss,
+    ) as AsyncResult<
+      TypedActivityHandle<ContractActivityOf<TContract, TActivityName>>,
+      ActivityValidationError | ActivityAlreadyStartedError
+    >;
+  }
+
+  /**
+   * Execute a standalone activity — {@link startActivity} then the handle's
+   * `result()`. Beside the start errors, surfaces the activity's declared
+   * contract errors and the first-class outcome errors.
+   *
+   * @example
+   * ```ts
+   * import { ACTIVITY_EXECUTE_PATTERNS } from "@temporal-contract/client";
+   *
+   * const result = await client.for(pdfContract).executeActivity("renderInvoice", {
+   *   activityId: `invoice-${invoiceId}`,
+   *   args: { invoiceId },
+   * });
+   *
+   * result.match({
+   *   ok: ({ url }) => console.log("rendered", url),
+   *   errCases: (matcher) =>
+   *     matcher.with(...ACTIVITY_EXECUTE_PATTERNS, (error) => console.error(error)),
+   *   defect: (cause) => console.error("unexpected failure", cause),
+   * });
+   * ```
+   */
+  executeActivity<TActivityName extends InferActivityNames<TContract>>(
+    activityName: TActivityName,
+    options: TypedActivityStartOptions<ContractActivityOf<TContract, TActivityName>>,
+  ): AsyncResult<
+    ClientInferOutput<ContractActivityOf<TContract, TActivityName>>,
+    | ActivityResultErrorsOf<ContractActivityOf<TContract, TActivityName>>
+    | ActivityAlreadyStartedError
+  > {
+    return this.startActivity(activityName, options).flatMap((handle) => handle.result());
+  }
+
+  /**
+   * Get a typed handle to an existing standalone activity execution —
+   * synchronous and infallible, like Temporal's `getHandle`. Without a
+   * `runId` the handle targets the latest run under `activityId`.
+   */
+  getActivityHandle<TActivityName extends InferActivityNames<TContract>>(
+    activityName: TActivityName,
+    activityId: string,
+    runId?: string,
+  ): TypedActivityHandle<ContractActivityOf<TContract, TActivityName>> {
+    return createTypedActivityHandle(
+      this.client.activity.getHandle(activityId, runId),
+      activityName,
+      lookupActivity(this.contract, activityName) as ContractActivityOf<TContract, TActivityName>,
       this.onRehydrationMiss,
     );
   }

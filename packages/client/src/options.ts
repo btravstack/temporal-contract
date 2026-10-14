@@ -1,4 +1,5 @@
 import type {
+  ActivityDefinition,
   AnyWorkflowDefinition,
   ContractDefinition,
   InferSignalNames,
@@ -8,6 +9,7 @@ import type {
 } from "@temporal-contract/contract";
 import type { RehydrationMiss } from "@temporal-contract/contract/errors";
 import type {
+  ActivityOptions,
   Client,
   GetWorkflowHandleOptions,
   WorkflowIdConflictPolicy,
@@ -196,3 +198,27 @@ export type TypedStartUpdateOptions<TUpdate extends UpdateDefinition> = {
 } & (undefined extends ClientInferInput<TUpdate>
   ? { args?: ClientInferInput<TUpdate> }
   : { args: ClientInferInput<TUpdate> });
+
+/**
+ * Options for `ContractClient.startActivity` / `executeActivity`: Temporal's
+ * standalone `ActivityOptions`, minus what the contract owns (the task queue)
+ * and with the payload typed against the activity's input schema.
+ *
+ * The activity's contract-level `activityOptions` are the defaults; fields
+ * set here shallow-merge over them (a `retry` here replaces the contract's
+ * whole `retry` block). The merged options need a per-attempt bound
+ * (`startToCloseTimeout` or `scheduleToCloseTimeout`) and a total bound
+ * (`scheduleToCloseTimeout`, or a finite positive `retry.maximumAttempts`).
+ *
+ * `idConflictPolicy` accepts only `"FAIL"` (the default) and
+ * `"USE_EXISTING"`: Temporal has no `TerminateExisting` for activities.
+ */
+export type TypedActivityStartOptions<TActivity extends ActivityDefinition> = Omit<
+  ActivityOptions,
+  "id" | "taskQueue" | "args" | "typeInfo"
+> & {
+  /** The activity ID — a meaningful business ID is recommended. */
+  readonly activityId: string;
+} & (undefined extends ClientInferInput<TActivity>
+    ? { args?: ClientInferInput<TActivity> }
+    : { args: ClientInferInput<TActivity> });

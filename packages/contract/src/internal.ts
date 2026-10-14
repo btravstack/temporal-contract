@@ -22,6 +22,18 @@ export {
 } from "./errors-impl.js";
 
 /**
+ * Activity bound rules (a per-attempt and a total bound) — shared by the
+ * worker's `declareWorkflow` / `context.executeActivity` and the client's
+ * standalone activities. See `activity-bounds.ts`.
+ */
+export {
+  hasPerAttemptBound as _internal_hasPerAttemptBound,
+  hasTotalBound as _internal_hasTotalBound,
+  missingBounds as _internal_missingBounds,
+  type BoundKind as _internal_BoundKind,
+} from "./activity-bounds.js";
+
+/**
  * Start-policy→`workflowIdReusePolicy` mapping — re-exported under the
  * `_internal_` prefix used throughout this subpath. Not part of the public
  * API: contract authors only ever set `startPolicy` on `defineWorkflow`; the

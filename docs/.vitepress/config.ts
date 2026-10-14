@@ -59,6 +59,10 @@ const DOCS_SIDEBAR = [
         link: "/how-to/index-workflows-with-search-attributes",
       },
       { text: "Run child workflows", link: "/how-to/run-child-workflows" },
+      {
+        text: "Run activities on a dedicated queue",
+        link: "/how-to/run-activities-on-a-dedicated-queue",
+      },
       { text: "Handle cancellation", link: "/how-to/handle-cancellation" },
       { text: "Continue as new", link: "/how-to/continue-as-new" },
       { text: "Tune activity options", link: "/how-to/tune-activity-options" },

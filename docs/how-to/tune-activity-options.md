@@ -118,6 +118,12 @@ activityOptionsByName: {
 Doing this through `activityOptionsByName` keeps the validated, typed activity
 boundary intact — a raw `proxyActivities({ taskQueue })` would forfeit it.
 
+When several workflows call the same routed activity, give it an activity-only
+contract on the dedicated queue instead, and call it with
+`context.executeActivity(contract, name, { args })`: the queue is then written
+once, on the contract whose worker polls it. See [Run activities on a dedicated
+queue](/how-to/run-activities-on-a-dedicated-queue).
+
 ## Pick the right timeout
 
 | Option                   | Bounds                            | Use it for                                                   |

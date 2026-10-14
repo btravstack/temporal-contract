@@ -1,4 +1,5 @@
 export { ContractClient, readTypedSearchAttributes, TypedClient } from "./client.js";
+export type { TypedActivityHandle } from "./activity.js";
 export type {
   TypedWorkflowHandle,
   TypedWorkflowHandleWithSignaledRunId,
@@ -7,6 +8,7 @@ export type {
 export type {
   CreateClientOptions,
   DerivedIdWorkflowName,
+  TypedActivityStartOptions,
   TypedGetHandleOptions,
   TypedSignalWithStartOptions,
   TypedStartUpdateOptions,
@@ -33,6 +35,13 @@ export {
   type TypedScheduleHandle,
 } from "./schedule.js";
 export {
+  ActivityAlreadyStartedError,
+  ActivityCancelledError,
+  ActivityExecutionNotFoundError,
+  ActivityFailedError,
+  ActivityTerminatedError,
+  ActivityTimeoutError,
+  ActivityValidationError,
   QueryFailedError,
   QueryValidationError,
   RuntimeClientError,
@@ -54,6 +63,13 @@ export {
 export type { TemporalFailure } from "./errors.js";
 // `_tag` literal constants for matching — see `error-tags.ts`.
 export {
+  ACTIVITY_ALREADY_STARTED_ERROR_TAG,
+  ACTIVITY_CANCELLED_ERROR_TAG,
+  ACTIVITY_EXECUTION_NOT_FOUND_ERROR_TAG,
+  ACTIVITY_FAILED_ERROR_TAG,
+  ACTIVITY_TERMINATED_ERROR_TAG,
+  ACTIVITY_TIMEOUT_ERROR_TAG,
+  ACTIVITY_VALIDATION_ERROR_TAG,
   QUERY_FAILED_ERROR_TAG,
   QUERY_VALIDATION_ERROR_TAG,
   RUNTIME_CLIENT_ERROR_TAG,
@@ -76,6 +92,9 @@ export {
 // error union — `matcher.with(...WORKFLOW_RESULT_PATTERNS, handler)` instead
 // of six hand-written `P.tag(...)` arguments. Exhaustiveness is unchanged.
 export {
+  ACTIVITY_EXECUTE_PATTERNS,
+  ACTIVITY_RESULT_PATTERNS,
+  ACTIVITY_START_PATTERNS,
   QUERY_PATTERNS,
   SCHEDULE_CREATE_PATTERNS,
   SIGNAL_PATTERNS,
@@ -86,6 +105,8 @@ export {
   WORKFLOW_STOPPED_PATTERNS,
 } from "./error-patterns.js";
 export type {
+  ActivityContractErrorsOf,
+  ActivityResultErrorsOf,
   ClientInferInput,
   ClientInferOutput,
   ClientInferSignal,
@@ -94,6 +115,7 @@ export type {
   ClientInferWorkflowSignals,
   ClientInferWorkflowQueries,
   ClientInferWorkflowUpdates,
+  ContractActivityOf,
   TypedSearchAttributeMap,
   WorkflowContractErrorsOf,
   WorkflowResultErrorsOf,

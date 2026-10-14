@@ -102,9 +102,11 @@ export type ActivityRetryPolicy = {
  *   check that some worker serves it, and a mismatch fails silently — the task
  *   sits unpolled until a `scheduleToStartTimeout`/`scheduleToCloseTimeout`
  *   fires, or indefinitely without one. To route an activity to a dedicated
- *   pool, pair an `activityOptionsByName` `taskQueue` override with an
- *   activity-only contract on that queue, sharing the queue name as a
- *   constant.
+ *   pool, declare it on an activity-only contract on that queue and call it
+ *   with `context.executeActivity(thatContract, name, { args })` — the queue
+ *   is then taken from the contract whose worker polls it. (An
+ *   `activityOptionsByName` `taskQueue` override also works, at the cost of
+ *   repeating the queue name per calling workflow.)
  * - `cancellationType` — how a deployment wants in-flight work torn down.
  */
 export type ContractActivityOptions = {

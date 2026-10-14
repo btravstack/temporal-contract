@@ -6,7 +6,10 @@ import type {
 } from "@temporal-contract/contract";
 import { summarizeIssues } from "@temporal-contract/contract";
 import { type ContractErrorUnion } from "@temporal-contract/contract/errors";
-import { _internal_rehydrateContractError } from "@temporal-contract/contract/internal";
+import {
+  _internal_missingBounds,
+  _internal_rehydrateContractError,
+} from "@temporal-contract/contract/internal";
 import { ActivityFailure, ApplicationFailure } from "@temporalio/common";
 /**
  * Activity inference types + the validated-activities proxy used by
@@ -14,7 +17,7 @@ import { ActivityFailure, ApplicationFailure } from "@temporalio/common";
  * on `declareWorkflow` and its `WorkflowContext` type. Not part of the
  * worker package's public exports.
  */
-import { isCancellation } from "@temporalio/workflow";
+import { type ActivityOptions, isCancellation, proxyActivities } from "@temporalio/workflow";
 import { Ok, Err, type AsyncResult } from "unthrown";
 
 import {
@@ -22,6 +25,7 @@ import {
   ActivityError,
   ActivityInputValidationError,
   ActivityOutputValidationError,
+  ContractMisuseError,
 } from "./errors.js";
 import { logRehydrationMiss } from "./internal.js";
 import { makeAsyncResult } from "./shared.js";
@@ -93,6 +97,85 @@ export type WorkflowInferWorkflowContextActivities<
   TWorkflowName extends keyof TContract["workflows"] & string,
 > = WorkflowInferWorkflowActivities<TContract["workflows"][TWorkflowName]> &
   WorkflowInferActivities<TContract>;
+
+/**
+ * The declared global activity named `TName` on `TContract`, or `never`.
+ */
+export type ContractActivityOf<TContract extends ContractDefinition, TName> =
+  TContract["activities"] extends Record<string, ActivityDefinition>
+    ? TName extends keyof TContract["activities"]
+      ? TContract["activities"][TName]
+      : never
+    : never;
+
+/**
+ * Options for `context.executeActivity`: the activity's `args`, plus
+ * Temporal's `ActivityOptions` minus `taskQueue`, which comes from the
+ * target contract.
+ */
+export type TypedExecuteActivityOptions<TActivity extends ActivityDefinition> = Omit<
+  ActivityOptions,
+  "taskQueue"
+> & {
+  args: ClientInferInput<TActivity>;
+};
+
+/**
+ * Build `context.executeActivity`: call a global activity of any contract
+ * (typically an activity-only contract served by a dedicated worker pool) on
+ * that contract's task queue, through the same validating, result-shaped
+ * wrapper as `context.activities`.
+ *
+ * Options merge shallowly, least to most specific: the workflow's
+ * `activityOptions`, the activity's contract-level `activityOptions`, the
+ * per-call options. The task queue is set last from the target contract.
+ *
+ * Misuse rides the defect channel as a {@link ContractMisuseError}: an
+ * activity the target contract does not declare, or merged options missing a
+ * per-attempt or total bound.
+ */
+export function createExecuteActivity(defaultOptions: ActivityOptions | undefined) {
+  return (
+    contract: ContractDefinition,
+    activityName: string,
+    options: TypedExecuteActivityOptions<ActivityDefinition>,
+  ) =>
+    makeAsyncResult(async () => {
+      const activities = contract.activities ?? {};
+      const definition = Object.hasOwn(activities, activityName)
+        ? activities[activityName]
+        : undefined;
+      if (!definition) {
+        // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: the types only admit declared names; this throw inside the makeAsyncResult thunk becomes a defect
+        throw new ContractMisuseError(
+          `executeActivity: activity "${activityName}" is not a global activity of the contract for task queue "${contract.taskQueue}". ` +
+            `Available: ${Object.keys(activities).join(", ") || "none"}.`,
+        );
+      }
+
+      const { args, ...callOptions } = options;
+      const merged: ActivityOptions = {
+        ...defaultOptions,
+        ...(definition.activityOptions as ActivityOptions | undefined),
+        ...callOptions,
+        taskQueue: contract.taskQueue,
+      };
+      const missing = _internal_missingBounds(merged);
+      if (missing.length > 0) {
+        // oxlint-disable-next-line unthrown/no-throw -- defect-channel routing: as above
+        throw new ContractMisuseError(
+          `executeActivity: activity "${activityName}" is missing a ${missing.join(" and a ")} bound. ` +
+            "Set `startToCloseTimeout` or `scheduleToCloseTimeout` (per-attempt) and " +
+            "`scheduleToCloseTimeout` or a finite positive `retry.maximumAttempts` (total).",
+        );
+      }
+
+      const rawActivity = proxyActivities<Record<string, ActivityFn>>(merged)[activityName]!;
+      return await makeResultShapedActivity(activityName, definition, rawActivity)(args);
+    });
+}
+
+type ActivityFn = (...args: unknown[]) => Promise<unknown>;
 
 /**
  * Wrap the raw activities proxy with input/output validation against the
