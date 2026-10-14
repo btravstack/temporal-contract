@@ -13,6 +13,13 @@ import type {
 import { TaggedError } from "unthrown";
 
 import {
+  ACTIVITY_ALREADY_STARTED_ERROR_TAG,
+  ACTIVITY_CANCELLED_ERROR_TAG,
+  ACTIVITY_EXECUTION_NOT_FOUND_ERROR_TAG,
+  ACTIVITY_FAILED_ERROR_TAG,
+  ACTIVITY_TERMINATED_ERROR_TAG,
+  ACTIVITY_TIMEOUT_ERROR_TAG,
+  ACTIVITY_VALIDATION_ERROR_TAG,
   QUERY_FAILED_ERROR_TAG,
   QUERY_VALIDATION_ERROR_TAG,
   RUNTIME_CLIENT_ERROR_TAG,
@@ -466,5 +473,142 @@ export class ScheduleNotFoundError extends TaggedError(SCHEDULE_NOT_FOUND_ERROR_
   constructor(scheduleId: string, cause?: unknown) {
     super({ scheduleId, cause });
     this.message = `Schedule "${scheduleId}" not found on the Temporal server.`;
+  }
+}
+
+/**
+ * Surfaced on the Err channel when starting a standalone activity collides
+ * with a running execution under the same activity ID — Temporal's
+ * `ActivityExecutionAlreadyStartedError` (the default
+ * `idConflictPolicy: "FAIL"`), or a closed one the `idReusePolicy` rejects.
+ */
+export class ActivityAlreadyStartedError extends TaggedError(ACTIVITY_ALREADY_STARTED_ERROR_TAG, {
+  name: "ActivityAlreadyStartedError",
+})<{
+  activityType: string;
+  activityId: string;
+  cause?: unknown;
+}> {
+  constructor(activityType: string, activityId: string, cause?: unknown) {
+    super({ activityType, activityId, cause });
+    this.message = `Activity "${activityType}" with ID "${activityId}" is already started.`;
+  }
+}
+
+/**
+ * Surfaced on the Err channel when an operation targets a standalone
+ * activity execution that doesn't exist in the namespace — Temporal's
+ * `ActivityNotFoundError`. Returned from every activity handle method.
+ */
+export class ActivityExecutionNotFoundError extends TaggedError(
+  ACTIVITY_EXECUTION_NOT_FOUND_ERROR_TAG,
+  { name: "ActivityExecutionNotFoundError" },
+)<{
+  activityId: string;
+  runId?: string | undefined;
+  cause?: unknown;
+}> {
+  constructor(activityId: string, runId?: string, cause?: unknown) {
+    super({ activityId, runId, cause });
+    this.message = `Activity execution "${activityId}"${runId ? ` (run "${runId}")` : ""} not found in namespace.`;
+  }
+}
+
+/**
+ * Surfaced on the Err channel when a standalone activity completes with a
+ * failure that is neither one of its declared contract errors nor a
+ * cancel/terminate/timeout outcome — Temporal's
+ * `ActivityExecutionFailedError`, with `cause` the unwrapped failure.
+ *
+ * Returned from `executeActivity` and the activity handle's `result()`.
+ */
+export class ActivityFailedError extends TaggedError(ACTIVITY_FAILED_ERROR_TAG, {
+  name: "ActivityFailedError",
+})<{
+  activityId: string;
+  cause?: TemporalFailure | undefined;
+}> {
+  constructor(activityId: string, cause?: TemporalFailure) {
+    super({ activityId, cause });
+    this.message = `Activity "${activityId}" completed with failure: ${
+      cause instanceof Error ? cause.message : "unknown failure"
+    }`;
+  }
+}
+
+/**
+ * Surfaced on the Err channel when the awaited standalone activity ended
+ * `Canceled`. `cause` keeps the original {@link CancelledFailure}. Like
+ * {@link WorkflowCancelledError}, give it its own matcher arm so a
+ * deliberate cancel isn't reported as a breakage.
+ */
+export class ActivityCancelledError extends TaggedError(ACTIVITY_CANCELLED_ERROR_TAG, {
+  name: "ActivityCancelledError",
+})<{
+  activityId: string;
+  cause?: CancelledFailure | undefined;
+}> {
+  constructor(activityId: string, cause?: CancelledFailure) {
+    super({ activityId, cause });
+    this.message = `Activity "${activityId}" was cancelled.`;
+  }
+}
+
+/**
+ * Surfaced on the Err channel when the awaited standalone activity was
+ * terminated. `cause` keeps the original {@link TerminatedFailure}, whose
+ * `message` carries the terminate reason.
+ */
+export class ActivityTerminatedError extends TaggedError(ACTIVITY_TERMINATED_ERROR_TAG, {
+  name: "ActivityTerminatedError",
+})<{
+  activityId: string;
+  cause?: TerminatedFailure | undefined;
+}> {
+  constructor(activityId: string, cause?: TerminatedFailure) {
+    super({ activityId, cause });
+    this.message = `Activity "${activityId}" was terminated${
+      cause?.message ? `: ${cause.message}` : "."
+    }`;
+  }
+}
+
+/**
+ * Surfaced on the Err channel when the awaited standalone activity timed
+ * out. `cause` keeps the original {@link TimeoutFailure}, whose
+ * `timeoutType` names which timeout fired.
+ */
+export class ActivityTimeoutError extends TaggedError(ACTIVITY_TIMEOUT_ERROR_TAG, {
+  name: "ActivityTimeoutError",
+})<{
+  activityId: string;
+  cause?: TimeoutFailure | undefined;
+}> {
+  constructor(activityId: string, cause?: TimeoutFailure) {
+    super({ activityId, cause });
+    this.message = `Activity "${activityId}" timed out.`;
+  }
+}
+
+/**
+ * Surfaced on the Err channel when a standalone activity's input (before
+ * the start) or output (on receive) fails its contract schema.
+ */
+export class ActivityValidationError extends TaggedError(ACTIVITY_VALIDATION_ERROR_TAG, {
+  name: "ActivityValidationError",
+})<{
+  activityName: string;
+  direction: "input" | "output";
+  issues: ReadonlyArray<StandardSchemaV1.Issue>;
+  activityId: string;
+}> {
+  constructor(
+    activityName: string,
+    direction: "input" | "output",
+    issues: ReadonlyArray<StandardSchemaV1.Issue>,
+    activityId: string,
+  ) {
+    super({ activityName, direction, issues, activityId });
+    this.message = `Validation failed for activity "${activityName}" ${direction}: ${summarizeIssues(issues)}`;
   }
 }

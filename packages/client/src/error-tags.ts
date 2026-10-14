@@ -72,3 +72,29 @@ export const SCHEDULE_ALREADY_EXISTS_ERROR_TAG = "@temporal-contract/ScheduleAlr
 
 /** `_tag` of `ScheduleNotFoundError` — the schedule ID is unknown to the Temporal server. */
 export const SCHEDULE_NOT_FOUND_ERROR_TAG = "@temporal-contract/ScheduleNotFoundError";
+
+/** `_tag` of `ActivityAlreadyStartedError` — starting a standalone activity collided with a running one. */
+export const ACTIVITY_ALREADY_STARTED_ERROR_TAG = "@temporal-contract/ActivityAlreadyStartedError";
+
+/** `_tag` of `ActivityExecutionNotFoundError` — the targeted standalone activity doesn't exist in the namespace. */
+export const ACTIVITY_EXECUTION_NOT_FOUND_ERROR_TAG =
+  "@temporal-contract/ActivityExecutionNotFoundError";
+
+/** `_tag` of `ActivityFailedError` — the standalone activity completed with a (non-outcome) failure. */
+export const ACTIVITY_FAILED_ERROR_TAG = "@temporal-contract/ActivityFailedError";
+
+/**
+ * `_tag` of the client's `ActivityCancelledError` — the standalone activity
+ * ended `Canceled`. Deliberately the same literal as the worker package's
+ * in-workflow `ActivityCancelledError` tag, as for `WorkflowCancelledError`.
+ */
+export const ACTIVITY_CANCELLED_ERROR_TAG = "@temporal-contract/ActivityCancelledError";
+
+/** `_tag` of `ActivityTerminatedError` — the standalone activity was terminated. */
+export const ACTIVITY_TERMINATED_ERROR_TAG = "@temporal-contract/ActivityTerminatedError";
+
+/** `_tag` of `ActivityTimeoutError` — the standalone activity timed out. */
+export const ACTIVITY_TIMEOUT_ERROR_TAG = "@temporal-contract/ActivityTimeoutError";
+
+/** `_tag` of `ActivityValidationError` — standalone activity input/output failed schema validation. */
+export const ACTIVITY_VALIDATION_ERROR_TAG = "@temporal-contract/ActivityValidationError";

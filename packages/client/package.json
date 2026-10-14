@@ -54,6 +54,7 @@
     "@temporal-contract/testing": "workspace:*",
     "@temporalio/client": "catalog:",
     "@temporalio/common": "catalog:",
+    "@temporalio/testing": "catalog:",
     "@temporalio/worker": "catalog:",
     "@temporalio/workflow": "catalog:",
     "@types/node": "catalog:",

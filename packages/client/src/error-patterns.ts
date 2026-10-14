@@ -39,6 +39,13 @@
 import { P } from "unthrown";
 
 import {
+  ACTIVITY_ALREADY_STARTED_ERROR_TAG,
+  ACTIVITY_CANCELLED_ERROR_TAG,
+  ACTIVITY_EXECUTION_NOT_FOUND_ERROR_TAG,
+  ACTIVITY_FAILED_ERROR_TAG,
+  ACTIVITY_TERMINATED_ERROR_TAG,
+  ACTIVITY_TIMEOUT_ERROR_TAG,
+  ACTIVITY_VALIDATION_ERROR_TAG,
   QUERY_FAILED_ERROR_TAG,
   QUERY_VALIDATION_ERROR_TAG,
   SCHEDULE_ALREADY_EXISTS_ERROR_TAG,
@@ -136,4 +143,36 @@ export const UPDATE_PATTERNS = [
 export const SCHEDULE_CREATE_PATTERNS = [
   P.tag(SCHEDULE_ALREADY_EXISTS_ERROR_TAG),
   P.tag(WORKFLOW_VALIDATION_ERROR_TAG),
+] as const;
+
+/**
+ * Every error `ContractClient.startActivity` can produce: its input failed
+ * validation, or a running activity already holds this activity ID.
+ */
+export const ACTIVITY_START_PATTERNS = [
+  P.tag(ACTIVITY_VALIDATION_ERROR_TAG),
+  P.tag(ACTIVITY_ALREADY_STARTED_ERROR_TAG),
+] as const;
+
+/**
+ * The non-contract-error tail of `ActivityResultErrorsOf` — everything a
+ * standalone activity handle's `result()` can produce besides the
+ * activity's own declared `errors`.
+ */
+export const ACTIVITY_RESULT_PATTERNS = [
+  P.tag(ACTIVITY_VALIDATION_ERROR_TAG),
+  P.tag(ACTIVITY_FAILED_ERROR_TAG),
+  P.tag(ACTIVITY_CANCELLED_ERROR_TAG),
+  P.tag(ACTIVITY_TERMINATED_ERROR_TAG),
+  P.tag(ACTIVITY_TIMEOUT_ERROR_TAG),
+  P.tag(ACTIVITY_EXECUTION_NOT_FOUND_ERROR_TAG),
+] as const;
+
+/**
+ * `ContractClient.executeActivity` is start + result: both phases, minus the
+ * activity's own declared `errors`.
+ */
+export const ACTIVITY_EXECUTE_PATTERNS = [
+  P.tag(ACTIVITY_ALREADY_STARTED_ERROR_TAG),
+  ...ACTIVITY_RESULT_PATTERNS,
 ] as const;

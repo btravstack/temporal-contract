@@ -269,6 +269,24 @@ The `handle*` verb keeps the in-workflow binding tier distinct from the
 `define*` contract-authoring tier. See the [upgrade guide](/how-to/upgrade-to-v8).
 :::
 
+#### `executeActivity(contract, activityName, options)`
+
+Runs a **global** activity of any contract on that contract's task queue —
+typically an activity-only contract served by its own worker pool.
+
+```typescript
+=> AsyncResult<Output, ActivityErrorsFor<TActivity>>
+```
+
+`options` is `{ args }` plus Temporal's `ActivityOptions` without `taskQueue`
+(type `TypedExecuteActivityOptions`). The call validates `args`, parses the
+result, and classifies failures exactly like `context.activities.X`. Options
+merge shallowly: `declareWorkflow`'s `activityOptions` → the activity's
+contract-level `activityOptions` → the per-call options. Merged options
+missing a per-attempt or total bound, or an activity the contract doesn't
+declare, is a defect carrying a `ContractMisuseError`. See [Run activities on
+a dedicated queue](/how-to/run-activities-on-a-dedicated-queue).
+
 #### `startChildWorkflow(contract, workflowName, options)`
 
 ```typescript

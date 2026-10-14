@@ -24,7 +24,12 @@ import { describe, expect, vi } from "vitest";
 
 import { declareActivitiesHandler } from "../activity.js";
 import { TypedWorker } from "../worker.js";
-import { ROUTED_ACTIVITY_QUEUE, routingContract } from "./routing.contract.js";
+import {
+  PDF_QUEUE,
+  pdfContract,
+  ROUTED_ACTIVITY_QUEUE,
+  routingContract,
+} from "./routing.contract.js";
 
 const activities = declareActivitiesHandler({
   contract: routingContract,
@@ -35,9 +40,17 @@ const activities = declareActivitiesHandler({
   },
 });
 
+const pdfActivities = declareActivitiesHandler({
+  contract: pdfContract,
+  activities: {
+    renderPdf: () => OkAsync({ handledBy: PDF_QUEUE }),
+  },
+});
+
 const it = baseIt.extend<{
   workflowWorker: TypedWorker;
   activityWorker: Worker;
+  pdfWorker: Worker;
   client: ContractClient<typeof routingContract>;
 }>({
   // Workflow-only worker on the contract's queue — deliberately registers no
@@ -82,6 +95,27 @@ const it = baseIt.extend<{
     },
     { auto: true },
   ],
+  // Activity-only worker for `pdfContract`, polling that contract's queue —
+  // the sole registrant of `renderPdf`.
+  pdfWorker: [
+    async ({ workerConnection }, use) => {
+      const worker = await Worker.create({
+        connection: workerConnection,
+        namespace: "default",
+        taskQueue: PDF_QUEUE,
+        activities: pdfActivities,
+      });
+
+      const running = worker.run();
+      await vi.waitFor(() => worker.getState() === "RUNNING", { interval: 100 });
+
+      await use(worker);
+
+      worker.shutdown();
+      await running;
+    },
+    { auto: true },
+  ],
   client: async ({ clientConnection }, use) => {
     const rawClient = new Client({ connection: clientConnection, namespace: "default" });
     const root = await TypedClient.create({ client: rawClient }).get();
@@ -97,5 +131,16 @@ describe("activityOptionsByName taskQueue routing", () => {
     });
 
     expect(result).toBeOkWith({ handledBy: ROUTED_ACTIVITY_QUEUE });
+  });
+});
+
+describe("context.executeActivity routing", () => {
+  it("runs the activity on the target contract's queue end-to-end", async ({ client }) => {
+    const result = await client.executeWorkflow("crossContractFlow", {
+      workflowId: `cross-contract-${Date.now()}`,
+      args: { invoiceId: "inv-1" },
+    });
+
+    expect(result).toBeOkWith({ handledBy: PDF_QUEUE });
   });
 });

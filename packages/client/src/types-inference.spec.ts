@@ -21,6 +21,7 @@
  * so nothing hits a real connection at runtime.
  */
 import {
+  defineActivity,
   defineContract,
   defineQuery,
   defineSearchAttribute,
@@ -464,5 +465,44 @@ describe("method-level pins", () => {
       bound.getHandle("processOrder", "id-1", { followRuns: false });
     };
     void _pin;
+  });
+});
+
+describe("standalone activities", () => {
+  const activityContract = defineContract({
+    taskQueue: "pdf",
+    workflows: {},
+    activities: {
+      render: defineActivity({
+        input: z.object({ invoiceId: z.string() }),
+        output: z.object({ url: z.string() }),
+      }),
+    },
+  });
+
+  it("constrains names to global activities and types args and output", () => {
+    // Never invoked — compile-time only.
+    const check = (client: ContractClient<typeof activityContract>) => {
+      const result = client.executeActivity("render", {
+        activityId: "a",
+        args: { invoiceId: "inv-1" },
+        startToCloseTimeout: "1 minute",
+      });
+      expectTypeOf(result).toExtend<PromiseLike<unknown>>();
+      // @ts-expect-error — not a declared activity
+      client.startActivity("missing", { activityId: "a", args: { invoiceId: "x" } });
+      // @ts-expect-error — `args` is checked against the input schema
+      client.startActivity("render", { activityId: "a", args: { invoiceId: 1 } });
+      client.startActivity("render", {
+        activityId: "a",
+        args: { invoiceId: "x" },
+        // @ts-expect-error — the task queue is the contract's
+        taskQueue: "q",
+      });
+      return client.getActivityHandle("render", "a").result();
+    };
+    expectTypeOf<Awaited<ReturnType<typeof check>>>().toExtend<unknown>();
+    type Output = Parameters<Parameters<Awaited<ReturnType<typeof check>>["map"]>[0]>[0];
+    expectTypeOf<Output>().toEqualTypeOf<{ url: string }>();
   });
 });

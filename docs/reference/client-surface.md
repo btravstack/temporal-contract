@@ -204,6 +204,55 @@ untyped call) is a **defect** carrying a `TechnicalError` with a direct
 message — `getHandle` and `getUpdateHandle` throw it — not a modeled `Err`.
 :::
 
+### `startActivity(activityName, options)`
+
+Starts a **standalone activity**: one of the contract's global activities, run
+on the contract's task queue with no workflow around it. Needs Temporal
+Server ≥ 1.32.
+
+```typescript
+=> AsyncResult<
+     TypedActivityHandle<TActivity>,
+     ActivityValidationError | ActivityAlreadyStartedError
+   >
+```
+
+`TypedActivityStartOptions` is Temporal's standalone `ActivityOptions` minus
+`id`, `taskQueue` and `typeInfo`, plus `activityId` and a typed `args`. The
+activity's contract-level `activityOptions` are the defaults; the call's
+options shallow-merge over them, and the merged result needs a per-attempt and
+a total bound (otherwise a defect). `idConflictPolicy` is `"FAIL"` or
+`"USE_EXISTING"`.
+
+### `executeActivity(activityName, options)`
+
+`startActivity(...)` followed by `handle.result()`.
+
+```typescript
+=> AsyncResult<
+     Output,
+     | ContractErrorUnion            // when the activity declares errors
+     | ActivityValidationError
+     | ActivityAlreadyStartedError
+     | ActivityFailedError
+     | ActivityCancelledError
+     | ActivityTerminatedError
+     | ActivityTimeoutError
+     | ActivityExecutionNotFoundError
+   >
+```
+
+### `getActivityHandle(activityName, activityId, runId?)`
+
+Binds to an existing standalone activity execution. Synchronous and
+infallible, like `getHandle`. Without `runId` it targets the latest run.
+
+`TypedActivityHandle` exposes `activityId`, `runId`, `raw` (Temporal's
+`ActivityHandle`), `result()`, `describe(options?)`, `cancel(reason?)` and
+`terminate(reason?)`; the last three err with `ActivityExecutionNotFoundError`.
+See [Run activities on a dedicated
+queue](/how-to/run-activities-on-a-dedicated-queue#from-a-client-standalone-activities).
+
 ### `schedule`
 
 A `TypedScheduleClient<TContract>`. See below.
@@ -444,9 +493,15 @@ cancelled — Temporal's `WorkflowUpdateRPCTimeoutOrCancelledError`).
 
 Schedules: `ScheduleAlreadyExistsError`, `ScheduleNotFoundError`.
 
+Standalone activities: `ActivityValidationError`,
+`ActivityAlreadyStartedError`, `ActivityFailedError`,
+`ActivityCancelledError`, `ActivityTerminatedError`, `ActivityTimeoutError`,
+`ActivityExecutionNotFoundError`.
+
 Plus `ContractError`, `CONTRACT_ERROR_TAG`, and the types `TemporalFailure`,
 `AnyContractError`, `ContractErrorUnion`, `RehydrationMiss`,
-`WorkflowContractErrorsOf`, `WorkflowResultErrorsOf`.
+`WorkflowContractErrorsOf`, `WorkflowResultErrorsOf`, `ActivityContractErrorsOf`,
+`ActivityResultErrorsOf`, `ContractActivityOf`.
 
 ### Tag constants
 
@@ -493,6 +548,9 @@ For the common unions, ready-made pattern arrays spread into one arm:
 | `QUERY_PATTERNS`            | `handle.queries.*`                                                        |
 | `UPDATE_PATTERNS`           | `handle.updates.*` and an update handle's `result()`                      |
 | `SCHEDULE_CREATE_PATTERNS`  | `schedule.create`                                                         |
+| `ACTIVITY_START_PATTERNS`   | `startActivity`                                                           |
+| `ACTIVITY_RESULT_PATTERNS`  | an activity handle's `result()`, minus the activity's declared errors     |
+| `ACTIVITY_EXECUTE_PATTERNS` | `executeActivity`, minus the activity's declared errors                   |
 
 A workflow's declared errors are deliberately left out, so the matcher still
 forces an arm for them (`P.tag(CONTRACT_ERROR_TAG)`, or one per name):

@@ -46,9 +46,17 @@ describe("skipReasonFor", () => {
 
 describe("START_METHODS", () => {
   it("names exactly ContractClient's start-capable public methods", () => {
-    // ContractClient's public methods that do NOT start an execution —
-    // everything else public is in START_METHODS.
-    const NON_START_METHODS = ["getHandle", "workflowIdFor"];
+    // ContractClient's public methods that do NOT start a workflow
+    // execution — everything else public is in START_METHODS. The standalone
+    // activity methods start an activity, which has no workflow history to
+    // replay.
+    const NON_START_METHODS = [
+      "getHandle",
+      "workflowIdFor",
+      "startActivity",
+      "executeActivity",
+      "getActivityHandle",
+    ];
 
     const publicMethods = Object.getOwnPropertyNames(ContractClient.prototype).filter((name) => {
       if (name === "constructor") return false;

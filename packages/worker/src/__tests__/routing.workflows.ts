@@ -1,5 +1,5 @@
 import { declareWorkflow, propagateFailure } from "../workflow.js";
-import { ROUTED_ACTIVITY_QUEUE, routingContract } from "./routing.contract.js";
+import { pdfContract, ROUTED_ACTIVITY_QUEUE, routingContract } from "./routing.contract.js";
 
 /**
  * Workflow for the task-queue routing spec: `activityOptionsByName` routes
@@ -23,6 +23,22 @@ export const routedFlow = declareWorkflow({
     // bug, so let Temporal decide the workflow's fate rather than folding it
     // into a returned status.
     const { handledBy } = await propagateFailure(context.activities.reportQueue({}));
+    return { handledBy };
+  },
+});
+
+/**
+ * Workflow for the `context.executeActivity` routing spec: the activity lives
+ * on `pdfContract`, an activity-only contract whose worker is the only one
+ * polling its queue — no `activityOptionsByName` entry names that queue.
+ */
+export const crossContractFlow = declareWorkflow({
+  workflowName: "crossContractFlow",
+  contract: routingContract,
+  implementation: async (context, { invoiceId }) => {
+    const { handledBy } = await propagateFailure(
+      context.executeActivity(pdfContract, "renderPdf", { args: { invoiceId } }),
+    );
     return { handledBy };
   },
 });
