@@ -19,7 +19,7 @@ import {
   type Client,
 } from "@temporalio/client";
 import { CancelledFailure, TerminatedFailure, TimeoutFailure } from "@temporalio/common";
-import { type AsyncResult, Err, OkAsync, P } from "unthrown";
+import { type AsyncResult, Err, ErrAsync, OkAsync, P } from "unthrown";
 
 import {
   ACTIVITY_CANCELLED_ERROR_TAG,
@@ -143,10 +143,37 @@ export function startActivity(
               : undefined,
         );
       })
+      .flatMap((handle) =>
+        callOptions.idConflictPolicy === "USE_EXISTING"
+          ? ensureSameActivity(handle, activityName, contract.taskQueue)
+          : OkAsync(handle),
+      )
       .map((handle) =>
         createTypedActivityHandle(handle, activityName, definition, onRehydrationMiss),
       );
   });
+}
+
+/**
+ * Under `USE_EXISTING`, Temporal returns whichever running execution holds
+ * the activity ID, whatever its type or queue. Typing that handle with this
+ * activity's schemas would await an unrelated execution, so a mismatch is
+ * reported as the ID being taken.
+ */
+function ensureSameActivity(
+  handle: ActivityHandle,
+  activityName: string,
+  taskQueue: string,
+): AsyncResult<ActivityHandle, ActivityAlreadyStartedError> {
+  return call<ActivityExecutionDescription, never>(
+    "activity.describe",
+    handle.describe(),
+    () => undefined,
+  ).flatMap((description) =>
+    description.activityType === activityName && description.taskQueue === taskQueue
+      ? OkAsync(handle)
+      : ErrAsync(new ActivityAlreadyStartedError(activityName, handle.activityId)),
+  );
 }
 
 /**
