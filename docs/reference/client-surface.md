@@ -242,10 +242,10 @@ a total bound (otherwise a defect). `idConflictPolicy` is `"FAIL"` or
    >
 ```
 
-### `getActivityHandle(activityName, activityId, runId?)`
+### `getActivityHandle(activityName, activityId, options?)`
 
 Binds to an existing standalone activity execution. Synchronous and
-infallible, like `getHandle`. Without `runId` it targets the latest run.
+infallible, like `getHandle`. Without `options.runId` it targets the latest run.
 
 `TypedActivityHandle` exposes `activityId`, `runId`, `raw` (Temporal's
 `ActivityHandle`), `result()`, `describe(options?)`, `cancel(reason?)` and

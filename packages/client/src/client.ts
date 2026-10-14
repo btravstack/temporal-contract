@@ -802,10 +802,10 @@ export class ContractClient<TContract extends ContractDefinition> {
   getActivityHandle<TActivityName extends InferActivityNames<TContract>>(
     activityName: TActivityName,
     activityId: string,
-    runId?: string,
+    options?: { runId?: string },
   ): TypedActivityHandle<ContractActivityOf<TContract, TActivityName>> {
     return createTypedActivityHandle(
-      this.client.activity.getHandle(activityId, runId),
+      this.client.activity.getHandle(activityId, options?.runId),
       activityName,
       lookupActivity(this.contract, activityName) as ContractActivityOf<TContract, TActivityName>,
       this.onRehydrationMiss,

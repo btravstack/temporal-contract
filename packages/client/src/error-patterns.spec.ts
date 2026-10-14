@@ -16,6 +16,9 @@ import { match } from "unthrown";
 import { describe, expect, it } from "vitest";
 
 import {
+  ACTIVITY_EXECUTE_PATTERNS,
+  ACTIVITY_RESULT_PATTERNS,
+  ACTIVITY_START_PATTERNS,
   QUERY_PATTERNS,
   SCHEDULE_CREATE_PATTERNS,
   SIGNAL_PATTERNS,
@@ -26,6 +29,13 @@ import {
   WORKFLOW_STOPPED_PATTERNS,
 } from "./error-patterns.js";
 import type {
+  ActivityAlreadyStartedError,
+  ActivityCancelledError,
+  ActivityExecutionNotFoundError,
+  ActivityFailedError,
+  ActivityTerminatedError,
+  ActivityTimeoutError,
+  ActivityValidationError,
   QueryFailedError,
   QueryValidationError,
   ScheduleAlreadyExistsError,
@@ -66,6 +76,15 @@ type UpdateErrors =
   | UpdateRpcTimeoutOrCancelledError
   | WorkflowExecutionNotFoundError;
 type ScheduleCreateErrors = ScheduleAlreadyExistsError | WorkflowValidationError;
+type ActivityStartErrors = ActivityValidationError | ActivityAlreadyStartedError;
+type ActivityResultErrors =
+  | ActivityValidationError
+  | ActivityFailedError
+  | ActivityCancelledError
+  | ActivityTerminatedError
+  | ActivityTimeoutError
+  | ActivityExecutionNotFoundError;
+type ActivityExecuteErrors = ActivityStartErrors | ActivityResultErrors;
 
 /**
  * Compile-time pins. Never invoked — `.exhaustive()` failing to typecheck is
@@ -112,6 +131,21 @@ export function _typeLevelPins(): void {
       .with(...SCHEDULE_CREATE_PATTERNS, () => "handled")
       .exhaustive();
 
+  const activityStart = (error: ActivityStartErrors) =>
+    match(error)
+      .with(...ACTIVITY_START_PATTERNS, () => "handled")
+      .exhaustive();
+
+  const activityResult = (error: ActivityResultErrors) =>
+    match(error)
+      .with(...ACTIVITY_RESULT_PATTERNS, () => "handled")
+      .exhaustive();
+
+  const activityExecute = (error: ActivityExecuteErrors) =>
+    match(error)
+      .with(...ACTIVITY_EXECUTE_PATTERNS, () => "handled")
+      .exhaustive();
+
   // Grouping must not weaken exhaustiveness: the stopped trio is a strict
   // subset of the result union, so it must NOT satisfy it. If this stops
   // erroring, the groups have stopped being checked at all.
@@ -121,7 +155,20 @@ export function _typeLevelPins(): void {
       // @ts-expect-error -- WorkflowValidationError/FailedError/ExecutionNotFoundError remain
       .exhaustive();
 
-  void [start, result, execute, stopped, signal, query, update, schedule, notExhaustive];
+  void [
+    start,
+    result,
+    execute,
+    stopped,
+    signal,
+    query,
+    update,
+    schedule,
+    activityStart,
+    activityResult,
+    activityExecute,
+    notExhaustive,
+  ];
 }
 
 const tagsOf = (patterns: readonly { readonly _tag: string }[]) => patterns.map((p) => p._tag);
@@ -195,5 +242,32 @@ describe("client error pattern groups", () => {
       "@temporal-contract/ScheduleAlreadyExistsError",
       "@temporal-contract/WorkflowValidationError",
     ]);
+  });
+
+  it("ACTIVITY_START_PATTERNS names exactly the standalone start-phase errors", () => {
+    expect(tagsOf(ACTIVITY_START_PATTERNS)).toEqual([
+      "@temporal-contract/ActivityValidationError",
+      "@temporal-contract/ActivityAlreadyStartedError",
+    ]);
+  });
+
+  it("ACTIVITY_RESULT_PATTERNS names exactly the standalone result-phase errors", () => {
+    expect(tagsOf(ACTIVITY_RESULT_PATTERNS)).toEqual([
+      "@temporal-contract/ActivityValidationError",
+      "@temporal-contract/ActivityFailedError",
+      "@temporal-contract/ActivityCancelledError",
+      "@temporal-contract/ActivityTerminatedError",
+      "@temporal-contract/ActivityTimeoutError",
+      "@temporal-contract/ActivityExecutionNotFoundError",
+    ]);
+  });
+
+  it("ACTIVITY_EXECUTE_PATTERNS is the union of both phases, without duplicates", () => {
+    const tags = tagsOf(ACTIVITY_EXECUTE_PATTERNS);
+
+    expect(new Set(tags)).toEqual(
+      new Set([...tagsOf(ACTIVITY_START_PATTERNS), ...tagsOf(ACTIVITY_RESULT_PATTERNS)]),
+    );
+    expect(tags).toHaveLength(new Set(tags).size);
   });
 });
