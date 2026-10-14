@@ -111,7 +111,7 @@ standalone call runs the same input validation and failure mapping.
   `ActivityAlreadyStartedError`.
 - **`executeActivity(name, options)`** is `startActivity` followed by
   `handle.result()`.
-- **`getActivityHandle(name, activityId, runId?)`** reattaches to an existing
+- **`getActivityHandle(name, activityId, { runId? })`** reattaches to an existing
   execution, synchronously.
 
 The handle's `result()` decodes the activity's declared errors into typed

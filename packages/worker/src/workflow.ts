@@ -169,6 +169,7 @@ export type {
 // helper generic over an activity's error type.
 export type {
   ActivityErrorsFor,
+  TypedExecuteActivityOptions,
   WorkflowInferActivity,
   WorkflowInferWorkflowContextActivities,
 } from "./activities-proxy.js";
