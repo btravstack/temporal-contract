@@ -114,6 +114,34 @@ describe("standalone activities", () => {
     await pdf.getActivityHandle("renderPdf", activityId).terminate("cleanup");
   });
 
+  it("reuses a USE_EXISTING execution only when it is the same activity", async () => {
+    const activityId = id("reuse");
+    await pdf.startActivity("renderPdf", { activityId, args: { invoiceId: "slow" } });
+
+    const same = await pdf.startActivity("renderPdf", {
+      activityId,
+      args: { invoiceId: "slow" },
+      idConflictPolicy: "USE_EXISTING",
+    });
+    expect(same.isOk()).toBe(true);
+
+    const other = (await TypedClient.create({ client: env.client }).get()).for(
+      defineContract({
+        taskQueue: pdfContract.taskQueue,
+        workflows: {},
+        activities: { stampPdf: renderPdf },
+      }),
+    );
+    const different = await other.startActivity("stampPdf", {
+      activityId,
+      args: { invoiceId: "slow" },
+      idConflictPolicy: "USE_EXISTING",
+    });
+    expect(different).toBeErrTagged("@temporal-contract/ActivityAlreadyStartedError");
+
+    await pdf.getActivityHandle("renderPdf", activityId).terminate("cleanup");
+  });
+
   it("reattaches by ID and reports termination", async () => {
     const activityId = id("terminate");
     await pdf.startActivity("renderPdf", { activityId, args: { invoiceId: "slow" } });

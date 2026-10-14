@@ -126,7 +126,9 @@ The activity's contract-level `activityOptions` are the defaults; options
 passed in the call shallow-merge over them. As inside a workflow, the merged
 options need a per-attempt and a total bound, or the call is a defect.
 
-`idConflictPolicy` accepts `"FAIL"` (the default) and `"USE_EXISTING"`.
+`idConflictPolicy` accepts `"FAIL"` (the default) and `"USE_EXISTING"`. Under
+`"USE_EXISTING"`, a running execution of another activity type or queue
+holding the ID is reported as `ActivityAlreadyStartedError`.
 Temporal has no `TerminateExisting` for activities.
 
 ::: warning No calling workflow
