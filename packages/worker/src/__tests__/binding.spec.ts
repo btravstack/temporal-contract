@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 
-import { TypedClient } from "@temporal-contract/client";
+import { TypedClient, type ContractClient } from "@temporal-contract/client";
 import { defineContractBinding } from "@temporal-contract/contract";
-import { it } from "@temporal-contract/testing/extension";
+import { it as baseIt } from "@temporal-contract/testing/extension";
 import { fixturePath } from "@temporal-contract/testing/workflow-bundle";
 import { Client } from "@temporalio/client";
 import { OkAsync } from "unthrown";
@@ -12,11 +12,15 @@ import { declareActivitiesHandler } from "../activity.js";
 import { TypedWorker } from "../worker.js";
 import { bindingContract } from "./binding.contract.js";
 
-describe("runtime contract bindings", () => {
-  it("routes the same workflow type to two implementations in one namespace", async ({
-    workerConnection,
-    clientConnection,
-  }) => {
+type BoundContract = ReturnType<typeof defineContractBinding<typeof bindingContract, string>>;
+
+const it = baseIt.extend<{
+  clients: readonly [
+    Pick<ContractClient<BoundContract>, "executeWorkflow">,
+    Pick<ContractClient<BoundContract>, "executeWorkflow">,
+  ];
+}>({
+  clients: async ({ workerConnection, clientConnection }, use) => {
     const first = defineContractBinding(bindingContract, {
       taskQueue: `binding-a-${randomUUID()}`,
     });
@@ -46,20 +50,25 @@ describe("runtime contract bindings", () => {
       const client = await TypedClient.create({
         client: new Client({ connection: clientConnection, namespace: "default" }),
       }).get();
-      const results = await Promise.all([
-        client
-          .for(first)
-          .executeWorkflow("run", { workflowId: `binding/${randomUUID()}`, args: {} })
-          .getOrThrow(),
-        client
-          .for(second)
-          .executeWorkflow("run", { workflowId: `binding/${randomUUID()}`, args: {} })
-          .getOrThrow(),
-      ]);
-      expect(results).toEqual(["first", "second"]);
+      await use([client.for(first), client.for(second)]);
     } finally {
       for (const worker of workers) worker.shutdown();
       await Promise.all(runs);
     }
+  },
+});
+
+describe("runtime contract bindings", () => {
+  it("routes the same workflow type to two implementations in one namespace", async ({
+    clients,
+  }) => {
+    const results = await Promise.all(
+      clients.map((client) =>
+        client
+          .executeWorkflow("run", { workflowId: `binding/${randomUUID()}`, args: {} })
+          .getOrThrow(),
+      ),
+    );
+    expect(results).toEqual(["first", "second"]);
   });
 });
