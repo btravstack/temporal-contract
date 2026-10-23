@@ -127,7 +127,10 @@ overrides:
   # pins vite 5.x and 5.x has no patched release, so lift any pre-6.4.3 vite to
   # 6.4.3 (the first fixed version) — the docs `vitepress build` is verified
   # against it. This also drags esbuild to a patched 0.25.x, resolving GHSA-gv7w-rqvm-qjhr.
-  "vite@<6.4.3": "6.4.3"
+  # Raised to 6.4.4 for GHSA-587h-7wmj-h5pm (High), the launch-editor bypass.
+  "vite@<6.4.4": "6.4.4"
+  # The same advisory affects @changesets/cli's independent launch-editor copy.
+  "launch-editor@<2.14.2": "2.14.2"
   # GHSA-c83g-rgw3-j3cx and GHSA-73wf-gq98-2v4g (both High): browserslist
   # config parsing. Reaches us only through examples/order-processing-worker >
   # @temporalio/worker > webpack — the workflow bundler, a dev/build path that
@@ -160,7 +163,9 @@ overrides:
   # moved the patched floor to 3.4.13, so the override moves with it.
   # Raised to 3.4.16 for GHSA-6688-9rhm-gjv2 and GHSA-p98j-92pf-mc4p (Low,
   # IN_PLACE sanitization bypasses).
-  "dompurify@<3.4.16": "3.4.16"
+  # GHSA-cg2g-xh64-v4q7 (Critical) and GHSA-mrv2-3pqr-j5jr (High):
+  # sanitization bypasses through shadow roots and detached subtrees.
+  "dompurify@<3.4.17": "3.4.17"
   # GHSA-r5fr-rjxr-66jc (High): lodash-es <=4.17.23. Reaches us only through
   # the docs build — docs > mermaid 12 > chevrotain > lodash-es, which pins
   # 4.17.23 exactly — never a shipped package. 4.18.1 is the first patched
@@ -173,8 +178,9 @@ overrides:
   # qs DoS advisories (three Moderate): via @stryker-mutator/core >
   # typed-rest-client, nightly mutation tooling only.
   "qs@<6.16.0": "6.16.0"
-  # markdown-it linkify quadratic paths (Moderate): via typedoc, docs build only.
-  "markdown-it@<14.3.1": "14.3.1"
+  # GHSA-r7fv-28h4-cvq7 and GHSA-gfr2-rv44-r23c (High): markdown-it
+  # smartquotes and multi-line link-reference quadratic rendering, via TypeDoc.
+  "markdown-it@>=14.0.0 <14.3.3": "14.3.3"
   # @vue/server-renderer XSS in attribute names (High): docs > vitepress > vue,
   # static docs build only. vue pins its @vue/* packages exactly, so lift vue
   # itself to keep the family in lockstep.
