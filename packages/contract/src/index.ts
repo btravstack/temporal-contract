@@ -1,3 +1,5 @@
+export { defineContractBinding } from "./binding.js";
+
 export {
   ContractDefinitionError,
   defineActivity,

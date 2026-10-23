@@ -6,9 +6,9 @@ For generated per-symbol documentation, see the [API reference](/api/contract/).
 
 ## Builders
 
-All builders are identity functions — they return their argument unchanged,
-preserving its literal type for inference. Only `defineContract` performs
-runtime validation.
+Resource builders preserve their definitions and literal types. `defineContract`
+validates a composed contract; `defineContractBinding` validates a new composition
+with a deployment task queue.
 
 ### `defineContract(definition)`
 
@@ -356,3 +356,24 @@ primitives encode that and are shared by the worker and client packages.
 - [Worker surface](/reference/worker-surface)
 - [Client surface](/reference/client-surface)
 - [Define a contract](/how-to/define-a-contract)
+
+## Runtime deployment binding
+
+`defineContractBinding(contract, { taskQueue })` returns a new validated contract.
+The original queue stays unchanged, while workflow/activity definitions, schema
+instances, declared errors and start policies retain their identity and inference.
+Use the result with typed clients, workers, child calls and schedules.
+
+```typescript
+import { defineContractBinding } from "@temporal-contract/contract";
+// ordersContract is the application's shared protocol contract.
+const release = defineContractBinding(ordersContract, { taskQueue: "orders.release-a" });
+```
+
+The workflow type name remains stable across queues. Execution IDs are unique
+within a namespace, so keep the business operation ID rather than adding a
+release suffix. Explicit activity queue overrides remain explicit; the binding
+does not recursively rewrite them. Bind before starting work, or from recorded
+workflow input/activity results. Never resolve a mutable deployment environment
+inside replaying workflow code. Keep old workers available for their histories,
+or perform an explicitly compatible worker-version migration.
