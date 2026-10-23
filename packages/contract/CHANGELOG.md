@@ -1,5 +1,11 @@
 # @temporal-contract/contract
 
+## 8.0.0-beta.15
+
+### Minor Changes
+
+- 4ba6cf3: Add defineContractBinding to bind a protocol to a physical task queue while preserving schemas, logical names and start policies.
+
 ## 8.0.0-beta.14
 
 ### Patch Changes
