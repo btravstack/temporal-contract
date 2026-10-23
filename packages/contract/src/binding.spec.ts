@@ -41,10 +41,11 @@ describe("defineContractBinding", () => {
   it.each(["", " ", " queue", "queue ", "q".repeat(1001)])(
     "rejects invalid task queue %j",
     (taskQueue) => {
+      const noop = defineActivity({ input: z.string(), output: z.string() });
       const contract = defineContract({
         taskQueue: "logical",
         workflows: {},
-        activities: { noop: defineActivity({ input: z.string(), output: z.string() }) },
+        activities: { noop },
       });
       expect(() => defineContractBinding(contract, { taskQueue })).toThrow(ContractDefinitionError);
     },
