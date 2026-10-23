@@ -351,12 +351,6 @@ schema's _input_ type and receives its _output_ type; a worker receives the
 _output_ type and returns something assignable to the _input_ type. These
 primitives encode that and are shared by the worker and client packages.
 
-## Next
-
-- [Worker surface](/reference/worker-surface)
-- [Client surface](/reference/client-surface)
-- [Define a contract](/how-to/define-a-contract)
-
 ## Runtime deployment binding
 
 `defineContractBinding(contract, { taskQueue })` returns a new validated contract.
@@ -377,3 +371,9 @@ does not recursively rewrite them. Bind before starting work, or from recorded
 workflow input/activity results. Never resolve a mutable deployment environment
 inside replaying workflow code. Keep old workers available for their histories,
 or perform an explicitly compatible worker-version migration.
+
+## Next
+
+- [Worker surface](/reference/worker-surface)
+- [Client surface](/reference/client-surface)
+- [Define a contract](/how-to/define-a-contract)
