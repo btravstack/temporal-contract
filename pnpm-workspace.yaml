@@ -32,7 +32,7 @@ catalog:
   "@temporalio/workflow": 1.24.0
   "@types/node": 22.20.4
   "@unthrown/vitest": 5.11.0
-  "@vitest/coverage-v8": 5.0.1
+  "@vitest/coverage-v8": 5.0.3
   arktype: 2.2.3
   knip: 6.37.0
   lefthook: 2.1.14
@@ -53,8 +53,8 @@ catalog:
   valibot: 1.5.0
   vitepress: 1.6.4
   vitepress-plugin-mermaid: 2.0.17
-  vitest: 5.0.1
-  zod: 4.6.5
+  vitest: 5.0.3
+  zod: 4.6.7
 
 peerDependencyRules:
   ignoreMissing:
@@ -84,7 +84,9 @@ overrides:
   #
   # Raised to 3.1.8 for the inconsistent host-case normalization advisory
   # (Moderate, percent-encoded octets) fixed in 3.1.8.
-  "fast-uri@<3.1.8": "3.1.8"
+  #
+  # Raised to 3.1.9 for the Moderate/Low advisories covering >=3.0.0 <3.1.9.
+  "fast-uri@<3.1.9": "3.1.9"
   # GHSA-3jxr-9vmj-r5cp, GHSA-mh99-v99m-4gvg, GHSA-7p8r-x3mc-p8w7, and
   # GHSA-rgw5-rvv9-x895 (all ReDoS / expansion-DoS): brace-expansion. Two lines
   # are present — 2.x via testcontainers>archiver>minimatch and 5.x via
@@ -104,7 +106,10 @@ overrides:
   # Pin that major line to its first patched release.
   #
   # Raised to 8.10.2 for GHSA-rfgv-xxqx-mfg5 and GHSA-w293-vg96-wgc3 (High).
-  "undici@8": "8.10.2"
+  #
+  # Raised to 8.12.2 for the High/Moderate advisories covering >=8.0.0 <8.12.2
+  # (incl. GHSA-qrxm-fqhp-jwvm, GHSA-2m5v-pch6-74hx).
+  "undici@8": "8.12.2"
   # GHSA-52cp-r559-cp3m: js-yaml quadratic-CPU merge keys. Two lines present —
   # 3.x via @changesets/cli>@manypkg/get-packages>read-yaml-file and 4.x via
   # @changesets/cli>@changesets/parse. Each major line is version-scoped and
@@ -128,7 +133,8 @@ overrides:
   # 6.4.3 (the first fixed version) — the docs `vitepress build` is verified
   # against it. This also drags esbuild to a patched 0.25.x, resolving GHSA-gv7w-rqvm-qjhr.
   # Raised to 6.4.4 for GHSA-587h-7wmj-h5pm (High), the launch-editor bypass.
-  "vite@<6.4.4": "6.4.4"
+  # Raised to 6.4.5 for GHSA-8g5g-mxqh-grgj (`server.fs.deny` bypass via queries).
+  "vite@<6.4.5": "6.4.5"
   # The same advisory affects @changesets/cli's independent launch-editor copy.
   "launch-editor@<2.14.2": "2.14.2"
   # GHSA-c83g-rgw3-j3cx and GHSA-73wf-gq98-2v4g (both High): browserslist
@@ -143,6 +149,10 @@ overrides:
   # nightly mutation run. Only the 10.x line is present, and 10.2.3 is the first
   # release patching all three, so the override is version-scoped to that line
   # rather than applied across majors.
+  #
+  # GHSA-g3hv-75wg-m249 (Moderate) is NOT overridden: its only fix is 11.x, which
+  # drops `matchOne` and breaks typedoc 0.28 (`mini.matchOne is not a function`).
+  # CI audits at --audit-level=high; revisit when typedoc moves to minimatch 11.
   "minimatch@10": "10.2.3"
   # GHSA-2g4f-4pwh-qvx6 (Moderate, ReDoS via the `$data` option): ajv 8.x, also
   # via @stryker-mutator/core. We never pass `$data` schemas — Stryker uses ajv
@@ -177,7 +187,11 @@ overrides:
   "@grpc/grpc-js@<1.14.5": "1.14.5"
   # qs DoS advisories (three Moderate): via @stryker-mutator/core >
   # typed-rest-client, nightly mutation tooling only.
-  "qs@<6.16.0": "6.16.0"
+  "qs@<6.16.1": "6.16.1"
+  # Zod memory exhaustion on oversized constrained collections (High, <4.6.6):
+  # the catalog takes 4.6.7; this lifts the copy stryker's
+  # mutation-server-protocol (^4.1.12) resolves on its own.
+  "zod@>=4.0.0 <4.6.6": "4.6.7"
   # GHSA-r7fv-28h4-cvq7 and GHSA-gfr2-rv44-r23c (High): markdown-it
   # smartquotes and multi-line link-reference quadratic rendering, via TypeDoc.
   "markdown-it@>=14.0.0 <14.3.3": "14.3.3"
